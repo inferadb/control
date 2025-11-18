@@ -1,0 +1,438 @@
+use crate::entities::ClientCertificate;
+use crate::error::{Error, Result};
+use infera_management_storage::StorageBackend;
+
+/// Repository for ClientCertificate entity operations
+///
+/// Key schema:
+/// - cert:{id} -> ClientCertificate data
+/// - cert:kid:{kid} -> cert_id (for kid lookup - critical for JWT verification)
+/// - cert:client:{client_id}:{idx} -> cert_id (for client listing)
+pub struct ClientCertificateRepository<S: StorageBackend> {
+    storage: S,
+}
+
+impl<S: StorageBackend> ClientCertificateRepository<S> {
+    /// Create a new client certificate repository
+    pub fn new(storage: S) -> Self {
+        Self { storage }
+    }
+
+    /// Generate key for certificate by ID
+    fn cert_key(id: i64) -> Vec<u8> {
+        format!("cert:{}", id).into_bytes()
+    }
+
+    /// Generate key for certificate by kid (key ID) index
+    fn cert_kid_index_key(kid: &str) -> Vec<u8> {
+        format!("cert:kid:{}", kid).into_bytes()
+    }
+
+    /// Generate key for certificate by client index
+    fn cert_client_index_key(client_id: i64, idx: i64) -> Vec<u8> {
+        format!("cert:client:{}:{}", client_id, idx).into_bytes()
+    }
+
+    /// Create a new certificate
+    pub async fn create(&self, cert: ClientCertificate) -> Result<()> {
+        // Serialize certificate
+        let cert_data = serde_json::to_vec(&cert)
+            .map_err(|e| Error::Internal(format!("Failed to serialize certificate: {}", e)))?;
+
+        // Use transaction for atomicity
+        let mut txn = self
+            .storage
+            .transaction()
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+
+        // Check if kid already exists (should be unique globally)
+        let kid_key = Self::cert_kid_index_key(&cert.kid);
+        if self
+            .storage
+            .get(&kid_key)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to check duplicate kid: {}", e)))?
+            .is_some()
+        {
+            return Err(Error::AlreadyExists(format!(
+                "A certificate with kid '{}' already exists",
+                cert.kid
+            )));
+        }
+
+        // Store certificate record
+        txn.set(Self::cert_key(cert.id), cert_data.clone());
+
+        // Store kid index (critical for JWT verification)
+        txn.set(kid_key, cert.id.to_le_bytes().to_vec());
+
+        // Store client index
+        txn.set(
+            Self::cert_client_index_key(cert.client_id, cert.id),
+            cert.id.to_le_bytes().to_vec(),
+        );
+
+        // Commit transaction
+        txn.commit().await.map_err(|e| {
+            Error::Internal(format!("Failed to commit certificate creation: {}", e))
+        })?;
+
+        Ok(())
+    }
+
+    /// Get a certificate by ID
+    pub async fn get(&self, id: i64) -> Result<Option<ClientCertificate>> {
+        let key = Self::cert_key(id);
+        let data = self
+            .storage
+            .get(&key)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get certificate: {}", e)))?;
+
+        match data {
+            Some(bytes) => {
+                let cert: ClientCertificate = serde_json::from_slice(&bytes).map_err(|e| {
+                    Error::Internal(format!("Failed to deserialize certificate: {}", e))
+                })?;
+                Ok(Some(cert))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Get a certificate by kid (key ID) - used for JWT verification
+    pub async fn get_by_kid(&self, kid: &str) -> Result<Option<ClientCertificate>> {
+        let index_key = Self::cert_kid_index_key(kid);
+        let data = self
+            .storage
+            .get(&index_key)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get certificate by kid: {}", e)))?;
+
+        match data {
+            Some(bytes) => {
+                if bytes.len() != 8 {
+                    return Err(Error::Internal(
+                        "Invalid certificate kid index data".to_string(),
+                    ));
+                }
+                let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+                self.get(id).await
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// List all certificates for a client (including revoked and deleted)
+    pub async fn list_by_client(&self, client_id: i64) -> Result<Vec<ClientCertificate>> {
+        let prefix = format!("cert:client:{}:", client_id);
+        let start = prefix.clone().into_bytes();
+        let end = format!("cert:client:{}~", client_id).into_bytes();
+
+        let kvs =
+            self.storage.get_range(start..end).await.map_err(|e| {
+                Error::Internal(format!("Failed to get client certificates: {}", e))
+            })?;
+
+        let mut certs = Vec::new();
+        for kv in kvs {
+            if kv.value.len() != 8 {
+                continue;
+            }
+            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            if let Some(cert) = self.get(id).await? {
+                certs.push(cert);
+            }
+        }
+
+        Ok(certs)
+    }
+
+    /// List active (non-revoked, non-deleted) certificates for a client
+    pub async fn list_active_by_client(&self, client_id: i64) -> Result<Vec<ClientCertificate>> {
+        let all_certs = self.list_by_client(client_id).await?;
+        Ok(all_certs.into_iter().filter(|c| c.is_active()).collect())
+    }
+
+    /// List all active certificates across all clients (for JWKS endpoints)
+    pub async fn list_all_active(&self) -> Result<Vec<ClientCertificate>> {
+        let prefix = "cert:".to_string();
+        let start = prefix.clone().into_bytes();
+        let end = "cert~".to_string().into_bytes();
+
+        let kvs = self
+            .storage
+            .get_range(start..end)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get all certificates: {}", e)))?;
+
+        let mut certs = Vec::new();
+        for kv in kvs {
+            // Only process actual certificate records, not indexes
+            let key_str = String::from_utf8_lossy(&kv.key);
+            if !key_str.starts_with("cert:kid:") && !key_str.starts_with("cert:client:") {
+                if let Ok(cert) = serde_json::from_slice::<ClientCertificate>(&kv.value) {
+                    if cert.is_active() {
+                        certs.push(cert);
+                    }
+                }
+            }
+        }
+
+        Ok(certs)
+    }
+
+    /// Update a certificate (typically for marking as used, revoked, or deleted)
+    pub async fn update(&self, cert: ClientCertificate) -> Result<()> {
+        // Verify certificate exists
+        let existing = self
+            .get(cert.id)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Certificate {} not found", cert.id)))?;
+
+        // Verify kid hasn't changed (kid should be immutable)
+        if existing.kid != cert.kid {
+            return Err(Error::Validation(
+                "Certificate kid cannot be changed".to_string(),
+            ));
+        }
+
+        // Serialize updated certificate
+        let cert_data = serde_json::to_vec(&cert)
+            .map_err(|e| Error::Internal(format!("Failed to serialize certificate: {}", e)))?;
+
+        // Update certificate record
+        self.storage
+            .set(Self::cert_key(cert.id), cert_data)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update certificate: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Delete a certificate (removes all indexes)
+    pub async fn delete(&self, id: i64) -> Result<()> {
+        // Get the certificate first to clean up indexes
+        let cert = self
+            .get(id)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Certificate {} not found", id)))?;
+
+        // Use transaction for atomicity
+        let mut txn = self
+            .storage
+            .transaction()
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+
+        // Delete certificate record
+        txn.delete(Self::cert_key(id));
+
+        // Delete kid index
+        txn.delete(Self::cert_kid_index_key(&cert.kid));
+
+        // Delete client index
+        txn.delete(Self::cert_client_index_key(cert.client_id, cert.id));
+
+        // Commit transaction
+        txn.commit().await.map_err(|e| {
+            Error::Internal(format!("Failed to commit certificate deletion: {}", e))
+        })?;
+
+        Ok(())
+    }
+
+    /// Count certificates for a client
+    pub async fn count_by_client(&self, client_id: i64) -> Result<usize> {
+        let certs = self.list_by_client(client_id).await?;
+        Ok(certs.len())
+    }
+
+    /// Count active certificates for a client
+    pub async fn count_active_by_client(&self, client_id: i64) -> Result<usize> {
+        let certs = self.list_active_by_client(client_id).await?;
+        Ok(certs.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use infera_management_storage::{Backend, MemoryBackend};
+
+    fn create_test_repo() -> ClientCertificateRepository<Backend> {
+        ClientCertificateRepository::new(Backend::Memory(MemoryBackend::new()))
+    }
+
+    fn create_test_cert(
+        id: i64,
+        client_id: i64,
+        org_id: i64,
+        name: &str,
+    ) -> Result<ClientCertificate> {
+        ClientCertificate::new(
+            id,
+            client_id,
+            org_id,
+            "public_key_base64".to_string(),
+            "encrypted_private_key_base64".to_string(),
+            name.to_string(),
+            999,
+        )
+    }
+
+    #[tokio::test]
+    async fn test_create_and_get_cert() {
+        let repo = create_test_repo();
+        let cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+        let kid = cert.kid.clone();
+
+        repo.create(cert.clone()).await.unwrap();
+
+        let retrieved = repo.get(1).await.unwrap();
+        assert_eq!(retrieved, Some(cert.clone()));
+
+        let by_kid = repo.get_by_kid(&kid).await.unwrap();
+        assert_eq!(by_kid, Some(cert));
+    }
+
+    #[tokio::test]
+    async fn test_duplicate_kid_rejected() {
+        let repo = create_test_repo();
+        let cert1 = create_test_cert(1, 100, 200, "Cert 1").unwrap();
+
+        // Create second cert with same kid (by using same cert_id, client_id, and org_id)
+        let cert2 = create_test_cert(1, 100, 200, "Cert 2").unwrap();
+
+        repo.create(cert1).await.unwrap();
+
+        let result = repo.create(cert2).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::AlreadyExists(_)));
+    }
+
+    #[tokio::test]
+    async fn test_list_by_client() {
+        let repo = create_test_repo();
+        let cert1 = create_test_cert(1, 100, 200, "Cert 1").unwrap();
+        let cert2 = create_test_cert(2, 100, 200, "Cert 2").unwrap();
+        let cert3 = create_test_cert(3, 101, 200, "Cert 3").unwrap();
+
+        repo.create(cert1).await.unwrap();
+        repo.create(cert2).await.unwrap();
+        repo.create(cert3).await.unwrap();
+
+        let client_100_certs = repo.list_by_client(100).await.unwrap();
+        assert_eq!(client_100_certs.len(), 2);
+
+        let client_101_certs = repo.list_by_client(101).await.unwrap();
+        assert_eq!(client_101_certs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_revoke_cert() {
+        let repo = create_test_repo();
+        let mut cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+
+        repo.create(cert.clone()).await.unwrap();
+        assert!(cert.is_active());
+
+        cert.mark_revoked(888);
+        repo.update(cert.clone()).await.unwrap();
+
+        let retrieved = repo.get(1).await.unwrap().unwrap();
+        assert!(retrieved.is_revoked());
+        assert!(!retrieved.is_active());
+        assert_eq!(retrieved.revoked_by_user_id, Some(888));
+
+        // Should not be in active list
+        let active = repo.list_active_by_client(100).await.unwrap();
+        assert_eq!(active.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_soft_delete_cert() {
+        let repo = create_test_repo();
+        let mut cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+
+        repo.create(cert.clone()).await.unwrap();
+
+        cert.mark_deleted();
+        repo.update(cert).await.unwrap();
+
+        let retrieved = repo.get(1).await.unwrap().unwrap();
+        assert!(retrieved.is_deleted());
+        assert!(!retrieved.is_active());
+
+        // Should not be in active list
+        let active = repo.list_active_by_client(100).await.unwrap();
+        assert_eq!(active.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_mark_used() {
+        let repo = create_test_repo();
+        let mut cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+
+        repo.create(cert.clone()).await.unwrap();
+        assert!(cert.last_used_at.is_none());
+
+        cert.mark_used();
+        repo.update(cert).await.unwrap();
+
+        let retrieved = repo.get(1).await.unwrap().unwrap();
+        assert!(retrieved.last_used_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_delete_cert() {
+        let repo = create_test_repo();
+        let cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+        let kid = cert.kid.clone();
+
+        repo.create(cert).await.unwrap();
+        assert!(repo.get(1).await.unwrap().is_some());
+        assert!(repo.get_by_kid(&kid).await.unwrap().is_some());
+
+        repo.delete(1).await.unwrap();
+        assert!(repo.get(1).await.unwrap().is_none());
+        assert!(repo.get_by_kid(&kid).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_kid_immutable() {
+        let repo = create_test_repo();
+        let mut cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+
+        repo.create(cert.clone()).await.unwrap();
+
+        // Try to change kid
+        cert.kid = "new-kid".to_string();
+        let result = repo.update(cert).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::Validation(_)));
+    }
+
+    #[tokio::test]
+    async fn test_count_certs() {
+        let repo = create_test_repo();
+        let cert1 = create_test_cert(1, 100, 200, "Cert 1").unwrap();
+        let mut cert2 = create_test_cert(2, 100, 200, "Cert 2").unwrap();
+        let cert3 = create_test_cert(3, 100, 200, "Cert 3").unwrap();
+
+        repo.create(cert1).await.unwrap();
+        repo.create(cert2.clone()).await.unwrap();
+        repo.create(cert3).await.unwrap();
+
+        assert_eq!(repo.count_by_client(100).await.unwrap(), 3);
+        assert_eq!(repo.count_active_by_client(100).await.unwrap(), 3);
+
+        // Revoke one
+        cert2.mark_revoked(888);
+        repo.update(cert2).await.unwrap();
+
+        assert_eq!(repo.count_by_client(100).await.unwrap(), 3);
+        assert_eq!(repo.count_active_by_client(100).await.unwrap(), 2);
+    }
+}

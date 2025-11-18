@@ -116,9 +116,7 @@ impl OrganizationInvitation {
 
         // Verify it's valid hex
         if !token.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::Validation(
-                "Token must be hex-encoded".to_string(),
-            ));
+            return Err(Error::Validation("Token must be hex-encoded".to_string()));
         }
 
         Ok(())
@@ -185,7 +183,8 @@ mod tests {
 
         assert!(OrganizationInvitation::validate_token("").is_err());
         assert!(OrganizationInvitation::validate_token("short").is_err());
-        assert!(OrganizationInvitation::validate_token(&"z".repeat(64)).is_err()); // 'z' not hex
+        assert!(OrganizationInvitation::validate_token(&"z".repeat(64)).is_err());
+        // 'z' not hex
     }
 
     #[test]

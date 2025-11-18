@@ -3,9 +3,13 @@ use axum::{
     Extension, Json,
 };
 use infera_management_core::{
-    entities::{Organization, OrganizationInvitation, OrganizationMember, OrganizationRole, OrganizationTier},
+    entities::{
+        Organization, OrganizationInvitation, OrganizationMember, OrganizationRole,
+        OrganizationTier,
+    },
     error::Error as CoreError,
-    IdGenerator, OrganizationInvitationRepository, OrganizationMemberRepository, OrganizationRepository, UserEmailRepository,
+    IdGenerator, OrganizationInvitationRepository, OrganizationMemberRepository,
+    OrganizationRepository, UserEmailRepository,
 };
 use serde::{Deserialize, Serialize};
 
@@ -843,7 +847,9 @@ pub async fn accept_invitation(
         .await?
         .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
 
-    let member_count = member_repo.count_by_organization(invitation.organization_id).await?;
+    let member_count = member_repo
+        .count_by_organization(invitation.organization_id)
+        .await?;
     if member_count >= org.tier.max_members() {
         return Err(CoreError::TierLimit(
             "Organization has reached the maximum number of members".to_string(),
@@ -912,10 +918,9 @@ pub async fn transfer_ownership(
 
     // Cannot transfer to self
     if payload.new_owner_user_id == org_ctx.member.user_id {
-        return Err(CoreError::Validation(
-            "Cannot transfer ownership to yourself".to_string(),
-        )
-        .into());
+        return Err(
+            CoreError::Validation("Cannot transfer ownership to yourself".to_string()).into(),
+        );
     }
 
     // Check if new owner is a member

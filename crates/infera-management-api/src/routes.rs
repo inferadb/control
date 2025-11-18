@@ -1,4 +1,4 @@
-use crate::handlers::{auth, emails, organizations, sessions, users, AppState};
+use crate::handlers::{auth, clients, emails, jwks, organizations, sessions, users, AppState};
 use crate::middleware::{require_organization_member, require_session};
 use axum::{
     middleware,
@@ -135,6 +135,44 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/v1/organizations/{org}/transfer-ownership",
             post(organizations::transfer_ownership),
         )
+        // Client management routes
+        .route(
+            "/v1/organizations/{org}/clients",
+            post(clients::create_client),
+        )
+        .route(
+            "/v1/organizations/{org}/clients",
+            get(clients::list_clients),
+        )
+        .route(
+            "/v1/organizations/{org}/clients/{client}",
+            get(clients::get_client),
+        )
+        .route(
+            "/v1/organizations/{org}/clients/{client}",
+            patch(clients::update_client),
+        )
+        .route(
+            "/v1/organizations/{org}/clients/{client}",
+            delete(clients::delete_client),
+        )
+        // Certificate management routes
+        .route(
+            "/v1/organizations/{org}/clients/{client}/certificates",
+            post(clients::create_certificate),
+        )
+        .route(
+            "/v1/organizations/{org}/clients/{client}/certificates",
+            get(clients::list_certificates),
+        )
+        .route(
+            "/v1/organizations/{org}/clients/{client}/certificates/{cert}/revoke",
+            post(clients::revoke_certificate),
+        )
+        .route(
+            "/v1/organizations/{org}/clients/{client}/certificates/{cert}",
+            delete(clients::delete_certificate),
+        )
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -195,6 +233,9 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/v1/auth/password-reset/confirm",
             post(auth::confirm_password_reset),
         )
+        // JWKS endpoints (public, no authentication required)
+        .route("/.well-known/jwks.json", get(jwks::get_global_jwks))
+        .route("/v1/organizations/{org}/jwks.json", get(jwks::get_org_jwks))
         .with_state(state)
         .merge(protected)
         .merge(org_scoped)

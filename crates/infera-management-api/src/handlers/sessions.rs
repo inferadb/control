@@ -160,7 +160,7 @@ mod tests {
         // Initialize ID generator
         let _ = IdGenerator::init(1);
 
-        let state = AppState::new(storage);
+        let state = AppState::new_test(storage);
 
         axum::Router::new()
             .route("/sessions", get(list_sessions))

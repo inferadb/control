@@ -25,11 +25,76 @@ use time;
 #[derive(Clone)]
 pub struct AppState {
     pub storage: Arc<Backend>,
+    pub config: Arc<infera_management_core::ManagementConfig>,
 }
 
 impl AppState {
-    pub fn new(storage: Arc<Backend>) -> Self {
-        Self { storage }
+    pub fn new(
+        storage: Arc<Backend>,
+        config: Arc<infera_management_core::ManagementConfig>,
+    ) -> Self {
+        Self { storage, config }
+    }
+
+    #[cfg(test)]
+    pub fn new_test(storage: Arc<Backend>) -> Self {
+        use infera_management_core::ManagementConfig;
+
+        // Create a minimal test config
+        let config_str = r#"
+server:
+  http_host: "127.0.0.1"
+  http_port: 3000
+  grpc_host: "127.0.0.1"
+  grpc_port: 3001
+  worker_threads: 4
+
+storage:
+  backend: "memory"
+
+auth:
+  session_ttl_web: 2592000
+  session_ttl_cli: 7776000
+  session_ttl_sdk: 7776000
+  password_min_length: 12
+  max_sessions_per_user: 10
+  key_encryption_secret: "test-secret-key-at-least-32-bytes-long!"
+  webauthn:
+    rp_id: "localhost"
+    rp_name: "InferaDB"
+    origin: "http://localhost:3000"
+
+email:
+  smtp_host: "localhost"
+  smtp_port: 587
+  from_email: "test@example.com"
+  from_name: "InferaDB Test"
+
+rate_limiting:
+  login_attempts_per_ip_per_hour: 100
+  registrations_per_ip_per_day: 5
+  email_verification_tokens_per_hour: 5
+  password_reset_tokens_per_hour: 3
+
+observability:
+  log_level: "info"
+  metrics_enabled: true
+  tracing_enabled: false
+
+id_generation:
+  worker_id: 0
+  max_clock_skew_ms: 1000
+
+server_api:
+  grpc_endpoint: "http://localhost:8080"
+  tls_enabled: false
+"#;
+
+        let config: ManagementConfig = serde_yaml::from_str(config_str).unwrap();
+        Self {
+            storage,
+            config: Arc::new(config),
+        }
     }
 }
 
@@ -563,7 +628,7 @@ mod tests {
         let _ = IdGenerator::init(1);
 
         let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
-        let state = AppState::new(storage);
+        let state = AppState::new_test(storage);
 
         axum::Router::new()
             .route("/register", axum::routing::post(register))
@@ -725,7 +790,7 @@ mod tests {
     async fn test_password_reset_flow() {
         let _ = IdGenerator::init(1);
         let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
-        let state = AppState::new(storage.clone());
+        let state = AppState::new_test(storage.clone());
 
         let app = axum::Router::new()
             .route("/register", axum::routing::post(register))
@@ -829,7 +894,7 @@ mod tests {
     async fn test_password_reset_invalid_token() {
         let _ = IdGenerator::init(1);
         let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
-        let state = AppState::new(storage);
+        let state = AppState::new_test(storage);
 
         let app = axum::Router::new()
             .route(

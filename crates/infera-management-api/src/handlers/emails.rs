@@ -243,7 +243,7 @@ mod tests {
     fn create_test_app(storage: Arc<Backend>) -> axum::Router {
         let _ = IdGenerator::init(1);
 
-        let state = AppState::new(storage);
+        let state = AppState::new_test(storage);
 
         axum::Router::new()
             .route("/users/emails", post(add_email))

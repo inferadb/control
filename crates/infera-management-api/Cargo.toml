@@ -17,6 +17,7 @@ infera-management-storage = { path = "../infera-management-storage" }
 anyhow = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
+base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }
@@ -26,3 +27,4 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+serde_yaml = { workspace = true }

@@ -42,9 +42,8 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     /// Create a new organization invitation
     pub async fn create(&self, invitation: OrganizationInvitation) -> Result<()> {
         // Serialize invitation
-        let invitation_data = serde_json::to_vec(&invitation).map_err(|e| {
-            Error::Internal(format!("Failed to serialize invitation: {}", e))
-        })?;
+        let invitation_data = serde_json::to_vec(&invitation)
+            .map_err(|e| Error::Internal(format!("Failed to serialize invitation: {}", e)))?;
 
         // Use transaction for atomicity
         let mut txn = self
@@ -70,10 +69,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         }
 
         // Store invitation record
-        txn.set(
-            Self::invitation_key(invitation.id),
-            invitation_data.clone(),
-        );
+        txn.set(Self::invitation_key(invitation.id), invitation_data.clone());
 
         // Store token index
         txn.set(
@@ -91,9 +87,9 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         txn.set(email_org_key, invitation.id.to_le_bytes().to_vec());
 
         // Commit transaction
-        txn.commit().await.map_err(|e| {
-            Error::Internal(format!("Failed to commit invitation creation: {}", e))
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to commit invitation creation: {}", e)))?;
 
         Ok(())
     }
@@ -122,9 +118,10 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     /// Get an invitation by token
     pub async fn get_by_token(&self, token: &str) -> Result<Option<OrganizationInvitation>> {
         let index_key = Self::invitation_token_index_key(token);
-        let data = self.storage.get(&index_key).await.map_err(|e| {
-            Error::Internal(format!("Failed to get invitation by token: {}", e))
-        })?;
+        let data =
+            self.storage.get(&index_key).await.map_err(|e| {
+                Error::Internal(format!("Failed to get invitation by token: {}", e))
+            })?;
 
         match data {
             Some(bytes) => {
@@ -167,9 +164,10 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     /// Check if an invitation exists for an email in an organization
     pub async fn exists_for_email_in_org(&self, email: &str, org_id: i64) -> Result<bool> {
         let key = Self::invitation_email_org_index_key(email, org_id);
-        let data = self.storage.get(&key).await.map_err(|e| {
-            Error::Internal(format!("Failed to check invitation existence: {}", e))
-        })?;
+        let data =
+            self.storage.get(&key).await.map_err(|e| {
+                Error::Internal(format!("Failed to check invitation existence: {}", e))
+            })?;
 
         Ok(data.is_some())
     }
@@ -208,9 +206,9 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         ));
 
         // Commit transaction
-        txn.commit().await.map_err(|e| {
-            Error::Internal(format!("Failed to commit invitation deletion: {}", e))
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to commit invitation deletion: {}", e)))?;
 
         Ok(())
     }
@@ -226,13 +224,16 @@ mod tests {
         OrganizationInvitationRepository::new(Backend::Memory(MemoryBackend::new()))
     }
 
-    fn create_test_invitation(
-        id: i64,
-        org_id: i64,
-        email: &str,
-    ) -> Result<OrganizationInvitation> {
+    fn create_test_invitation(id: i64, org_id: i64, email: &str) -> Result<OrganizationInvitation> {
         let token = OrganizationInvitation::generate_token()?;
-        OrganizationInvitation::new(id, org_id, 999, email.to_string(), OrganizationRole::Member, token)
+        OrganizationInvitation::new(
+            id,
+            org_id,
+            999,
+            email.to_string(),
+            OrganizationRole::Member,
+            token,
+        )
     }
 
     #[tokio::test]
