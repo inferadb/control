@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Request, State},
+    extract::{Request, State},
     middleware::Next,
     response::Response,
 };
@@ -51,10 +51,25 @@ impl OrganizationContext {
 /// This middleware should be applied to routes with `{org}` path parameter.
 pub async fn require_organization_member(
     State(state): State<AppState>,
-    Path(org_id): Path<i64>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
+    // Extract org_id from the URI path manually
+    // Routes are of the form /v1/organizations/{org}/... where {org} is always the 3rd segment
+    let uri_path = request.uri().path();
+    let segments: Vec<&str> = uri_path.split('/').collect();
+
+    let org_id = if segments.len() >= 4 && segments[1] == "v1" && segments[2] == "organizations" {
+        segments[3]
+            .parse::<i64>()
+            .map_err(|_| CoreError::Validation("Invalid organization ID in path".to_string()))?
+    } else {
+        return Err(CoreError::Internal(
+            "Organization middleware applied to invalid route".to_string(),
+        )
+        .into());
+    };
+
     // Get session context (should be set by require_session middleware)
     let session_ctx = request
         .extensions()

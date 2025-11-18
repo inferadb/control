@@ -12,7 +12,7 @@ use tower::ServiceExt;
 /// Helper to create test app state
 fn create_test_state() -> AppState {
     let storage = Backend::Memory(MemoryBackend::new());
-    AppState::new(Arc::new(storage))
+    AppState::new_test(Arc::new(storage))
 }
 
 /// Helper to create configured app with middleware

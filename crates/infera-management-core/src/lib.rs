@@ -16,7 +16,8 @@ pub use email::{EmailSender, EmailService, SmtpEmailService};
 pub use entities::{
     Client, ClientCertificate, Organization, OrganizationInvitation, OrganizationMember,
     OrganizationRole, OrganizationTier, SessionType, User, UserEmail, UserEmailVerificationToken,
-    UserPasswordResetToken, UserSession,
+    UserPasswordResetToken, UserSession, Vault, VaultRole, VaultSyncStatus, VaultTeamGrant,
+    VaultUserGrant,
 };
 pub use error::{Error, Result};
 pub use id::{IdGenerator, WorkerRegistry};
@@ -24,5 +25,5 @@ pub use repository::{
     ClientCertificateRepository, ClientRepository, OrganizationInvitationRepository,
     OrganizationMemberRepository, OrganizationRepository, UserEmailRepository,
     UserEmailVerificationTokenRepository, UserPasswordResetTokenRepository, UserRepository,
-    UserSessionRepository,
+    UserSessionRepository, VaultRepository, VaultTeamGrantRepository, VaultUserGrantRepository,
 };

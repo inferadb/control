@@ -203,21 +203,13 @@ pub struct GetOrganizationResponse {
 /// Returns details of a specific organization. User must be a member.
 pub async fn get_organization(
     State(state): State<AppState>,
-    Extension(ctx): Extension<SessionContext>,
-    Path(org_id): Path<i64>,
+    Extension(org_ctx): Extension<OrganizationContext>,
 ) -> Result<Json<GetOrganizationResponse>> {
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
     let org_repo = OrganizationRepository::new((*state.storage).clone());
-
-    // Check if user is a member
-    let member = member_repo
-        .get_by_org_and_user(org_id, ctx.user_id)
-        .await?
-        .ok_or_else(|| CoreError::Authz("You are not a member of this organization".to_string()))?;
 
     // Get organization
     let org = org_repo
-        .get(org_id)
+        .get(org_ctx.organization_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
 
@@ -232,7 +224,7 @@ pub async fn get_organization(
             name: org.name,
             tier: tier_to_string(&org.tier),
             created_at: org.created_at.to_rfc3339(),
-            role: role_to_string(&member.role),
+            role: role_to_string(&org_ctx.member.role),
         },
     }))
 }
@@ -258,30 +250,17 @@ pub struct UpdateOrganizationResponse {
 /// Updates organization details. Requires admin or owner role.
 pub async fn update_organization(
     State(state): State<AppState>,
-    Extension(ctx): Extension<SessionContext>,
-    Path(org_id): Path<i64>,
+    Extension(org_ctx): Extension<OrganizationContext>,
     Json(payload): Json<UpdateOrganizationRequest>,
 ) -> Result<Json<UpdateOrganizationResponse>> {
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
+    // Require admin or owner
+    crate::middleware::require_admin_or_owner(&org_ctx)?;
+
     let org_repo = OrganizationRepository::new((*state.storage).clone());
-
-    // Check if user is a member with admin or owner role
-    let member = member_repo
-        .get_by_org_and_user(org_id, ctx.user_id)
-        .await?
-        .ok_or_else(|| CoreError::Authz("You are not a member of this organization".to_string()))?;
-
-    // Check if user has admin permission
-    if !member.role.has_permission(OrganizationRole::Admin) {
-        return Err(CoreError::Authz(
-            "You must be an admin or owner to update this organization".to_string(),
-        )
-        .into());
-    }
 
     // Get organization
     let mut org = org_repo
-        .get(org_id)
+        .get(org_ctx.organization_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
 
@@ -300,7 +279,7 @@ pub async fn update_organization(
             name: org.name,
             tier: tier_to_string(&org.tier),
             created_at: org.created_at.to_rfc3339(),
-            role: role_to_string(&member.role),
+            role: role_to_string(&org_ctx.member.role),
         },
     }))
 }
@@ -319,28 +298,15 @@ pub struct DeleteOrganizationResponse {
 /// Soft-deletes an organization. Requires owner role.
 pub async fn delete_organization(
     State(state): State<AppState>,
-    Extension(ctx): Extension<SessionContext>,
-    Path(org_id): Path<i64>,
+    Extension(org_ctx): Extension<OrganizationContext>,
 ) -> Result<Json<DeleteOrganizationResponse>> {
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
+    // Require owner
+    crate::middleware::require_owner(&org_ctx)?;
+
     let org_repo = OrganizationRepository::new((*state.storage).clone());
 
-    // Check if user is a member with owner role
-    let member = member_repo
-        .get_by_org_and_user(org_id, ctx.user_id)
-        .await?
-        .ok_or_else(|| CoreError::Authz("You are not a member of this organization".to_string()))?;
-
-    // Check if user has owner permission
-    if !member.role.has_permission(OrganizationRole::Owner) {
-        return Err(CoreError::Authz(
-            "You must be an owner to delete this organization".to_string(),
-        )
-        .into());
-    }
-
     // Soft delete organization
-    org_repo.delete(org_id).await?;
+    org_repo.delete(org_ctx.organization_id).await?;
 
     Ok(Json(DeleteOrganizationResponse {
         message: "Organization deleted successfully".to_string(),
@@ -378,19 +344,14 @@ pub struct ListMembersResponse {
 /// Returns all members of an organization. User must be a member.
 pub async fn list_members(
     State(state): State<AppState>,
-    Extension(ctx): Extension<SessionContext>,
-    Path(org_id): Path<i64>,
+    Extension(org_ctx): Extension<OrganizationContext>,
 ) -> Result<Json<ListMembersResponse>> {
     let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
 
-    // Check if user is a member
-    let _user_member = member_repo
-        .get_by_org_and_user(org_id, ctx.user_id)
-        .await?
-        .ok_or_else(|| CoreError::Authz("You are not a member of this organization".to_string()))?;
-
     // Get all members
-    let members = member_repo.get_by_organization(org_id).await?;
+    let members = member_repo
+        .get_by_organization(org_ctx.organization_id)
+        .await?;
 
     let member_responses: Vec<OrganizationMemberResponse> = members
         .into_iter()
@@ -429,24 +390,14 @@ pub struct UpdateMemberRoleResponse {
 /// Cannot demote the last owner.
 pub async fn update_member_role(
     State(state): State<AppState>,
-    Extension(ctx): Extension<SessionContext>,
-    Path((org_id, member_id)): Path<(i64, i64)>,
+    Extension(org_ctx): Extension<OrganizationContext>,
+    Path((_org_id, member_id)): Path<(i64, i64)>,
     Json(payload): Json<UpdateMemberRoleRequest>,
 ) -> Result<Json<UpdateMemberRoleResponse>> {
+    // Require admin or owner
+    crate::middleware::require_admin_or_owner(&org_ctx)?;
+
     let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
-
-    // Check if user is a member with admin or owner role
-    let user_member = member_repo
-        .get_by_org_and_user(org_id, ctx.user_id)
-        .await?
-        .ok_or_else(|| CoreError::Authz("You are not a member of this organization".to_string()))?;
-
-    if !user_member.role.has_permission(OrganizationRole::Admin) {
-        return Err(CoreError::Authz(
-            "You must be an admin or owner to update member roles".to_string(),
-        )
-        .into());
-    }
 
     // Get the target member
     let mut target_member = member_repo
@@ -455,7 +406,7 @@ pub async fn update_member_role(
         .ok_or_else(|| CoreError::NotFound("Member not found".to_string()))?;
 
     // Verify the member belongs to this organization
-    if target_member.organization_id != org_id {
+    if target_member.organization_id != org_ctx.organization_id {
         return Err(
             CoreError::NotFound("Member not found in this organization".to_string()).into(),
         );
@@ -477,7 +428,7 @@ pub async fn update_member_role(
 
     // If demoting from owner, check if there are other owners
     if target_member.role == OrganizationRole::Owner && new_role != OrganizationRole::Owner {
-        let owner_count = member_repo.count_owners(org_id).await?;
+        let owner_count = member_repo.count_owners(org_ctx.organization_id).await?;
         if owner_count <= 1 {
             return Err(CoreError::Validation(
                 "Cannot demote the last owner. Transfer ownership first or promote another member."
@@ -516,23 +467,13 @@ pub struct RemoveMemberResponse {
 /// Cannot remove the last owner.
 pub async fn remove_member(
     State(state): State<AppState>,
-    Extension(ctx): Extension<SessionContext>,
-    Path((org_id, member_id)): Path<(i64, i64)>,
+    Extension(org_ctx): Extension<OrganizationContext>,
+    Path((_org_id, member_id)): Path<(i64, i64)>,
 ) -> Result<Json<RemoveMemberResponse>> {
+    // Require admin or owner
+    crate::middleware::require_admin_or_owner(&org_ctx)?;
+
     let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
-
-    // Check if user is a member with admin or owner role
-    let user_member = member_repo
-        .get_by_org_and_user(org_id, ctx.user_id)
-        .await?
-        .ok_or_else(|| CoreError::Authz("You are not a member of this organization".to_string()))?;
-
-    if !user_member.role.has_permission(OrganizationRole::Admin) {
-        return Err(CoreError::Authz(
-            "You must be an admin or owner to remove members".to_string(),
-        )
-        .into());
-    }
 
     // Get the target member
     let target_member = member_repo
@@ -541,7 +482,7 @@ pub async fn remove_member(
         .ok_or_else(|| CoreError::NotFound("Member not found".to_string()))?;
 
     // Verify the member belongs to this organization
-    if target_member.organization_id != org_id {
+    if target_member.organization_id != org_ctx.organization_id {
         return Err(
             CoreError::NotFound("Member not found in this organization".to_string()).into(),
         );
@@ -549,7 +490,7 @@ pub async fn remove_member(
 
     // If removing an owner, check if there are other owners
     if target_member.role == OrganizationRole::Owner {
-        let owner_count = member_repo.count_owners(org_id).await?;
+        let owner_count = member_repo.count_owners(org_ctx.organization_id).await?;
         if owner_count <= 1 {
             return Err(CoreError::Validation(
                 "Cannot remove the last owner. Transfer ownership first or delete the organization."

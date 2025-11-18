@@ -16,6 +16,7 @@ use infera_management_core::{
     UserPasswordResetToken, UserPasswordResetTokenRepository, UserRepository,
     UserSessionRepository,
 };
+use infera_management_grpc::ServerApiClient;
 use infera_management_storage::Backend;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -26,17 +27,24 @@ use time;
 pub struct AppState {
     pub storage: Arc<Backend>,
     pub config: Arc<infera_management_core::ManagementConfig>,
+    pub server_client: Arc<ServerApiClient>,
 }
 
 impl AppState {
     pub fn new(
         storage: Arc<Backend>,
         config: Arc<infera_management_core::ManagementConfig>,
+        server_client: Arc<ServerApiClient>,
     ) -> Self {
-        Self { storage, config }
+        Self {
+            storage,
+            config,
+            server_client,
+        }
     }
 
-    #[cfg(test)]
+    /// Create AppState for testing with default configuration
+    /// This is used by both unit tests and integration tests
     pub fn new_test(storage: Arc<Backend>) -> Self {
         use infera_management_core::ManagementConfig;
 
@@ -91,9 +99,11 @@ server_api:
 "#;
 
         let config: ManagementConfig = serde_yaml::from_str(config_str).unwrap();
+        let server_client = ServerApiClient::new("http://localhost:8080".to_string()).unwrap();
         Self {
             storage,
             config: Arc::new(config),
+            server_client: Arc::new(server_client),
         }
     }
 }
