@@ -157,34 +157,34 @@ cargo doc --no-deps --open
 
 See the following documents for detailed information:
 
-- [OVERVIEW.md](./OVERVIEW.md): Complete entity definitions and behavioral rules
-- [AUTHENTICATION.md](./AUTHENTICATION.md): Authentication flows and security
-- [PLAN.md](./PLAN.md): Implementation plan and roadmap
+- [docs/OVERVIEW.md](./docs/OVERVIEW.md): Complete entity definitions and behavioral rules
+- [docs/AUTHENTICATION.md](./docs/AUTHENTICATION.md): Authentication flows and security
 
 ## Development Workflow
 
 1. **Create a feature branch**:
+
    ```bash
    git checkout -b feature/your-feature-name
    ```
 
-2. **Make changes** following the implementation plan in [PLAN.md](./PLAN.md)
+2. **Run tests and linters**:
 
-3. **Run tests and linters**:
    ```bash
    cargo test
    cargo clippy -- -D warnings
    cargo fmt --check
    ```
 
-4. **Commit and push**:
+3. **Commit and push**:
+
    ```bash
    git add .
    git commit -m "feat: your feature description"
    git push origin feature/your-feature-name
    ```
 
-5. **Create a pull request**
+4. **Create a pull request**
 
 ## API Endpoints
 
@@ -285,5 +285,5 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines.
 
 For issues and questions:
 
-- GitHub Issues: https://github.com/inferadb/inferadb/issues
-- Documentation: https://inferadb.com/docs
+- GitHub Issues: <https://github.com/inferadb/inferadb/issues>
+- Documentation: <https://inferadb.com/docs>

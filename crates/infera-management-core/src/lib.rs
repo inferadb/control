@@ -33,11 +33,11 @@ pub use jwt::{JwtSigner, VaultTokenClaims};
 pub use leader::LeaderElection;
 pub use ratelimit::{categories, limits, RateLimit, RateLimitResult, RateLimiter};
 pub use repository::{
-    AuthorizationCodeRepository, ClientCertificateRepository, ClientRepository,
-    JtiReplayProtectionRepository, OrganizationInvitationRepository, OrganizationMemberRepository,
-    OrganizationRepository, OrganizationTeamMemberRepository, OrganizationTeamPermissionRepository,
-    OrganizationTeamRepository, UserEmailRepository, UserEmailVerificationTokenRepository,
-    UserPasswordResetTokenRepository, UserRepository, UserSessionRepository,
-    VaultRefreshTokenRepository, VaultRepository, VaultTeamGrantRepository,
+    AuditLogFilters, AuditLogRepository, AuthorizationCodeRepository, ClientCertificateRepository,
+    ClientRepository, JtiReplayProtectionRepository, OrganizationInvitationRepository,
+    OrganizationMemberRepository, OrganizationRepository, OrganizationTeamMemberRepository,
+    OrganizationTeamPermissionRepository, OrganizationTeamRepository, UserEmailRepository,
+    UserEmailVerificationTokenRepository, UserPasswordResetTokenRepository, UserRepository,
+    UserSessionRepository, VaultRefreshTokenRepository, VaultRepository, VaultTeamGrantRepository,
     VaultUserGrantRepository,
 };

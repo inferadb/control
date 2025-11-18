@@ -9,7 +9,9 @@ use infera_management_core::{
     },
     error::Error as CoreError,
     IdGenerator, OrganizationInvitationRepository, OrganizationMemberRepository,
-    OrganizationRepository, UserEmailRepository,
+    OrganizationRepository, OrganizationTeamMemberRepository, OrganizationTeamPermissionRepository,
+    OrganizationTeamRepository, UserEmailRepository, VaultRepository, VaultTeamGrantRepository,
+    VaultUserGrantRepository,
 };
 use serde::{Deserialize, Serialize};
 
@@ -295,7 +297,14 @@ pub struct DeleteOrganizationResponse {
 ///
 /// DELETE /v1/organizations/:org
 ///
-/// Soft-deletes an organization. Requires owner role.
+/// Soft-deletes an organization and cascades to all related resources.
+/// Requires owner role.
+///
+/// Cascade deletes:
+/// - All teams (and their members/permissions)
+/// - All vaults (and their grants)
+/// - All organization members
+/// - All pending invitations
 pub async fn delete_organization(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
@@ -304,8 +313,70 @@ pub async fn delete_organization(
     crate::middleware::require_owner(&org_ctx)?;
 
     let org_repo = OrganizationRepository::new((*state.storage).clone());
+    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
+    let invitation_repo = OrganizationInvitationRepository::new((*state.storage).clone());
+    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
+    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
+    let team_permission_repo = OrganizationTeamPermissionRepository::new((*state.storage).clone());
+    let vault_repo = VaultRepository::new((*state.storage).clone());
+    let vault_user_grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
+    let vault_team_grant_repo = VaultTeamGrantRepository::new((*state.storage).clone());
 
-    // Soft delete organization
+    // CASCADE DELETE: Delete all teams first (and their members/permissions)
+    let teams = team_repo
+        .list_by_organization(org_ctx.organization_id)
+        .await?;
+    for team in teams {
+        if !team.is_deleted() {
+            // Delete team members
+            team_member_repo.delete_by_team(team.id).await?;
+            // Delete team permissions
+            team_permission_repo.delete_by_team(team.id).await?;
+            // Soft delete team
+            team_repo.delete(team.id).await?;
+        }
+    }
+
+    // CASCADE DELETE: Delete all vaults (and their grants)
+    let vaults = vault_repo
+        .list_by_organization(org_ctx.organization_id)
+        .await?;
+    for vault in vaults {
+        if !vault.is_deleted() {
+            // Delete vault user grants
+            let user_grants = vault_user_grant_repo.list_by_vault(vault.id).await?;
+            for grant in user_grants {
+                vault_user_grant_repo.delete(grant.id).await?;
+            }
+            // Delete vault team grants
+            let team_grants = vault_team_grant_repo.list_by_vault(vault.id).await?;
+            for grant in team_grants {
+                vault_team_grant_repo.delete(grant.id).await?;
+            }
+            // Delete from server API
+            let _ = state.server_client.delete_vault(vault.id).await;
+            // Soft delete vault
+            vault_repo.delete(vault.id).await?;
+        }
+    }
+
+    // CASCADE DELETE: Delete all organization members
+    let members = member_repo
+        .get_by_organization(org_ctx.organization_id)
+        .await?;
+    for member in members {
+        member_repo.delete(member.id).await?;
+    }
+
+    // CASCADE DELETE: Delete all pending invitations
+    let invitations = invitation_repo
+        .list_by_organization(org_ctx.organization_id)
+        .await?;
+    for invitation in invitations {
+        invitation_repo.delete(invitation.id).await?;
+    }
+
+    // Finally, soft delete the organization
     org_repo.delete(org_ctx.organization_id).await?;
 
     Ok(Json(DeleteOrganizationResponse {
@@ -527,6 +598,9 @@ pub struct InvitationResponse {
     pub expires_at: String,
     /// User who created the invitation
     pub invited_by_user_id: i64,
+    /// Invitation token (only included when creating invitation)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
 }
 
 impl From<OrganizationInvitation> for InvitationResponse {
@@ -538,6 +612,7 @@ impl From<OrganizationInvitation> for InvitationResponse {
             created_at: invitation.created_at.to_rfc3339(),
             expires_at: invitation.expires_at.to_rfc3339(),
             invited_by_user_id: invitation.invited_by_user_id,
+            token: None, // Token not included by default
         }
     }
 }
@@ -660,14 +735,18 @@ pub async fn create_invitation(
         org_ctx.member.user_id,
         payload.email,
         payload.role,
-        token,
+        token.clone(),
     )?;
 
     // Create invitation
     invitation_repo.create(invitation.clone()).await?;
 
+    // Convert to response and include token
+    let mut invitation_response: InvitationResponse = invitation.into();
+    invitation_response.token = Some(token);
+
     Ok(Json(CreateInvitationResponse {
-        invitation: invitation.into(),
+        invitation: invitation_response,
     }))
 }
 

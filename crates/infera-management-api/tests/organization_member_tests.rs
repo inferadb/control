@@ -163,7 +163,7 @@ async fn test_update_member_role() {
         .await
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let _owner_id = json["id"].as_i64().unwrap();
+    let _owner_id = json["user"]["id"].as_i64().unwrap();
 
     // Create an organization
     let response = app
@@ -233,7 +233,7 @@ async fn test_update_member_role() {
         .await
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let member_user_id = json["id"].as_i64().unwrap();
+    let member_user_id = json["user"]["id"].as_i64().unwrap();
 
     // Manually add member to organization (using internal API for test)
     use infera_management_core::{
@@ -509,7 +509,7 @@ async fn test_remove_member() {
         .await
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let member_user_id = json["id"].as_i64().unwrap();
+    let member_user_id = json["user"]["id"].as_i64().unwrap();
 
     // Manually add member
     use infera_management_core::{

@@ -1,8 +1,27 @@
-use crate::entities::AuditLog;
+use crate::entities::{AuditEventType, AuditLog, AuditResourceType};
 use crate::error::{Error, Result};
+use chrono::{DateTime, Utc};
 use infera_management_storage::StorageBackend;
 
 const PREFIX_AUDIT_LOG: &[u8] = b"audit_log:";
+// For future index implementation
+#[allow(dead_code)]
+const PREFIX_AUDIT_LOG_BY_ORG: &[u8] = b"audit_log_by_org:";
+
+/// Query filters for audit logs
+#[derive(Debug, Clone, Default)]
+pub struct AuditLogFilters {
+    /// Filter by actor (user_id)
+    pub actor: Option<i64>,
+    /// Filter by event type
+    pub action: Option<AuditEventType>,
+    /// Filter by resource type
+    pub resource_type: Option<AuditResourceType>,
+    /// Filter by start date
+    pub start_date: Option<DateTime<Utc>>,
+    /// Filter by end date
+    pub end_date: Option<DateTime<Utc>>,
+}
 
 /// Repository for audit log operations
 pub struct AuditLogRepository<S: StorageBackend> {
@@ -38,6 +57,79 @@ impl<S: StorageBackend> AuditLogRepository<S> {
             Ok(None) => Ok(None),
             Err(e) => Err(Error::Internal(format!("Failed to get audit log: {}", e))),
         }
+    }
+
+    /// List audit logs for an organization with optional filters and pagination
+    pub async fn list_by_organization(
+        &self,
+        organization_id: i64,
+        filters: AuditLogFilters,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<AuditLog>, usize)> {
+        // For in-memory backend, we need to scan all logs
+        // In production with FoundationDB, we would use indexes
+
+        // This is a simplified implementation that scans all logs
+        // In a real implementation, we would use a secondary index on organization_id + created_at
+
+        let prefix = format!("{}{}", String::from_utf8_lossy(PREFIX_AUDIT_LOG), "");
+        let start_key = prefix.as_bytes().to_vec();
+        let end_key = {
+            let mut key = start_key.clone();
+            key.push(0xFF);
+            key
+        };
+
+        let kvs = self
+            .storage
+            .get_range(start_key..end_key)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to scan audit logs: {}", e)))?;
+
+        let mut all_logs: Vec<AuditLog> = kvs
+            .into_iter()
+            .filter_map(|kv| serde_json::from_slice(&kv.value).ok())
+            .collect();
+
+        // Filter by organization
+        all_logs.retain(|log| log.organization_id == Some(organization_id));
+
+        // Apply filters
+        if let Some(actor) = filters.actor {
+            all_logs.retain(|log| log.user_id == Some(actor));
+        }
+
+        if let Some(action) = filters.action {
+            all_logs.retain(|log| log.event_type == action);
+        }
+
+        if let Some(resource_type) = filters.resource_type {
+            all_logs.retain(|log| log.resource_type == Some(resource_type));
+        }
+
+        if let Some(start_date) = filters.start_date {
+            all_logs.retain(|log| log.created_at >= start_date);
+        }
+
+        if let Some(end_date) = filters.end_date {
+            all_logs.retain(|log| log.created_at <= end_date);
+        }
+
+        // Sort by created_at descending (newest first)
+        all_logs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        let total = all_logs.len();
+
+        // Apply pagination
+        let start = offset as usize;
+        let paginated_logs = all_logs
+            .into_iter()
+            .skip(start)
+            .take(limit as usize)
+            .collect();
+
+        Ok((paginated_logs, total))
     }
 
     fn key(id: i64) -> Vec<u8> {

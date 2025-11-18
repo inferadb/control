@@ -249,7 +249,7 @@ async fn test_add_team_member() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let org_id = json["organizations"][0]["id"].as_i64().unwrap();
 
-    // Get member's user ID
+    // Get member's user email (for invitation)
     let response = app
         .clone()
         .oneshot(
@@ -269,18 +269,44 @@ async fn test_add_team_member() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let member_user_id = json["user"]["id"].as_i64().unwrap();
 
-    // Add member to organization
-    app.clone()
+    // Invite member to organization
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/members", org_id))
+                .uri(format!("/v1/organizations/{}/invitations", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "user_id": member_user_id,
+                        "email": "teammember@example.com",
                         "role": "MEMBER"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let invitation_token = json["invitation"]["token"].as_str().unwrap().to_string();
+
+    // Accept invitation as member
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/organizations/invitations/accept")
+                .header("cookie", format!("infera_session={}", member_session))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "token": invitation_token
                     })
                     .to_string(),
                 ))
@@ -340,11 +366,19 @@ async fn test_add_team_member() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::CREATED);
-
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+
+    if status != StatusCode::CREATED {
+        eprintln!("Response status: {}", status);
+        eprintln!("Response body: {}", body_str);
+    }
+
+    assert_eq!(status, StatusCode::CREATED);
+
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["member"]["is_manager"], false);

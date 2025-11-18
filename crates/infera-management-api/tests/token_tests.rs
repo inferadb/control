@@ -63,6 +63,72 @@ async fn register_user(app: &axum::Router, name: &str, email: &str, password: &s
     extract_session_cookie(response.headers()).expect("Session cookie should be set")
 }
 
+/// Helper to create a client with certificate for token generation
+async fn create_client_with_cert(app: &axum::Router, session: &str, org_id: i64) -> (i64, i64) {
+    // Create client
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/organizations/{}/clients", org_id))
+                .header("cookie", format!("infera_session={}", session))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "test-client",
+                        "description": "Test client for tokens"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let client_id = json["client"]["id"].as_i64().unwrap();
+
+    // Create certificate for client
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/v1/organizations/{}/clients/{}/certificates",
+                    org_id, client_id
+                ))
+                .header("cookie", format!("infera_session={}", session))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"name": "test-cert"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+
+    if !status.is_success() {
+        let body_str = String::from_utf8_lossy(&body);
+        panic!(
+            "Failed to create certificate. Status: {}, Body: {}",
+            status, body_str
+        );
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let cert_id = json["certificate"]["id"].as_i64().unwrap();
+
+    (client_id, cert_id)
+}
+
 #[tokio::test]
 async fn test_generate_vault_token() {
     let _ = IdGenerator::init(20);
@@ -116,7 +182,7 @@ async fn test_generate_vault_token() {
         .await
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let vault_id = json["vault"]["id"].as_i64().unwrap();
+    let _vault_id = json["vault"]["id"].as_i64().unwrap();
 
     // Create client certificate
     let response = app
@@ -262,18 +328,23 @@ async fn test_refresh_token_flow() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let vault_id = json["vault"]["id"].as_i64().unwrap();
 
+    // Create client and certificate for token generation
+    let (_client_id, _cert_id) = create_client_with_cert(&app, &session, org_id).await;
+
     // Generate vault token (this creates a refresh token)
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tokens/generate")
+                .uri(format!(
+                    "/v1/organizations/{}/vaults/{}/tokens",
+                    org_id, vault_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "vault_id": vault_id,
                         "role": "READER"
                     })
                     .to_string(),
@@ -283,7 +354,7 @@ async fn test_refresh_token_flow() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -323,7 +394,7 @@ async fn test_refresh_token_flow() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -422,18 +493,23 @@ async fn test_refresh_token_replay_protection() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let vault_id = json["vault"]["id"].as_i64().unwrap();
 
+    // Create client and certificate for token generation
+    let (_client_id, _cert_id) = create_client_with_cert(&app, &session, org_id).await;
+
     // Generate initial token
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tokens/generate")
+                .uri(format!(
+                    "/v1/organizations/{}/vaults/{}/tokens",
+                    org_id, vault_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "vault_id": vault_id,
                         "role": "READER"
                     })
                     .to_string(),
@@ -574,18 +650,23 @@ async fn test_revoke_refresh_tokens() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let vault_id = json["vault"]["id"].as_i64().unwrap();
 
+    // Create client and certificate for token generation
+    let (_client_id, _cert_id) = create_client_with_cert(&app, &session, org_id).await;
+
     // Generate token
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tokens/generate")
+                .uri(format!(
+                    "/v1/organizations/{}/vaults/{}/tokens",
+                    org_id, vault_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "vault_id": vault_id,
                         "role": "READER"
                     })
                     .to_string(),
@@ -615,7 +696,7 @@ async fn test_revoke_refresh_tokens() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::CREATED);
 
     // Try to use revoked refresh token (should fail)
     let response = app

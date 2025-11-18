@@ -288,7 +288,7 @@ pub async fn list_teams(
 pub async fn get_team(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(String, i64)>,
+    Path((_org, team_id)): Path<(i64, i64)>,
 ) -> Result<Json<TeamResponse>> {
     // All organization members can view team details
     require_member(&org_ctx)?;
@@ -319,7 +319,7 @@ pub async fn get_team(
 pub async fn update_team(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(String, i64)>,
+    Path((_org, team_id)): Path<(i64, i64)>,
     Json(payload): Json<UpdateTeamRequest>,
 ) -> Result<Json<UpdateTeamResponse>> {
     let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
@@ -377,7 +377,7 @@ pub async fn update_team(
 pub async fn delete_team(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(String, i64)>,
+    Path((_org, team_id)): Path<(i64, i64)>,
 ) -> Result<Json<DeleteTeamResponse>> {
     // Require admin or owner
     require_admin_or_owner(&org_ctx)?;
@@ -422,7 +422,7 @@ pub async fn delete_team(
 pub async fn add_team_member(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(String, i64)>,
+    Path((_org, team_id)): Path<(i64, i64)>,
     Json(payload): Json<AddTeamMemberRequest>,
 ) -> Result<(StatusCode, Json<AddTeamMemberResponse>)> {
     let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
@@ -500,7 +500,7 @@ pub async fn add_team_member(
 pub async fn list_team_members(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(String, i64)>,
+    Path((_org, team_id)): Path<(i64, i64)>,
 ) -> Result<Json<ListTeamMembersResponse>> {
     // All organization members can view team members
     require_member(&org_ctx)?;
@@ -537,7 +537,7 @@ pub async fn list_team_members(
 pub async fn update_team_member(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id, member_id)): Path<(String, i64, i64)>,
+    Path((_org, team_id, member_id)): Path<(i64, i64, i64)>,
     Json(payload): Json<UpdateTeamMemberRequest>,
 ) -> Result<Json<UpdateTeamMemberResponse>> {
     let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
@@ -604,7 +604,7 @@ pub async fn update_team_member(
 pub async fn remove_team_member(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id, member_id)): Path<(String, i64, i64)>,
+    Path((_org, team_id, member_id)): Path<(i64, i64, i64)>,
 ) -> Result<Json<RemoveTeamMemberResponse>> {
     let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
     let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
@@ -672,7 +672,7 @@ pub async fn remove_team_member(
 pub async fn grant_team_permission(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(String, i64)>,
+    Path((_org, team_id)): Path<(i64, i64)>,
     Json(payload): Json<GrantTeamPermissionRequest>,
 ) -> Result<(StatusCode, Json<GrantTeamPermissionResponse>)> {
     // Only owners can grant permissions
@@ -727,7 +727,7 @@ pub async fn grant_team_permission(
 pub async fn list_team_permissions(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(String, i64)>,
+    Path((_org, team_id)): Path<(i64, i64)>,
 ) -> Result<Json<ListTeamPermissionsResponse>> {
     let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
     let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
@@ -785,7 +785,7 @@ pub async fn list_team_permissions(
 pub async fn revoke_team_permission(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id, permission_id)): Path<(String, i64, i64)>,
+    Path((_org, team_id, permission_id)): Path<(i64, i64, i64)>,
 ) -> Result<Json<RevokeTeamPermissionResponse>> {
     // Only owners can revoke permissions
     require_owner(&org_ctx)?;

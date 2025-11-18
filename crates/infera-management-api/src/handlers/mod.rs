@@ -1,3 +1,4 @@
+pub mod audit_logs;
 pub mod auth;
 pub mod cli_auth;
 pub mod clients;

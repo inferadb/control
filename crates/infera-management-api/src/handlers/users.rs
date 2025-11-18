@@ -220,7 +220,8 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        let profile: UserProfile = serde_json::from_slice(&body).unwrap();
+        let response_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let profile: UserProfile = serde_json::from_value(response_json["user"].clone()).unwrap();
 
         assert_eq!(profile.id, user.id);
         assert_eq!(profile.name, user.name);

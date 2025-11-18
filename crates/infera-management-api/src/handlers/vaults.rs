@@ -245,12 +245,27 @@ pub async fn create_vault(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    // Verify organization exists
+    // Verify organization exists and get tier
     let org_repo = OrganizationRepository::new((*state.storage).clone());
-    org_repo
+    let organization = org_repo
         .get(org_ctx.organization_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+
+    // Check tier limits
+    let vault_repo = VaultRepository::new((*state.storage).clone());
+    let current_count = vault_repo
+        .count_active_by_organization(org_ctx.organization_id)
+        .await?;
+
+    if current_count >= organization.tier.max_vaults() {
+        return Err(CoreError::TierLimit(format!(
+            "Vault limit reached for tier {:?}. Maximum: {}",
+            organization.tier,
+            organization.tier.max_vaults()
+        ))
+        .into());
+    }
 
     // Generate ID for the vault
     let vault_id = IdGenerator::next_id();
@@ -264,7 +279,6 @@ pub async fn create_vault(
     )?;
 
     // Save to repository
-    let vault_repo = VaultRepository::new((*state.storage).clone());
     vault_repo.create(vault.clone()).await?;
 
     // Attempt to sync with @server
@@ -409,6 +423,10 @@ pub async fn update_vault(
 ///
 /// DELETE /v1/organizations/:org/vaults/:vault
 /// Required role: ADMIN or OWNER
+///
+/// Cascade deletes:
+/// - All user grants for this vault
+/// - All team grants for this vault
 pub async fn delete_vault(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
@@ -418,6 +436,9 @@ pub async fn delete_vault(
     require_admin_or_owner(&org_ctx)?;
 
     let vault_repo = VaultRepository::new((*state.storage).clone());
+    let vault_user_grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
+    let vault_team_grant_repo = VaultTeamGrantRepository::new((*state.storage).clone());
+
     let mut vault = vault_repo
         .get(vault_id)
         .await?
@@ -426,6 +447,18 @@ pub async fn delete_vault(
     // Verify vault belongs to this organization
     if vault.organization_id != org_ctx.organization_id {
         return Err(CoreError::NotFound("Vault not found".to_string()).into());
+    }
+
+    // CASCADE DELETE: Delete all vault user grants
+    let user_grants = vault_user_grant_repo.list_by_vault(vault_id).await?;
+    for grant in user_grants {
+        vault_user_grant_repo.delete(grant.id).await?;
+    }
+
+    // CASCADE DELETE: Delete all vault team grants
+    let team_grants = vault_team_grant_repo.list_by_vault(vault_id).await?;
+    for grant in team_grants {
+        vault_team_grant_repo.delete(grant.id).await?;
     }
 
     // Attempt to delete from @server
@@ -577,13 +610,13 @@ pub async fn update_user_grant(
 
 /// Delete a user grant
 ///
-/// DELETE /v1/organizations/:org/vaults/:vault/user-grants/:grant
+/// DELETE /v1/organizations/:org/vaults/:vault/user-grants/:user
 /// Required role: ADMIN or OWNER
 pub async fn delete_user_grant(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id, grant_id)): Path<(i64, i64, i64)>,
-) -> Result<Json<DeleteUserGrantResponse>> {
+    Path((_org_id, vault_id, user_id)): Path<(i64, i64, i64)>,
+) -> Result<StatusCode> {
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
@@ -598,24 +631,17 @@ pub async fn delete_user_grant(
         return Err(CoreError::NotFound("Vault not found".to_string()).into());
     }
 
-    // Get grant
+    // Get grant by user_id
     let grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
     let grant = grant_repo
-        .get(grant_id)
+        .get_by_vault_and_user(vault_id, user_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Grant not found".to_string()))?;
 
-    // Verify grant belongs to this vault
-    if grant.vault_id != vault_id {
-        return Err(CoreError::NotFound("Grant not found".to_string()).into());
-    }
-
     // Delete the grant
-    grant_repo.delete(grant_id).await?;
+    grant_repo.delete(grant.id).await?;
 
-    Ok(Json(DeleteUserGrantResponse {
-        message: "User grant deleted successfully".to_string(),
-    }))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ============================================================================

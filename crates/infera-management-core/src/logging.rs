@@ -78,19 +78,25 @@ pub fn init(config: &ObservabilityConfig, json: bool) {
 pub fn init_with_tracing(
     config: &ObservabilityConfig,
     json: bool,
-    service_name: &str,
+    _service_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use opentelemetry::trace::TracerProvider;
-    use opentelemetry_otlp::WithExportConfig;
-    use opentelemetry_sdk::trace::Sampler;
-    use tracing_opentelemetry::OpenTelemetryLayer;
+    // Temporarily disabled due to OpenTelemetry API incompatibility
+    // use opentelemetry::trace::TracerProvider;
+    // use opentelemetry_otlp::WithExportConfig;
+    // use opentelemetry_sdk::trace::Sampler;
+    // use tracing_opentelemetry::OpenTelemetryLayer;
 
-    let env_filter = EnvFilter::try_from_default_env()
+    let _env_filter = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new(&config.log_level))
         .unwrap_or_else(|_| EnvFilter::new("info"));
 
     // Set up OpenTelemetry if tracing is enabled
+    // TODO: Fix OpenTelemetry API compatibility
     if config.tracing_enabled {
+        return Err("OpenTelemetry tracing is temporarily disabled due to API incompatibility. Set INFERADB_MGMT__OBSERVABILITY__TRACING_ENABLED=false".into());
+
+        // FIXME: Uncomment and fix this when OpenTelemetry API is updated
+        /*
         let otlp_endpoint = config
             .otlp_endpoint
             .as_ref()
@@ -113,34 +119,7 @@ pub fn init_with_tracing(
             .install_batch(opentelemetry_sdk::runtime::Tokio)?;
 
         let telemetry_layer = OpenTelemetryLayer::new(tracer.tracer(service_name));
-
-        if json {
-            let fmt_layer = fmt::layer()
-                .json()
-                .with_target(true)
-                .with_current_span(true)
-                .with_span_list(true)
-                .with_thread_ids(true)
-                .with_thread_names(true)
-                .with_filter(env_filter.clone());
-
-            tracing_subscriber::registry()
-                .with(fmt_layer)
-                .with(telemetry_layer)
-                .init();
-        } else {
-            let fmt_layer = fmt::layer()
-                .pretty()
-                .with_target(true)
-                .with_thread_ids(false)
-                .with_thread_names(false)
-                .with_filter(env_filter.clone());
-
-            tracing_subscriber::registry()
-                .with(fmt_layer)
-                .with(telemetry_layer)
-                .init();
-        }
+        */
     } else {
         // Fallback to basic logging if tracing is not enabled
         init(config, json);

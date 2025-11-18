@@ -1,6 +1,6 @@
 use crate::handlers::{
-    auth, cli_auth, clients, emails, health, jwks, metrics as metrics_handler, organizations,
-    sessions, teams, tokens, users, vaults, AppState,
+    audit_logs, auth, cli_auth, clients, emails, health, jwks, metrics as metrics_handler,
+    organizations, sessions, teams, tokens, users, vaults, AppState,
 };
 use crate::middleware::{logging_middleware, require_organization_member, require_session};
 use axum::{
@@ -155,6 +155,11 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/v1/organizations/{org}/vaults/{vault}/tokens",
             post(tokens::generate_vault_token),
         )
+        // Audit log routes (OWNER only)
+        .route(
+            "/v1/organizations/{org}/audit-logs",
+            get(audit_logs::list_audit_logs),
+        )
         // Team management routes
         .route("/v1/organizations/{org}/teams", post(teams::create_team))
         .route("/v1/organizations/{org}/teams", get(teams::list_teams))
@@ -256,6 +261,8 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/health", get(health_check))
         // Metrics endpoint (no authentication)
         .route("/metrics", get(metrics_handler::metrics_handler))
+        // Internal audit logging endpoint (no authentication, for internal use)
+        .route("/internal/audit", post(audit_logs::create_audit_log))
         // Authentication endpoints
         .route("/v1/auth/register", post(auth::register))
         .route("/v1/auth/login/password", post(auth::login))

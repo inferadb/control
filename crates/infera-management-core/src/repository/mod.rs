@@ -14,7 +14,7 @@ pub mod user_session;
 pub mod vault;
 pub mod vault_refresh_token;
 
-pub use audit_log::AuditLogRepository;
+pub use audit_log::{AuditLogFilters, AuditLogRepository};
 pub use authorization_code::AuthorizationCodeRepository;
 pub use client::ClientRepository;
 pub use client_certificate::ClientCertificateRepository;
