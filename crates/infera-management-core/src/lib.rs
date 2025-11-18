@@ -15,15 +15,17 @@ pub use crypto::{keypair, PrivateKeyEncryptor};
 pub use email::{EmailSender, EmailService, SmtpEmailService};
 pub use entities::{
     Client, ClientCertificate, Organization, OrganizationInvitation, OrganizationMember,
-    OrganizationRole, OrganizationTier, SessionType, User, UserEmail, UserEmailVerificationToken,
-    UserPasswordResetToken, UserSession, Vault, VaultRole, VaultSyncStatus, VaultTeamGrant,
-    VaultUserGrant,
+    OrganizationPermission, OrganizationRole, OrganizationTeam, OrganizationTeamMember,
+    OrganizationTeamPermission, OrganizationTier, SessionType, User, UserEmail,
+    UserEmailVerificationToken, UserPasswordResetToken, UserSession, Vault, VaultRole,
+    VaultSyncStatus, VaultTeamGrant, VaultUserGrant,
 };
 pub use error::{Error, Result};
 pub use id::{IdGenerator, WorkerRegistry};
 pub use repository::{
     ClientCertificateRepository, ClientRepository, OrganizationInvitationRepository,
-    OrganizationMemberRepository, OrganizationRepository, UserEmailRepository,
+    OrganizationMemberRepository, OrganizationRepository, OrganizationTeamMemberRepository,
+    OrganizationTeamPermissionRepository, OrganizationTeamRepository, UserEmailRepository,
     UserEmailVerificationTokenRepository, UserPasswordResetTokenRepository, UserRepository,
     UserSessionRepository, VaultRepository, VaultTeamGrantRepository, VaultUserGrantRepository,
 };

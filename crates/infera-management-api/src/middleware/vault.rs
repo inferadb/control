@@ -128,6 +128,8 @@ pub async fn get_user_vault_role(
     vault_id: i64,
     user_id: i64,
 ) -> Result<Option<VaultRole>, ApiError> {
+    use infera_management_core::{OrganizationTeamMemberRepository, VaultTeamGrantRepository};
+
     // Check direct user grant first
     let user_grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
     if let Some(grant) = user_grant_repo
@@ -137,15 +139,33 @@ pub async fn get_user_vault_role(
         return Ok(Some(grant.role));
     }
 
-    // TODO: Check team grants when teams are implemented
-    // For now, we would:
-    // 1. Get user's team memberships in the organization
-    // 2. Get VaultTeamGrant for each team
-    // 3. Return highest role found
-    //
-    // This will be implemented in Phase 6 when teams are added.
+    // Check team grants
+    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
+    let team_grant_repo = VaultTeamGrantRepository::new((*state.storage).clone());
 
-    Ok(None)
+    // Get all teams the user is a member of
+    let user_teams = team_member_repo.list_by_user(user_id).await?;
+
+    // Find the highest role from team grants
+    let mut highest_role: Option<VaultRole> = None;
+
+    for membership in user_teams {
+        if let Some(team_grant) = team_grant_repo
+            .get_by_vault_and_team(vault_id, membership.team_id)
+            .await?
+        {
+            match highest_role {
+                None => highest_role = Some(team_grant.role),
+                Some(current_role) => {
+                    if team_grant.role > current_role {
+                        highest_role = Some(team_grant.role);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(highest_role)
 }
 
 /// Require user to be a reader or higher

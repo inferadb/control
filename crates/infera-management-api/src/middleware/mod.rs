@@ -1,10 +1,14 @@
 pub mod organization;
+pub mod permission;
 pub mod session;
 pub mod vault;
 
 pub use organization::{
     require_admin_or_owner, require_member, require_organization_member, require_owner,
     OrganizationContext,
+};
+pub use permission::{
+    get_user_permissions, has_organization_permission, require_organization_permission,
 };
 pub use session::{extract_session_context, require_session, SessionContext};
 pub use vault::{

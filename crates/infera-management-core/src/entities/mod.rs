@@ -1,6 +1,7 @@
 pub mod client;
 pub mod organization;
 pub mod organization_invitation;
+pub mod team;
 pub mod user;
 pub mod user_email;
 pub mod user_email_verification_token;
@@ -11,6 +12,9 @@ pub mod vault;
 pub use client::{Client, ClientCertificate};
 pub use organization::{Organization, OrganizationMember, OrganizationRole, OrganizationTier};
 pub use organization_invitation::OrganizationInvitation;
+pub use team::{
+    OrganizationPermission, OrganizationTeam, OrganizationTeamMember, OrganizationTeamPermission,
+};
 pub use user::User;
 pub use user_email::UserEmail;
 pub use user_email_verification_token::UserEmailVerificationToken;

@@ -1,5 +1,5 @@
 use crate::handlers::{
-    auth, clients, emails, jwks, organizations, sessions, users, vaults, AppState,
+    auth, clients, emails, jwks, organizations, sessions, teams, users, vaults, AppState,
 };
 use crate::middleware::{require_organization_member, require_session};
 use axum::{
@@ -144,6 +144,48 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route(
             "/v1/organizations/{org}/vaults/{vault}/team-grants/{grant}",
             delete(vaults::delete_team_grant),
+        )
+        // Team management routes
+        .route("/v1/organizations/{org}/teams", post(teams::create_team))
+        .route("/v1/organizations/{org}/teams", get(teams::list_teams))
+        .route("/v1/organizations/{org}/teams/{team}", get(teams::get_team))
+        .route(
+            "/v1/organizations/{org}/teams/{team}",
+            patch(teams::update_team),
+        )
+        .route(
+            "/v1/organizations/{org}/teams/{team}",
+            delete(teams::delete_team),
+        )
+        // Team member routes
+        .route(
+            "/v1/organizations/{org}/teams/{team}/members",
+            post(teams::add_team_member),
+        )
+        .route(
+            "/v1/organizations/{org}/teams/{team}/members",
+            get(teams::list_team_members),
+        )
+        .route(
+            "/v1/organizations/{org}/teams/{team}/members/{member}",
+            patch(teams::update_team_member),
+        )
+        .route(
+            "/v1/organizations/{org}/teams/{team}/members/{member}",
+            delete(teams::remove_team_member),
+        )
+        // Team permission routes
+        .route(
+            "/v1/organizations/{org}/teams/{team}/permissions",
+            post(teams::grant_team_permission),
+        )
+        .route(
+            "/v1/organizations/{org}/teams/{team}/permissions",
+            get(teams::list_team_permissions),
+        )
+        .route(
+            "/v1/organizations/{org}/teams/{team}/permissions/{permission}",
+            delete(teams::revoke_team_permission),
         )
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(
