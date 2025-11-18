@@ -299,7 +299,7 @@ mod tests {
     async fn test_create_and_get_session_token() {
         let repo = create_test_repo();
         let token =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         repo.create(token.clone()).await.unwrap();
@@ -312,7 +312,7 @@ mod tests {
     async fn test_create_and_get_client_token() {
         let repo = create_test_repo();
         let token =
-            VaultRefreshToken::new_for_client(1, 100, 200, VaultRole::VaultRoleWriter, 400, None)
+            VaultRefreshToken::new_for_client(1, 100, 200, VaultRole::Writer, 400, None)
                 .unwrap();
 
         repo.create(token.clone()).await.unwrap();
@@ -325,7 +325,7 @@ mod tests {
     async fn test_get_by_token_string() {
         let repo = create_test_repo();
         let token =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         let token_str = token.token.clone();
@@ -346,7 +346,7 @@ mod tests {
     async fn test_update_token() {
         let repo = create_test_repo();
         let mut token =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         repo.create(token.clone()).await.unwrap();
@@ -364,13 +364,13 @@ mod tests {
         let repo = create_test_repo();
 
         let token1 =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
         let token2 =
-            VaultRefreshToken::new_for_client(2, 100, 200, VaultRole::VaultRoleWriter, 400, None)
+            VaultRefreshToken::new_for_client(2, 100, 200, VaultRole::Writer, 400, None)
                 .unwrap();
         let token3 =
-            VaultRefreshToken::new_for_session(3, 999, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(3, 999, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         repo.create(token1).await.unwrap();
@@ -389,13 +389,13 @@ mod tests {
         let repo = create_test_repo();
 
         let token1 =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
         let token2 =
-            VaultRefreshToken::new_for_session(2, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(2, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
         let token3 =
-            VaultRefreshToken::new_for_session(3, 100, 200, VaultRole::VaultRoleReader, 999, None)
+            VaultRefreshToken::new_for_session(3, 100, 200, VaultRole::Reader, 999, None)
                 .unwrap();
 
         repo.create(token1).await.unwrap();
@@ -414,13 +414,13 @@ mod tests {
         let repo = create_test_repo();
 
         let token1 =
-            VaultRefreshToken::new_for_client(1, 100, 200, VaultRole::VaultRoleWriter, 400, None)
+            VaultRefreshToken::new_for_client(1, 100, 200, VaultRole::Writer, 400, None)
                 .unwrap();
         let token2 =
-            VaultRefreshToken::new_for_client(2, 100, 200, VaultRole::VaultRoleWriter, 400, None)
+            VaultRefreshToken::new_for_client(2, 100, 200, VaultRole::Writer, 400, None)
                 .unwrap();
         let token3 =
-            VaultRefreshToken::new_for_client(3, 100, 200, VaultRole::VaultRoleWriter, 999, None)
+            VaultRefreshToken::new_for_client(3, 100, 200, VaultRole::Writer, 999, None)
                 .unwrap();
 
         repo.create(token1).await.unwrap();
@@ -439,10 +439,10 @@ mod tests {
         let repo = create_test_repo();
 
         let token1 =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
         let token2 =
-            VaultRefreshToken::new_for_session(2, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(2, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         repo.create(token1).await.unwrap();
@@ -462,10 +462,10 @@ mod tests {
         let repo = create_test_repo();
 
         let token1 =
-            VaultRefreshToken::new_for_client(1, 100, 200, VaultRole::VaultRoleWriter, 400, None)
+            VaultRefreshToken::new_for_client(1, 100, 200, VaultRole::Writer, 400, None)
                 .unwrap();
         let token2 =
-            VaultRefreshToken::new_for_client(2, 100, 200, VaultRole::VaultRoleWriter, 400, None)
+            VaultRefreshToken::new_for_client(2, 100, 200, VaultRole::Writer, 400, None)
                 .unwrap();
 
         repo.create(token1).await.unwrap();
@@ -485,10 +485,10 @@ mod tests {
         let repo = create_test_repo();
 
         let token1 =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
         let token2 =
-            VaultRefreshToken::new_for_client(2, 100, 200, VaultRole::VaultRoleWriter, 400, None)
+            VaultRefreshToken::new_for_client(2, 100, 200, VaultRole::Writer, 400, None)
                 .unwrap();
 
         repo.create(token1).await.unwrap();

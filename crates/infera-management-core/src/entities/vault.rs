@@ -35,13 +35,13 @@ pub enum VaultSyncStatus {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum VaultRole {
     /// Can read vault data
-    VaultRoleReader,
+    Reader,
     /// Can read and write vault data
-    VaultRoleWriter,
+    Writer,
     /// Can read, write, and manage grants
-    VaultRoleManager,
+    Manager,
     /// Can do everything including vault deletion
-    VaultRoleAdmin,
+    Admin,
 }
 
 impl VaultRole {
@@ -241,35 +241,35 @@ mod tests {
 
     #[test]
     fn test_vault_role_ordering() {
-        assert!(VaultRole::VaultRoleAdmin > VaultRole::VaultRoleManager);
-        assert!(VaultRole::VaultRoleManager > VaultRole::VaultRoleWriter);
-        assert!(VaultRole::VaultRoleWriter > VaultRole::VaultRoleReader);
+        assert!(VaultRole::Admin > VaultRole::Manager);
+        assert!(VaultRole::Manager > VaultRole::Writer);
+        assert!(VaultRole::Writer > VaultRole::Reader);
     }
 
     #[test]
     fn test_vault_role_has_permission() {
-        assert!(VaultRole::VaultRoleAdmin.has_permission(VaultRole::VaultRoleReader));
-        assert!(VaultRole::VaultRoleManager.has_permission(VaultRole::VaultRoleWriter));
-        assert!(!VaultRole::VaultRoleReader.has_permission(VaultRole::VaultRoleAdmin));
+        assert!(VaultRole::Admin.has_permission(VaultRole::Reader));
+        assert!(VaultRole::Manager.has_permission(VaultRole::Writer));
+        assert!(!VaultRole::Reader.has_permission(VaultRole::Admin));
     }
 
     #[test]
     fn test_create_user_grant() {
-        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::VaultRoleReader, 999);
+        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
         assert_eq!(grant.id, 1);
         assert_eq!(grant.vault_id, 100);
         assert_eq!(grant.user_id, 200);
-        assert_eq!(grant.role, VaultRole::VaultRoleReader);
+        assert_eq!(grant.role, VaultRole::Reader);
         assert_eq!(grant.granted_by_user_id, 999);
     }
 
     #[test]
     fn test_create_team_grant() {
-        let grant = VaultTeamGrant::new(1, 100, 300, VaultRole::VaultRoleWriter, 999);
+        let grant = VaultTeamGrant::new(1, 100, 300, VaultRole::Writer, 999);
         assert_eq!(grant.id, 1);
         assert_eq!(grant.vault_id, 100);
         assert_eq!(grant.team_id, 300);
-        assert_eq!(grant.role, VaultRole::VaultRoleWriter);
+        assert_eq!(grant.role, VaultRole::Writer);
         assert_eq!(grant.granted_by_user_id, 999);
     }
 }

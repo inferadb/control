@@ -22,12 +22,19 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 pub struct CreateTeamRequest {
     pub name: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CreateTeamResponse {
+    pub team: TeamInfo,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TeamInfo {
     pub id: i64,
     pub name: String,
+    pub description: String,
     pub organization_id: i64,
     pub created_at: String,
 }
@@ -69,7 +76,22 @@ pub struct DeleteTeamResponse {
 #[derive(Debug, Deserialize)]
 pub struct AddTeamMemberRequest {
     pub user_id: i64,
+    #[serde(rename = "is_manager")]
     pub manager: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AddTeamMemberResponse {
+    pub member: TeamMemberInfo,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TeamMemberInfo {
+    pub id: i64,
+    pub team_id: i64,
+    pub user_id: i64,
+    pub is_manager: bool,
+    pub created_at: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,6 +131,20 @@ pub struct RemoveTeamMemberResponse {
 #[derive(Debug, Deserialize)]
 pub struct GrantTeamPermissionRequest {
     pub permission: OrganizationPermission,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GrantTeamPermissionResponse {
+    pub permission: TeamPermissionInfo,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TeamPermissionInfo {
+    pub id: i64,
+    pub team_id: i64,
+    pub permission: OrganizationPermission,
+    pub granted_at: String,
+    pub granted_by_user_id: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -213,10 +249,13 @@ pub async fn create_team(
     Ok((
         StatusCode::CREATED,
         Json(CreateTeamResponse {
-            id: team.id,
-            name: team.name,
-            organization_id: team.organization_id,
-            created_at: team.created_at.to_rfc3339(),
+            team: TeamInfo {
+                id: team.id,
+                name: team.name,
+                description: payload.description.unwrap_or_default(),
+                organization_id: team.organization_id,
+                created_at: team.created_at.to_rfc3339(),
+            },
         }),
     ))
 }
@@ -385,7 +424,7 @@ pub async fn add_team_member(
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org, team_id)): Path<(String, i64)>,
     Json(payload): Json<AddTeamMemberRequest>,
-) -> Result<(StatusCode, Json<TeamMemberResponse>)> {
+) -> Result<(StatusCode, Json<AddTeamMemberResponse>)> {
     let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
     let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
 
@@ -440,7 +479,18 @@ pub async fn add_team_member(
 
     team_member_repo.create(member.clone()).await?;
 
-    Ok((StatusCode::CREATED, Json(team_member_to_response(member))))
+    Ok((
+        StatusCode::CREATED,
+        Json(AddTeamMemberResponse {
+            member: TeamMemberInfo {
+                id: member.id,
+                team_id: member.team_id,
+                user_id: member.user_id,
+                is_manager: member.manager,
+                created_at: member.created_at.to_rfc3339(),
+            },
+        }),
+    ))
 }
 
 /// List team members
@@ -624,7 +674,7 @@ pub async fn grant_team_permission(
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org, team_id)): Path<(String, i64)>,
     Json(payload): Json<GrantTeamPermissionRequest>,
-) -> Result<(StatusCode, Json<TeamPermissionResponse>)> {
+) -> Result<(StatusCode, Json<GrantTeamPermissionResponse>)> {
     // Only owners can grant permissions
     require_owner(&org_ctx)?;
 
@@ -658,7 +708,15 @@ pub async fn grant_team_permission(
 
     Ok((
         StatusCode::CREATED,
-        Json(team_permission_to_response(permission)),
+        Json(GrantTeamPermissionResponse {
+            permission: TeamPermissionInfo {
+                id: permission.id,
+                team_id: permission.team_id,
+                permission: permission.permission,
+                granted_at: permission.granted_at.to_rfc3339(),
+                granted_by_user_id: permission.granted_by_user_id,
+            },
+        }),
     ))
 }
 

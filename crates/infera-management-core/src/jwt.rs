@@ -47,10 +47,10 @@ impl VaultTokenClaims {
         let exp = now + Duration::seconds(ttl_seconds);
 
         let scope = match vault_role {
-            VaultRole::VaultRoleReader => "vault:read",
-            VaultRole::VaultRoleWriter => "vault:read vault:write",
-            VaultRole::VaultRoleManager => "vault:read vault:write vault:manage",
-            VaultRole::VaultRoleAdmin => "vault:read vault:write vault:manage vault:admin",
+            VaultRole::Reader => "vault:read",
+            VaultRole::Writer => "vault:read vault:write",
+            VaultRole::Manager => "vault:read vault:write vault:manage",
+            VaultRole::Admin => "vault:read vault:write vault:manage vault:admin",
         };
 
         Self {
@@ -255,29 +255,29 @@ mod tests {
 
     #[test]
     fn test_vault_token_claims_creation() {
-        let claims = VaultTokenClaims::new(123, 456, VaultRole::VaultRoleReader, 3600);
+        let claims = VaultTokenClaims::new(123, 456, VaultRole::Reader, 3600);
 
         assert_eq!(claims.iss, "tenant:123");
         assert_eq!(claims.sub, "tenant:123");
         assert_eq!(claims.aud, "https://api.inferadb.com/evaluate");
         assert_eq!(claims.vault_id, 456);
-        assert_eq!(claims.vault_role, VaultRole::VaultRoleReader);
+        assert_eq!(claims.vault_role, VaultRole::Reader);
         assert_eq!(claims.scope, "vault:read");
         assert!(!claims.is_expired());
     }
 
     #[test]
     fn test_vault_token_scopes() {
-        let reader = VaultTokenClaims::new(1, 1, VaultRole::VaultRoleReader, 3600);
+        let reader = VaultTokenClaims::new(1, 1, VaultRole::Reader, 3600);
         assert_eq!(reader.scope, "vault:read");
 
-        let writer = VaultTokenClaims::new(1, 1, VaultRole::VaultRoleWriter, 3600);
+        let writer = VaultTokenClaims::new(1, 1, VaultRole::Writer, 3600);
         assert_eq!(writer.scope, "vault:read vault:write");
 
-        let manager = VaultTokenClaims::new(1, 1, VaultRole::VaultRoleManager, 3600);
+        let manager = VaultTokenClaims::new(1, 1, VaultRole::Manager, 3600);
         assert_eq!(manager.scope, "vault:read vault:write vault:manage");
 
-        let admin = VaultTokenClaims::new(1, 1, VaultRole::VaultRoleAdmin, 3600);
+        let admin = VaultTokenClaims::new(1, 1, VaultRole::Admin, 3600);
         assert_eq!(
             admin.scope,
             "vault:read vault:write vault:manage vault:admin"
@@ -287,11 +287,11 @@ mod tests {
     #[test]
     fn test_vault_token_expiration() {
         // Create an expired token (TTL = -1 second)
-        let expired = VaultTokenClaims::new(1, 1, VaultRole::VaultRoleReader, -1);
+        let expired = VaultTokenClaims::new(1, 1, VaultRole::Reader, -1);
         assert!(expired.is_expired());
 
         // Create a valid token
-        let valid = VaultTokenClaims::new(1, 1, VaultRole::VaultRoleReader, 3600);
+        let valid = VaultTokenClaims::new(1, 1, VaultRole::Reader, 3600);
         assert!(!valid.is_expired());
     }
 
@@ -301,7 +301,7 @@ mod tests {
         let certificate = create_test_certificate(&encryptor);
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(123, 456, VaultRole::VaultRoleWriter, 3600);
+        let claims = VaultTokenClaims::new(123, 456, VaultRole::Writer, 3600);
 
         // Sign the token
         let token = signer.sign_vault_token(&claims, &certificate).unwrap();
@@ -322,7 +322,7 @@ mod tests {
         let certificate = create_test_certificate(&encryptor);
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(123, 456, VaultRole::VaultRoleReader, 3600);
+        let claims = VaultTokenClaims::new(123, 456, VaultRole::Reader, 3600);
         let token = signer.sign_vault_token(&claims, &certificate).unwrap();
 
         // Decode header to check kid
@@ -339,7 +339,7 @@ mod tests {
         let cert2 = create_test_certificate(&encryptor); // Different certificate
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(123, 456, VaultRole::VaultRoleReader, 3600);
+        let claims = VaultTokenClaims::new(123, 456, VaultRole::Reader, 3600);
         let token = signer.sign_vault_token(&claims, &cert1).unwrap();
 
         // Verification with wrong certificate should fail
@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn test_vault_token_datetime_conversion() {
-        let claims = VaultTokenClaims::new(123, 456, VaultRole::VaultRoleReader, 3600);
+        let claims = VaultTokenClaims::new(123, 456, VaultRole::Reader, 3600);
 
         let issued_at = claims.issued_at();
         let expires_at = claims.expires_at();

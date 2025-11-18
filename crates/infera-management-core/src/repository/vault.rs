@@ -807,7 +807,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_user_grant() {
         let repo = create_test_user_grant_repo();
-        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::VaultRoleReader, 999);
+        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
 
         repo.create(grant.clone()).await.unwrap();
 
@@ -818,8 +818,8 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_user_grant_rejected() {
         let repo = create_test_user_grant_repo();
-        let grant1 = VaultUserGrant::new(1, 100, 200, VaultRole::VaultRoleReader, 999);
-        let grant2 = VaultUserGrant::new(2, 100, 200, VaultRole::VaultRoleWriter, 999);
+        let grant1 = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
+        let grant2 = VaultUserGrant::new(2, 100, 200, VaultRole::Writer, 999);
 
         repo.create(grant1).await.unwrap();
 
@@ -831,7 +831,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_user_grant_by_vault_and_user() {
         let repo = create_test_user_grant_repo();
-        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::VaultRoleReader, 999);
+        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
 
         repo.create(grant.clone()).await.unwrap();
 
@@ -842,9 +842,9 @@ mod tests {
     #[tokio::test]
     async fn test_list_user_grants_by_vault() {
         let repo = create_test_user_grant_repo();
-        let grant1 = VaultUserGrant::new(1, 100, 200, VaultRole::VaultRoleReader, 999);
-        let grant2 = VaultUserGrant::new(2, 100, 201, VaultRole::VaultRoleWriter, 999);
-        let grant3 = VaultUserGrant::new(3, 101, 200, VaultRole::VaultRoleAdmin, 999);
+        let grant1 = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
+        let grant2 = VaultUserGrant::new(2, 100, 201, VaultRole::Writer, 999);
+        let grant3 = VaultUserGrant::new(3, 101, 200, VaultRole::Admin, 999);
 
         repo.create(grant1).await.unwrap();
         repo.create(grant2).await.unwrap();
@@ -860,9 +860,9 @@ mod tests {
     #[tokio::test]
     async fn test_list_user_grants_by_user() {
         let repo = create_test_user_grant_repo();
-        let grant1 = VaultUserGrant::new(1, 100, 200, VaultRole::VaultRoleReader, 999);
-        let grant2 = VaultUserGrant::new(2, 101, 200, VaultRole::VaultRoleWriter, 999);
-        let grant3 = VaultUserGrant::new(3, 100, 201, VaultRole::VaultRoleAdmin, 999);
+        let grant1 = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
+        let grant2 = VaultUserGrant::new(2, 101, 200, VaultRole::Writer, 999);
+        let grant3 = VaultUserGrant::new(3, 100, 201, VaultRole::Admin, 999);
 
         repo.create(grant1).await.unwrap();
         repo.create(grant2).await.unwrap();
@@ -878,21 +878,21 @@ mod tests {
     #[tokio::test]
     async fn test_update_user_grant() {
         let repo = create_test_user_grant_repo();
-        let mut grant = VaultUserGrant::new(1, 100, 200, VaultRole::VaultRoleReader, 999);
+        let mut grant = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
 
         repo.create(grant.clone()).await.unwrap();
 
-        grant.role = VaultRole::VaultRoleWriter;
+        grant.role = VaultRole::Writer;
         repo.update(grant.clone()).await.unwrap();
 
         let retrieved = repo.get(1).await.unwrap().unwrap();
-        assert_eq!(retrieved.role, VaultRole::VaultRoleWriter);
+        assert_eq!(retrieved.role, VaultRole::Writer);
     }
 
     #[tokio::test]
     async fn test_delete_user_grant() {
         let repo = create_test_user_grant_repo();
-        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::VaultRoleReader, 999);
+        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
 
         repo.create(grant).await.unwrap();
         assert!(repo.get(1).await.unwrap().is_some());
@@ -909,7 +909,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_team_grant() {
         let repo = create_test_team_grant_repo();
-        let grant = VaultTeamGrant::new(1, 100, 300, VaultRole::VaultRoleReader, 999);
+        let grant = VaultTeamGrant::new(1, 100, 300, VaultRole::Reader, 999);
 
         repo.create(grant.clone()).await.unwrap();
 
@@ -920,8 +920,8 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_team_grant_rejected() {
         let repo = create_test_team_grant_repo();
-        let grant1 = VaultTeamGrant::new(1, 100, 300, VaultRole::VaultRoleReader, 999);
-        let grant2 = VaultTeamGrant::new(2, 100, 300, VaultRole::VaultRoleWriter, 999);
+        let grant1 = VaultTeamGrant::new(1, 100, 300, VaultRole::Reader, 999);
+        let grant2 = VaultTeamGrant::new(2, 100, 300, VaultRole::Writer, 999);
 
         repo.create(grant1).await.unwrap();
 
@@ -933,9 +933,9 @@ mod tests {
     #[tokio::test]
     async fn test_list_team_grants_by_vault() {
         let repo = create_test_team_grant_repo();
-        let grant1 = VaultTeamGrant::new(1, 100, 300, VaultRole::VaultRoleReader, 999);
-        let grant2 = VaultTeamGrant::new(2, 100, 301, VaultRole::VaultRoleWriter, 999);
-        let grant3 = VaultTeamGrant::new(3, 101, 300, VaultRole::VaultRoleAdmin, 999);
+        let grant1 = VaultTeamGrant::new(1, 100, 300, VaultRole::Reader, 999);
+        let grant2 = VaultTeamGrant::new(2, 100, 301, VaultRole::Writer, 999);
+        let grant3 = VaultTeamGrant::new(3, 101, 300, VaultRole::Admin, 999);
 
         repo.create(grant1).await.unwrap();
         repo.create(grant2).await.unwrap();
@@ -951,9 +951,9 @@ mod tests {
     #[tokio::test]
     async fn test_list_team_grants_by_team() {
         let repo = create_test_team_grant_repo();
-        let grant1 = VaultTeamGrant::new(1, 100, 300, VaultRole::VaultRoleReader, 999);
-        let grant2 = VaultTeamGrant::new(2, 101, 300, VaultRole::VaultRoleWriter, 999);
-        let grant3 = VaultTeamGrant::new(3, 100, 301, VaultRole::VaultRoleAdmin, 999);
+        let grant1 = VaultTeamGrant::new(1, 100, 300, VaultRole::Reader, 999);
+        let grant2 = VaultTeamGrant::new(2, 101, 300, VaultRole::Writer, 999);
+        let grant3 = VaultTeamGrant::new(3, 100, 301, VaultRole::Admin, 999);
 
         repo.create(grant1).await.unwrap();
         repo.create(grant2).await.unwrap();

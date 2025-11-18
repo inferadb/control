@@ -6,6 +6,12 @@ use crate::handlers::auth::{AppState, Result};
 use crate::middleware::SessionContext;
 use axum::extract::State;
 
+/// Get user profile response (wrapped)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetUserProfileResponse {
+    pub user: UserProfile,
+}
+
 /// User profile response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserProfile {
@@ -50,7 +56,7 @@ pub struct DeleteUserResponse {
 pub async fn get_profile(
     State(state): State<AppState>,
     Extension(ctx): Extension<SessionContext>,
-) -> Result<Json<UserProfile>> {
+) -> Result<Json<GetUserProfileResponse>> {
     // Get user from repository
     let user_repo = UserRepository::new((*state.storage).clone());
     let user = user_repo
@@ -58,11 +64,13 @@ pub async fn get_profile(
         .await?
         .ok_or_else(|| CoreError::NotFound("User not found".to_string()))?;
 
-    Ok(Json(UserProfile {
-        id: user.id,
-        name: user.name,
-        created_at: user.created_at.to_rfc3339(),
-        tos_accepted_at: user.tos_accepted_at.map(|dt| dt.to_rfc3339()),
+    Ok(Json(GetUserProfileResponse {
+        user: UserProfile {
+            id: user.id,
+            name: user.name,
+            created_at: user.created_at.to_rfc3339(),
+            tos_accepted_at: user.tos_accepted_at.map(|dt| dt.to_rfc3339()),
+        },
     }))
 }
 

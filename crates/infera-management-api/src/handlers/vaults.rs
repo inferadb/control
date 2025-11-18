@@ -8,7 +8,8 @@ use axum::{
 };
 use infera_management_core::{
     Error as CoreError, IdGenerator, OrganizationRepository, Vault, VaultRepository, VaultRole,
-    VaultTeamGrant, VaultTeamGrantRepository, VaultUserGrant, VaultUserGrantRepository,
+    VaultSyncStatus, VaultTeamGrant, VaultTeamGrantRepository, VaultUserGrant,
+    VaultUserGrantRepository,
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,14 +20,21 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 pub struct CreateVaultRequest {
     pub name: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CreateVaultResponse {
+    pub vault: VaultInfo,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VaultInfo {
     pub id: i64,
     pub name: String,
+    pub description: String,
     pub organization_id: i64,
-    pub sync_status: String,
+    pub sync_status: VaultSyncStatus,
     pub created_at: String,
 }
 
@@ -50,12 +58,19 @@ pub struct ListVaultsResponse {
 #[derive(Debug, Deserialize)]
 pub struct UpdateVaultRequest {
     pub name: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct UpdateVaultResponse {
+    pub vault: VaultDetail,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VaultDetail {
     pub id: i64,
     pub name: String,
+    pub description: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -71,6 +86,21 @@ pub struct DeleteVaultResponse {
 pub struct CreateUserGrantRequest {
     pub user_id: i64,
     pub role: VaultRole,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateUserGrantResponse {
+    pub grant: UserGrantInfo,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserGrantInfo {
+    pub id: i64,
+    pub vault_id: i64,
+    pub user_id: i64,
+    pub role: VaultRole,
+    pub granted_at: String,
+    pub granted_by_user_id: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -112,6 +142,21 @@ pub struct DeleteUserGrantResponse {
 pub struct CreateTeamGrantRequest {
     pub team_id: i64,
     pub role: VaultRole,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateTeamGrantResponse {
+    pub grant: TeamGrantInfo,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TeamGrantInfo {
+    pub id: i64,
+    pub vault_id: i64,
+    pub team_id: i64,
+    pub role: VaultRole,
+    pub granted_at: String,
+    pub granted_by_user_id: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -247,7 +292,7 @@ pub async fn create_vault(
         grant_id,
         vault_id,
         org_ctx.member.user_id,
-        VaultRole::VaultRoleAdmin,
+        VaultRole::Admin,
         org_ctx.member.user_id,
     );
     let grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
@@ -256,11 +301,14 @@ pub async fn create_vault(
     Ok((
         StatusCode::CREATED,
         Json(CreateVaultResponse {
-            id: vault.id,
-            name: vault.name,
-            organization_id: vault.organization_id,
-            sync_status: format!("{:?}", vault.sync_status),
-            created_at: vault.created_at.to_rfc3339(),
+            vault: VaultInfo {
+                id: vault.id,
+                name: vault.name,
+                description: payload.description.unwrap_or_default(),
+                organization_id: vault.organization_id,
+                sync_status: vault.sync_status,
+                created_at: vault.created_at.to_rfc3339(),
+            },
         }),
     ))
 }
@@ -309,6 +357,11 @@ pub async fn get_vault(
         return Err(CoreError::NotFound("Vault not found".to_string()).into());
     }
 
+    // Don't return deleted vaults
+    if vault.is_deleted() {
+        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+    }
+
     Ok(Json(vault_to_response(vault)))
 }
 
@@ -344,8 +397,11 @@ pub async fn update_vault(
     vault_repo.update(vault.clone()).await?;
 
     Ok(Json(UpdateVaultResponse {
-        id: vault.id,
-        name: vault.name,
+        vault: VaultDetail {
+            id: vault.id,
+            name: vault.name,
+            description: payload.description.unwrap_or_default(),
+        },
     }))
 }
 
@@ -357,7 +413,7 @@ pub async fn delete_vault(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org_id, vault_id)): Path<(i64, i64)>,
-) -> Result<Json<DeleteVaultResponse>> {
+) -> Result<StatusCode> {
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
@@ -380,9 +436,7 @@ pub async fn delete_vault(
     vault.mark_deleted();
     vault_repo.update(vault).await?;
 
-    Ok(Json(DeleteVaultResponse {
-        message: "Vault deleted successfully".to_string(),
-    }))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ============================================================================
@@ -398,7 +452,7 @@ pub async fn create_user_grant(
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org_id, vault_id)): Path<(i64, i64)>,
     Json(payload): Json<CreateUserGrantRequest>,
-) -> Result<(StatusCode, Json<UserGrantResponse>)> {
+) -> Result<(StatusCode, Json<CreateUserGrantResponse>)> {
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
@@ -429,7 +483,19 @@ pub async fn create_user_grant(
     let grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
     grant_repo.create(grant.clone()).await?;
 
-    Ok((StatusCode::CREATED, Json(user_grant_to_response(grant))))
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateUserGrantResponse {
+            grant: UserGrantInfo {
+                id: grant.id,
+                vault_id: grant.vault_id,
+                user_id: grant.user_id,
+                role: grant.role,
+                granted_at: grant.granted_at.to_rfc3339(),
+                granted_by_user_id: grant.granted_by_user_id,
+            },
+        }),
+    ))
 }
 
 /// List all user grants for a vault
@@ -565,7 +631,7 @@ pub async fn create_team_grant(
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org_id, vault_id)): Path<(i64, i64)>,
     Json(payload): Json<CreateTeamGrantRequest>,
-) -> Result<(StatusCode, Json<TeamGrantResponse>)> {
+) -> Result<(StatusCode, Json<CreateTeamGrantResponse>)> {
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
@@ -596,7 +662,19 @@ pub async fn create_team_grant(
     let grant_repo = VaultTeamGrantRepository::new((*state.storage).clone());
     grant_repo.create(grant.clone()).await?;
 
-    Ok((StatusCode::CREATED, Json(team_grant_to_response(grant))))
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateTeamGrantResponse {
+            grant: TeamGrantInfo {
+                id: grant.id,
+                vault_id: grant.vault_id,
+                team_id: grant.team_id,
+                role: grant.role,
+                granted_at: grant.granted_at.to_rfc3339(),
+                granted_by_user_id: grant.granted_by_user_id,
+            },
+        }),
+    ))
 }
 
 /// List all team grants for a vault

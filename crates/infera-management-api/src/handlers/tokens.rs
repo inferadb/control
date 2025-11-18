@@ -422,10 +422,10 @@ pub async fn client_assertion_authenticate(
         .map_err(|_| CoreError::Validation("invalid vault_id in scope".to_string()))?;
 
     let requested_role = match scope_parts[2] {
-        "read" => VaultRole::VaultRoleReader,
-        "write" => VaultRole::VaultRoleWriter,
-        "manage" => VaultRole::VaultRoleManager,
-        "admin" => VaultRole::VaultRoleAdmin,
+        "read" => VaultRole::Reader,
+        "write" => VaultRole::Writer,
+        "manage" => VaultRole::Manager,
+        "admin" => VaultRole::Admin,
         _ => {
             return Err(CoreError::Validation(
                 "invalid role in scope (must be read, write, manage, or admin)".to_string(),

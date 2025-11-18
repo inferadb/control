@@ -220,6 +220,7 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/v1/users/me", get(users::get_profile))
         .route("/v1/users/me", patch(users::update_profile))
         .route("/v1/users/me", delete(users::delete_user))
+        .route("/v1/auth/me", get(users::get_profile))
         // Email management routes
         .route("/v1/users/emails", post(emails::add_email))
         .route("/v1/users/emails", get(emails::list_emails))

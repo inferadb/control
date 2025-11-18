@@ -29,22 +29,22 @@ impl VaultContext {
 
     /// Check if the user is a reader or higher
     pub fn is_reader(&self) -> bool {
-        self.has_permission(VaultRole::VaultRoleReader)
+        self.has_permission(VaultRole::Reader)
     }
 
     /// Check if the user is a writer or higher
     pub fn is_writer(&self) -> bool {
-        self.has_permission(VaultRole::VaultRoleWriter)
+        self.has_permission(VaultRole::Writer)
     }
 
     /// Check if the user is a manager or higher
     pub fn is_manager(&self) -> bool {
-        self.has_permission(VaultRole::VaultRoleManager)
+        self.has_permission(VaultRole::Manager)
     }
 
     /// Check if the user is an admin
     pub fn is_admin(&self) -> bool {
-        self.has_permission(VaultRole::VaultRoleAdmin)
+        self.has_permission(VaultRole::Admin)
     }
 }
 

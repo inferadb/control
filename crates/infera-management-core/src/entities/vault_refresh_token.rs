@@ -224,13 +224,13 @@ mod tests {
     #[test]
     fn test_new_for_session() {
         let token =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         assert_eq!(token.id, 1);
         assert_eq!(token.vault_id, 100);
         assert_eq!(token.organization_id, 200);
-        assert_eq!(token.vault_role, VaultRole::VaultRoleReader);
+        assert_eq!(token.vault_role, VaultRole::Reader);
         assert_eq!(token.user_session_id, Some(300));
         assert_eq!(token.org_api_key_id, None);
         assert!(!token.is_expired());
@@ -242,13 +242,13 @@ mod tests {
     #[test]
     fn test_new_for_client() {
         let token =
-            VaultRefreshToken::new_for_client(1, 100, 200, VaultRole::VaultRoleWriter, 400, None)
+            VaultRefreshToken::new_for_client(1, 100, 200, VaultRole::Writer, 400, None)
                 .unwrap();
 
         assert_eq!(token.id, 1);
         assert_eq!(token.vault_id, 100);
         assert_eq!(token.organization_id, 200);
-        assert_eq!(token.vault_role, VaultRole::VaultRoleWriter);
+        assert_eq!(token.vault_role, VaultRole::Writer);
         assert_eq!(token.user_session_id, None);
         assert_eq!(token.org_api_key_id, Some(400));
         assert!(!token.is_expired());
@@ -264,7 +264,7 @@ mod tests {
             1,
             100,
             200,
-            VaultRole::VaultRoleReader,
+            VaultRole::Reader,
             300,
             Some(-1),
         )
@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn test_mark_used() {
         let mut token =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         assert!(!token.is_used());
@@ -291,7 +291,7 @@ mod tests {
     #[test]
     fn test_mark_revoked() {
         let mut token =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         assert!(!token.is_revoked());
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn test_validate_for_refresh_success() {
         let token =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         assert!(token.validate_for_refresh().is_ok());
@@ -317,7 +317,7 @@ mod tests {
             1,
             100,
             200,
-            VaultRole::VaultRoleReader,
+            VaultRole::Reader,
             300,
             Some(-1),
         )
@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn test_validate_for_refresh_used() {
         let mut token =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         token.mark_used();
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn test_validate_for_refresh_revoked() {
         let mut token =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         token.mark_revoked();
@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn test_validate_auth_context_session() {
         let token =
-            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::VaultRoleReader, 300, None)
+            VaultRefreshToken::new_for_session(1, 100, 200, VaultRole::Reader, 300, None)
                 .unwrap();
 
         // Correct session
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn test_validate_auth_context_client() {
         let token =
-            VaultRefreshToken::new_for_client(1, 100, 200, VaultRole::VaultRoleWriter, 400, None)
+            VaultRefreshToken::new_for_client(1, 100, 200, VaultRole::Writer, 400, None)
                 .unwrap();
 
         // Correct client
