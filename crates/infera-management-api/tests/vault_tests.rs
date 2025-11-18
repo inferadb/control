@@ -91,7 +91,7 @@ async fn test_create_vault() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let org_id = json["organizations"][0]["id"]
-        .as_str()
+        .as_i64()
         .expect("Should have org ID");
 
     // Create a vault
@@ -115,7 +115,7 @@ async fn test_create_vault() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -516,7 +516,7 @@ async fn test_grant_user_vault_access() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await

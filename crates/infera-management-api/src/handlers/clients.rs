@@ -20,29 +20,41 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 pub struct CreateClientRequest {
     pub name: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CreateClientResponse {
+    pub client: ClientInfo,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClientInfo {
     pub id: i64,
     pub name: String,
+    pub description: String,
+    pub is_active: bool,
     pub organization_id: i64,
     pub created_at: String,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ClientResponse {
+pub struct GetClientResponse {
+    pub client: ClientDetail,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClientDetail {
     pub id: i64,
     pub name: String,
+    pub is_active: bool,
     pub organization_id: i64,
     pub created_at: String,
-    pub created_by_user_id: i64,
-    pub deleted_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ListClientsResponse {
-    pub clients: Vec<ClientResponse>,
+    pub clients: Vec<ClientDetail>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,31 +80,38 @@ pub struct CreateCertificateRequest {
 
 #[derive(Debug, Serialize)]
 pub struct CreateCertificateResponse {
+    pub certificate: CertificateInfo,
+    pub private_key: String, // Unencrypted private key (base64) - only returned once!
+}
+
+#[derive(Debug, Serialize)]
+pub struct CertificateInfo {
     pub id: i64,
     pub kid: String,
     pub name: String,
     pub public_key: String,
-    pub private_key: String, // Unencrypted private key (base64) - only returned once!
+    pub is_active: bool,
     pub created_at: String,
 }
 
 #[derive(Debug, Serialize)]
-pub struct CertificateResponse {
+pub struct GetCertificateResponse {
+    pub certificate: CertificateDetail,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CertificateDetail {
     pub id: i64,
     pub kid: String,
     pub name: String,
     pub public_key: String,
+    pub is_active: bool,
     pub created_at: String,
-    pub created_by_user_id: i64,
-    pub last_used_at: Option<String>,
-    pub revoked_at: Option<String>,
-    pub revoked_by_user_id: Option<i64>,
-    pub deleted_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ListCertificatesResponse {
-    pub certificates: Vec<CertificateResponse>,
+    pub certificates: Vec<CertificateDetail>,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,29 +128,24 @@ pub struct DeleteCertificateResponse {
 // Helper Functions
 // ============================================================================
 
-fn client_to_response(client: Client) -> ClientResponse {
-    ClientResponse {
+fn client_to_detail(client: Client) -> ClientDetail {
+    ClientDetail {
         id: client.id,
         name: client.name,
+        is_active: client.deleted_at.is_none(),
         organization_id: client.organization_id,
         created_at: client.created_at.to_rfc3339(),
-        created_by_user_id: client.created_by_user_id,
-        deleted_at: client.deleted_at.map(|dt| dt.to_rfc3339()),
     }
 }
 
-fn cert_to_response(cert: ClientCertificate) -> CertificateResponse {
-    CertificateResponse {
+fn cert_to_detail(cert: ClientCertificate) -> CertificateDetail {
+    CertificateDetail {
         id: cert.id,
         kid: cert.kid,
         name: cert.name,
         public_key: cert.public_key,
+        is_active: cert.revoked_at.is_none() && cert.deleted_at.is_none(),
         created_at: cert.created_at.to_rfc3339(),
-        created_by_user_id: cert.created_by_user_id,
-        last_used_at: cert.last_used_at.map(|dt| dt.to_rfc3339()),
-        revoked_at: cert.revoked_at.map(|dt| dt.to_rfc3339()),
-        revoked_by_user_id: cert.revoked_by_user_id,
-        deleted_at: cert.deleted_at.map(|dt| dt.to_rfc3339()),
     }
 }
 
@@ -176,10 +190,14 @@ pub async fn create_client(
     Ok((
         StatusCode::CREATED,
         Json(CreateClientResponse {
-            id: client.id,
-            name: client.name,
-            organization_id: client.organization_id,
-            created_at: client.created_at.to_rfc3339(),
+            client: ClientInfo {
+                id: client.id,
+                name: client.name.clone(),
+                description: payload.description.unwrap_or_default(),
+                is_active: client.deleted_at.is_none(),
+                organization_id: client.organization_id,
+                created_at: client.created_at.to_rfc3339(),
+            },
         }),
     ))
 }
@@ -201,7 +219,7 @@ pub async fn list_clients(
         .await?;
 
     Ok(Json(ListClientsResponse {
-        clients: clients.into_iter().map(client_to_response).collect(),
+        clients: clients.into_iter().map(client_to_detail).collect(),
     }))
 }
 
@@ -213,7 +231,7 @@ pub async fn get_client(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org_id, client_id)): Path<(i64, i64)>,
-) -> Result<Json<ClientResponse>> {
+) -> Result<Json<GetClientResponse>> {
     // Require member role or higher
     require_member(&org_ctx)?;
 
@@ -228,7 +246,9 @@ pub async fn get_client(
         return Err(CoreError::NotFound("Client not found".to_string()).into());
     }
 
-    Ok(Json(client_to_response(client)))
+    Ok(Json(GetClientResponse {
+        client: client_to_detail(client),
+    }))
 }
 
 /// Update a client
@@ -298,6 +318,19 @@ pub async fn delete_client(
     Ok(Json(DeleteClientResponse {
         message: "Client deleted successfully".to_string(),
     }))
+}
+
+/// Deactivate a client (soft delete)
+///
+/// POST /v1/organizations/:org/clients/:client/deactivate
+/// Required role: ADMIN or OWNER
+pub async fn deactivate_client(
+    state: State<AppState>,
+    org_ctx: Extension<OrganizationContext>,
+    path: Path<(i64, i64)>,
+) -> Result<Json<DeleteClientResponse>> {
+    // Just call delete_client (which does soft delete)
+    delete_client(state, org_ctx, path).await
 }
 
 // ============================================================================
@@ -374,12 +407,15 @@ pub async fn create_certificate(
     Ok((
         StatusCode::CREATED,
         Json(CreateCertificateResponse {
-            id: cert.id,
-            kid: cert.kid,
-            name: cert.name,
-            public_key: public_key_base64,
+            certificate: CertificateInfo {
+                id: cert.id,
+                kid: cert.kid.clone(),
+                name: cert.name.clone(),
+                public_key: public_key_base64,
+                is_active: cert.revoked_at.is_none() && cert.deleted_at.is_none(),
+                created_at: cert.created_at.to_rfc3339(),
+            },
             private_key: private_key_base64,
-            created_at: cert.created_at.to_rfc3339(),
         }),
     ))
 }
@@ -411,7 +447,47 @@ pub async fn list_certificates(
     let certs = cert_repo.list_by_client(client_id).await?;
 
     Ok(Json(ListCertificatesResponse {
-        certificates: certs.into_iter().map(cert_to_response).collect(),
+        certificates: certs.into_iter().map(cert_to_detail).collect(),
+    }))
+}
+
+/// Get a specific certificate
+///
+/// GET /v1/organizations/:org/clients/:client/certificates/:cert
+/// Required role: MEMBER or higher
+pub async fn get_certificate(
+    State(state): State<AppState>,
+    Extension(org_ctx): Extension<OrganizationContext>,
+    Path((_org_id, client_id, cert_id)): Path<(i64, i64, i64)>,
+) -> Result<Json<GetCertificateResponse>> {
+    // Require member role or higher
+    require_member(&org_ctx)?;
+
+    // Verify client exists and belongs to this organization
+    let client_repo = ClientRepository::new((*state.storage).clone());
+    let client = client_repo
+        .get(client_id)
+        .await?
+        .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
+
+    if client.organization_id != org_ctx.organization_id {
+        return Err(CoreError::NotFound("Client not found".to_string()).into());
+    }
+
+    // Get certificate
+    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
+    let cert = cert_repo
+        .get(cert_id)
+        .await?
+        .ok_or_else(|| CoreError::NotFound("Certificate not found".to_string()))?;
+
+    // Verify certificate belongs to this client
+    if cert.client_id != client_id {
+        return Err(CoreError::NotFound("Certificate not found".to_string()).into());
+    }
+
+    Ok(Json(GetCertificateResponse {
+        certificate: cert_to_detail(cert),
     }))
 }
 

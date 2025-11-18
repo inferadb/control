@@ -80,6 +80,10 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/v1/organizations/{org}/clients/{client}",
             delete(clients::delete_client),
         )
+        .route(
+            "/v1/organizations/{org}/clients/{client}/deactivate",
+            post(clients::deactivate_client),
+        )
         // Certificate management routes
         .route(
             "/v1/organizations/{org}/clients/{client}/certificates",
@@ -95,7 +99,7 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         )
         .route(
             "/v1/organizations/{org}/clients/{client}/certificates/{cert}",
-            delete(clients::delete_certificate),
+            get(clients::get_certificate).delete(clients::delete_certificate),
         )
         // Vault management routes
         .route("/v1/organizations/{org}/vaults", post(vaults::create_vault))
@@ -273,6 +277,10 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         // JWKS endpoints (public, no authentication required)
         .route("/.well-known/jwks.json", get(jwks::get_global_jwks))
         .route("/v1/organizations/{org}/jwks.json", get(jwks::get_org_jwks))
+        .route(
+            "/v1/organizations/{org}/.well-known/jwks.json",
+            get(jwks::get_org_jwks),
+        )
         .with_state(state)
         .merge(protected)
         .merge(org_scoped)

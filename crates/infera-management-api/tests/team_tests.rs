@@ -112,7 +112,7 @@ async fn test_create_team() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -340,7 +340,7 @@ async fn test_add_team_member() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -428,7 +428,7 @@ async fn test_grant_team_permission() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -550,7 +550,7 @@ async fn test_grant_team_vault_access() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::CREATED);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
