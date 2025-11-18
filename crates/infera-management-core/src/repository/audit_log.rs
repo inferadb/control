@@ -30,8 +30,9 @@ impl<S: StorageBackend> AuditLogRepository<S> {
         let key = Self::key(id);
         match self.storage.get(&key).await {
             Ok(Some(value)) => {
-                let log = serde_json::from_slice(&value)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize audit log: {}", e)))?;
+                let log = serde_json::from_slice(&value).map_err(|e| {
+                    Error::Internal(format!("Failed to deserialize audit log: {}", e))
+                })?;
                 Ok(Some(log))
             }
             Ok(None) => Ok(None),

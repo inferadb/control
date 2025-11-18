@@ -15,7 +15,7 @@ pub struct VaultTokenClaims {
     pub iss: String,
     /// Subject: "tenant:<org_id>"
     pub sub: String,
-    /// Audience: "https://api.inferadb.com/evaluate"
+    /// Audience: `https://api.inferadb.com/evaluate`
     pub aud: String,
     /// Expiration time (Unix timestamp)
     pub exp: i64,

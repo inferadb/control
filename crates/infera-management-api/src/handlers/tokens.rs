@@ -343,7 +343,7 @@ pub struct ClientAssertionRequest {
     pub client_assertion_type: String,
     /// Signed JWT containing client assertion
     pub client_assertion: String,
-    /// Scope in format: "vault:<vault_id>:<role>"
+    /// Scope in format: `vault:<vault_id>:<role>`
     pub scope: String,
 }
 
