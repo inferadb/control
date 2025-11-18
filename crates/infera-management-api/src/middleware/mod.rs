@@ -1,9 +1,11 @@
+pub mod logging;
 pub mod organization;
 pub mod permission;
 pub mod ratelimit;
 pub mod session;
 pub mod vault;
 
+pub use logging::logging_middleware;
 pub use organization::{
     require_admin_or_owner, require_member, require_organization_member, require_owner,
     OrganizationContext,

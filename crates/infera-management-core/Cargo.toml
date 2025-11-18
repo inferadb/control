@@ -19,6 +19,7 @@ serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 # Configuration
 config = { workspace = true }
@@ -48,7 +49,20 @@ webauthn-rs = { workspace = true }
 regex = { workspace = true }
 validator = { workspace = true }
 
+# Metrics
+metrics = { workspace = true }
+
 # Storage
 infera-management-storage = { path = "../infera-management-storage" }
+
+# OpenTelemetry (optional, for distributed tracing)
+opentelemetry = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+
+[features]
+default = []
+opentelemetry = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:tracing-opentelemetry"]
 
 [dev-dependencies]

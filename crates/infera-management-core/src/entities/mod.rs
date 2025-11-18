@@ -1,3 +1,4 @@
+pub mod audit_log;
 pub mod authorization_code;
 pub mod client;
 pub mod organization;
@@ -11,6 +12,7 @@ pub mod user_session;
 pub mod vault;
 pub mod vault_refresh_token;
 
+pub use audit_log::{AuditEventType, AuditLog, AuditResourceType};
 pub use authorization_code::AuthorizationCode;
 pub use client::{Client, ClientCertificate};
 pub use organization::{Organization, OrganizationMember, OrganizationRole, OrganizationTier};

@@ -9,6 +9,8 @@ pub mod id;
 pub mod jobs;
 pub mod jwt;
 pub mod leader;
+pub mod logging;
+pub mod metrics;
 pub mod ratelimit;
 pub mod repository;
 

@@ -1,8 +1,8 @@
 use crate::handlers::{
-    auth, cli_auth, clients, emails, health, jwks, organizations, sessions, teams, tokens, users,
-    vaults, AppState,
+    auth, cli_auth, clients, emails, health, jwks, metrics as metrics_handler, organizations,
+    sessions, teams, tokens, users, vaults, AppState,
 };
-use crate::middleware::{require_organization_member, require_session};
+use crate::middleware::{logging_middleware, require_organization_member, require_session};
 use axum::{
     middleware,
     routing::{delete, get, patch, post},
@@ -249,6 +249,8 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/v1/health/startup", get(health::health_startup))
         // Legacy health check endpoint
         .route("/health", get(health_check))
+        // Metrics endpoint (no authentication)
+        .route("/metrics", get(metrics_handler::metrics_handler))
         // Authentication endpoints
         .route("/v1/auth/register", post(auth::register))
         .route("/v1/auth/login/password", post(auth::login))
@@ -274,6 +276,8 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .with_state(state)
         .merge(protected)
         .merge(org_scoped)
+        // Add logging middleware to log all requests
+        .layer(middleware::from_fn(logging_middleware))
 }
 
 /// Health check endpoint

@@ -239,6 +239,7 @@ pub const SESSION_COOKIE_MAX_AGE: i64 = 24 * 60 * 60;
 ///
 /// Creates a new user account with email and password, and returns a session cookie.
 #[axum::debug_handler]
+#[tracing::instrument(skip(state, jar, payload), fields(email = %payload.email, name = %payload.name))]
 pub async fn register(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -333,6 +334,7 @@ pub async fn register(
 /// POST /v1/auth/login/password
 ///
 /// Authenticates a user with email and password, and returns a session cookie.
+#[tracing::instrument(skip(state, jar, payload), fields(email = %payload.email))]
 pub async fn login(
     State(state): State<AppState>,
     jar: CookieJar,
