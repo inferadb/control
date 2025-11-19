@@ -46,7 +46,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Web frameworks
 axum = { version = "0.8.6", features = ["tokio", "macros"] }
-axum-extra = { version = "0.10.0", features = ["cookie", "cookie-private"] }
+axum-extra = { version = "0.12.2", features = ["cookie", "cookie-private"] }
 tonic = "0.14.2"
 tonic-build = "0.14.2"
 tower = "0.5"
