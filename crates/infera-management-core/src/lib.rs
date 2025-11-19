@@ -13,6 +13,7 @@ pub mod logging;
 pub mod metrics;
 pub mod ratelimit;
 pub mod repository;
+pub mod repository_context;
 
 pub use auth::{hash_password, verify_password, PasswordHasher};
 pub use clock::{ClockStatus, ClockValidator};
@@ -41,8 +42,9 @@ pub use repository::{
     AuditLogFilters, AuditLogRepository, AuthorizationCodeRepository, ClientCertificateRepository,
     ClientRepository, JtiReplayProtectionRepository, OrganizationInvitationRepository,
     OrganizationMemberRepository, OrganizationRepository, OrganizationTeamMemberRepository,
-    OrganizationTeamPermissionRepository, OrganizationTeamRepository, UserEmailRepository,
-    UserEmailVerificationTokenRepository, UserPasswordResetTokenRepository, UserRepository,
-    UserSessionRepository, VaultRefreshTokenRepository, VaultRepository, VaultTeamGrantRepository,
-    VaultUserGrantRepository,
+    OrganizationTeamPermissionRepository, OrganizationTeamRepository, PasskeyCredentialRepository,
+    UserEmailRepository, UserEmailVerificationTokenRepository, UserPasswordResetTokenRepository,
+    UserRepository, UserSessionRepository, VaultRefreshTokenRepository, VaultRepository,
+    VaultTeamGrantRepository, VaultUserGrantRepository,
 };
+pub use repository_context::RepositoryContext;

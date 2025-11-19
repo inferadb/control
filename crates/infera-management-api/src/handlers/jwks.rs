@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use infera_management_core::{ClientCertificateRepository, OrganizationRepository};
+use infera_management_core::RepositoryContext;
 use serde::{Deserialize, Serialize};
 
 /// JSON Web Key Set (JWKS) response format
@@ -80,10 +80,11 @@ fn base64_url_encode(bytes: &[u8]) -> String {
 pub async fn get_global_jwks(
     State(state): State<AppState>,
 ) -> Result<Json<JwksResponse>, (StatusCode, String)> {
-    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get all active certificates
-    let certs = cert_repo
+    let certs = repos
+        .client_certificate
         .list_all_active()
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -112,16 +113,17 @@ pub async fn get_org_jwks(
     Path(org_id): Path<i64>,
 ) -> Result<Json<JwksResponse>, (StatusCode, String)> {
     // Verify organization exists
-    let org_repo = OrganizationRepository::new((*state.storage).clone());
-    org_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    repos
+        .org
         .get(org_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Organization not found".to_string()))?;
 
     // Get all active certificates (we'll filter by org)
-    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
-    let all_certs = cert_repo
+    let all_certs = repos
+        .client_certificate
         .list_all_active()
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

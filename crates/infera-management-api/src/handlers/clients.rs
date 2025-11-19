@@ -8,8 +8,8 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use infera_management_core::{
-    keypair, Client, ClientCertificate, ClientCertificateRepository, ClientRepository,
-    Error as CoreError, IdGenerator, OrganizationRepository, PrivateKeyEncryptor,
+    keypair, Client, ClientCertificate, Error as CoreError, IdGenerator, PrivateKeyEncryptor,
+    RepositoryContext,
 };
 use serde::{Deserialize, Serialize};
 
@@ -169,8 +169,9 @@ pub async fn create_client(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify organization exists
-    let org_repo = OrganizationRepository::new((*state.storage).clone());
-    org_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    repos
+        .org
         .get(org_ctx.organization_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
@@ -187,8 +188,7 @@ pub async fn create_client(
     )?;
 
     // Save to repository
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    client_repo.create(client.clone()).await?;
+    repos.client.create(client.clone()).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -219,8 +219,9 @@ pub async fn list_clients(
 
     let params = pagination.0.validate();
 
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    let all_clients = client_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let all_clients = repos
+        .client
         .list_active_by_organization(org_ctx.organization_id)
         .await?;
 
@@ -258,8 +259,9 @@ pub async fn get_client(
     // Require member role or higher
     require_member(&org_ctx)?;
 
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    let client = client_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let client = repos
+        .client
         .get(client_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
@@ -287,8 +289,9 @@ pub async fn update_client(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    let mut client = client_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let mut client = repos
+        .client
         .get(client_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
@@ -303,7 +306,7 @@ pub async fn update_client(
     client.name = payload.name.clone();
 
     // Save changes
-    client_repo.update(client.clone()).await?;
+    repos.client.update(client.clone()).await?;
 
     Ok(Json(UpdateClientResponse {
         id: client.id,
@@ -323,8 +326,9 @@ pub async fn delete_client(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    let mut client = client_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let mut client = repos
+        .client
         .get(client_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
@@ -336,7 +340,7 @@ pub async fn delete_client(
 
     // Soft delete
     client.mark_deleted();
-    client_repo.update(client).await?;
+    repos.client.update(client).await?;
 
     Ok(Json(DeleteClientResponse {
         message: "Client deleted successfully".to_string(),
@@ -374,8 +378,9 @@ pub async fn create_certificate(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify client exists and belongs to this organization
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    let client = client_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let client = repos
+        .client
         .get(client_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
@@ -421,8 +426,7 @@ pub async fn create_certificate(
     )?;
 
     // Save to repository
-    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
-    cert_repo.create(cert.clone()).await?;
+    repos.client_certificate.create(cert.clone()).await?;
 
     // Return private key (base64 encoded) - this is the ONLY time it will be available unencrypted
     let private_key_base64 = BASE64.encode(&private_key_bytes);
@@ -456,8 +460,9 @@ pub async fn list_certificates(
     require_member(&org_ctx)?;
 
     // Verify client exists and belongs to this organization
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    let client = client_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let client = repos
+        .client
         .get(client_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
@@ -466,8 +471,7 @@ pub async fn list_certificates(
         return Err(CoreError::NotFound("Client not found".to_string()).into());
     }
 
-    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
-    let certs = cert_repo.list_by_client(client_id).await?;
+    let certs = repos.client_certificate.list_by_client(client_id).await?;
 
     Ok(Json(ListCertificatesResponse {
         certificates: certs.into_iter().map(cert_to_detail).collect(),
@@ -487,8 +491,9 @@ pub async fn get_certificate(
     require_member(&org_ctx)?;
 
     // Verify client exists and belongs to this organization
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    let client = client_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let client = repos
+        .client
         .get(client_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
@@ -498,8 +503,8 @@ pub async fn get_certificate(
     }
 
     // Get certificate
-    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
-    let cert = cert_repo
+    let cert = repos
+        .client_certificate
         .get(cert_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Certificate not found".to_string()))?;
@@ -527,8 +532,9 @@ pub async fn revoke_certificate(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify client exists and belongs to this organization
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    let client = client_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let client = repos
+        .client
         .get(client_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
@@ -538,8 +544,8 @@ pub async fn revoke_certificate(
     }
 
     // Get certificate
-    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
-    let mut cert = cert_repo
+    let mut cert = repos
+        .client_certificate
         .get(cert_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Certificate not found".to_string()))?;
@@ -555,7 +561,7 @@ pub async fn revoke_certificate(
 
     // Revoke the certificate
     cert.mark_revoked(org_ctx.member.user_id);
-    cert_repo.update(cert).await?;
+    repos.client_certificate.update(cert).await?;
 
     Ok(Json(RevokeCertificateResponse {
         message: "Certificate revoked successfully".to_string(),
@@ -575,8 +581,9 @@ pub async fn delete_certificate(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify client exists and belongs to this organization
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    let client = client_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let client = repos
+        .client
         .get(client_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
@@ -586,8 +593,8 @@ pub async fn delete_certificate(
     }
 
     // Get certificate
-    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
-    let cert = cert_repo
+    let cert = repos
+        .client_certificate
         .get(cert_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Certificate not found".to_string()))?;
@@ -598,7 +605,7 @@ pub async fn delete_certificate(
     }
 
     // Delete the certificate
-    cert_repo.delete(cert_id).await?;
+    repos.client_certificate.delete(cert_id).await?;
 
     Ok(Json(DeleteCertificateResponse {
         message: "Certificate deleted successfully".to_string(),

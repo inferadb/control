@@ -8,7 +8,7 @@ use base64::Engine;
 use chrono::Utc;
 use infera_management_core::{
     entities::{AuthorizationCode, UserSession},
-    AuthorizationCodeRepository, IdGenerator, UserSessionRepository,
+    IdGenerator, RepositoryContext,
 };
 use serde::{Deserialize, Serialize};
 
@@ -103,8 +103,9 @@ pub async fn cli_authorize(
     );
 
     // Store the authorization code
-    let auth_code_repo = AuthorizationCodeRepository::new((*state.storage).clone());
-    auth_code_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    repos
+        .authorization_code
         .create(auth_code.clone())
         .await
         .map_err(|e| {
@@ -138,8 +139,9 @@ pub async fn cli_token_exchange(
     Json(req): Json<CliTokenRequest>,
 ) -> Result<Json<CliTokenResponse>, Response> {
     // Get authorization code
-    let auth_code_repo = AuthorizationCodeRepository::new((*state.storage).clone());
-    let mut auth_code = auth_code_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let mut auth_code = repos
+        .authorization_code
         .get_by_code(&req.code)
         .await
         .map_err(|e| {
@@ -167,8 +169,8 @@ pub async fn cli_token_exchange(
     }
 
     // Get the original session to extract user_id
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
-    let original_session = session_repo
+    let original_session = repos
+        .user_session
         .get(auth_code.session_id)
         .await
         .map_err(|e| {
@@ -199,7 +201,8 @@ pub async fn cli_token_exchange(
     );
 
     // Store CLI session
-    session_repo
+    repos
+        .user_session
         .create(cli_session.clone())
         .await
         .map_err(|e| {
@@ -212,13 +215,17 @@ pub async fn cli_token_exchange(
 
     // Mark authorization code as used (prevent replay)
     auth_code.mark_used();
-    auth_code_repo.update(auth_code).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to mark code as used: {}", e),
-        )
-            .into_response()
-    })?;
+    repos
+        .authorization_code
+        .update(auth_code)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to mark code as used: {}", e),
+            )
+                .into_response()
+        })?;
 
     // Calculate expires_in
     let expires_in = (cli_session.expires_at - Utc::now()).num_seconds();

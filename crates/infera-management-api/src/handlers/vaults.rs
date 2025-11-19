@@ -7,9 +7,8 @@ use axum::{
     Extension, Json,
 };
 use infera_management_core::{
-    Error as CoreError, IdGenerator, OrganizationRepository, Vault, VaultRepository, VaultRole,
-    VaultSyncStatus, VaultTeamGrant, VaultTeamGrantRepository, VaultUserGrant,
-    VaultUserGrantRepository,
+    Error as CoreError, IdGenerator, RepositoryContext, Vault, VaultRole, VaultSyncStatus,
+    VaultTeamGrant, VaultUserGrant,
 };
 use serde::{Deserialize, Serialize};
 
@@ -249,15 +248,16 @@ pub async fn create_vault(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify organization exists and get tier
-    let org_repo = OrganizationRepository::new((*state.storage).clone());
-    let organization = org_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let organization = repos
+        .org
         .get(org_ctx.organization_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
 
     // Check tier limits
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let current_count = vault_repo
+    let current_count = repos
+        .vault
         .count_active_by_organization(org_ctx.organization_id)
         .await?;
 
@@ -282,7 +282,7 @@ pub async fn create_vault(
     )?;
 
     // Save to repository
-    vault_repo.create(vault.clone()).await?;
+    repos.vault.create(vault.clone()).await?;
 
     // Attempt to sync with @server
     match state
@@ -293,13 +293,13 @@ pub async fn create_vault(
         Ok(()) => {
             // Mark as synced
             vault.mark_synced();
-            vault_repo.update(vault.clone()).await?;
+            repos.vault.update(vault.clone()).await?;
         }
         Err(e) => {
             // Mark as failed
             let error_message: String = e.to_string();
             vault.mark_sync_failed(error_message);
-            vault_repo.update(vault.clone()).await?;
+            repos.vault.update(vault.clone()).await?;
         }
     }
 
@@ -312,8 +312,7 @@ pub async fn create_vault(
         VaultRole::Admin,
         org_ctx.member.user_id,
     );
-    let grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
-    grant_repo.create(grant).await?;
+    repos.vault_user_grant.create(grant).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -344,8 +343,9 @@ pub async fn list_vaults(
 
     let params = pagination.0.validate();
 
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let all_vaults = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let all_vaults = repos
+        .vault
         .list_active_by_organization(org_ctx.organization_id)
         .await?;
 
@@ -383,8 +383,9 @@ pub async fn get_vault(
     // Require member role or higher
     require_member(&org_ctx)?;
 
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -415,8 +416,9 @@ pub async fn update_vault(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let mut vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let mut vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -431,7 +433,7 @@ pub async fn update_vault(
     vault.name = payload.name.clone();
 
     // Save changes
-    vault_repo.update(vault.clone()).await?;
+    repos.vault.update(vault.clone()).await?;
 
     Ok(Json(UpdateVaultResponse {
         vault: VaultDetail {
@@ -458,11 +460,10 @@ pub async fn delete_vault(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault_user_grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
-    let vault_team_grant_repo = VaultTeamGrantRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
-    let mut vault = vault_repo
+    let mut vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -473,9 +474,7 @@ pub async fn delete_vault(
     }
 
     // VALIDATION: Check for active refresh tokens before allowing deletion
-    let token_repo =
-        infera_management_core::VaultRefreshTokenRepository::new((*state.storage).clone());
-    let tokens = token_repo.list_by_vault(vault_id).await?;
+    let tokens = repos.vault_refresh_token.list_by_vault(vault_id).await?;
     let active_token_count = tokens
         .iter()
         .filter(|t| !t.is_expired() && !t.is_revoked())
@@ -491,15 +490,15 @@ pub async fn delete_vault(
     }
 
     // CASCADE DELETE: Delete all vault user grants
-    let user_grants = vault_user_grant_repo.list_by_vault(vault_id).await?;
+    let user_grants = repos.vault_user_grant.list_by_vault(vault_id).await?;
     for grant in user_grants {
-        vault_user_grant_repo.delete(grant.id).await?;
+        repos.vault_user_grant.delete(grant.id).await?;
     }
 
     // CASCADE DELETE: Delete all vault team grants
-    let team_grants = vault_team_grant_repo.list_by_vault(vault_id).await?;
+    let team_grants = repos.vault_team_grant.list_by_vault(vault_id).await?;
     for grant in team_grants {
-        vault_team_grant_repo.delete(grant.id).await?;
+        repos.vault_team_grant.delete(grant.id).await?;
     }
 
     // Attempt to delete from @server
@@ -508,7 +507,7 @@ pub async fn delete_vault(
 
     // Soft delete
     vault.mark_deleted();
-    vault_repo.update(vault).await?;
+    repos.vault.update(vault).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -531,8 +530,9 @@ pub async fn create_user_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -554,8 +554,7 @@ pub async fn create_user_grant(
     );
 
     // Save to repository
-    let grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
-    grant_repo.create(grant.clone()).await?;
+    repos.vault_user_grant.create(grant.clone()).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -585,8 +584,9 @@ pub async fn list_user_grants(
     require_member(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -595,8 +595,7 @@ pub async fn list_user_grants(
         return Err(CoreError::NotFound("Vault not found".to_string()).into());
     }
 
-    let grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
-    let grants = grant_repo.list_by_vault(vault_id).await?;
+    let grants = repos.vault_user_grant.list_by_vault(vault_id).await?;
 
     Ok(Json(ListUserGrantsResponse {
         grants: grants.into_iter().map(user_grant_to_response).collect(),
@@ -617,8 +616,9 @@ pub async fn update_user_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -628,8 +628,8 @@ pub async fn update_user_grant(
     }
 
     // Get grant
-    let grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
-    let mut grant = grant_repo
+    let mut grant = repos
+        .vault_user_grant
         .get(grant_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Grant not found".to_string()))?;
@@ -641,7 +641,7 @@ pub async fn update_user_grant(
 
     // Update role
     grant.role = payload.role;
-    grant_repo.update(grant.clone()).await?;
+    repos.vault_user_grant.update(grant.clone()).await?;
 
     Ok(Json(UpdateUserGrantResponse {
         id: grant.id,
@@ -662,8 +662,9 @@ pub async fn delete_user_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -673,14 +674,14 @@ pub async fn delete_user_grant(
     }
 
     // Get grant by user_id
-    let grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
-    let grant = grant_repo
+    let grant = repos
+        .vault_user_grant
         .get_by_vault_and_user(vault_id, user_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Grant not found".to_string()))?;
 
     // Delete the grant
-    grant_repo.delete(grant.id).await?;
+    repos.vault_user_grant.delete(grant.id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -703,8 +704,9 @@ pub async fn create_team_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -726,8 +728,7 @@ pub async fn create_team_grant(
     );
 
     // Save to repository
-    let grant_repo = VaultTeamGrantRepository::new((*state.storage).clone());
-    grant_repo.create(grant.clone()).await?;
+    repos.vault_team_grant.create(grant.clone()).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -757,8 +758,9 @@ pub async fn list_team_grants(
     require_member(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -767,8 +769,7 @@ pub async fn list_team_grants(
         return Err(CoreError::NotFound("Vault not found".to_string()).into());
     }
 
-    let grant_repo = VaultTeamGrantRepository::new((*state.storage).clone());
-    let grants = grant_repo.list_by_vault(vault_id).await?;
+    let grants = repos.vault_team_grant.list_by_vault(vault_id).await?;
 
     Ok(Json(ListTeamGrantsResponse {
         grants: grants.into_iter().map(team_grant_to_response).collect(),
@@ -789,8 +790,9 @@ pub async fn update_team_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -800,8 +802,8 @@ pub async fn update_team_grant(
     }
 
     // Get grant
-    let grant_repo = VaultTeamGrantRepository::new((*state.storage).clone());
-    let mut grant = grant_repo
+    let mut grant = repos
+        .vault_team_grant
         .get(grant_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Grant not found".to_string()))?;
@@ -813,7 +815,7 @@ pub async fn update_team_grant(
 
     // Update role
     grant.role = payload.role;
-    grant_repo.update(grant.clone()).await?;
+    repos.vault_team_grant.update(grant.clone()).await?;
 
     Ok(Json(UpdateTeamGrantResponse {
         id: grant.id,
@@ -834,8 +836,9 @@ pub async fn delete_team_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -845,8 +848,8 @@ pub async fn delete_team_grant(
     }
 
     // Get grant
-    let grant_repo = VaultTeamGrantRepository::new((*state.storage).clone());
-    let grant = grant_repo
+    let grant = repos
+        .vault_team_grant
         .get(grant_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Grant not found".to_string()))?;
@@ -857,7 +860,7 @@ pub async fn delete_team_grant(
     }
 
     // Delete the grant
-    grant_repo.delete(grant_id).await?;
+    repos.vault_user_grant.delete(grant_id).await?;
 
     Ok(Json(DeleteTeamGrantResponse {
         message: "Team grant deleted successfully".to_string(),

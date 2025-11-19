@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Request, State},
     Json,
 };
-use infera_management_core::{error::Error as CoreError, UserSessionRepository};
+use infera_management_core::{error::Error as CoreError, RepositoryContext};
 use serde::{Deserialize, Serialize};
 
 use crate::handlers::auth::{AppState, Result};
@@ -56,8 +56,8 @@ pub async fn list_sessions(
     let ctx = extract_session_context(&request)?;
 
     // Get all user sessions
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
-    let sessions = session_repo.get_user_sessions(ctx.user_id).await?;
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let sessions = repos.user_session.get_user_sessions(ctx.user_id).await?;
 
     // Convert to response format
     let sessions: Vec<SessionInfo> = sessions
@@ -92,8 +92,9 @@ pub async fn revoke_session(
     let ctx = extract_session_context(&request)?;
 
     // Get the session to revoke
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
-    let session = session_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let session = repos
+        .user_session
         .get(session_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Session not found".to_string()))?;
@@ -104,7 +105,7 @@ pub async fn revoke_session(
     }
 
     // Revoke the session
-    session_repo.revoke(session_id).await?;
+    repos.user_session.revoke(session_id).await?;
 
     Ok(Json(RevokeSessionResponse {
         message: "Session revoked successfully".to_string(),
@@ -124,14 +125,14 @@ pub async fn revoke_other_sessions(
     let ctx = extract_session_context(&request)?;
 
     // Get all user sessions
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
-    let sessions = session_repo.get_user_sessions(ctx.user_id).await?;
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let sessions = repos.user_session.get_user_sessions(ctx.user_id).await?;
 
     // Revoke all sessions except the current one
     let mut revoked_count = 0;
     for session in sessions {
         if session.id != ctx.session_id {
-            session_repo.revoke(session.id).await?;
+            repos.user_session.revoke(session.id).await?;
             revoked_count += 1;
         }
     }
@@ -179,8 +180,8 @@ mod tests {
         user_id: i64,
     ) -> UserSession {
         let session = UserSession::new(session_id, user_id, SessionType::Web, None, None);
-        let repo = UserSessionRepository::new((*storage).clone());
-        repo.create(session.clone()).await.unwrap();
+        let repos = RepositoryContext::new((*storage).clone());
+        repos.user_session.create(session.clone()).await.unwrap();
         session
     }
 
@@ -234,9 +235,9 @@ mod tests {
         assert_eq!(response.status(), axum::http::StatusCode::OK);
 
         // Verify session2 is revoked
-        let repo = UserSessionRepository::new((*storage).clone());
-        assert!(!repo.is_active(session2.id).await.unwrap());
-        assert!(repo.is_active(session1.id).await.unwrap());
+        let repos = RepositoryContext::new((*storage).clone());
+        assert!(!repos.user_session.is_active(session2.id).await.unwrap());
+        assert!(repos.user_session.is_active(session1.id).await.unwrap());
     }
 
     #[tokio::test]
@@ -267,10 +268,10 @@ mod tests {
         assert!(revoke_response.message.contains("2 other session"));
 
         // Verify only session1 is still active
-        let repo = UserSessionRepository::new((*storage).clone());
-        assert!(repo.is_active(1).await.unwrap());
-        assert!(!repo.is_active(2).await.unwrap());
-        assert!(!repo.is_active(3).await.unwrap());
+        let repos = RepositoryContext::new((*storage).clone());
+        assert!(repos.user_session.is_active(1).await.unwrap());
+        assert!(!repos.user_session.is_active(2).await.unwrap());
+        assert!(!repos.user_session.is_active(3).await.unwrap());
     }
 
     #[tokio::test]

@@ -11,10 +11,7 @@ use infera_management_core::{
         UserEmail, UserEmailVerificationToken, UserSession,
     },
     error::Error as CoreError,
-    hash_password, verify_password, IdGenerator, OrganizationMemberRepository,
-    OrganizationRepository, UserEmailRepository, UserEmailVerificationTokenRepository,
-    UserPasswordResetToken, UserPasswordResetTokenRepository, UserRepository,
-    UserSessionRepository,
+    hash_password, verify_password, IdGenerator, RepositoryContext, UserPasswordResetToken,
 };
 use infera_management_grpc::ServerApiClient;
 use infera_management_storage::Backend;
@@ -258,6 +255,9 @@ pub async fn register(
     jar: CookieJar,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<(CookieJar, Json<RegisterResponse>)> {
+    // Initialize repository context
+    let repos = RepositoryContext::new((*state.storage).clone());
+
     // Validate inputs
     if payload.name.trim().is_empty() {
         return Err(CoreError::Validation("Name cannot be empty".to_string()).into());
@@ -268,16 +268,14 @@ pub async fn register(
     }
 
     // Check if email is already in use
-    let email_repo = UserEmailRepository::new((*state.storage).clone());
-    if email_repo.is_email_in_use(&payload.email).await? {
+    if repos.user_email.is_email_in_use(&payload.email).await? {
         return Err(
             CoreError::Validation(format!("Email '{}' is already in use", payload.email)).into(),
         );
     }
 
     // Check if name is available
-    let user_repo = UserRepository::new((*state.storage).clone());
-    if !user_repo.is_name_available(&payload.name).await? {
+    if !repos.user.is_name_available(&payload.name).await? {
         return Err(
             CoreError::Validation(format!("Name '{}' is already taken", payload.name)).into(),
         );
@@ -294,18 +292,20 @@ pub async fn register(
     // Create user
     let mut user = User::new(user_id, payload.name.clone(), Some(password_hash))?;
     user.accept_tos(); // Auto-accept TOS on registration
-    user_repo.create(user).await?;
+    repos.user.create(user).await?;
 
     // Create email (unverified)
     let email = UserEmail::new(email_id, user_id, payload.email.clone(), true)?;
-    email_repo.create(email.clone()).await?;
+    repos.user_email.create(email.clone()).await?;
 
     // Create email verification token
     let token_id = IdGenerator::next_id();
     let token_string = UserEmailVerificationToken::generate_token();
     let verification_token = UserEmailVerificationToken::new(token_id, email_id, token_string)?;
-    let verification_repo = UserEmailVerificationTokenRepository::new((*state.storage).clone());
-    verification_repo.create(verification_token.clone()).await?;
+    repos
+        .user_email_verification_token
+        .create(verification_token.clone())
+        .await?;
 
     // Send verification email (fire-and-forget - don't block registration)
     if let Some(email_service) = &state.email_service {
@@ -348,8 +348,7 @@ pub async fn register(
 
     // Create session
     let session = UserSession::new(session_id, user_id, SessionType::Web, None, None);
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
-    session_repo.create(session).await?;
+    repos.user_session.create(session).await?;
 
     // Create default organization with same name as user
     let org_id = IdGenerator::next_id();
@@ -357,13 +356,11 @@ pub async fn register(
 
     let organization =
         Organization::new(org_id, payload.name.clone(), OrganizationTier::TierDevV1)?;
-    let org_repo = OrganizationRepository::new((*state.storage).clone());
-    org_repo.create(organization).await?;
+    repos.org.create(organization).await?;
 
     // Create organization member (owner role)
     let member = OrganizationMember::new(member_id, org_id, user_id, OrganizationRole::Owner);
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
-    member_repo.create(member).await?;
+    repos.org_member.create(member).await?;
 
     // Set session cookie
     let cookie = Cookie::build((SESSION_COOKIE_NAME, session_id.to_string()))
@@ -398,16 +395,18 @@ pub async fn login(
     jar: CookieJar,
     Json(payload): Json<LoginRequest>,
 ) -> Result<(CookieJar, Json<LoginResponse>)> {
+    let repos = RepositoryContext::new((*state.storage).clone());
+
     // Find user by email
-    let email_repo = UserEmailRepository::new((*state.storage).clone());
-    let email = email_repo
+    let email = repos
+        .user_email
         .get_by_email(&payload.email)
         .await?
         .ok_or_else(|| CoreError::Auth("Invalid email or password".to_string()))?;
 
     // Get user
-    let user_repo = UserRepository::new((*state.storage).clone());
-    let user = user_repo
+    let user = repos
+        .user
         .get(email.user_id)
         .await?
         .ok_or_else(|| CoreError::Auth("Invalid email or password".to_string()))?;
@@ -422,8 +421,7 @@ pub async fn login(
     // Create session
     let session_id = IdGenerator::next_id();
     let session = UserSession::new(session_id, user.id, SessionType::Web, None, None);
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
-    session_repo.create(session).await?;
+    repos.user_session.create(session).await?;
 
     // Set session cookie
     let cookie = Cookie::build((SESSION_COOKIE_NAME, session_id.to_string()))
@@ -458,10 +456,10 @@ pub async fn logout(
     // Get session ID from cookie
     if let Some(cookie) = jar.get(SESSION_COOKIE_NAME) {
         if let Ok(session_id) = cookie.value().parse::<i64>() {
+            let repos = RepositoryContext::new((*state.storage).clone());
             // Revoke session
-            let session_repo = UserSessionRepository::new((*state.storage).clone());
             // Ignore errors if session doesn't exist
-            let _ = session_repo.revoke(session_id).await;
+            let _ = repos.user_session.revoke(session_id).await;
         }
     }
 
@@ -501,10 +499,11 @@ pub async fn verify_email(
     State(state): State<AppState>,
     Json(payload): Json<VerifyEmailRequest>,
 ) -> Result<Json<VerifyEmailResponse>> {
-    let token_repo = UserEmailVerificationTokenRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get token
-    let mut token = token_repo
+    let mut token = repos
+        .user_email_verification_token
         .get_by_token(&payload.token)
         .await?
         .ok_or_else(|| {
@@ -519,8 +518,8 @@ pub async fn verify_email(
     }
 
     // Get the email
-    let email_repo = UserEmailRepository::new((*state.storage).clone());
-    let mut email = email_repo
+    let mut email = repos
+        .user_email
         .get(token.user_email_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Email not found".to_string()))?;
@@ -535,11 +534,11 @@ pub async fn verify_email(
 
     // Mark email as verified
     email.verify();
-    email_repo.update(email.clone()).await?;
+    repos.user_email.update(email.clone()).await?;
 
     // Mark token as used
     token.mark_used();
-    token_repo.update(token).await?;
+    repos.user_email_verification_token.update(token).await?;
 
     Ok(Json(VerifyEmailResponse {
         message: "Email verified successfully".to_string(),
@@ -570,11 +569,11 @@ pub async fn request_password_reset(
     State(state): State<AppState>,
     Json(payload): Json<PasswordResetRequestRequest>,
 ) -> Result<Json<PasswordResetRequestResponse>> {
-    let email_repo = UserEmailRepository::new((*state.storage).clone());
-    let user_repo = UserRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Find the email
-    let email = email_repo
+    let email = repos
+        .user_email
         .get_by_email(&payload.email)
         .await?
         .ok_or_else(|| {
@@ -590,7 +589,8 @@ pub async fn request_password_reset(
     }
 
     // Get the user to ensure they exist and aren't deleted
-    let user = user_repo
+    let user = repos
+        .user
         .get(email.user_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("User not found".to_string()))?;
@@ -600,13 +600,12 @@ pub async fn request_password_reset(
     }
 
     // Generate password reset token
-    let token_repo = UserPasswordResetTokenRepository::new((*state.storage).clone());
     let token_id = IdGenerator::next_id();
     let token_string = UserPasswordResetToken::generate_token();
     let reset_token = UserPasswordResetToken::new(token_id, user.id, token_string.clone())?;
 
     // Store the token
-    token_repo.create(reset_token).await?;
+    repos.user_password_reset_token.create(reset_token).await?;
 
     // Send password reset email (fire-and-forget - don't block request)
     if let Some(email_service) = &state.email_service {
@@ -687,10 +686,11 @@ pub async fn confirm_password_reset(
         .into());
     }
 
-    let token_repo = UserPasswordResetTokenRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get token
-    let mut token = token_repo
+    let mut token = repos
+        .user_password_reset_token
         .get_by_token(&payload.token)
         .await?
         .ok_or_else(|| CoreError::Validation("Invalid or expired reset token".to_string()))?;
@@ -701,8 +701,8 @@ pub async fn confirm_password_reset(
     }
 
     // Get the user
-    let user_repo = UserRepository::new((*state.storage).clone());
-    let mut user = user_repo
+    let mut user = repos
+        .user
         .get(token.user_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("User not found".to_string()))?;
@@ -716,16 +716,15 @@ pub async fn confirm_password_reset(
 
     // Update user's password
     user.set_password_hash(password_hash);
-    user_repo.update(user).await?;
+    repos.user.update(user).await?;
 
     // Mark token as used
     let user_id = token.user_id;
     token.mark_used();
-    token_repo.update(token).await?;
+    repos.user_password_reset_token.update(token).await?;
 
     // Invalidate all user sessions for security
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
-    session_repo.revoke_user_sessions(user_id).await?;
+    repos.user_session.revoke_user_sessions(user_id).await?;
     tracing::info!(
         "Password reset successfully for user {} - all sessions revoked",
         user_id
@@ -942,15 +941,16 @@ mod tests {
         app.clone().oneshot(register_request).await.unwrap();
 
         // Manually verify the email since we don't have email sending
-        let email_repo = UserEmailRepository::new((*storage).clone());
-        let mut email = email_repo
+        let repos = RepositoryContext::new((*storage).clone());
+        let mut email = repos
+            .user_email
             .get_by_email("alice@example.com")
             .await
             .unwrap()
             .unwrap();
         let user_id = email.user_id;
         email.verify();
-        email_repo.update(email).await.unwrap();
+        repos.user_email.update(email).await.unwrap();
 
         // Request password reset
         let reset_request = axum::http::Request::builder()
@@ -969,8 +969,11 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         // Get the reset token from the repository
-        let token_repo = UserPasswordResetTokenRepository::new((*storage).clone());
-        let tokens = token_repo.get_by_user(user_id).await.unwrap();
+        let tokens = repos
+            .user_password_reset_token
+            .get_by_user(user_id)
+            .await
+            .unwrap();
         assert_eq!(tokens.len(), 1);
         let reset_token = tokens[0].token.clone();
 
@@ -1077,18 +1080,18 @@ mod tests {
         app.clone().oneshot(register_request).await.unwrap();
 
         // Manually verify the email
-        let email_repo = UserEmailRepository::new((*storage).clone());
-        let mut email = email_repo
+        let repos = RepositoryContext::new((*storage).clone());
+        let mut email = repos
+            .user_email
             .get_by_email("alice@example.com")
             .await
             .unwrap()
             .unwrap();
         let user_id = email.user_id;
         email.verify();
-        email_repo.update(email).await.unwrap();
+        repos.user_email.update(email).await.unwrap();
 
         // Create additional sessions to verify they all get revoked
-        let session_repo = UserSessionRepository::new((*storage).clone());
         let session2 = UserSession::new(
             IdGenerator::next_id(),
             user_id,
@@ -1103,11 +1106,11 @@ mod tests {
             None,
             None,
         );
-        session_repo.create(session2.clone()).await.unwrap();
-        session_repo.create(session3.clone()).await.unwrap();
+        repos.user_session.create(session2.clone()).await.unwrap();
+        repos.user_session.create(session3.clone()).await.unwrap();
 
         // Verify we have 3 active sessions (1 from registration + 2 created)
-        let sessions_before = session_repo.get_user_sessions(user_id).await.unwrap();
+        let sessions_before = repos.user_session.get_user_sessions(user_id).await.unwrap();
         let active_before: Vec<_> = sessions_before.iter().filter(|s| s.is_active()).collect();
         assert_eq!(
             active_before.len(),
@@ -1131,8 +1134,11 @@ mod tests {
         app.clone().oneshot(reset_request).await.unwrap();
 
         // Get the reset token
-        let token_repo = UserPasswordResetTokenRepository::new((*storage).clone());
-        let tokens = token_repo.get_by_user(user_id).await.unwrap();
+        let tokens = repos
+            .user_password_reset_token
+            .get_by_user(user_id)
+            .await
+            .unwrap();
         let reset_token = tokens[0].token.clone();
 
         // Confirm password reset
@@ -1153,7 +1159,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         // Verify ALL sessions are now revoked
-        let sessions_after = session_repo.get_user_sessions(user_id).await.unwrap();
+        let sessions_after = repos.user_session.get_user_sessions(user_id).await.unwrap();
         let active_after: Vec<_> = sessions_after.iter().filter(|s| s.is_active()).collect();
         assert_eq!(
             active_after.len(),

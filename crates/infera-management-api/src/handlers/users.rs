@@ -1,10 +1,9 @@
-use axum::{Extension, Json};
-use infera_management_core::{error::Error as CoreError, UserRepository};
+use axum::{extract::State, Extension, Json};
+use infera_management_core::{error::Error as CoreError, RepositoryContext};
 use serde::{Deserialize, Serialize};
 
 use crate::handlers::auth::{AppState, Result};
 use crate::middleware::SessionContext;
-use axum::extract::State;
 
 /// Get user profile response (wrapped)
 #[derive(Debug, Serialize, Deserialize)]
@@ -57,9 +56,11 @@ pub async fn get_profile(
     State(state): State<AppState>,
     Extension(ctx): Extension<SessionContext>,
 ) -> Result<Json<GetUserProfileResponse>> {
+    let repos = RepositoryContext::new((*state.storage).clone());
+
     // Get user from repository
-    let user_repo = UserRepository::new((*state.storage).clone());
-    let user = user_repo
+    let user = repos
+        .user
         .get(ctx.user_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("User not found".to_string()))?;
@@ -84,9 +85,11 @@ pub async fn update_profile(
     Extension(ctx): Extension<SessionContext>,
     Json(payload): Json<UpdateProfileRequest>,
 ) -> Result<Json<UpdateProfileResponse>> {
+    let repos = RepositoryContext::new((*state.storage).clone());
+
     // Get user from repository
-    let user_repo = UserRepository::new((*state.storage).clone());
-    let mut user = user_repo
+    let mut user = repos
+        .user
         .get(ctx.user_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("User not found".to_string()))?;
@@ -102,7 +105,7 @@ pub async fn update_profile(
     }
 
     // Save updated user
-    user_repo.update(user.clone()).await?;
+    repos.user.update(user.clone()).await?;
 
     Ok(Json(UpdateProfileResponse {
         profile: UserProfile {
@@ -124,19 +127,20 @@ pub async fn delete_user(
     State(state): State<AppState>,
     Extension(ctx): Extension<SessionContext>,
 ) -> Result<Json<DeleteUserResponse>> {
+    let repos = RepositoryContext::new((*state.storage).clone());
+
     // VALIDATION: Check if user is the only owner of any organizations
-    let member_repo =
-        infera_management_core::OrganizationMemberRepository::new((*state.storage).clone());
-    let memberships = member_repo.get_by_user(ctx.user_id).await?;
+    let memberships = repos.org_member.get_by_user(ctx.user_id).await?;
 
     for membership in &memberships {
         if membership.role == infera_management_core::entities::OrganizationRole::Owner {
             // Check if this user is the only owner
-            let owner_count = member_repo.count_owners(membership.organization_id).await?;
+            let owner_count = repos
+                .org_member
+                .count_owners(membership.organization_id)
+                .await?;
             if owner_count <= 1 {
-                let org_repo =
-                    infera_management_core::OrganizationRepository::new((*state.storage).clone());
-                if let Some(org) = org_repo.get(membership.organization_id).await? {
+                if let Some(org) = repos.org.get(membership.organization_id).await? {
                     return Err(CoreError::Validation(format!(
                         "Cannot delete account while being the only owner of organization '{}'. Please transfer ownership or delete the organization first.",
                         org.name
@@ -148,55 +152,55 @@ pub async fn delete_user(
     }
 
     // Get user from repository
-    let user_repo = UserRepository::new((*state.storage).clone());
-    let mut user = user_repo
+    let mut user = repos
+        .user
         .get(ctx.user_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("User not found".to_string()))?;
 
     // CASCADE DELETE: Revoke all user sessions
-    let session_repo = infera_management_core::UserSessionRepository::new((*state.storage).clone());
-    let sessions = session_repo.get_user_sessions(ctx.user_id).await?;
+    let sessions = repos.user_session.get_user_sessions(ctx.user_id).await?;
     for session in sessions {
-        session_repo.delete(session.id).await?;
+        repos.user_session.delete(session.id).await?;
     }
 
     // CASCADE DELETE: Remove organization memberships (only if not owner)
     for membership in memberships {
         if membership.role != infera_management_core::entities::OrganizationRole::Owner {
-            member_repo.delete(membership.id).await?;
+            repos.org_member.delete(membership.id).await?;
         }
     }
 
     // CASCADE DELETE: Delete all email verification tokens first, then email addresses
-    let email_repo = infera_management_core::UserEmailRepository::new((*state.storage).clone());
-    let emails = email_repo.get_user_emails(ctx.user_id).await?;
+    let emails = repos.user_email.get_user_emails(ctx.user_id).await?;
 
-    let token_repo =
-        infera_management_core::UserEmailVerificationTokenRepository::new((*state.storage).clone());
     for email in &emails {
-        let tokens = token_repo.get_by_email(email.id).await?;
+        let tokens = repos
+            .user_email_verification_token
+            .get_by_email(email.id)
+            .await?;
         for token in tokens {
-            token_repo.delete(token.id).await?;
+            repos.user_email_verification_token.delete(token.id).await?;
         }
     }
 
     // Now delete all email addresses
     for email in emails {
-        email_repo.delete(email.id).await?;
+        repos.user_email.delete(email.id).await?;
     }
 
     // CASCADE DELETE: Delete all password reset tokens
-    let reset_token_repo =
-        infera_management_core::UserPasswordResetTokenRepository::new((*state.storage).clone());
-    let reset_tokens = reset_token_repo.get_by_user(ctx.user_id).await?;
+    let reset_tokens = repos
+        .user_password_reset_token
+        .get_by_user(ctx.user_id)
+        .await?;
     for token in reset_tokens {
-        reset_token_repo.delete(token.id).await?;
+        repos.user_password_reset_token.delete(token.id).await?;
     }
 
     // Soft-delete the user
     user.soft_delete();
-    user_repo.update(user).await?;
+    repos.user.update(user).await?;
 
     Ok(Json(DeleteUserResponse {
         message: "User account deleted successfully".to_string(),
@@ -212,7 +216,7 @@ mod tests {
     use axum::routing::{delete, get, patch};
     use infera_management_core::{
         entities::{SessionType, User, UserSession},
-        IdGenerator, UserSessionRepository,
+        IdGenerator, RepositoryContext,
     };
     use infera_management_storage::{Backend, MemoryBackend};
     use std::sync::Arc;
@@ -243,13 +247,12 @@ mod tests {
         user_id: i64,
         session_id: i64,
     ) -> (User, UserSession) {
+        let repos = RepositoryContext::new((*storage).clone());
         let user = User::new(user_id, "testuser".to_string(), None).unwrap();
-        let user_repo = UserRepository::new((*storage).clone());
-        user_repo.create(user.clone()).await.unwrap();
+        repos.user.create(user.clone()).await.unwrap();
 
         let session = UserSession::new(session_id, user_id, SessionType::Web, None, None);
-        let session_repo = UserSessionRepository::new((*storage).clone());
-        session_repo.create(session.clone()).await.unwrap();
+        repos.user_session.create(session.clone()).await.unwrap();
 
         (user, session)
     }
@@ -363,8 +366,8 @@ mod tests {
         assert_eq!(response.status(), axum::http::StatusCode::OK);
 
         // Verify user is soft-deleted
-        let user_repo = UserRepository::new((*storage).clone());
-        let deleted_user = user_repo.get(user.id).await.unwrap();
+        let repos = RepositoryContext::new((*storage).clone());
+        let deleted_user = repos.user.get(user.id).await.unwrap();
         assert!(deleted_user.is_none()); // Soft-deleted users are filtered out by get()
     }
 }

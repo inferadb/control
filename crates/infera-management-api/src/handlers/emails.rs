@@ -3,8 +3,8 @@ use axum::{
     Extension, Json,
 };
 use infera_management_core::{
-    entities::UserEmailVerificationToken, error::Error as CoreError, IdGenerator, UserEmail,
-    UserEmailRepository, UserEmailVerificationTokenRepository,
+    entities::UserEmailVerificationToken, error::Error as CoreError, IdGenerator,
+    RepositoryContext, UserEmail,
 };
 use serde::{Deserialize, Serialize};
 
@@ -86,17 +86,22 @@ pub async fn add_email(
     Json(payload): Json<AddEmailRequest>,
 ) -> Result<Json<AddEmailResponse>> {
     // Create email record
-    let email_repo = UserEmailRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Check if email already exists
-    if email_repo.get_by_email(&payload.email).await?.is_some() {
+    if repos
+        .user_email
+        .get_by_email(&payload.email)
+        .await?
+        .is_some()
+    {
         return Err(CoreError::Validation("Email address already in use".to_string()).into());
     }
 
     let email_id = IdGenerator::next_id();
     let user_email = UserEmail::new(email_id, ctx.user_id, payload.email.clone(), false)?;
 
-    email_repo.create(user_email.clone()).await?;
+    repos.user_email.create(user_email.clone()).await?;
 
     // Generate verification token
     let token_id = IdGenerator::next_id();
@@ -104,8 +109,10 @@ pub async fn add_email(
     let verification_token =
         UserEmailVerificationToken::new(token_id, email_id, token_string.clone())?;
 
-    let token_repo = UserEmailVerificationTokenRepository::new((*state.storage).clone());
-    token_repo.create(verification_token).await?;
+    repos
+        .user_email_verification_token
+        .create(verification_token)
+        .await?;
 
     // TODO: Send verification email via email service
     // For now, we'll just log the token
@@ -130,8 +137,8 @@ pub async fn list_emails(
     State(state): State<AppState>,
     Extension(ctx): Extension<SessionContext>,
 ) -> Result<Json<ListEmailsResponse>> {
-    let email_repo = UserEmailRepository::new((*state.storage).clone());
-    let emails = email_repo.get_user_emails(ctx.user_id).await?;
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let emails = repos.user_email.get_user_emails(ctx.user_id).await?;
 
     Ok(Json(ListEmailsResponse {
         emails: emails.into_iter().map(|e| e.into()).collect(),
@@ -149,10 +156,11 @@ pub async fn update_email(
     Path(email_id): Path<i64>,
     Json(payload): Json<SetPrimaryEmailRequest>,
 ) -> Result<Json<EmailOperationResponse>> {
-    let email_repo = UserEmailRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get the email
-    let email = email_repo
+    let email = repos
+        .user_email
         .get(email_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Email not found".to_string()))?;
@@ -174,7 +182,7 @@ pub async fn update_email(
         // Update the email to be primary
         let mut updated_email = email.clone();
         updated_email.set_primary(true);
-        email_repo.update(updated_email).await?;
+        repos.user_email.update(updated_email).await?;
 
         Ok(Json(EmailOperationResponse {
             message: "Email set as primary".to_string(),
@@ -207,10 +215,11 @@ pub async fn verify_email(
     State(state): State<AppState>,
     Json(payload): Json<VerifyEmailRequest>,
 ) -> Result<Json<VerifyEmailResponse>> {
-    let token_repo = UserEmailVerificationTokenRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get the token
-    let mut token = token_repo
+    let mut token = repos
+        .user_email_verification_token
         .get_by_token(&payload.token)
         .await?
         .ok_or_else(|| {
@@ -230,11 +239,14 @@ pub async fn verify_email(
 
     // Mark token as used
     token.mark_used();
-    token_repo.update(token.clone()).await?;
+    repos
+        .user_email_verification_token
+        .update(token.clone())
+        .await?;
 
     // Get and verify the email
-    let email_repo = UserEmailRepository::new((*state.storage).clone());
-    let mut email = email_repo
+    let mut email = repos
+        .user_email
         .get(token.user_email_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Email not found".to_string()))?;
@@ -248,7 +260,7 @@ pub async fn verify_email(
 
     // Mark email as verified
     email.verify();
-    email_repo.update(email).await?;
+    repos.user_email.update(email).await?;
 
     Ok(Json(VerifyEmailResponse {
         message: "Email verified successfully".to_string(),
@@ -272,10 +284,11 @@ pub async fn resend_verification(
     Extension(ctx): Extension<SessionContext>,
     Path(email_id): Path<i64>,
 ) -> Result<Json<ResendVerificationResponse>> {
-    let email_repo = UserEmailRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get the email
-    let email = email_repo
+    let email = repos
+        .user_email
         .get(email_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Email not found".to_string()))?;
@@ -294,10 +307,12 @@ pub async fn resend_verification(
     }
 
     // Delete any existing tokens for this email
-    let token_repo = UserEmailVerificationTokenRepository::new((*state.storage).clone());
-    let existing_tokens = token_repo.get_by_email(email_id).await?;
+    let existing_tokens = repos
+        .user_email_verification_token
+        .get_by_email(email_id)
+        .await?;
     for token in existing_tokens {
-        token_repo.delete(token.id).await?;
+        repos.user_email_verification_token.delete(token.id).await?;
     }
 
     // Generate new verification token
@@ -306,7 +321,10 @@ pub async fn resend_verification(
     let verification_token =
         UserEmailVerificationToken::new(token_id, email_id, token_string.clone())?;
 
-    token_repo.create(verification_token).await?;
+    repos
+        .user_email_verification_token
+        .create(verification_token)
+        .await?;
 
     // TODO: Send verification email via email service
     tracing::info!(
@@ -330,10 +348,11 @@ pub async fn delete_email(
     Extension(ctx): Extension<SessionContext>,
     Path(email_id): Path<i64>,
 ) -> Result<Json<EmailOperationResponse>> {
-    let email_repo = UserEmailRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get the email
-    let email = email_repo
+    let email = repos
+        .user_email
         .get(email_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Email not found".to_string()))?;
@@ -351,7 +370,7 @@ pub async fn delete_email(
         .into());
     }
 
-    email_repo.delete(email_id).await?;
+    repos.user_email.delete(email_id).await?;
 
     Ok(Json(EmailOperationResponse {
         message: "Email deleted successfully".to_string(),
@@ -447,9 +466,9 @@ mod tests {
         let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
 
         // Add an email first
-        let email_repo = UserEmailRepository::new((*storage).clone());
+        let repos = RepositoryContext::new((*storage).clone());
         let email = UserEmail::new(200, 100, "test@example.com".to_string(), true).unwrap();
-        email_repo.create(email).await.unwrap();
+        repos.user_email.create(email).await.unwrap();
 
         let app = create_test_app(storage.clone());
 
@@ -478,9 +497,9 @@ mod tests {
         let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
 
         // Add a non-primary email
-        let email_repo = UserEmailRepository::new((*storage).clone());
+        let repos = RepositoryContext::new((*storage).clone());
         let email = UserEmail::new(200, 100, "delete@example.com".to_string(), false).unwrap();
-        email_repo.create(email).await.unwrap();
+        repos.user_email.create(email).await.unwrap();
 
         let app = create_test_app(storage.clone());
 
@@ -495,7 +514,7 @@ mod tests {
         assert_eq!(response.status(), axum::http::StatusCode::OK);
 
         // Verify email was deleted
-        let deleted = email_repo.get(200).await.unwrap();
+        let deleted = repos.user_email.get(200).await.unwrap();
         assert!(deleted.is_none());
     }
 
@@ -505,9 +524,9 @@ mod tests {
         let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
 
         // Add a primary email
-        let email_repo = UserEmailRepository::new((*storage).clone());
+        let repos = RepositoryContext::new((*storage).clone());
         let email = UserEmail::new(200, 100, "primary@example.com".to_string(), true).unwrap();
-        email_repo.create(email).await.unwrap();
+        repos.user_email.create(email).await.unwrap();
 
         let app = create_test_app(storage.clone());
 

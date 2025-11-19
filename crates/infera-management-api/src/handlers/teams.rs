@@ -9,9 +9,8 @@ use axum::{
     Extension, Json,
 };
 use infera_management_core::{
-    Error as CoreError, IdGenerator, OrganizationPermission, OrganizationRepository,
-    OrganizationTeam, OrganizationTeamMember, OrganizationTeamMemberRepository,
-    OrganizationTeamPermission, OrganizationTeamPermissionRepository, OrganizationTeamRepository,
+    Error as CoreError, IdGenerator, OrganizationPermission, OrganizationTeam,
+    OrganizationTeamMember, OrganizationTeamPermission, RepositoryContext,
 };
 use serde::{Deserialize, Serialize};
 
@@ -219,17 +218,18 @@ pub async fn create_team(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let org_repo = OrganizationRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get organization to check tier limits
-    let organization = org_repo
+    let organization = repos
+        .org
         .get(org_ctx.organization_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
 
     // Check tier limits
-    let current_count = team_repo
+    let current_count = repos
+        .org_team
         .count_active_by_organization(org_ctx.organization_id)
         .await?;
 
@@ -247,7 +247,7 @@ pub async fn create_team(
     let team = OrganizationTeam::new(team_id, org_ctx.organization_id, payload.name)?;
 
     // Store team
-    team_repo.create(team.clone()).await?;
+    repos.org_team.create(team.clone()).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -277,8 +277,9 @@ pub async fn list_teams(
 
     let params = pagination.0.validate();
 
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let all_teams = team_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let all_teams = repos
+        .org_team
         .list_active_by_organization(org_ctx.organization_id)
         .await?;
 
@@ -316,8 +317,9 @@ pub async fn get_team(
     // All organization members can view team details
     require_member(&org_ctx)?;
 
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let team = team_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let team = repos
+        .org_team
         .get(team_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
@@ -345,11 +347,11 @@ pub async fn update_team(
     Path((_org, team_id)): Path<(i64, i64)>,
     Json(payload): Json<UpdateTeamRequest>,
 ) -> Result<Json<UpdateTeamResponse>> {
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get team and verify ownership
-    let mut team = team_repo
+    let mut team = repos
+        .org_team
         .get(team_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
@@ -367,7 +369,8 @@ pub async fn update_team(
         || org_ctx.member.role == infera_management_core::OrganizationRole::Owner;
 
     let is_team_manager = if !is_admin_or_owner {
-        team_member_repo
+        repos
+            .org_team_member
             .get_by_team_and_user(team_id, org_ctx.member.user_id)
             .await?
             .map(|m| m.manager)
@@ -385,7 +388,7 @@ pub async fn update_team(
 
     // Update team name
     team.set_name(payload.name)?;
-    team_repo.update(team.clone()).await?;
+    repos.org_team.update(team.clone()).await?;
 
     Ok(Json(UpdateTeamResponse {
         id: team.id,
@@ -405,12 +408,11 @@ pub async fn delete_team(
     // Require admin or owner
     require_admin_or_owner(&org_ctx)?;
 
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
-    let team_permission_repo = OrganizationTeamPermissionRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get team and verify ownership
-    let mut team = team_repo
+    let mut team = repos
+        .org_team
         .get(team_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
@@ -421,13 +423,13 @@ pub async fn delete_team(
 
     // Soft delete team
     team.mark_deleted();
-    team_repo.update(team).await?;
+    repos.org_team.update(team).await?;
 
     // Delete all team members
-    team_member_repo.delete_by_team(team_id).await?;
+    repos.org_team_member.delete_by_team(team_id).await?;
 
     // Delete all team permissions
-    team_permission_repo.delete_by_team(team_id).await?;
+    repos.org_team_permission.delete_by_team(team_id).await?;
 
     Ok(Json(DeleteTeamResponse {
         message: "Team deleted successfully".to_string(),
@@ -448,11 +450,11 @@ pub async fn add_team_member(
     Path((_org, team_id)): Path<(i64, i64)>,
     Json(payload): Json<AddTeamMemberRequest>,
 ) -> Result<(StatusCode, Json<AddTeamMemberResponse>)> {
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get team and verify ownership
-    let team = team_repo
+    let team = repos
+        .org_team
         .get(team_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
@@ -470,7 +472,8 @@ pub async fn add_team_member(
         || org_ctx.member.role == infera_management_core::OrganizationRole::Owner;
 
     let is_team_manager = if !is_admin_or_owner {
-        team_member_repo
+        repos
+            .org_team_member
             .get_by_team_and_user(team_id, org_ctx.member.user_id)
             .await?
             .map(|m| m.manager)
@@ -487,9 +490,8 @@ pub async fn add_team_member(
     }
 
     // Verify user is an organization member
-    use infera_management_core::OrganizationMemberRepository;
-    let org_member_repo = OrganizationMemberRepository::new((*state.storage).clone());
-    let _target_member = org_member_repo
+    let _target_member = repos
+        .org_member
         .get_by_org_and_user(org_ctx.organization_id, payload.user_id)
         .await?
         .ok_or_else(|| {
@@ -500,7 +502,7 @@ pub async fn add_team_member(
     let member_id = IdGenerator::next_id();
     let member = OrganizationTeamMember::new(member_id, team_id, payload.user_id, payload.manager);
 
-    team_member_repo.create(member.clone()).await?;
+    repos.org_team_member.create(member.clone()).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -528,11 +530,11 @@ pub async fn list_team_members(
     // All organization members can view team members
     require_member(&org_ctx)?;
 
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Verify team exists and belongs to organization
-    let team = team_repo
+    let team = repos
+        .org_team
         .get(team_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
@@ -546,7 +548,7 @@ pub async fn list_team_members(
     }
 
     // Get team members
-    let members = team_member_repo.list_by_team(team_id).await?;
+    let members = repos.org_team_member.list_by_team(team_id).await?;
 
     Ok(Json(ListTeamMembersResponse {
         members: members.into_iter().map(team_member_to_response).collect(),
@@ -563,11 +565,11 @@ pub async fn update_team_member(
     Path((_org, team_id, member_id)): Path<(i64, i64, i64)>,
     Json(payload): Json<UpdateTeamMemberRequest>,
 ) -> Result<Json<UpdateTeamMemberResponse>> {
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get team and verify ownership
-    let team = team_repo
+    let team = repos
+        .org_team
         .get(team_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
@@ -585,7 +587,8 @@ pub async fn update_team_member(
         || org_ctx.member.role == infera_management_core::OrganizationRole::Owner;
 
     let is_team_manager = if !is_admin_or_owner {
-        team_member_repo
+        repos
+            .org_team_member
             .get_by_team_and_user(team_id, org_ctx.member.user_id)
             .await?
             .map(|m| m.manager)
@@ -602,7 +605,8 @@ pub async fn update_team_member(
     }
 
     // Get and update member
-    let mut member = team_member_repo
+    let mut member = repos
+        .org_team_member
         .get(member_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team member not found".to_string()))?;
@@ -612,7 +616,7 @@ pub async fn update_team_member(
     }
 
     member.set_manager(payload.manager);
-    team_member_repo.update(member.clone()).await?;
+    repos.org_team_member.update(member.clone()).await?;
 
     Ok(Json(UpdateTeamMemberResponse {
         id: member.id,
@@ -629,11 +633,11 @@ pub async fn remove_team_member(
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org, team_id, member_id)): Path<(i64, i64, i64)>,
 ) -> Result<Json<RemoveTeamMemberResponse>> {
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get team and verify ownership
-    let team = team_repo
+    let team = repos
+        .org_team
         .get(team_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
@@ -651,7 +655,8 @@ pub async fn remove_team_member(
         || org_ctx.member.role == infera_management_core::OrganizationRole::Owner;
 
     let is_team_manager = if !is_admin_or_owner {
-        team_member_repo
+        repos
+            .org_team_member
             .get_by_team_and_user(team_id, org_ctx.member.user_id)
             .await?
             .map(|m| m.manager)
@@ -668,7 +673,8 @@ pub async fn remove_team_member(
     }
 
     // Get and delete member
-    let member = team_member_repo
+    let member = repos
+        .org_team_member
         .get(member_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team member not found".to_string()))?;
@@ -677,7 +683,7 @@ pub async fn remove_team_member(
         return Err(CoreError::NotFound("Team member not found".to_string()).into());
     }
 
-    team_member_repo.delete(member_id).await?;
+    repos.org_team_member.delete(member_id).await?;
 
     Ok(Json(RemoveTeamMemberResponse {
         message: "Team member removed successfully".to_string(),
@@ -701,11 +707,11 @@ pub async fn grant_team_permission(
     // Only owners can grant permissions
     require_owner(&org_ctx)?;
 
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let team_permission_repo = OrganizationTeamPermissionRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get team and verify ownership
-    let team = team_repo
+    let team = repos
+        .org_team
         .get(team_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
@@ -727,7 +733,7 @@ pub async fn grant_team_permission(
         org_ctx.member.user_id,
     );
 
-    team_permission_repo.create(permission.clone()).await?;
+    repos.org_team_permission.create(permission.clone()).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -752,12 +758,11 @@ pub async fn list_team_permissions(
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org, team_id)): Path<(i64, i64)>,
 ) -> Result<Json<ListTeamPermissionsResponse>> {
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
-    let team_permission_repo = OrganizationTeamPermissionRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Verify team exists and belongs to organization
-    let team = team_repo
+    let team = repos
+        .org_team
         .get(team_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
@@ -775,7 +780,8 @@ pub async fn list_team_permissions(
         || org_ctx.member.role == infera_management_core::OrganizationRole::Owner;
 
     let is_team_member = if !is_admin_or_owner {
-        team_member_repo
+        repos
+            .org_team_member
             .get_by_team_and_user(team_id, org_ctx.member.user_id)
             .await?
             .is_some()
@@ -791,7 +797,7 @@ pub async fn list_team_permissions(
     }
 
     // Get team permissions
-    let permissions = team_permission_repo.list_by_team(team_id).await?;
+    let permissions = repos.org_team_permission.list_by_team(team_id).await?;
 
     Ok(Json(ListTeamPermissionsResponse {
         permissions: permissions
@@ -813,11 +819,11 @@ pub async fn revoke_team_permission(
     // Only owners can revoke permissions
     require_owner(&org_ctx)?;
 
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
-    let team_permission_repo = OrganizationTeamPermissionRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get team and verify ownership
-    let team = team_repo
+    let team = repos
+        .org_team
         .get(team_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
@@ -831,7 +837,8 @@ pub async fn revoke_team_permission(
     }
 
     // Get and delete permission
-    let permission = team_permission_repo
+    let permission = repos
+        .org_team_permission
         .get(permission_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Team permission not found".to_string()))?;
@@ -840,7 +847,7 @@ pub async fn revoke_team_permission(
         return Err(CoreError::NotFound("Team permission not found".to_string()).into());
     }
 
-    team_permission_repo.delete(permission_id).await?;
+    repos.org_team_permission.delete(permission_id).await?;
 
     Ok(Json(RevokeTeamPermissionResponse {
         message: "Team permission revoked successfully".to_string(),

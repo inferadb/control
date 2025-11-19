@@ -7,7 +7,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use infera_management_core::{
     entities::{AuditEventType, AuditLog, AuditResourceType},
-    AuditLogFilters, AuditLogRepository,
+    AuditLogFilters, RepositoryContext,
 };
 use serde::{Deserialize, Serialize};
 
@@ -42,7 +42,7 @@ pub async fn create_audit_log(
     State(state): State<AppState>,
     Json(payload): Json<CreateAuditLogRequest>,
 ) -> Response {
-    let repo = AuditLogRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Build audit log entry
     let mut log = AuditLog::new(payload.event_type, payload.organization_id, payload.user_id);
@@ -67,7 +67,7 @@ pub async fn create_audit_log(
         log = log.with_user_agent(ua);
     }
 
-    match repo.create(log).await {
+    match repos.audit_log.create(log).await {
         Ok(_) => (
             StatusCode::CREATED,
             Json(CreateAuditLogResponse { success: true }),
@@ -162,8 +162,9 @@ pub async fn list_audit_logs(
     };
 
     // Query audit logs
-    let audit_repo = AuditLogRepository::new((*state.storage).clone());
-    match audit_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    match repos
+        .audit_log
         .list_by_organization(org_ctx.organization_id, filters, limit, offset)
         .await
     {

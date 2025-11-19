@@ -6,9 +6,8 @@ use axum::{
     Extension, Form, Json,
 };
 use infera_management_core::{
-    error::Error as CoreError, ClientCertificateRepository, ClientRepository, IdGenerator,
-    JtiReplayProtectionRepository, JwtSigner, PrivateKeyEncryptor, UserSessionRepository,
-    VaultRefreshToken, VaultRefreshTokenRepository, VaultRepository, VaultRole, VaultTokenClaims,
+    error::Error as CoreError, IdGenerator, JwtSigner, PrivateKeyEncryptor, RepositoryContext,
+    VaultRefreshToken, VaultRole, VaultTokenClaims,
 };
 use serde::{Deserialize, Serialize};
 
@@ -89,8 +88,9 @@ pub async fn generate_vault_token(
     Json(req): Json<GenerateVaultTokenRequest>,
 ) -> Result<(StatusCode, Json<GenerateVaultTokenResponse>)> {
     // Verify vault exists and belongs to this organization
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -105,12 +105,11 @@ pub async fn generate_vault_token(
         .ok_or_else(|| CoreError::Authz("You do not have access to this vault".to_string()))?;
 
     // Get the client to use for signing
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
 
     // If client_id provided, use it; otherwise use the first active client
     let client = if let Some(client_id) = req.client_id {
-        let c = client_repo
+        let c = repos
+            .client
             .get(client_id)
             .await?
             .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
@@ -123,7 +122,8 @@ pub async fn generate_vault_token(
         c
     } else {
         // Get first active client for this organization
-        let clients = client_repo
+        let clients = repos
+            .client
             .list_by_organization(org_ctx.organization_id)
             .await?;
 
@@ -139,7 +139,7 @@ pub async fn generate_vault_token(
     };
 
     // Get an active certificate for the client
-    let certificates = cert_repo.list_by_client(client.id).await?;
+    let certificates = repos.client_certificate.list_by_client(client.id).await?;
     let certificate = certificates
         .into_iter()
         .find(|cert| !cert.is_revoked())
@@ -178,8 +178,10 @@ pub async fn generate_vault_token(
     )?;
 
     // Store refresh token
-    let refresh_repo = VaultRefreshTokenRepository::new((*state.storage).clone());
-    refresh_repo.create(refresh_token.clone()).await?;
+    repos
+        .vault_refresh_token
+        .create(refresh_token.clone())
+        .await?;
 
     Ok((
         StatusCode::CREATED,
@@ -209,10 +211,11 @@ pub async fn refresh_vault_token(
     State(state): State<AppState>,
     Json(req): Json<RefreshTokenRequest>,
 ) -> Result<(StatusCode, Json<RefreshTokenResponse>)> {
-    let refresh_repo = VaultRefreshTokenRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get refresh token by token string
-    let mut old_token = refresh_repo
+    let mut old_token = repos
+        .vault_refresh_token
         .get_by_token(&req.refresh_token)
         .await?
         .ok_or_else(|| CoreError::Authz("Invalid refresh token".to_string()))?;
@@ -222,12 +225,12 @@ pub async fn refresh_vault_token(
 
     // Mark old token as used (prevents replay attacks)
     old_token.mark_used();
-    refresh_repo.update(&old_token).await?;
+    repos.vault_refresh_token.update(&old_token).await?;
 
     // Validate the session is still active (for session-bound tokens)
     if let Some(session_id) = old_token.user_session_id {
-        let session_repo = UserSessionRepository::new((*state.storage).clone());
-        let session = session_repo
+        let session = repos
+            .user_session
             .get(session_id)
             .await?
             .ok_or_else(|| CoreError::Authz("Session expired or revoked".to_string()))?;
@@ -238,19 +241,18 @@ pub async fn refresh_vault_token(
     }
 
     // Verify vault still exists
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    vault_repo
+    repos
+        .vault
         .get(old_token.vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault no longer exists".to_string()))?;
 
     // Get a client and certificate for signing
-    let client_repo = ClientRepository::new((*state.storage).clone());
-    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
 
     // If token was bound to a client, use that client
     let client = if let Some(client_id) = old_token.org_api_key_id {
-        let c = client_repo
+        let c = repos
+            .client
             .get(client_id)
             .await?
             .ok_or_else(|| CoreError::Authz("Client no longer exists".to_string()))?;
@@ -262,7 +264,8 @@ pub async fn refresh_vault_token(
         c
     } else {
         // Get first active client for this organization
-        let clients = client_repo
+        let clients = repos
+            .client
             .list_by_organization(old_token.organization_id)
             .await?;
 
@@ -273,7 +276,7 @@ pub async fn refresh_vault_token(
     };
 
     // Get an active certificate
-    let certificates = cert_repo.list_by_client(client.id).await?;
+    let certificates = repos.client_certificate.list_by_client(client.id).await?;
     let certificate = certificates
         .into_iter()
         .find(|cert| !cert.is_revoked())
@@ -325,7 +328,7 @@ pub async fn refresh_vault_token(
     };
 
     // Store new refresh token
-    refresh_repo.create(new_token.clone()).await?;
+    repos.vault_refresh_token.create(new_token.clone()).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -454,8 +457,7 @@ pub async fn client_assertion_authenticate(
 
     // Lookup certificate by kid
     // kid format: "org-<org_id>-client-<client_id>-cert-<cert_id>"
-    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
-    let client_repo = ClientRepository::new((*state.storage).clone());
+    let repos = RepositoryContext::new((*state.storage).clone());
 
     // Parse kid to extract cert_id
     let kid_parts: Vec<&str> = kid.split('-').collect();
@@ -478,7 +480,8 @@ pub async fn client_assertion_authenticate(
         .map_err(|_| CoreError::Auth("Invalid cert_id in kid".to_string()))?;
 
     // Get the certificate
-    let certificate = cert_repo
+    let certificate = repos
+        .client_certificate
         .get(cert_id)
         .await?
         .ok_or_else(|| CoreError::Auth(format!("No certificate found with kid: {}", kid)))?;
@@ -542,14 +545,17 @@ pub async fn client_assertion_authenticate(
     }
 
     // Check JTI for replay protection
-    let jti_repo = JtiReplayProtectionRepository::new((*state.storage).clone());
     let expires_at =
         chrono::DateTime::from_timestamp(claims.exp, 0).unwrap_or_else(chrono::Utc::now);
 
-    jti_repo.check_and_mark_jti(&claims.jti, expires_at).await?;
+    repos
+        .jti_replay_protection
+        .check_and_mark_jti(&claims.jti, expires_at)
+        .await?;
 
     // Get client and verify it's not deleted
-    let client = client_repo
+    let client = repos
+        .client
         .get(certificate.client_id)
         .await?
         .ok_or_else(|| CoreError::Auth("Client not found".to_string()))?;
@@ -559,8 +565,9 @@ pub async fn client_assertion_authenticate(
     }
 
     // Verify vault exists
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = vault_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -602,8 +609,10 @@ pub async fn client_assertion_authenticate(
         None, // Use default TTL (7 days)
     )?;
 
-    let refresh_repo = VaultRefreshTokenRepository::new((*state.storage).clone());
-    refresh_repo.create(refresh_token.clone()).await?;
+    repos
+        .vault_refresh_token
+        .create(refresh_token.clone())
+        .await?;
 
     Ok(Json(ClientAssertionResponse {
         access_token,
@@ -636,8 +645,9 @@ pub async fn revoke_vault_tokens(
     Path(vault_id): Path<i64>,
 ) -> Result<(StatusCode, Json<RevokeTokensResponse>)> {
     // Verify user has session
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
-    let session = session_repo
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let session = repos
+        .user_session
         .get(session_ctx.session_id)
         .await?
         .ok_or_else(|| CoreError::Auth("Session not found".to_string()))?;
@@ -647,8 +657,8 @@ pub async fn revoke_vault_tokens(
     }
 
     // Verify vault exists
-    let vault_repo = VaultRepository::new((*state.storage).clone());
-    let _vault = vault_repo
+    let _vault = repos
+        .vault
         .get(vault_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
@@ -665,8 +675,7 @@ pub async fn revoke_vault_tokens(
     }
 
     // Revoke all refresh tokens for this vault
-    let refresh_repo = VaultRefreshTokenRepository::new((*state.storage).clone());
-    let revoked_count = refresh_repo.revoke_by_vault(vault_id).await?;
+    let revoked_count = repos.vault_refresh_token.revoke_by_vault(vault_id).await?;
 
     Ok((
         StatusCode::CREATED,
