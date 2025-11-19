@@ -1,0 +1,320 @@
+# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for PRs, queue for main
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Default to read-only permissions
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Check code formatting
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Rust nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo +nightly fmt --all -- --check
+
+  # Run Clippy for linting
+  clippy:
+    name: Linting
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: 0
+      RUSTFLAGS: "-C codegen-units=16 -C link-arg=-fuse-ld=mold"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq protobuf-compiler mold
+          protoc --version
+          mold --version
+
+      - name: Install FoundationDB client library
+        run: |
+          wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
+          sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+        with:
+          shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
+          save-if: false
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  # Build workspace once and cache for downstream jobs
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: 0
+      RUSTFLAGS: "-C codegen-units=16 -C link-arg=-fuse-ld=mold"
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq protobuf-compiler mold
+          protoc --version
+          mold --version
+
+      - name: Install FoundationDB client library
+        run: |
+          wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
+          sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+        with:
+          shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build workspace (debug)
+        run: cargo build --workspace
+
+      - name: Build tests (no run)
+        run: cargo test --workspace --no-run
+
+      - name: Print sccache stats
+        run: sccache --show-stats
+
+  # Run tests (reuses build cache)
+  test:
+    name: Tests
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write # For test result publishing
+    env:
+      CARGO_INCREMENTAL: 0
+      RUSTFLAGS: "-C codegen-units=16 -C link-arg=-fuse-ld=mold"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq protobuf-compiler mold
+          protoc --version
+          mold --version
+
+      - name: Install FoundationDB client library
+        run: |
+          wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
+          sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@f535147c22906d77695e11cb199e764aa610a4fc # v2.62.46
+        with:
+          tool: cargo-nextest
+
+      - name: Restore build cache
+        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+        with:
+          shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
+          save-if: false # Don't save, only restore from build job
+
+      - name: Run tests with nextest
+        run: cargo nextest run --workspace --profile ci --no-fail-fast
+
+      - name: Run doc tests
+        run: cargo test --workspace --doc
+
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action@82082dac68ad6a19d980f8ce817e108b9f496c2a # v2.18.0
+        if: always()
+        with:
+          files: target/nextest/ci/junit.xml
+          check_name: Test Results
+          comment_mode: off
+
+      - name: Upload test results
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: test-results-ubuntu
+          path: target/nextest/ci/junit.xml
+          retention-days: 7
+
+  # Test code coverage (reuses build cache)
+  coverage:
+    name: Code Coverage
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: 0
+      RUSTFLAGS: "-C codegen-units=16 -C link-arg=-fuse-ld=mold"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq protobuf-compiler mold
+          protoc --version
+          mold --version
+
+      - name: Install FoundationDB client library
+        run: |
+          wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
+          sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
+
+      - name: Install cargo-tarpaulin
+        uses: taiki-e/install-action@f535147c22906d77695e11cb199e764aa610a4fc # v2.62.46
+        with:
+          tool: cargo-tarpaulin
+
+      - name: Restore build cache
+        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+        with:
+          shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
+          save-if: false # Don't save, only restore from build job
+
+      - name: Generate coverage
+        run: cargo tarpaulin --workspace --timeout 300 --out xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@7f8b4b4bde536c465e797be725718b88c5d95e0e # v5.1.2
+        with:
+          files: ./cobertura.xml
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # Check dependencies
+  dependencies:
+    name: Dependencies
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+
+      - name: Check outdated dependencies
+        run: |
+          cargo install cargo-outdated
+          cargo outdated --exit-code 1 || echo "Some dependencies are outdated"
+
+      - name: Check for duplicate dependencies
+        run: cargo tree --duplicates
+
+  # Overall status check
+  ci-success:
+    name: CI Success
+    needs: [fmt, clippy, build, test, coverage, dependencies]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: always()
+    steps:
+      - name: Check all jobs
+        run: |
+          # Format and Clippy can be skipped for Dependabot PRs
+          if [[ "${{ needs.fmt.result }}" != "success" && "${{ needs.fmt.result }}" != "skipped" ]]; then
+            echo "Format check failed"
+            exit 1
+          fi
+          if [[ "${{ needs.clippy.result }}" != "success" && "${{ needs.clippy.result }}" != "skipped" ]]; then
+            echo "Clippy check failed"
+            exit 1
+          fi
+          # Build and test are always required
+          if [[ "${{ needs.build.result }}" != "success" ]]; then
+            echo "Build failed"
+            exit 1
+          fi
+          if [[ "${{ needs.test.result }}" != "success" ]]; then
+            echo "Tests failed"
+            exit 1
+          fi
+          # Coverage and dependencies can be skipped for Dependabot PRs
+          if [[ "${{ needs.coverage.result }}" != "success" && "${{ needs.coverage.result }}" != "skipped" ]]; then
+            echo "Coverage check failed"
+            exit 1
+          fi
+          if [[ "${{ needs.dependencies.result }}" != "success" && "${{ needs.dependencies.result }}" != "skipped" ]]; then
+            echo "Dependencies check failed"
+            exit 1
+          fi
+
+          echo "All required checks passed!"

@@ -1,0 +1,110 @@
+# yaml-language-server: $schema=https://www.schemastore.org/dependabot-2.0.json
+
+version: 2
+updates:
+  # Cargo dependencies (Rust crates)
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
+      - "automated"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    # Group dependency updates to reduce PR noise
+    groups:
+      # Group patch updates together
+      patch-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+      # Group minor updates by category
+      tokio-ecosystem:
+        patterns:
+          - "tokio*"
+          - "tower*"
+          - "hyper*"
+          - "axum*"
+          - "tonic*"
+        update-types:
+          - "minor"
+      tracing-ecosystem:
+        patterns:
+          - "tracing*"
+          - "opentelemetry*"
+        update-types:
+          - "minor"
+      serialization:
+        patterns:
+          - "serde*"
+          - "prost*"
+        update-types:
+          - "minor"
+    # Ignore major version bumps for stability (review manually)
+    ignore:
+      # foundationdb-rs: breaking changes need manual review
+      - dependency-name: "foundationdb"
+        update-types: ["version-update:semver-major"]
+      # tonic/prost: gRPC updates need coordinated deployment
+      - dependency-name: "tonic"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "prost"
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions workflow dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "security"
+      - "automated"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  # Docker base images
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "09:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+      - "automated"
+    commit-message:
+      prefix: "docker"
+
+  # Docker integration tests
+  - package-ecosystem: "docker"
+    directory: "/docker/fdb-integration-tests"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "09:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+      - "automated"
+    commit-message:
+      prefix: "docker"

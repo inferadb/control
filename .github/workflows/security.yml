@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
+
+name: Security
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      # Only run on PRs that modify dependencies or security configuration
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**/Cargo.toml"
+      - "deny.toml"
+      - ".github/workflows/security.yml"
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  cargo-audit:
+    name: Vulnerabilities
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Run cargo-audit
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  cargo-deny:
+    name: Licenses
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@8371184bd11e21dcf8ac82ebf8c9c9f74ebf7268 # v2.0.3
+        with:
+          log-level: warn
+          command: check
+          arguments: --all-features
+
+  dependency-review:
+    name: Dependencies
+    runs-on: ubuntu-latest
+    # Only run on pull requests (not on push to main or scheduled runs)
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@45529485b5eb76184ced07362d2331fd9d26f03f # v4
+        with:
+          fail-on-severity: moderate
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0, LGPL-2.0, LGPL-2.1, LGPL-3.0
+          comment-summary-in-pr: always
