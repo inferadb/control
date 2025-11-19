@@ -25,8 +25,9 @@ cargo build
 # Start supporting services (FoundationDB, MailHog, etc.)
 docker-compose up -d
 
-# Generate encryption secret
+# Generate encryption secret (encrypts client private keys at rest)
 export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
+# IMPORTANT: Store this secret securely. Loss = inability to decrypt stored keys
 
 # Run the API
 cargo run --bin inferadb-management
@@ -133,7 +134,7 @@ export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 ./target/release/inferadb-management --config /etc/inferadb/config.yaml
 ```
 
-**Multi-Instance** (Kubernetes with leader election): See [`DEPLOYMENT.md`](DEPLOYMENT.md)
+**Multi-Instance** (Kubernetes with leader election): See [Deployment Guide](docs/Deployment.md)
 
 ## Monitoring
 
@@ -156,7 +157,7 @@ export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 
 ## Performance & Load Testing
 
-**Performance Benchmarks**: See [PERFORMANCE.md](PERFORMANCE.md) for:
+**Performance Benchmarks**: See [Performance Guide](docs/Performance.md) for:
 
 - Latency characteristics (p50/p95/p99) for all operations
 - Throughput benchmarks (RPS) under various loads
@@ -179,15 +180,6 @@ done
 ```
 
 See [`loadtests/README.md`](loadtests/README.md) for detailed test scenarios and configuration.
-
-## Documentation
-
-- **[Overview](docs/Overview.md)**: Complete entity definitions, data model, and behavioral rules
-- **[Authentication](docs/Authentication.md)**: Auth flows, token management, and security model
-- **[Deployment](DEPLOYMENT.md)**: Production deployment, scaling, and high availability
-- **[Performance](PERFORMANCE.md)**: Performance benchmarks, scalability, and optimization
-- **[Contributing](CONTRIBUTING.md)**: Development workflow and contribution guidelines
-- **[Plan](PLAN.md)**: Implementation roadmap and phase status
 
 ## API Examples
 
@@ -245,13 +237,12 @@ See [OpenAPI.yaml](OpenAPI.yaml) for complete API endpoint specifications.
 
 ### Features
 - **[Authentication](docs/Authentication.md)**: Auth flows, sessions, and security
-- **[Authorization](docs/Authorization.md)**: Policy management and vault integration
 - **[Pagination](docs/Pagination.md)**: List endpoints and pagination best practices
 - **[Audit Logs](docs/AuditLogs.md)**: Security audit trail and compliance
 
 ### Operations
-- **[Deployment](DEPLOYMENT.md)**: Production deployment guide
-- **[Performance](PERFORMANCE.md)**: Benchmarks and optimization
+- **[Deployment](docs/Deployment.md)**: Production deployment guide
+- **[Performance](docs/Performance.md)**: Benchmarks and optimization
 - **[Troubleshooting](docs/Troubleshooting.md)**: Common issues and solutions
 - **[Contributing](CONTRIBUTING.md)**: Development guidelines
 

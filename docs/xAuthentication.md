@@ -1,5 +1,35 @@
 # Authentication Flow
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Two-Token Architecture](#two-token-architecture)
+- [Complete Authentication Flow](#complete-authentication-flow)
+- [JWT Claims Structure](#jwt-claims-structure)
+  - [Claim Descriptions](#claim-descriptions)
+- [Vault Token Response Format](#vault-token-response-format)
+- [Refresh Token Flow](#refresh-token-flow)
+  - [Refresh Token Security Properties](#refresh-token-security-properties)
+- [Authentication Methods](#authentication-methods)
+  - [1. Password Authentication](#1-password-authentication)
+  - [2. Passkey Authentication (WebAuthn/FIDO2)](#2-passkey-authentication-webauthfido2)
+  - [3. CLI OAuth Flow](#3-cli-oauth-flow)
+  - [4. Client Assertion (Recommended for Backend Services)](#4-client-assertion-recommended-for-backend-services)
+    - [Client Assertion Flow](#client-assertion-flow)
+    - [Client Assertion Benefits](#client-assertion-benefits)
+    - [Client Assertion Security](#client-assertion-security)
+  - [5. Single-Page Applications (SPAs)](#5-single-page-applications-spas)
+    - [Correct SPA Architecture](#correct-spa-architecture)
+- [Server API Token Validation](#server-api-token-validation)
+- [Security Considerations](#security-considerations)
+  - [Token Lifetimes](#token-lifetimes)
+  - [Cryptographic Signing](#cryptographic-signing)
+  - [Token Scoping](#token-scoping)
+  - [Revocation](#revocation)
+- [Integration Points](#integration-points)
+  - [Management API Responsibilities](#management-api-responsibilities)
+  - [Server API Responsibilities](#server-api-responsibilities)
+
 ## Overview
 
 The **Management API** acts as the central authentication orchestrator for the entire InferaDB system. This architecture allows the **Server API** to focus exclusively on authorization policy enforcement and decision evaluation, while delegating all identity and authentication concerns to the Management API.
@@ -110,27 +140,27 @@ Vault-scoped JWTs issued by the Management API contain the following claims:
 
 ```json
 {
-  "iss": "org:<organization_id>",
-  "sub": "org:<organization_id>",
-  "aud": "https://server.inferadb.com",
+  "iss": "tenant:<organization_id>",
+  "sub": "tenant:<organization_id>",
+  "aud": "https://api.inferadb.com/evaluate",
   "exp": 1234567890,
   "iat": 1234567800,
-  "jti": "<unique_id>",
-  "scope": "vault:<vault_id>",
-  "vault_role": "VAULT_ROLE_WRITER"
+  "vault_id": 777888999,
+  "vault_role": "WRITER",
+  "scope": "vault:read vault:write"
 }
 ```
 
 ### Claim Descriptions
 
-- **iss** (Issuer): The organization that issued the token
-- **sub** (Subject): The organization making the request
-- **aud** (Audience): Target service (Server API)
+- **iss** (Issuer): The tenant/organization that issued the token (format: `tenant:<org_id>`)
+- **sub** (Subject): The tenant/organization making the request (format: `tenant:<org_id>`)
+- **aud** (Audience): Target service (Server API evaluation endpoint)
 - **exp** (Expiration): Unix timestamp when token expires
 - **iat** (Issued At): Unix timestamp when token was created
-- **jti** (JWT ID): Unique identifier for this token
-- **scope**: Vault-specific scope limiting token usage
+- **vault_id**: The vault ID this token grants access to
 - **vault_role**: Permission level (READER, WRITER, MANAGER, ADMIN)
+- **scope**: Space-separated permissions (e.g., "vault:read vault:write")
 
 ## Vault Token Response Format
 

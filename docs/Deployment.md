@@ -49,7 +49,7 @@ Edit `config.yaml` and replace all placeholder values marked with `<...>`:
 
 ```yaml
 storage:
-  backend: "fdb"
+  backend: "foundationdb"
   fdb_cluster_file: "/etc/foundationdb/fdb.cluster"
 ```
 

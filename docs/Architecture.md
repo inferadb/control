@@ -558,4 +558,4 @@ graph TB
 
 - [Overview](Overview.md): Complete entity definitions and data model
 - [Authentication](Authentication.md): Authentication flows and security model
-- [Deployment](../DEPLOYMENT.md): Production deployment guide
+- [Deployment](Deployment.md): Production deployment guide

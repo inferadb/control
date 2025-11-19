@@ -2,6 +2,9 @@
 
 This document provides practical code examples for common workflows using the InferaDB Management API.
 
+> **Note**: Values like `{org_id}`, `{vault_id}`, and numeric IDs (e.g., `111222333`, `777888999`)
+> are placeholders. Replace them with actual IDs from your API responses.
+
 ## Table of Contents
 
 - [User Registration](#user-registration)
@@ -38,7 +41,7 @@ curl -X POST http://localhost:3000/v1/auth/register \
   "organization": {
     "id": "987654321",
     "name": "Alice Smith's Org",
-    "tier": "tier_dev_v1",
+    "tier": "TIER_DEV_V1",
     "created_at": "2025-01-15T10:30:00Z",
     "role": "owner"
   }
@@ -50,7 +53,7 @@ curl -X POST http://localhost:3000/v1/auth/register \
 ### Login
 
 ```bash
-curl -X POST http://localhost:3000/v1/auth/login \
+curl -X POST http://localhost:3000/v1/auth/login/password \
   -H "Content-Type: application/json" \
   -c cookies.txt \
   -d '{
@@ -73,7 +76,7 @@ curl -X POST http://localhost:3000/v1/auth/login \
     {
       "id": "987654321",
       "name": "Alice Smith's Org",
-      "tier": "tier_dev_v1",
+      "tier": "TIER_DEV_V1",
       "created_at": "2025-01-15T10:30:00Z",
       "role": "owner"
     }
@@ -101,7 +104,7 @@ curl -X POST http://localhost:3000/v1/organizations \
   -b cookies.txt \
   -d '{
     "name": "ACME Corporation",
-    "tier": "tier_pro_v1"
+    "tier": "TIER_PRO_V1"
   }'
 ```
 
@@ -112,7 +115,7 @@ curl -X POST http://localhost:3000/v1/organizations \
   "organization": {
     "id": "111222333",
     "name": "ACME Corporation",
-    "tier": "tier_pro_v1",
+    "tier": "TIER_PRO_V1",
     "created_at": "2025-01-15T11:00:00Z",
     "role": "owner"
   }
@@ -200,12 +203,12 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/vaults \
 ### Grant User Access to Vault
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/access/users \
+curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/user-grants \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
     "user_id": "555666777",
-    "role": "editor"
+    "role": "WRITER"
   }'
 ```
 
@@ -217,7 +220,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/a
     "id": "888999000",
     "vault_id": "777888999",
     "user_id": "555666777",
-    "role": "editor",
+    "role": "WRITER",
     "granted_by": "123456789",
     "created_at": "2025-01-15T11:35:00Z"
   }
@@ -319,7 +322,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/clients/123123123/
 ### Generate Vault Token (User Session)
 
 ```bash
-curl -X POST http://localhost:3000/v1/vaults/777888999/token \
+curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/tokens \
   -H "Content-Type: application/json" \
   -b cookies.txt
 ```
@@ -339,7 +342,7 @@ curl -X POST http://localhost:3000/v1/vaults/777888999/token \
 ### Refresh Access Token
 
 ```bash
-curl -X POST http://localhost:3000/v1/vaults/token/refresh \
+curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/tokens/refresh \
   -H "Content-Type: application/json" \
   -d '{
     "refresh_token": "rt_abc123def456"
@@ -432,12 +435,12 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/teams/321321321/me
 ### Grant Team Access to Vault
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/access/teams \
+curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/team-grants \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
     "team_id": "321321321",
-    "role": "viewer"
+    "role": "READER"
   }'
 ```
 
@@ -449,7 +452,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/a
     "id": "789789789",
     "vault_id": "777888999",
     "team_id": "321321321",
-    "role": "viewer",
+    "role": "READER",
     "granted_by": "123456789",
     "created_at": "2025-01-15T13:10:00Z"
   }
@@ -525,19 +528,19 @@ curl -X POST http://localhost:3000/v1/organizations/987654321/clients/666666666/
 The client automatically has access to vaults in its organization. To explicitly grant:
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/987654321/vaults/555555555/access/teams \
+curl -X POST http://localhost:3000/v1/organizations/987654321/vaults/555555555/team-grants \
   -H "Content-Type: application/json" \
   -b alice_cookies.txt \
   -d '{
     "team_id": "default_team_id",
-    "role": "admin"
+    "role": "ADMIN"
   }' | jq .
 ```
 
 ### Step 6: Generate Vault Token (as Alice)
 
 ```bash
-curl -X POST http://localhost:3000/v1/vaults/555555555/token \
+curl -X POST http://localhost:3000/v1/organizations/987654321/vaults/555555555/tokens \
   -H "Content-Type: application/json" \
   -b alice_cookies.txt \
   -o token_response.json
@@ -583,7 +586,7 @@ export VAULT_ID="555555555"
 
 ```bash
 # Attempt login with wrong password
-response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:3000/v1/auth/login \
+response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:3000/v1/auth/login/password \
   -H "Content-Type: application/json" \
   -d '{
     "email": "alice@acme.com",
@@ -605,7 +608,7 @@ fi
 
 ```bash
 # Check for rate limit response
-response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:3000/v1/auth/login \
+response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:3000/v1/auth/login/password \
   -H "Content-Type: application/json" \
   -d '{"email": "test@test.com", "password": "test"}')
 
@@ -620,6 +623,10 @@ fi
 ```
 
 ## Python SDK Example
+
+> **Note**: This is conceptual example code to guide integration. InferaDB does not currently provide
+> an official Python SDK. For production use, we recommend using the REST API directly with your
+> preferred HTTP client library.
 
 ```python
 import requests
@@ -642,7 +649,7 @@ class InferaManagementClient:
     def login(self, email: str, password: str) -> Dict:
         """Login and get session cookie"""
         response = self.session.post(
-            f"{self.base_url}/v1/auth/login",
+            f"{self.base_url}/v1/auth/login/password",
             json={"email": email, "password": password}
         )
         response.raise_for_status()
@@ -657,10 +664,10 @@ class InferaManagementClient:
         response.raise_for_status()
         return response.json()
 
-    def generate_token(self, vault_id: str) -> Dict:
+    def generate_token(self, org_id: str, vault_id: str) -> Dict:
         """Generate vault access token"""
         response = self.session.post(
-            f"{self.base_url}/v1/vaults/{vault_id}/token"
+            f"{self.base_url}/v1/organizations/{org_id}/vaults/{vault_id}/tokens"
         )
         response.raise_for_status()
         return response.json()

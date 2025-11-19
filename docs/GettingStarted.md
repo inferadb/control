@@ -58,7 +58,7 @@ cd inferadb/management
 cargo build --release
 
 # Verify build
-./target/release/infera-management-api --version
+./target/release/inferadb-management --version
 ```
 
 ### 3. Configure the API
@@ -66,7 +66,7 @@ cargo build --release
 Create a development configuration file:
 
 ```bash
-cp config.dev.yaml config.local.yaml
+cp config.yaml config.local.yaml
 ```
 
 Edit `config.local.yaml` to match your environment:
@@ -95,7 +95,7 @@ observability:
 
 ```bash
 # Run with local config
-./target/release/infera-management-api --config config.local.yaml
+./target/release/inferadb-management --config config.local.yaml
 ```
 
 You should see output like:
@@ -337,14 +337,14 @@ curl -X GET "http://localhost:3000/v1/organizations/9876543210987654321/audit-lo
 
 ### Using Environment Variables
 
-Override config values with environment variables:
+Override config values with environment variables (use `INFERADB_MGMT__` prefix with double underscores as separators):
 
 ```bash
-export INFERA_HTTP_PORT=8080
-export INFERA_LOG_LEVEL=debug
-export INFERA_KEY_ENCRYPTION_SECRET="your-secret-key"
+export INFERADB_MGMT__SERVER__HTTP_PORT=8080
+export INFERADB_MGMT__OBSERVABILITY__LOG_LEVEL=debug
+export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET="your-secret-key"
 
-./target/release/infera-management-api
+./target/release/inferadb-management
 ```
 
 ### Running Tests
@@ -405,7 +405,7 @@ fdbcli -C /usr/local/etc/foundationdb/fdb.cluster \
   --exec "writemode on; clearrange \\x00 \\xff"
 
 # Restart the API server
-./target/release/infera-management-api --config config.local.yaml
+./target/release/inferadb-management --config config.local.yaml
 ```
 
 ## Next Steps
@@ -413,10 +413,10 @@ fdbcli -C /usr/local/etc/foundationdb/fdb.cluster \
 Now that you have the basics working, explore:
 
 - **[Authentication](Authentication.md)**: Deep dive into auth flows and session management
-- **[Authorization](Authorization.md)**: Policy management and vault integration
 - **[Entities](Overview.md)**: Complete data model reference
 - **[API Examples](Examples.md)**: Real-world integration examples
-- **[Deployment](../DEPLOYMENT.md)**: Production deployment guide
+- **[Deployment](Deployment.md)**: Production deployment guide
+- **[Audit Logs](AuditLogs.md)**: Security audit trail and compliance
 
 ## Troubleshooting
 
@@ -498,4 +498,4 @@ Before deploying to production, review:
 - [ ] Backed up FoundationDB cluster file
 - [ ] Tested disaster recovery procedures
 
-See [DEPLOYMENT.md](../DEPLOYMENT.md) for complete production deployment guide.
+See [Deployment Guide](Deployment.md) for complete production deployment guide.
