@@ -83,8 +83,6 @@ impl PasskeyCredential {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_new_passkey_credential() {
         // Note: This test is limited because we can't easily create a real Passkey

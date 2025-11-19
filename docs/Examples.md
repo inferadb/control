@@ -689,6 +689,6 @@ print(f"Access Token: {access_token}")
 
 ## Further Reading
 
-- [API Reference](../PLAN.md): Complete API endpoint specifications
+- [API Reference](../OpenAPI.yaml): Complete API endpoint specifications
 - [Architecture](Architecture.md): System architecture and deployment
 - [Data Flows](Flows.md): Detailed data flow diagrams

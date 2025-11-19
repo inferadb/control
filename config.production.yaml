@@ -22,7 +22,7 @@ server:
 # Storage backend configuration
 storage:
   # Use FoundationDB for production
-  backend: "fdb"
+  backend: "foundationdb"
 
   # FoundationDB cluster file path
   # This file contains the connection string for your FDB cluster
@@ -100,8 +100,8 @@ observability:
   # Enable distributed tracing
   tracing_enabled: true
 
-  # Tracing endpoint (e.g., OTLP endpoint)
-  tracing_endpoint: "http://localhost:4317"
+  # OTLP endpoint for distributed tracing
+  otlp_endpoint: "http://localhost:4317"
 
 # ID generation configuration
 id_generation:

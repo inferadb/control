@@ -12,6 +12,8 @@ Control Plane API for InferaDB providing self-service user authentication, organ
 
 ## Quick Start
 
+**New to InferaDB Management API?** See [docs/GettingStarted.md](docs/GettingStarted.md) for a complete step-by-step tutorial.
+
 **Prerequisites**: Rust 1.70+, Docker (for local services)
 
 ```bash
@@ -146,6 +148,12 @@ export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 
 **Tracing**: Optional OpenTelemetry integration for distributed tracing
 
+**Audit Logs**: Comprehensive audit trail for security and compliance. See [docs/AuditLogs.md](docs/AuditLogs.md) for:
+- Event types and severity levels
+- Querying and filtering
+- Compliance reporting examples
+- Integration with SIEM systems
+
 ## Performance & Load Testing
 
 **Performance Benchmarks**: See [PERFORMANCE.md](PERFORMANCE.md) for:
@@ -194,7 +202,7 @@ curl -X POST http://localhost:3000/v1/auth/register \
 **Login**:
 
 ```bash
-curl -X POST http://localhost:3000/v1/auth/login \
+curl -X POST http://localhost:3000/v1/auth/login/password \
   -H "Content-Type: application/json" \
   -d '{"email": "user@example.com", "password": "securepass123"}'
 ```
@@ -211,28 +219,45 @@ curl -X POST http://localhost:3000/v1/organizations/{org_id}/vaults \
 **Generate Vault JWT**:
 
 ```bash
-curl -X POST http://localhost:3000/v1/vaults/{vault_id}/token \
+curl -X POST http://localhost:3000/v1/organizations/{org_id}/vaults/{vault_id}/tokens \
   -H "Cookie: infera_session={session_id}"
 ```
 
-See [`PLAN.md`](PLAN.md) for complete API endpoint specifications.
+See [OpenAPI.yaml](OpenAPI.yaml) for complete API endpoint specifications.
+
+**Pagination**: All list endpoints support offset-based pagination. See [docs/Pagination.md](docs/Pagination.md) for:
+- Query parameter usage (`limit`, `offset`)
+- Response format and metadata
+- Best practices and code examples
+- Performance considerations
+
+## Documentation
+
+### Getting Started
+- **[Getting Started Guide](docs/GettingStarted.md)**: Step-by-step tutorial for new users
+- **[OpenAPI Specification](OpenAPI.yaml)**: Complete REST API reference
+- **[Examples](docs/Examples.md)**: Real-world integration examples
+
+### Core Concepts
+- **[Overview](docs/Overview.md)**: Entities, relationships, and data model
+- **[Architecture](docs/Architecture.md)**: System architecture and components
+- **[Data Flows](docs/Flows.md)**: Detailed data flow diagrams
+
+### Features
+- **[Authentication](docs/Authentication.md)**: Auth flows, sessions, and security
+- **[Authorization](docs/Authorization.md)**: Policy management and vault integration
+- **[Pagination](docs/Pagination.md)**: List endpoints and pagination best practices
+- **[Audit Logs](docs/AuditLogs.md)**: Security audit trail and compliance
+
+### Operations
+- **[Deployment](DEPLOYMENT.md)**: Production deployment guide
+- **[Performance](PERFORMANCE.md)**: Benchmarks and optimization
+- **[Troubleshooting](docs/Troubleshooting.md)**: Common issues and solutions
+- **[Contributing](CONTRIBUTING.md)**: Development guidelines
 
 ## Troubleshooting
 
-**FoundationDB connection failed**:
-
-```bash
-docker-compose ps foundationdb
-cat /etc/foundationdb/fdb.cluster  # Verify cluster file
-```
-
-**Port conflicts** (3000/3001 in use):
-
-```bash
-INFERADB_MGMT__SERVER__HTTP_PORT=4000 cargo run
-```
-
-**Email not sending**: Check MailHog UI at `http://localhost:8025`
+See [docs/Troubleshooting.md](docs/Troubleshooting.md) for comprehensive troubleshooting guide covering installation, database, authentication, API errors, performance, and deployment issues.
 
 ## License
 

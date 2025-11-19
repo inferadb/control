@@ -23,6 +23,7 @@ fn create_test_state() -> AppState {
 }
 
 /// Helper to setup a user with a specific role in an organization
+#[allow(clippy::too_many_arguments)]
 async fn setup_user_with_role(
     state: &AppState,
     user_id: i64,

@@ -228,9 +228,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::id::IdGenerator;
     use infera_management_storage::MemoryBackend;
-    use webauthn_rs::prelude::*;
 
     async fn create_test_repo() -> PasskeyCredentialRepository<MemoryBackend> {
         let backend = MemoryBackend::new();
