@@ -46,7 +46,8 @@ impl<S: StorageBackend> UserRepository<S> {
         // Store user record
         txn.set(Self::user_key(user.id), user_data);
 
-        // Store name index
+        // Store name index (not enforcing uniqueness, just for lookup)
+        let name_key = Self::name_index_key(&user.name);
         txn.set(name_key, user.id.to_le_bytes().to_vec());
 
         // Commit transaction
