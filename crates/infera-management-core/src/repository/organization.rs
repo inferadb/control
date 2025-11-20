@@ -46,25 +46,13 @@ impl<S: StorageBackend> OrganizationRepository<S> {
             .await
             .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
 
-        // Check name uniqueness
-        let name_key = Self::org_name_index_key(&org.name);
-        if self
-            .storage
-            .get(&name_key)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to check name uniqueness: {}", e)))?
-            .is_some()
-        {
-            return Err(Error::AlreadyExists(format!(
-                "Organization name '{}' is already in use",
-                org.name
-            )));
-        }
-
         // Store organization record
-        txn.set(Self::org_key(org.id), org_data);
+        let org_key = Self::org_key(org.id);
+        txn.set(org_key, org_data);
 
-        // Store name index
+        // Store name index for lookup (not enforcing uniqueness)
+        // Note: If multiple orgs have the same name, this will point to the last one created
+        let name_key = Self::org_name_index_key(&org.name);
         txn.set(name_key, org.id.to_le_bytes().to_vec());
 
         // Increment global count
@@ -147,28 +135,14 @@ impl<S: StorageBackend> OrganizationRepository<S> {
                 .await
                 .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
 
-            // Check new name uniqueness
-            let new_name_key = Self::org_name_index_key(&org.name);
-            if self
-                .storage
-                .get(&new_name_key)
-                .await
-                .map_err(|e| Error::Internal(format!("Failed to check name uniqueness: {}", e)))?
-                .is_some()
-            {
-                return Err(Error::AlreadyExists(format!(
-                    "Organization name '{}' is already in use",
-                    org.name
-                )));
-            }
-
             // Update organization record
             txn.set(Self::org_key(org.id), org_data);
 
             // Delete old name index
             txn.delete(Self::org_name_index_key(&old_org.name));
 
-            // Create new name index
+            // Create new name index (not enforcing uniqueness)
+            let new_name_key = Self::org_name_index_key(&org.name);
             txn.set(new_name_key, org.id.to_le_bytes().to_vec());
 
             txn.commit().await.map_err(|e| {
@@ -556,7 +530,12 @@ mod tests {
         let org2 =
             Organization::new(101, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
         let result = repo.create(org2).await;
-        assert!(result.is_err());
+        // Duplicate names are now allowed
+        assert!(result.is_ok());
+
+        // Verify both organizations exist
+        assert!(repo.get(100).await.unwrap().is_some());
+        assert!(repo.get(101).await.unwrap().is_some());
     }
 
     #[tokio::test]
