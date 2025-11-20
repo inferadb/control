@@ -4,7 +4,7 @@ use infera_management_storage::StorageBackend;
 /// Consolidated repository context to reduce boilerplate in handlers.
 ///
 /// Instead of manually instantiating repositories in every handler:
-/// ```rust
+/// ```rust,ignore
 /// let org_repo = OrganizationRepository::new((*state.storage).clone());
 /// let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
 /// let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
@@ -12,7 +12,7 @@ use infera_management_storage::StorageBackend;
 /// ```
 ///
 /// You can now use:
-/// ```rust
+/// ```rust,ignore
 /// let repos = RepositoryContext::new(state.storage.clone());
 /// repos.org.create(...).await?;
 /// repos.member.list(...).await?;
@@ -59,7 +59,7 @@ impl<S: StorageBackend + Clone> RepositoryContext<S> {
     /// * `storage` - The storage backend to use for all repositories
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// let repos = RepositoryContext::new((*state.storage).clone());
     /// let user = repos.user.get(user_id).await?;
     /// ```

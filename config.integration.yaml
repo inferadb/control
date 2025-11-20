@@ -1,0 +1,50 @@
+# InferaDB Management API Configuration - Integration Tests
+# This config is optimized for Docker container E2E testing
+
+frontend_base_url: "http://localhost:3000"
+
+server:
+  http_host: "0.0.0.0"  # Bind to all interfaces for Docker
+  http_port: 8081        # Match docker-compose exposed port
+  grpc_host: "0.0.0.0"
+  grpc_port: 8082
+  worker_threads: 2      # Reduced for test environment
+
+storage:
+  backend: "memory"      # In-memory for fast tests
+
+auth:
+  session_ttl_web: 3600       # 1 hour for tests
+  session_ttl_cli: 7200       # 2 hours for tests
+  session_ttl_sdk: 7200       # 2 hours for tests
+  password_min_length: 8      # Relaxed for tests
+  max_sessions_per_user: 5
+  webauthn:
+    rp_id: "localhost"
+    rp_name: "InferaDB Test"
+    origin: "http://localhost:3000"
+
+email:
+  smtp_host: "localhost"
+  smtp_port: 1025
+  from_email: "test@inferadb.local"
+  from_name: "InferaDB Test"
+
+rate_limiting:
+  login_attempts_per_ip_per_hour: 1000     # Relaxed for tests
+  registrations_per_ip_per_day: 100
+  email_verification_tokens_per_hour: 100
+  password_reset_tokens_per_hour: 100
+
+observability:
+  log_level: "debug"     # Verbose logging for tests
+  metrics_enabled: true
+  tracing_enabled: false
+
+id_generation:
+  worker_id: 0
+  max_clock_skew_ms: 5000
+
+server_api:
+  grpc_endpoint: "http://server:8080"  # Docker service name
+  tls_enabled: false
