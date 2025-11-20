@@ -274,13 +274,6 @@ pub async fn register(
         );
     }
 
-    // Check if name is available
-    if !repos.user.is_name_available(&payload.name).await? {
-        return Err(
-            CoreError::Validation(format!("Name '{}' is already taken", payload.name)).into(),
-        );
-    }
-
     // Hash password
     let password_hash = hash_password(&payload.password)?;
 
