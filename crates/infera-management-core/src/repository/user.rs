@@ -32,21 +32,6 @@ impl<S: StorageBackend> UserRepository<S> {
     /// This operation is atomic - either both the user record and name index
     /// are created, or neither is.
     pub async fn create(&self, user: User) -> Result<()> {
-        // Check if name already exists
-        let name_key = Self::name_index_key(&user.name);
-        if self
-            .storage
-            .get(&name_key)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to check name uniqueness: {}", e)))?
-            .is_some()
-        {
-            return Err(Error::Validation(format!(
-                "User with name '{}' already exists",
-                user.name
-            )));
-        }
-
         // Serialize user
         let user_data = serde_json::to_vec(&user)
             .map_err(|e| Error::Internal(format!("Failed to serialize user: {}", e)))?;
@@ -127,23 +112,6 @@ impl<S: StorageBackend> UserRepository<S> {
         let existing = existing.ok_or_else(|| Error::NotFound("User not found".to_string()))?;
 
         let name_changed = existing.name != user.name;
-
-        // If name changed, check new name availability
-        if name_changed {
-            let new_name_key = Self::name_index_key(&user.name);
-            if self
-                .storage
-                .get(&new_name_key)
-                .await
-                .map_err(|e| Error::Internal(format!("Failed to check name uniqueness: {}", e)))?
-                .is_some()
-            {
-                return Err(Error::Validation(format!(
-                    "User with name '{}' already exists",
-                    user.name
-                )));
-            }
-        }
 
         // Serialize user
         let user_data = serde_json::to_vec(&user)
