@@ -4,7 +4,10 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{
+    engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD},
+    Engine,
+};
 use infera_management_core::RepositoryContext;
 use serde::{Deserialize, Serialize};
 
@@ -63,14 +66,9 @@ impl Jwk {
     }
 }
 
-/// Encode bytes as base64url (no padding)
+/// Encode bytes as base64url (no padding) per RFC 4648 Section 5
 fn base64_url_encode(bytes: &[u8]) -> String {
-    BASE64
-        .encode(bytes)
-        .replace('+', "-")
-        .replace('/', "_")
-        .trim_end_matches('=')
-        .to_string()
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 /// Get global JWKS (all active certificates across all organizations)
@@ -128,12 +126,27 @@ pub async fn get_org_jwks(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    tracing::debug!(
+        org_id = %org_id,
+        total_certs = all_certs.len(),
+        cert_kids = ?all_certs.iter().map(|c| &c.kid).collect::<Vec<_>>(),
+        "JWKS: Retrieved all active certificates"
+    );
+
     // Filter by organization (kid format: org-<org_id>-client-<client_id>-cert-<cert_id>)
     let org_prefix = format!("org-{}-", org_id);
     let org_certs: Vec<_> = all_certs
         .into_iter()
         .filter(|cert| cert.kid.starts_with(&org_prefix))
         .collect();
+
+    tracing::debug!(
+        org_id = %org_id,
+        org_prefix = %org_prefix,
+        filtered_count = org_certs.len(),
+        filtered_kids = ?org_certs.iter().map(|c| &c.kid).collect::<Vec<_>>(),
+        "JWKS: Filtered certificates by organization"
+    );
 
     // Convert to JWKs
     let mut keys = Vec::new();

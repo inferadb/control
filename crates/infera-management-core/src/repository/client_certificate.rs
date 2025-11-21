@@ -167,18 +167,54 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
             .await
             .map_err(|e| Error::Internal(format!("Failed to get all certificates: {}", e)))?;
 
+        tracing::debug!(
+            kv_count = kvs.len(),
+            "list_all_active: Retrieved KV pairs from storage"
+        );
+
         let mut certs = Vec::new();
+        let mut skipped_indexes = 0;
+        let mut invalid_json = 0;
+        let mut inactive_certs = 0;
+
         for kv in kvs {
             // Only process actual certificate records, not indexes
             let key_str = String::from_utf8_lossy(&kv.key);
             if !key_str.starts_with("cert:kid:") && !key_str.starts_with("cert:client:") {
-                if let Ok(cert) = serde_json::from_slice::<ClientCertificate>(&kv.value) {
-                    if cert.is_active() {
-                        certs.push(cert);
+                match serde_json::from_slice::<ClientCertificate>(&kv.value) {
+                    Ok(cert) => {
+                        if cert.is_active() {
+                            tracing::debug!(
+                                cert_id = cert.id,
+                                kid = %cert.kid,
+                                "Found active certificate"
+                            );
+                            certs.push(cert);
+                        } else {
+                            inactive_certs += 1;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            key = %key_str,
+                            error = %e,
+                            "Failed to deserialize certificate"
+                        );
+                        invalid_json += 1;
                     }
                 }
+            } else {
+                skipped_indexes += 1;
             }
         }
+
+        tracing::debug!(
+            active_certs = certs.len(),
+            inactive_certs,
+            skipped_indexes,
+            invalid_json,
+            "list_all_active: Summary"
+        );
 
         Ok(certs)
     }

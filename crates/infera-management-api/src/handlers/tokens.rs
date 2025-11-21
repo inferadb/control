@@ -19,10 +19,12 @@ use serde::{Deserialize, Serialize};
 pub struct GenerateVaultTokenRequest {
     /// Client ID to use for signing (optional, defaults to first active client cert)
     pub client_id: Option<i64>,
-    /// TTL for access token in seconds (default: 3600 = 1 hour)
+    /// TTL for access token in seconds (default: 300 = 5 minutes)
     pub access_token_ttl: Option<i64>,
-    /// TTL for refresh token in seconds (default: 86400 = 24 hours for sessions)
+    /// TTL for refresh token in seconds (default: 3600 = 1 hour for sessions)
     pub refresh_token_ttl: Option<i64>,
+    /// Requested role (optional: "read", "write", "admin", defaults to "read")
+    pub requested_role: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -33,12 +35,14 @@ pub struct GenerateVaultTokenResponse {
     pub token_type: String,
     /// Access token TTL in seconds (OAuth 2.0 standard)
     pub expires_in: i64,
-    /// Access token expiration time (Unix timestamp)
-    pub expires_at: i64,
+    /// Refresh token expiration time in seconds (OAuth 2.0 standard)
+    pub refresh_expires_in: i64,
+    /// Vault ID this token is scoped to
+    pub vault_id: String,
+    /// Vault role granted by this token
+    pub vault_role: String,
     /// Long-lived refresh token (hex-encoded)
     pub refresh_token: String,
-    /// Refresh token expiration time (Unix timestamp)
-    pub refresh_token_expires_at: i64,
 }
 
 // ============================================================================
@@ -49,7 +53,7 @@ pub struct GenerateVaultTokenResponse {
 pub struct RefreshTokenRequest {
     /// Refresh token (hex-encoded)
     pub refresh_token: String,
-    /// TTL for new access token in seconds (default: 3600 = 1 hour)
+    /// TTL for new access token in seconds (default: 300 = 5 minutes)
     pub access_token_ttl: Option<i64>,
 }
 
@@ -61,12 +65,10 @@ pub struct RefreshTokenResponse {
     pub token_type: String,
     /// Access token TTL in seconds (OAuth 2.0 standard)
     pub expires_in: i64,
-    /// Access token expiration time (Unix timestamp)
-    pub expires_at: i64,
+    /// Refresh token TTL in seconds (OAuth 2.0 standard)
+    pub refresh_expires_in: i64,
     /// New refresh token (rotation)
     pub refresh_token: String,
-    /// New refresh token expiration time (Unix timestamp)
-    pub refresh_token_expires_at: i64,
 }
 
 // ============================================================================
@@ -78,8 +80,8 @@ pub struct RefreshTokenResponse {
 /// POST /v1/organizations/:org/vaults/:vault/tokens
 /// Required: Session authentication + vault access
 ///
-/// Generates a short-lived JWT access token signed with a client certificate
-/// and a long-lived refresh token for obtaining new access tokens.
+/// Generates a short-lived JWT access token (default 5 min) signed with a client certificate
+/// and a refresh token (default 1 hour) for obtaining new access tokens.
 pub async fn generate_vault_token(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
@@ -99,10 +101,46 @@ pub async fn generate_vault_token(
         return Err(CoreError::NotFound("Vault not found".to_string()).into());
     }
 
-    // Get user's vault role
-    let vault_role = get_user_vault_role(&state, vault_id, org_ctx.member.user_id)
+    // Get user's maximum vault role (their actual permission level)
+    let max_vault_role = get_user_vault_role(&state, vault_id, org_ctx.member.user_id)
         .await?
         .ok_or_else(|| CoreError::Authz("You do not have access to this vault".to_string()))?;
+
+    // Determine the role to grant in the token
+    let vault_role = if let Some(requested_role_str) = &req.requested_role {
+        // Parse requested role
+        let requested_role = match requested_role_str.as_str() {
+            "read" => VaultRole::Reader,
+            "write" => VaultRole::Writer,
+            "admin" => VaultRole::Admin,
+            _ => {
+                return Err(CoreError::Validation(
+                    "Invalid role. Must be one of: read, write, admin".to_string(),
+                )
+                .into())
+            }
+        };
+
+        // Verify requested role doesn't exceed user's actual permission level
+        if requested_role > max_vault_role {
+            return Err(CoreError::Validation(format!(
+                "Requested role '{}' exceeds your permission level '{}'",
+                requested_role_str,
+                match max_vault_role {
+                    VaultRole::Reader => "read",
+                    VaultRole::Writer => "write",
+                    VaultRole::Admin => "admin",
+                    VaultRole::Manager => "manage",
+                }
+            ))
+            .into());
+        }
+
+        requested_role
+    } else {
+        // Default to Reader (principle of least privilege)
+        VaultRole::Reader
+    };
 
     // Get the client to use for signing
 
@@ -160,7 +198,7 @@ pub async fn generate_vault_token(
     let signer = JwtSigner::new(encryptor);
 
     // Create access token claims
-    let access_ttl = req.access_token_ttl.unwrap_or(3600); // Default 1 hour
+    let access_ttl = req.access_token_ttl.unwrap_or(300); // Default 5 minutes (per spec)
     let claims = VaultTokenClaims::new(org_ctx.organization_id, vault_id, vault_role, access_ttl);
 
     // Sign the access token
@@ -183,15 +221,26 @@ pub async fn generate_vault_token(
         .create(refresh_token.clone())
         .await?;
 
+    // Calculate refresh token TTL in seconds
+    let refresh_ttl = (refresh_token.expires_at - refresh_token.created_at)
+        .num_seconds();
+
     Ok((
         StatusCode::CREATED,
         Json(GenerateVaultTokenResponse {
             access_token,
             token_type: "Bearer".to_string(),
             expires_in: access_ttl,
-            expires_at: claims.exp,
+            refresh_expires_in: refresh_ttl,
+            vault_id: vault_id.to_string(),
+            vault_role: match vault_role {
+                VaultRole::Reader => "read",
+                VaultRole::Writer => "write",
+                VaultRole::Admin => "admin",
+                VaultRole::Manager => "manage",
+            }
+            .to_string(),
             refresh_token: refresh_token.token.clone(),
-            refresh_token_expires_at: refresh_token.expires_at.timestamp(),
         }),
     ))
 }
@@ -293,7 +342,7 @@ pub async fn refresh_vault_token(
     let signer = JwtSigner::new(encryptor);
 
     // Create new access token
-    let access_ttl = req.access_token_ttl.unwrap_or(3600); // Default 1 hour
+    let access_ttl = req.access_token_ttl.unwrap_or(300); // Default 5 minutes (per spec)
     let claims = VaultTokenClaims::new(
         old_token.organization_id,
         old_token.vault_id,
@@ -330,15 +379,18 @@ pub async fn refresh_vault_token(
     // Store new refresh token
     repos.vault_refresh_token.create(new_token.clone()).await?;
 
+    // Calculate refresh token TTL in seconds
+    let refresh_ttl = (new_token.expires_at - new_token.created_at)
+        .num_seconds();
+
     Ok((
         StatusCode::CREATED,
         Json(RefreshTokenResponse {
             access_token,
             token_type: "Bearer".to_string(),
             expires_in: access_ttl,
-            expires_at: claims.exp,
+            refresh_expires_in: refresh_ttl,
             refresh_token: new_token.token.clone(),
-            refresh_token_expires_at: new_token.expires_at.timestamp(),
         }),
     ))
 }
@@ -355,8 +407,10 @@ pub struct ClientAssertionRequest {
     pub client_assertion_type: String,
     /// Signed JWT containing client assertion
     pub client_assertion: String,
-    /// Scope in format: `vault:<vault_id>:<role>`
-    pub scope: String,
+    /// Vault ID to access (required)
+    pub vault_id: String,
+    /// Requested role: "read", "write", or "admin" (optional, defaults to "read")
+    pub requested_role: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -367,6 +421,10 @@ pub struct ClientAssertionResponse {
     pub token_type: String,
     /// Access token expiration time in seconds
     pub expires_in: i64,
+    /// Space-separated scope permissions (e.g., "vault:read vault:write")
+    pub scope: String,
+    /// Vault role granted ("read", "write", or "admin")
+    pub vault_role: String,
     /// Refresh token for obtaining new access tokens
     pub refresh_token: String,
 }
@@ -420,30 +478,27 @@ pub async fn client_assertion_authenticate(
         .into());
     }
 
-    // Parse scope: "vault:<vault_id>:<role>"
-    let scope_parts: Vec<&str> = req.scope.split(':').collect();
-    if scope_parts.len() != 3 || scope_parts[0] != "vault" {
-        return Err(CoreError::Validation(
-            "scope must be in format 'vault:<vault_id>:<role>'".to_string(),
-        )
-        .into());
-    }
-
-    let vault_id = scope_parts[1]
+    // Parse vault_id
+    let vault_id = req
+        .vault_id
         .parse::<i64>()
-        .map_err(|_| CoreError::Validation("invalid vault_id in scope".to_string()))?;
+        .map_err(|_| CoreError::Validation("invalid vault_id".to_string()))?;
 
-    let requested_role = match scope_parts[2] {
-        "read" => VaultRole::Reader,
-        "write" => VaultRole::Writer,
-        "manage" => VaultRole::Manager,
-        "admin" => VaultRole::Admin,
-        _ => {
-            return Err(CoreError::Validation(
-                "invalid role in scope (must be read, write, manage, or admin)".to_string(),
-            )
-            .into())
+    // Parse requested role (default to Reader for least privilege)
+    let requested_role = if let Some(role_str) = &req.requested_role {
+        match role_str.as_str() {
+            "read" => VaultRole::Reader,
+            "write" => VaultRole::Writer,
+            "admin" => VaultRole::Admin,
+            _ => {
+                return Err(CoreError::Validation(
+                    "invalid role (must be read, write, or admin)".to_string(),
+                )
+                .into())
+            }
         }
+    } else {
+        VaultRole::Reader // Default to read per spec
     };
 
     // Decode JWT header to extract kid (key ID)
@@ -591,8 +646,8 @@ pub async fn client_assertion_authenticate(
     let encryptor = PrivateKeyEncryptor::new(key_secret.as_bytes())?;
     let signer = JwtSigner::new(encryptor);
 
-    // Generate vault-scoped JWT (1 hour expiry)
-    let access_ttl = 3600;
+    // Generate vault-scoped JWT (5 minutes default per spec)
+    let access_ttl = 300;
     let vault_claims =
         VaultTokenClaims::new(client.organization_id, vault_id, requested_role, access_ttl);
 
@@ -614,10 +669,28 @@ pub async fn client_assertion_authenticate(
         .create(refresh_token.clone())
         .await?;
 
+    // Build scope string based on role
+    let scope = match requested_role {
+        VaultRole::Reader => "vault:read",
+        VaultRole::Writer => "vault:read vault:write",
+        VaultRole::Manager => "vault:read vault:write vault:manage",
+        VaultRole::Admin => "vault:read vault:write vault:manage vault:admin",
+    }
+    .to_string();
+
+    let vault_role_str = match requested_role {
+        VaultRole::Reader => "read",
+        VaultRole::Writer => "write",
+        VaultRole::Manager => "manage",
+        VaultRole::Admin => "admin",
+    };
+
     Ok(Json(ClientAssertionResponse {
         access_token,
         token_type: "Bearer".to_string(),
         expires_in: access_ttl,
+        scope,
+        vault_role: vault_role_str.to_string(),
         refresh_token: refresh_token.token,
     }))
 }

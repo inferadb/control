@@ -180,6 +180,13 @@ impl IntoResponse for ApiError {
             CoreError::Other(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
         };
 
+        // Log errors at appropriate levels
+        if status.is_server_error() {
+            tracing::error!(status = %status, error = %error_message, "API error");
+        } else if status.is_client_error() && status != StatusCode::NOT_FOUND {
+            tracing::warn!(status = %status, error = %error_message, "Client error");
+        }
+
         (status, Json(ErrorResponse::new(error_message))).into_response()
     }
 }

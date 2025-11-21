@@ -397,9 +397,11 @@ pub async fn create_certificate(
     }
 
     // Generate Ed25519 key pair
+    tracing::debug!("Generating Ed25519 keypair for certificate");
     let (public_key_base64, private_key_bytes) = keypair::generate();
 
     // Encrypt private key for storage
+    tracing::debug!("Retrieving key encryption secret from config");
     let master_secret = state
         .config
         .auth
@@ -407,11 +409,15 @@ pub async fn create_certificate(
         .as_ref()
         .ok_or_else(|| CoreError::Internal("Key encryption secret not configured".to_string()))?
         .as_bytes();
+
+    tracing::debug!(secret_len = master_secret.len(), "Creating encryptor");
     let encryptor = PrivateKeyEncryptor::new(master_secret)?;
 
+    tracing::debug!("Encrypting private key");
     let private_key_encrypted = encryptor.encrypt(&private_key_bytes)?;
 
     // Generate ID for the certificate
+    tracing::debug!("Generating certificate ID");
     let cert_id = IdGenerator::next_id();
 
     // Create certificate entity
@@ -425,8 +431,22 @@ pub async fn create_certificate(
         org_ctx.member.user_id,
     )?;
 
+    tracing::debug!(
+        cert_id = cert.id,
+        client_id = cert.client_id,
+        org_id = org_ctx.organization_id,
+        kid = %cert.kid,
+        "Created certificate entity with kid"
+    );
+
     // Save to repository
     repos.client_certificate.create(cert.clone()).await?;
+
+    tracing::debug!(
+        cert_id = cert.id,
+        kid = %cert.kid,
+        "Certificate saved to repository"
+    );
 
     // Return private key (base64 encoded) - this is the ONLY time it will be available unencrypted
     let private_key_base64 = BASE64.encode(&private_key_bytes);

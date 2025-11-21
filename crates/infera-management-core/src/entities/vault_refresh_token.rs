@@ -38,10 +38,10 @@ pub struct VaultRefreshToken {
 }
 
 impl VaultRefreshToken {
-    /// Default TTL for user session refresh tokens (24 hours)
-    pub const USER_SESSION_TTL_SECONDS: i64 = 24 * 60 * 60;
+    /// Default TTL for user session refresh tokens (1 hour per spec)
+    pub const USER_SESSION_TTL_SECONDS: i64 = 3600;
 
-    /// Default TTL for client refresh tokens (7 days)
+    /// Default TTL for client refresh tokens (7 days per spec)
     pub const CLIENT_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
 
     /// Create a new refresh token for a user session
