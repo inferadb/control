@@ -222,8 +222,7 @@ pub async fn generate_vault_token(
         .await?;
 
     // Calculate refresh token TTL in seconds
-    let refresh_ttl = (refresh_token.expires_at - refresh_token.created_at)
-        .num_seconds();
+    let refresh_ttl = (refresh_token.expires_at - refresh_token.created_at).num_seconds();
 
     Ok((
         StatusCode::CREATED,
@@ -380,8 +379,7 @@ pub async fn refresh_vault_token(
     repos.vault_refresh_token.create(new_token.clone()).await?;
 
     // Calculate refresh token TTL in seconds
-    let refresh_ttl = (new_token.expires_at - new_token.created_at)
-        .num_seconds();
+    let refresh_ttl = (new_token.expires_at - new_token.created_at).num_seconds();
 
     Ok((
         StatusCode::CREATED,

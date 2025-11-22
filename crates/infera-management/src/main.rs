@@ -57,7 +57,9 @@ async fn main() -> Result<()> {
 
     // Initialize server API client (for gRPC communication with @server)
     tracing::info!(endpoint = %config.server_api.grpc_endpoint, "Initializing server API client");
-    let server_client = Arc::new(ServerApiClient::new(config.server_api.grpc_endpoint.clone())?);
+    let server_client = Arc::new(ServerApiClient::new(
+        config.server_api.grpc_endpoint.clone(),
+    )?);
     tracing::info!("Server API client initialized successfully");
 
     // Wrap config in Arc for sharing across services

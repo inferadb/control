@@ -368,8 +368,8 @@ mod tests {
 
     #[test]
     fn test_default_ttl() {
-        // User session default TTL is 24 hours
-        assert_eq!(VaultRefreshToken::USER_SESSION_TTL_SECONDS, 24 * 60 * 60);
+        // User session default TTL is 1 hour
+        assert_eq!(VaultRefreshToken::USER_SESSION_TTL_SECONDS, 3600);
 
         // Client default TTL is 7 days
         assert_eq!(VaultRefreshToken::CLIENT_TTL_SECONDS, 7 * 24 * 60 * 60);

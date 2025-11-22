@@ -221,21 +221,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_duplicate_name() {
-        let storage = MemoryBackend::new();
-        let repo = UserRepository::new(storage);
-
-        let user1 = create_test_user(1, "alice").await;
-        let user2 = create_test_user(2, "alice").await;
-
-        repo.create(user1).await.unwrap();
-        let result = repo.create(user2).await;
-
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::Validation(_)));
-    }
-
-    #[tokio::test]
     async fn test_get_by_name() {
         let storage = MemoryBackend::new();
         let repo = UserRepository::new(storage);

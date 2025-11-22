@@ -1,10 +1,9 @@
 /// Minimal test to verify JWKS public key can verify JWTs signed with the corresponding private key
 /// This test simulates the E2E flow: Management API generates keypair → returns private key →
 /// client signs JWT → server fetches JWKS → server verifies JWT
-
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use infera_management_core::keypair;
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,10 +22,17 @@ fn test_keypair_generate_sign_verify() {
     println!("  Private key length: {} bytes", private_key_bytes.len());
 
     // 2. Simulate client: Receive private key, sign JWT
-    assert_eq!(private_key_bytes.len(), 32, "Private key should be 32 bytes");
+    assert_eq!(
+        private_key_bytes.len(),
+        32,
+        "Private key should be 32 bytes"
+    );
 
     // Convert to PEM (same as E2E test)
-    let private_key_array: [u8; 32] = private_key_bytes.as_slice().try_into().expect("Invalid private key length");
+    let private_key_array: [u8; 32] = private_key_bytes
+        .as_slice()
+        .try_into()
+        .expect("Invalid private key length");
     let pem = ed25519_to_pem(&private_key_array);
     let encoding_key = EncodingKey::from_ed_pem(&pem).expect("Failed to create encoding key");
 
@@ -42,10 +48,13 @@ fn test_keypair_generate_sign_verify() {
     println!("  JWT: {}...", &jwt[..50]);
 
     // 3. Simulate JWKS: Convert public key to base64url (what JWKS handler does)
-    let public_key_bytes = BASE64.decode(&public_key_base64).expect("Failed to decode public key");
+    let public_key_bytes = BASE64
+        .decode(&public_key_base64)
+        .expect("Failed to decode public key");
     assert_eq!(public_key_bytes.len(), 32, "Public key should be 32 bytes");
 
-    let public_key_base64url = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&public_key_bytes);
+    let public_key_base64url =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&public_key_bytes);
     println!("  Public key (base64url): {}", public_key_base64url);
 
     // 4. Simulate server: Use JWKS public key to create DecodingKey
