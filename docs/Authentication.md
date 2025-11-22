@@ -84,6 +84,9 @@ This separation ensures that authentication (identity) and authorization (policy
 - Transmission: In request body (not header) for refresh endpoint
 - Validation: Looked up in database, marked as used, then invalidated
 - Renewal: New refresh token issued with each successful refresh
+- **Lifetime**:
+  - User session-bound refresh tokens: 1 hour (3,600 seconds)
+  - Client-bound refresh tokens: 7 days (604,800 seconds)
 
 ## Complete Authentication Flow
 
@@ -124,12 +127,12 @@ Vault-scoped JWTs issued by the Management API contain the following claims:
 ```json
 {
   "iss": "https://api.inferadb.com",
-  "sub": "client:<client_id>",
+  "sub": "client:1234567890123456789",
   "aud": "https://api.inferadb.com/evaluate",
   "exp": 1234567890,
   "iat": 1234567800,
-  "org_id": "<organization_id>",
-  "vault_id": "<vault_id>",
+  "org_id": "9876543210987654321",
+  "vault_id": "1111222233334444555",
   "vault_role": "write",
   "scope": "vault:read vault:write"
 }
@@ -137,21 +140,27 @@ Vault-scoped JWTs issued by the Management API contain the following claims:
 
 ### Claim Descriptions
 
-- **iss** (Issuer): The Management API endpoint that issued the token (always `https://api.inferadb.com`)
-- **sub** (Subject): The authenticated principal making the request (format: `client:<client_id>` for service accounts, `user:<user_id>` for interactive users)
-- **aud** (Audience): Target service (Server API evaluation endpoint)
-- **exp** (Expiration): Unix timestamp when token expires (15 minutes from issuance)
+- **iss** (Issuer): Management API URL (`https://api.inferadb.com`)
+- **sub** (Subject): Format `client:<client_id>` for service accounts (where client_id is a Snowflake ID)
+- **aud** (Audience): Target service (Server API evaluation endpoint: `https://api.inferadb.com/evaluate`)
+- **exp** (Expiration): Unix timestamp when token expires (5 minutes from issuance by default)
 - **iat** (Issued At): Unix timestamp when token was created
-- **org_id**: The organization ID this token is scoped to (custom claim)
-- **vault_id**: The vault ID this token grants access to (Snowflake ID)
-- **vault_role**: Permission level (`read`, `write`, `admin`)
-- **scope**: Space-separated permissions (e.g., "vault:read vault:write")
+- **org_id**: Organization ID (Snowflake ID as string)
+- **vault_id**: The vault ID this token grants access to (Snowflake ID as string)
+- **vault_role**: Permission level (lowercase: `read`, `write`, `manage`, `admin`)
+- **scope**: Space-separated permissions based on role:
+  - `read`: "vault:read"
+  - `write`: "vault:read vault:write"
+  - `manage`: "vault:read vault:write vault:manage"
+  - `admin`: "vault:read vault:write vault:manage vault:admin"
 
-**Note**: This structure follows RFC 7519 (JWT) semantics where:
+**Note**: This structure follows the Server API specification where:
 
-- `iss` identifies the token issuer (Management API), not the tenant
-- `sub` identifies the authenticated principal (client or user)
+- `iss` identifies the Management API (not the organization tenant)
+- `sub` identifies the client/service account making the request
+- `org_id` and `vault_id` are provided as separate claims (Snowflake IDs as strings)
 - Custom claims (`org_id`, `vault_id`, `vault_role`) provide authorization context
+- The Server API validates these claims against its JWKS cache
 
 ## Vault Token Request
 
@@ -174,11 +183,12 @@ Content-Type: application/json
 - Users cannot request a role higher than their membership level
 - Example: A user with `write` permissions can request `read` or `write`, but not `admin`
 
-**Available Roles**:
+**Available Roles** (request values are lowercase):
 
-- **read**: Read-only access to vault data and policy evaluation
-- **write**: Read and write access, can modify vault data
-- **admin**: Full administrative access to vault configuration
+- **read**: Read-only access to vault data and policy evaluation (JWT: `READER`)
+- **write**: Read and write access, can modify vault data (JWT: `WRITER`)
+- **manage**: Read, write, and manage grants (JWT: `MANAGER`)
+- **admin**: Full administrative access to vault configuration (JWT: `ADMIN`)
 
 ### Error Scenarios
 
@@ -218,7 +228,7 @@ HTTP 400 Bad Request
 HTTP 400 Bad Request
 {
   "error": "invalid_request",
-  "error_description": "Invalid role 'superadmin'. Must be one of: read, write, admin"
+  "error_description": "Invalid role 'superadmin'. Must be one of: read, write, manage, admin"
 }
 ```
 
@@ -468,7 +478,7 @@ Content-Type: application/json
   "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
   "client_assertion": "<signed_jwt>",
   "vault_id": "<vault_id>",           // Required: Which vault to access
-  "requested_role": "write"            // Optional: "read", "write", or "admin" (defaults to "read")
+  "requested_role": "write"            // Optional: "read", "write", "manage", or "admin" (defaults to "read")
 }
 ```
 
@@ -697,7 +707,7 @@ async function handleEmailChange(userId, oldEmail, newEmail) {
 1. **Use Stable IDs**: Prefer `user:provider|id` over `user:email`
 2. **Document Format**: Document your subject format in code comments
 3. **Validation**: Validate subject format before InferaDB calls
-4. **Caching**: Cache InferaDB vault tokens (15 min lifetime)
+4. **Caching**: Cache InferaDB vault tokens (5 min lifetime)
 5. **Error Handling**: Handle InferaDB errors gracefully
 6. **Logging**: Log authorization decisions for audit trail
 
@@ -858,12 +868,13 @@ InferaDB follows security-first principles with short-lived tokens as the defaul
 
 **Recommended Configuration** (Security-First):
 
-- **Session Tokens**: 24 hours (86,400 seconds)
-
-  - Used for Management API operations (user/org management)
-  - Sliding window: Renewed on active use
+- **Session Tokens**: Varies by session type
+  - **Web Sessions**: 24 hours (86,400 seconds)
+  - **CLI Sessions**: 7 days (604,800 seconds)
+  - **SDK Sessions**: 30 days (2,592,000 seconds)
+  - Sliding window: Renewed on active Management API use
   - Revocable: Can be invalidated immediately
-  - Forces daily re-authentication for enhanced security
+  - Forces regular re-authentication for enhanced security
 
 - **Vault Access Tokens (JWT)**: 5 minutes (300 seconds)
 
@@ -872,12 +883,16 @@ InferaDB follows security-first principles with short-lived tokens as the defaul
   - Automatically refreshed by clients before expiration
   - Limits attack window to 5 minutes maximum
 
-- **Vault Refresh Tokens**: 1 hour (3,600 seconds)
-
+- **Vault Refresh Tokens**: Varies by auth method
+  - **User Session Refresh Tokens**: 1 hour (3,600 seconds)
+    - For interactive user sessions
+    - Allows ~12 refreshes before requiring new vault token request
+  - **Client Refresh Tokens**: 7 days (604,800 seconds)
+    - For service accounts and backend applications
+    - Longer lifetime suitable for automated systems
   - Single-use tokens for obtaining new vault access tokens
   - Automatically rotated on each use
-  - Bound to specific vault + session
-  - Allows ~12 refreshes before requiring new vault token request
+  - Bound to specific vault + session/client
 
 - **Client Assertions**: 60 seconds maximum
   - Ephemeral proof of client identity
@@ -889,25 +904,10 @@ InferaDB follows security-first principles with short-lived tokens as the defaul
 These conservative lifetimes prioritize security over convenience:
 
 - **Short access tokens** (5 min) limit blast radius of any token compromise
-- **Single-use refresh tokens** (1 hour) prevent replay attacks while reducing auth overhead
-- **Daily session renewal** (24 hours) ensures regular credential verification
+- **Single-use refresh tokens** prevent replay attacks while reducing auth overhead
+- **Session type-based lifetimes** balance security with UX for different use cases
 - **Automatic rotation** at every layer provides defense in depth
 - All tokens are revocable for immediate incident response
-
-**Extended Configuration** (If Needed):
-
-For environments where the security-first defaults create operational challenges, you may extend lifetimes:
-
-- **Session Tokens**: Up to 7 days (with strong justification)
-- **Vault Access Tokens**: Up to 15 minutes
-- **Vault Refresh Tokens**: Up to 8 hours
-- **Trade-off**: Longer lifetimes = larger attack window and delayed revocation effect
-
-**Important**: Extended lifetimes should only be used when:
-
-1. You have compensating security controls (IP allowlisting, VPN, etc.)
-2. You've performed a risk assessment
-3. You have strong monitoring and alerting in place
 
 **Token Refresh Strategy**:
 
@@ -966,7 +966,7 @@ Authorization: Bearer {admin_session_token}
 **Effect**:
 
 - Immediate: Session cannot be used for new vault token requests
-- Delayed (max 15 min): Existing vault JWTs expire naturally
+- Delayed (max 5 min): Existing vault JWTs expire naturally
 - Refresh tokens: Rejected immediately on next use
 
 **Use Cases**:
@@ -986,7 +986,7 @@ Authorization: Bearer {admin_session_token}
 
    - Revokes the session that issued the vault tokens
    - Prevents new tokens from being issued
-   - Existing JWTs expire after 15 minutes maximum
+   - Existing JWTs expire after 5 minutes maximum
 
 2. **Remove Vault Membership**
 
@@ -1004,13 +1004,13 @@ Authorization: Bearer {admin_session_token}
 
 **Revocation Propagation Delay**:
 
-| Token Type                   | Revocation Method  | Max Delay                  |
-| ---------------------------- | ------------------ | -------------------------- |
-| Session Token                | Direct revocation  | Immediate                  |
-| Vault JWT (via session)      | Session revocation | 15 minutes (JWT expiry)    |
-| Vault JWT (via membership)   | Remove from vault  | 15 minutes (JWT expiry)    |
-| Vault JWT (via key rotation) | JWKS update        | 5 minutes (JWKS cache TTL) |
-| Refresh Token                | Session revocation | Immediate                  |
+| Token Type                   | Revocation Method  | Max Delay                 |
+| ---------------------------- | ------------------ | ------------------------- |
+| Session Token                | Direct revocation  | Immediate                 |
+| Vault JWT (via session)      | Session revocation | 5 minutes (JWT expiry)    |
+| Vault JWT (via membership)   | Remove from vault  | 5 minutes (JWT expiry)    |
+| Vault JWT (via key rotation) | JWKS update        | 5 minutes (JWKS cache TTL)|
+| Refresh Token                | Session revocation | Immediate                 |
 
 #### Client Certificate Revocation
 
@@ -1020,7 +1020,7 @@ Authorization: Bearer {admin_session_token}
 2. Remove certificate from JWKS endpoint response
 3. Server API cache expires (max 5 minutes)
 4. New token requests with this certificate fail
-5. Existing tokens signed with this certificate expire naturally (15 min)
+5. Existing tokens signed with this certificate expire naturally (5 min)
 
 **API Endpoint**:
 
@@ -1033,7 +1033,7 @@ Authorization: Bearer {admin_session_token}
 
 - Immediate: Cannot issue new client assertions
 - Delayed (max 5 min): JWKS cache expires on Server API
-- Delayed (max 15 min): Existing vault JWTs expire
+- Delayed (max 5 min): Existing vault JWTs expire
 
 **Use Cases**:
 
@@ -1046,18 +1046,18 @@ Authorization: Bearer {admin_session_token}
 
 **For Immediate Revocation**:
 
-If you need to revoke access immediately (cannot wait 15 minutes):
+If you need to revoke access immediately (cannot wait 5 minutes):
 
-1. Use shorter JWT lifetimes (5 minutes instead of 15)
-2. Implement real-time vault membership checks in Server API
-3. Use Redis pub/sub to propagate revocation events
+1. Implement real-time vault membership checks in Server API
+2. Use Redis pub/sub to propagate revocation events
+3. Maintain session/client revocation cache
 
 **For Normal Operations**:
 
-The standard 15-minute JWT lifetime provides good balance:
+The standard 5-minute JWT lifetime provides good balance:
 
 - Most tokens refresh naturally before expiration
-- 15-minute window is acceptable risk for normal revocation
+- 5-minute window is acceptable risk for normal revocation
 - No performance penalty for real-time checks
 
 **Monitoring Revocation**:
@@ -1091,7 +1091,7 @@ sequenceDiagram
     Redis-->>MgmtAPI: Session in revocation set
     MgmtAPI-->>Client: 401 invalid_grant
 
-    Note over Client: Existing JWT still valid (max 15 min)
+    Note over Client: Existing JWT still valid (max 5 min)
 
     Client->>ServerAPI: POST /check<br/>Authorization: Bearer {vault_jwt}
     ServerAPI->>ServerAPI: Validate JWT signature (JWKS)
@@ -1099,7 +1099,7 @@ sequenceDiagram
     Note over ServerAPI: JWT is valid until expiration<br/>(stateless validation)
     ServerAPI-->>Client: Authorization decision
 
-    Note over Client,ServerAPI: After 15 minutes, JWT expires
+    Note over Client,ServerAPI: After 5 minutes, JWT expires
 
     Client->>ServerAPI: POST /check<br/>Authorization: Bearer {expired_jwt}
     ServerAPI-->>Client: 401 Token expired

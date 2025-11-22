@@ -9,23 +9,26 @@ use serde::{Deserialize, Serialize};
 /// JWT claims for vault-scoped access tokens
 ///
 /// These tokens allow a client to access a specific vault with a specific role.
+/// Format matches the Server API specification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultTokenClaims {
-    /// Issuer: "tenant:<org_id>"
+    /// Issuer: Management API URL (https://api.inferadb.com)
     pub iss: String,
-    /// Subject: "tenant:<org_id>"
+    /// Subject: Format "client:<client_id>" for service accounts
     pub sub: String,
-    /// Audience: `https://api.inferadb.com/evaluate`
+    /// Audience: Server API evaluation endpoint
     pub aud: String,
     /// Expiration time (Unix timestamp)
     pub exp: i64,
     /// Issued at (Unix timestamp)
     pub iat: i64,
-    /// Vault ID
-    pub vault_id: i64,
-    /// Vault role granted to this token
-    pub vault_role: VaultRole,
-    /// Scope string (e.g., "vault:read", "vault:write")
+    /// Organization ID (Snowflake ID as string)
+    pub org_id: String,
+    /// Vault ID (Snowflake ID as string)
+    pub vault_id: String,
+    /// Vault role granted to this token (lowercase: read/write/manage/admin)
+    pub vault_role: String,
+    /// Scope string (e.g., "vault:read vault:write")
     pub scope: String,
 }
 
@@ -33,12 +36,14 @@ impl VaultTokenClaims {
     /// Create new vault token claims
     ///
     /// # Arguments
-    /// * `organization_id` - Organization ID
-    /// * `vault_id` - Vault ID
+    /// * `organization_id` - Organization ID (Snowflake ID)
+    /// * `client_id` - Client ID (Snowflake ID) for service accounts
+    /// * `vault_id` - Vault ID (Snowflake ID)
     /// * `vault_role` - Role granted to this token
-    /// * `ttl_seconds` - Time to live in seconds (default: 3600 = 1 hour)
+    /// * `ttl_seconds` - Time to live in seconds (default: 300 = 5 minutes)
     pub fn new(
         organization_id: i64,
+        client_id: i64,
         vault_id: i64,
         vault_role: VaultRole,
         ttl_seconds: i64,
@@ -46,21 +51,22 @@ impl VaultTokenClaims {
         let now = Utc::now();
         let exp = now + Duration::seconds(ttl_seconds);
 
-        let scope = match vault_role {
-            VaultRole::Reader => "vault:read",
-            VaultRole::Writer => "vault:read vault:write",
-            VaultRole::Manager => "vault:read vault:write vault:manage",
-            VaultRole::Admin => "vault:read vault:write vault:manage vault:admin",
+        let (vault_role_str, scope) = match vault_role {
+            VaultRole::Reader => ("read", "vault:read"),
+            VaultRole::Writer => ("write", "vault:read vault:write"),
+            VaultRole::Manager => ("manage", "vault:read vault:write vault:manage"),
+            VaultRole::Admin => ("admin", "vault:read vault:write vault:manage vault:admin"),
         };
 
         Self {
-            iss: format!("tenant:{}", organization_id),
-            sub: format!("tenant:{}", organization_id),
+            iss: "https://api.inferadb.com".to_string(),
+            sub: format!("client:{}", client_id),
             aud: "https://api.inferadb.com/evaluate".to_string(),
             exp: exp.timestamp(),
             iat: now.timestamp(),
-            vault_id,
-            vault_role,
+            org_id: organization_id.to_string(),
+            vault_id: vault_id.to_string(),
+            vault_role: vault_role_str.to_string(),
             scope: scope.to_string(),
         }
     }
@@ -255,43 +261,48 @@ mod tests {
 
     #[test]
     fn test_vault_token_claims_creation() {
-        let claims = VaultTokenClaims::new(123, 456, VaultRole::Reader, 3600);
+        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
 
-        assert_eq!(claims.iss, "tenant:123");
-        assert_eq!(claims.sub, "tenant:123");
+        assert_eq!(claims.iss, "https://api.inferadb.com");
+        assert_eq!(claims.sub, "client:789");
         assert_eq!(claims.aud, "https://api.inferadb.com/evaluate");
-        assert_eq!(claims.vault_id, 456);
-        assert_eq!(claims.vault_role, VaultRole::Reader);
+        assert_eq!(claims.org_id, "123");
+        assert_eq!(claims.vault_id, "456");
+        assert_eq!(claims.vault_role, "read");
         assert_eq!(claims.scope, "vault:read");
         assert!(!claims.is_expired());
     }
 
     #[test]
     fn test_vault_token_scopes() {
-        let reader = VaultTokenClaims::new(1, 1, VaultRole::Reader, 3600);
+        let reader = VaultTokenClaims::new(1, 2, 3, VaultRole::Reader, 3600);
         assert_eq!(reader.scope, "vault:read");
+        assert_eq!(reader.vault_role, "read");
 
-        let writer = VaultTokenClaims::new(1, 1, VaultRole::Writer, 3600);
+        let writer = VaultTokenClaims::new(1, 2, 3, VaultRole::Writer, 3600);
         assert_eq!(writer.scope, "vault:read vault:write");
+        assert_eq!(writer.vault_role, "write");
 
-        let manager = VaultTokenClaims::new(1, 1, VaultRole::Manager, 3600);
+        let manager = VaultTokenClaims::new(1, 2, 3, VaultRole::Manager, 3600);
         assert_eq!(manager.scope, "vault:read vault:write vault:manage");
+        assert_eq!(manager.vault_role, "manage");
 
-        let admin = VaultTokenClaims::new(1, 1, VaultRole::Admin, 3600);
+        let admin = VaultTokenClaims::new(1, 2, 3, VaultRole::Admin, 3600);
         assert_eq!(
             admin.scope,
             "vault:read vault:write vault:manage vault:admin"
         );
+        assert_eq!(admin.vault_role, "admin");
     }
 
     #[test]
     fn test_vault_token_expiration() {
         // Create an expired token (TTL = -1 second)
-        let expired = VaultTokenClaims::new(1, 1, VaultRole::Reader, -1);
+        let expired = VaultTokenClaims::new(1, 2, 3, VaultRole::Reader, -1);
         assert!(expired.is_expired());
 
         // Create a valid token
-        let valid = VaultTokenClaims::new(1, 1, VaultRole::Reader, 3600);
+        let valid = VaultTokenClaims::new(1, 2, 3, VaultRole::Reader, 3600);
         assert!(!valid.is_expired());
     }
 
@@ -301,7 +312,7 @@ mod tests {
         let certificate = create_test_certificate(&encryptor);
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(123, 456, VaultRole::Writer, 3600);
+        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Writer, 3600);
 
         // Sign the token
         let token = signer.sign_vault_token(&claims, &certificate).unwrap();
@@ -312,6 +323,7 @@ mod tests {
         assert_eq!(verified_claims.iss, claims.iss);
         assert_eq!(verified_claims.sub, claims.sub);
         assert_eq!(verified_claims.aud, claims.aud);
+        assert_eq!(verified_claims.org_id, claims.org_id);
         assert_eq!(verified_claims.vault_id, claims.vault_id);
         assert_eq!(verified_claims.vault_role, claims.vault_role);
     }
@@ -322,7 +334,7 @@ mod tests {
         let certificate = create_test_certificate(&encryptor);
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(123, 456, VaultRole::Reader, 3600);
+        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
         let token = signer.sign_vault_token(&claims, &certificate).unwrap();
 
         // Decode header to check kid
@@ -339,7 +351,7 @@ mod tests {
         let cert2 = create_test_certificate(&encryptor); // Different certificate
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(123, 456, VaultRole::Reader, 3600);
+        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
         let token = signer.sign_vault_token(&claims, &cert1).unwrap();
 
         // Verification with wrong certificate should fail
@@ -349,7 +361,7 @@ mod tests {
 
     #[test]
     fn test_vault_token_datetime_conversion() {
-        let claims = VaultTokenClaims::new(123, 456, VaultRole::Reader, 3600);
+        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
 
         let issued_at = claims.issued_at();
         let expires_at = claims.expires_at();

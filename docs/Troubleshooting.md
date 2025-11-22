@@ -21,6 +21,7 @@ This guide covers common issues and their solutions when working with the Infera
 **Error**: `error: failed to compile ...`
 
 **Solution**:
+
 ```bash
 # Update Rust toolchain
 rustup update
@@ -32,21 +33,19 @@ cargo clean
 cargo build --release
 ```
 
-#### Issue: FoundationDB client library not found
+#### Issue: Storage backend configuration error
 
-**Error**: `could not find native static library 'fdb_c'`
+**Error**: `Failed to initialize storage backend`
 
 **Solution**:
+
 ```bash
-# macOS
-brew install foundationdb
+# Ensure config.yaml uses memory backend
+storage:
+  backend: "memory"
 
-# Linux (Ubuntu/Debian)
-wget https://github.com/apple/foundationdb/releases/download/7.1.38/foundationdb-clients_7.1.38-1_amd64.deb
-sudo dpkg -i foundationdb-clients_7.1.38-1_amd64.deb
-
-# Set library path if needed
-export LIBRARY_PATH=/usr/local/lib
+# FoundationDB backend is not yet implemented
+# If you see FoundationDB-related errors, change to memory backend
 ```
 
 ### Port Conflicts
@@ -58,14 +57,16 @@ export LIBRARY_PATH=/usr/local/lib
 **Solutions**:
 
 **Option 1**: Change ports in configuration
+
 ```yaml
 # config.local.yaml
 server:
-  http_port: 8080  # Changed from 3000
-  grpc_port: 8081  # Changed from 3001
+  http_port: 8080 # Changed from 3000
+  grpc_port: 8081 # Changed from 3001
 ```
 
 **Option 2**: Use environment variables
+
 ```bash
 export INFERADB_MGMT__SERVER__HTTP_PORT=8080
 export INFERADB_MGMT__SERVER__GRPC_PORT=8081
@@ -73,6 +74,7 @@ export INFERADB_MGMT__SERVER__GRPC_PORT=8081
 ```
 
 **Option 3**: Kill conflicting process
+
 ```bash
 # macOS/Linux: Find process using port
 lsof -i :3000
@@ -88,6 +90,7 @@ kill -9 <PID>
 **Error**: `Failed to load configuration file`
 
 **Solution**:
+
 ```bash
 # Specify config file explicitly
 ./target/release/infera-management-api --config /path/to/config.yaml
@@ -101,6 +104,7 @@ export INFERADB_MGMT_CONFIG_PATH=/path/to/config.yaml
 **Error**: `Key encryption secret must be at least 32 bytes`
 
 **Solution**:
+
 ```bash
 # Generate proper 32-byte secret
 openssl rand -base64 32
@@ -115,78 +119,30 @@ export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 
 ## Database & Storage
 
-### FoundationDB Connection Issues
+### Memory Backend Issues
 
-#### Issue: Failed to connect to FoundationDB
+#### Issue: Out of memory errors
 
-**Error**: `Failed to initialize FDB storage` or `FDB error 1031`
+**Error**: `Cannot allocate memory` or application crashes
+
+**Solutions**:
+
+1. Check available RAM: `free -h` (Linux) or Activity Monitor (macOS)
+2. Increase memory allocation for the process
+3. Reduce concurrent users/sessions
+4. Consider implementing data cleanup/archival procedures
+
+#### Issue: Data lost after restart
+
+**Symptom**: All users, sessions, vaults disappeared after server restart
+
+**Explanation**: This is expected behavior with in-memory backend
 
 **Solutions**:
 
-**Step 1**: Verify FDB is running
-```bash
-# macOS
-launchctl list | grep foundationdb
-
-# Linux
-sudo systemctl status foundationdb
-
-# Start if not running
-sudo systemctl start foundationdb  # Linux
-```
-
-**Step 2**: Check cluster file
-```bash
-# Verify cluster file exists
-cat /usr/local/etc/foundationdb/fdb.cluster  # macOS
-cat /etc/foundationdb/fdb.cluster  # Linux
-
-# Should contain something like:
-# description:address@127.0.0.1:4500
-```
-
-**Step 3**: Test FDB connection
-```bash
-fdbcli -C /usr/local/etc/foundationdb/fdb.cluster
-# Should show: "The database is available."
-```
-
-**Step 4**: Update config to match cluster file location
-```yaml
-# config.yaml
-storage:
-  backend: "foundationdb"
-  fdb_cluster_file: "/usr/local/etc/foundationdb/fdb.cluster"  # macOS
-  # OR
-  fdb_cluster_file: "/etc/foundationdb/fdb.cluster"  # Linux
-```
-
-#### Issue: FDB database unavailable
-
-**Error**: `The database is unavailable; type 'help' for more information.`
-
-**Solution**:
-```bash
-# Initialize new database
-fdbcli -C /etc/foundationdb/fdb.cluster \
-  --exec "configure new single memory"
-
-# For production (SSD storage):
-fdbcli -C /etc/foundationdb/fdb.cluster \
-  --exec "configure new single ssd"
-```
-
-#### Issue: FDB transaction timeout
-
-**Error**: `Transaction timed out` or `FDB error 1031`
-
-**Causes**: Large transactions, slow queries, or database overload
-
-**Solutions**:
-1. Check FDB cluster health: `fdbcli --exec "status"`
-2. Reduce batch sizes in operations
-3. Add indexes for frequently queried fields
-4. Consider scaling FDB cluster
+1. Implement regular data export procedures
+2. Document this limitation for your team
+3. Wait for FoundationDB backend implementation (planned)
 
 ### Data Migration Issues
 
@@ -195,13 +151,12 @@ fdbcli -C /etc/foundationdb/fdb.cluster \
 **Error**: `Incompatible schema version`
 
 **Solution**:
-```bash
-# Run database migrations
-./scripts/migrate.sh
 
-# Or manually clear database (CAUTION: destroys all data)
-fdbcli -C /etc/foundationdb/fdb.cluster \
-  --exec "writemode on; clearrange \\x00 \\xff"
+```bash
+# With memory backend, simply restart the server to reset
+# All data will be cleared
+
+# For persistent data, wait for FoundationDB backend implementation
 ```
 
 ## Authentication & Sessions
@@ -213,6 +168,7 @@ fdbcli -C /etc/foundationdb/fdb.cluster \
 **Error**: `401 Unauthorized: Invalid email or password`
 
 **Solutions**:
+
 1. Verify email is registered: Check with admin or use password reset
 2. Check for typos in email/password
 3. Ensure password meets minimum requirements (12+ characters by default)
@@ -232,6 +188,7 @@ curl -X POST http://localhost:3000/v1/auth/password-reset/request \
 **Error**: `403 Forbidden: Email verification required`
 
 **Solution**:
+
 ```bash
 # Resend verification email
 curl -X POST http://localhost:3000/v1/auth/email-verification/resend \
@@ -252,6 +209,7 @@ features:
 **Solutions**:
 
 **Step 1**: Verify cookie format
+
 ```bash
 # Correct format
 curl -H "Cookie: infera_session=sess_abc123..."
@@ -262,6 +220,7 @@ curl -H "Cookie: session_id=sess_abc123"    # Wrong cookie name
 ```
 
 **Step 2**: Check session expiration
+
 ```bash
 # Sessions expire after TTL (default: 30 days for web)
 # Login again to get new session
@@ -271,12 +230,13 @@ curl -X POST http://localhost:3000/v1/auth/login/password \
 ```
 
 **Step 3**: Verify session type matches usage
+
 ```yaml
 # config.yaml - Check TTL settings
 auth:
-  session_ttl_web: 2592000    # 30 days
-  session_ttl_cli: 7776000    # 90 days
-  session_ttl_sdk: 7776000    # 90 days
+  session_ttl_web: 2592000 # 30 days
+  session_ttl_cli: 7776000 # 90 days
+  session_ttl_sdk: 7776000 # 90 days
 ```
 
 #### Issue: Too many sessions
@@ -284,6 +244,7 @@ auth:
 **Error**: `429 Too Many Requests: Maximum sessions exceeded`
 
 **Solution**:
+
 ```bash
 # Revoke old sessions
 curl -X POST http://localhost:3000/v1/auth/sessions/{session_id}/revoke \
@@ -303,14 +264,16 @@ curl -X POST http://localhost:3000/v1/auth/sessions/revoke-all \
 **Solutions**:
 
 **For development**: Adjust rate limits in config
+
 ```yaml
 # config.local.yaml
 rate_limiting:
-  login_attempts_per_ip_per_hour: 1000  # Increase for testing
+  login_attempts_per_ip_per_hour: 1000 # Increase for testing
   registrations_per_ip_per_day: 100
 ```
 
 **For production**: Implement exponential backoff
+
 ```python
 import time
 import requests
@@ -343,6 +306,7 @@ def login_with_retry(email, password, max_retries=5):
 **Error**: `400 Bad Request: Failed to parse JSON`
 
 **Solution**:
+
 ```bash
 # Incorrect (missing quotes)
 curl -d '{email: user@example.com}'  # ❌
@@ -356,6 +320,7 @@ curl -d '{"email": "user@example.com"}'  # ✅
 **Error**: `400 Bad Request: Validation failed`
 
 **Solution**: Check error response for details
+
 ```json
 {
   "error": "Validation failed",
@@ -372,6 +337,7 @@ curl -d '{"email": "user@example.com"}'  # ✅
 **Error**: `403 Forbidden: Insufficient permissions`
 
 **Solutions**:
+
 1. Check your role in the organization (Owner, Admin, Member)
 2. Verify you're using the correct organization ID
 3. Request permission upgrade from organization owner
@@ -383,6 +349,7 @@ curl -d '{"email": "user@example.com"}'  # ✅
 **Error**: `404 Not Found: Organization not found`
 
 **Solutions**:
+
 1. Verify resource ID is correct
 2. Check you have access to the resource
 3. Confirm resource wasn't deleted
@@ -402,6 +369,7 @@ curl -X GET http://localhost:3000/v1/organizations \
 **Solutions**:
 
 **Step 1**: Check server logs
+
 ```bash
 # View recent logs
 tail -f /var/log/infera-management-api.log
@@ -411,13 +379,15 @@ tail -f /var/log/infera-management-api.log
 ```
 
 **Step 2**: Enable debug logging
+
 ```yaml
 # config.yaml
 observability:
-  log_level: "debug"  # or "trace"
+  log_level: "debug" # or "trace"
 ```
 
 **Step 3**: Report the issue with logs
+
 - Include relevant log excerpts
 - Note the timestamp of the error
 - Provide request details (endpoint, method, payload)
@@ -431,6 +401,7 @@ observability:
 **Cause**: Querying large date ranges without filters
 
 **Solution**:
+
 ```bash
 # Bad: Open-ended query
 GET /v1/organizations/{org}/audit-logs
@@ -451,12 +422,14 @@ GET /v1/organizations/{org}/audit-logs?event_type=user_login&start_date=2025-11-
 **Solutions**:
 
 **Step 1**: Use pagination
+
 ```bash
 # Fetch in smaller batches
 GET /v1/organizations/{org}/vaults?limit=25
 ```
 
 **Step 2**: Monitor memory usage
+
 ```bash
 # Check memory usage
 ps aux | grep infera-management-api
@@ -466,10 +439,11 @@ curl http://localhost:3000/metrics | grep memory
 ```
 
 **Step 3**: Adjust worker threads
+
 ```yaml
 # config.yaml
 server:
-  worker_threads: 4  # Reduce from default
+  worker_threads: 4 # Reduce from default
 ```
 
 ## Deployment Issues
@@ -483,6 +457,7 @@ server:
 **Solutions**:
 
 **Step 1**: Check container logs
+
 ```bash
 docker logs infera-management-api
 
@@ -491,15 +466,17 @@ docker logs -f infera-management-api
 ```
 
 **Step 2**: Verify environment variables
+
 ```bash
 # List container environment
 docker inspect infera-management-api | jq '.[0].Config.Env'
 ```
 
 **Step 3**: Check volume mounts
+
 ```bash
-# Verify FDB cluster file is accessible
-docker exec infera-management-api cat /etc/foundationdb/fdb.cluster
+# Verify config file is accessible
+docker exec infera-management-api cat /app/config.yaml
 ```
 
 ### Kubernetes Deployment
@@ -511,6 +488,7 @@ docker exec infera-management-api cat /etc/foundationdb/fdb.cluster
 **Solutions**:
 
 **Step 1**: Check pod logs
+
 ```bash
 kubectl logs -n infera pod/infera-management-api-xxxxx
 
@@ -519,11 +497,13 @@ kubectl logs -n infera pod/infera-management-api-xxxxx --previous
 ```
 
 **Step 2**: Verify ConfigMap
+
 ```bash
 kubectl get configmap -n infera infera-config -o yaml
 ```
 
 **Step 3**: Check secrets
+
 ```bash
 kubectl get secret -n infera infera-secrets -o yaml
 ```
@@ -535,6 +515,7 @@ kubectl get secret -n infera infera-secrets -o yaml
 **Solutions**:
 
 **Step 1**: Verify service
+
 ```bash
 kubectl get svc -n infera
 
@@ -543,6 +524,7 @@ kubectl get endpoints -n infera infera-management-api
 ```
 
 **Step 2**: Test from within cluster
+
 ```bash
 kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
   curl http://infera-management-api.infera.svc.cluster.local:3000/health
@@ -557,6 +539,7 @@ kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
 **Error**: `Address already in use` during tests
 
 **Solution**:
+
 ```bash
 # Use random ports for tests
 cargo test -- --test-threads=1
@@ -565,18 +548,22 @@ cargo test -- --test-threads=1
 pkill -f infera-management
 ```
 
-#### Issue: FDB tests failing
+#### Issue: Integration tests failing
 
-**Error**: `FDB connection failed` in tests
+**Error**: Storage-related test failures
 
 **Solution**:
-```bash
-# Use Docker for FDB integration tests
-cd docker/fdb-integration-tests
-./test.sh
 
-# Or skip FDB tests
-cargo test --lib  # Skip integration tests
+```bash
+# Tests use in-memory backend by default
+cargo test
+
+# Run specific test suites
+cargo test --lib  # Unit tests only
+cargo test --test '*'  # Integration tests
+
+# Check test output for specific errors
+cargo test -- --nocapture
 ```
 
 ### Code Coverage Issues
@@ -586,6 +573,7 @@ cargo test --lib  # Skip integration tests
 **Error**: `Test timed out after 300 seconds`
 
 **Solution**:
+
 ```bash
 # Increase timeout
 cargo tarpaulin --timeout 600
@@ -601,6 +589,7 @@ cargo tarpaulin --exclude-files 'crates/*/tests/integration/*'
 **Error**: `error: this returns a Result<_, ()>  --deny warnings`
 
 **Solution**:
+
 ```bash
 # Fix all clippy warnings
 cargo clippy --fix --allow-dirty --allow-staged
@@ -618,6 +607,7 @@ cargo clippy -- -W clippy::all
 **Solutions**:
 
 **For development**: Check MailHog
+
 ```bash
 # Open MailHog UI
 open http://localhost:8025
@@ -628,6 +618,7 @@ docker-compose logs mailhog
 ```
 
 **For production**: Verify SMTP config
+
 ```yaml
 # config.production.yaml
 email:
@@ -635,10 +626,11 @@ email:
   smtp_port: 587
   smtp_use_tls: true
   smtp_username: "your-email@gmail.com"
-  smtp_password: "your-app-password"  # Not your real password!
+  smtp_password: "your-app-password" # Not your real password!
 ```
 
 **Test SMTP connection**:
+
 ```bash
 # Test SMTP (Linux)
 telnet smtp.gmail.com 587
@@ -655,25 +647,27 @@ curl --url 'smtps://smtp.gmail.com:465' \
 If these solutions don't resolve your issue:
 
 1. **Check existing documentation**:
+
    - [Getting Started](GettingStarted.md)
    - [Deployment Guide](Deployment.md)
    - [API Examples](Examples.md)
 
 2. **Enable debug logging**:
+
    ```yaml
    observability:
      log_level: "trace"
    ```
 
 3. **Collect diagnostic information**:
+
    ```bash
    # System info
    uname -a
    rustc --version
-   fdbcli --version
 
    # API version
-   ./target/release/infera-management-api --version
+   ./target/release/inferadb-management --version
 
    # Configuration (redact secrets!)
    cat config.yaml | grep -v secret
@@ -683,9 +677,10 @@ If these solutions don't resolve your issue:
    ```
 
 4. **File an issue**:
+
    - Include diagnostic information above
    - Provide steps to reproduce
    - Note expected vs actual behavior
    - Link: [GitHub Issues](https://github.com/yourusername/inferadb/issues)
 
-5. **Security issues**: Email security@inferadb.com (do not file public issues)
+5. **Security issues**: Email <security@inferadb.com> (do not file public issues)

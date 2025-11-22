@@ -147,7 +147,13 @@ pub async fn generate_vault_token(
 
     // Create access token claims
     let access_ttl = req.access_token_ttl.unwrap_or(300); // Default 5 minutes (per spec)
-    let claims = VaultTokenClaims::new(org_ctx.organization_id, vault_id, vault_role, access_ttl);
+    let claims = VaultTokenClaims::new(
+        org_ctx.organization_id,
+        client.id,
+        vault_id,
+        vault_role,
+        access_ttl,
+    );
 
     // Sign the access token
     let access_token = signer.sign_vault_token(&claims, &certificate)?;
@@ -292,6 +298,7 @@ pub async fn refresh_vault_token(
     let access_ttl = req.access_token_ttl.unwrap_or(300); // Default 5 minutes (per spec)
     let claims = VaultTokenClaims::new(
         old_token.organization_id,
+        client.id,
         old_token.vault_id,
         old_token.vault_role,
         access_ttl,
@@ -564,8 +571,13 @@ pub async fn client_assertion_authenticate(
 
     // Generate vault-scoped JWT (5 minutes default per spec)
     let access_ttl = 300;
-    let vault_claims =
-        VaultTokenClaims::new(client.organization_id, vault_id, requested_role, access_ttl);
+    let vault_claims = VaultTokenClaims::new(
+        client.organization_id,
+        client.id,
+        vault_id,
+        requested_role,
+        access_ttl,
+    );
 
     let access_token = signer.sign_vault_token(&vault_claims, &certificate)?;
 

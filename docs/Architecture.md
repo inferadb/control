@@ -37,8 +37,8 @@ graph TB
 
     subgraph "Storage Layer"
         Storage[Storage<br/>Abstraction]
-        Memory[Memory<br/>Backend]
-        FDB[FoundationDB<br/>Backend]
+        Memory[Memory<br/>Backend<br/>(Implemented)]
+        FDB[FoundationDB<br/>Backend<br/>(Planned)]
     end
 
     subgraph "External Services"
@@ -90,20 +90,18 @@ graph TB
 
 ## Deployment Topology
 
-### Single Instance Deployment
+### Single Instance Deployment (Current)
+
+**Note**: Only single-instance deployment is currently supported due to in-memory storage backend. Multi-instance deployment will be available when FoundationDB backend is implemented.
 
 ```mermaid
 graph LR
-    subgraph "Load Balancer"
-        LB[Load Balancer<br/>:443]
+    subgraph "Load Balancer (Optional)"
+        LB[Load Balancer<br/>:443<br/>TLS Termination]
     end
 
     subgraph "Management API"
-        API[inferadb-management<br/>HTTP: 3000<br/>gRPC: 3001]
-    end
-
-    subgraph "Data Tier"
-        FDB[(FoundationDB<br/>Cluster)]
+        API[inferadb-management<br/>HTTP: 3000<br/>gRPC: 3001<br/>Storage: In-Memory]
     end
 
     subgraph "Services"
@@ -113,16 +111,23 @@ graph LR
     end
 
     LB --> API
-    API --> FDB
     API --> SMTP
     API --> Prom
     API --> Jaeger
 
     style API fill:#4CAF50
-    style FDB fill:#2196F3
 ```
 
-### Multi-Instance Deployment (High Availability)
+**Important Considerations**:
+
+- All data stored in RAM (no persistence)
+- Server restart loses all data
+- Ensure adequate RAM allocation (8GB+ recommended)
+- Implement regular export/backup procedures
+
+### Multi-Instance Deployment (Future - Requires FoundationDB)
+
+**Status**: Planned for when FoundationDB backend is implemented.
 
 ```mermaid
 graph TB
@@ -293,7 +298,18 @@ graph TB
 
 ## Storage Architecture
 
-How data is organized in FoundationDB:
+### Current: In-Memory Storage
+
+The Management API currently uses a HashMap-based in-memory storage backend with the following characteristics:
+
+- All data stored in RAM
+- No persistence across restarts
+- Suitable for development, testing, and single-instance deployments
+- Uses the same logical keyspace structure as planned FoundationDB backend
+
+### Future: FoundationDB Storage
+
+When implemented, data will be organized in FoundationDB keyspace:
 
 ```mermaid
 graph TB

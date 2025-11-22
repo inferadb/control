@@ -10,10 +10,10 @@ Pagination allows clients to retrieve large result sets in manageable chunks, re
 
 All list endpoints accept these optional query parameters:
 
-| Parameter | Type | Default | Range | Description |
-|-----------|------|---------|-------|-------------|
-| `limit` | integer | 50 | 1-100 | Number of items to return per page |
-| `offset` | integer | 0 | 0+ | Number of items to skip before returning results |
+| Parameter | Type    | Default | Range | Description                                      |
+| --------- | ------- | ------- | ----- | ------------------------------------------------ |
+| `limit`   | integer | 50      | 1-100 | Number of items to return per page               |
+| `offset`  | integer | 0       | 0+    | Number of items to skip before returning results |
 
 ### Examples
 
@@ -53,13 +53,13 @@ All paginated responses include a `pagination` metadata object:
 
 ### Pagination Metadata Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `total` | integer? | Total number of items (may be omitted for performance) |
-| `count` | integer | Number of items in current page |
-| `offset` | integer | Current offset value |
-| `limit` | integer | Current limit value |
-| `has_more` | boolean | Whether more items are available |
+| Field      | Type     | Description                                            |
+| ---------- | -------- | ------------------------------------------------------ |
+| `total`    | integer? | Total number of items (may be omitted for performance) |
+| `count`    | integer  | Number of items in current page                        |
+| `offset`   | integer  | Current offset value                                   |
+| `limit`    | integer  | Current limit value                                    |
+| `has_more` | boolean  | Whether more items are available                       |
 
 ## Pagination Modes
 
@@ -101,6 +101,7 @@ When `total` is omitted, the server doesn't compute the total count for performa
 **Use case**: Large datasets where counting would be expensive (e.g., audit logs).
 
 The `has_more` field indicates whether additional pages exist:
+
 - `true`: More items are available (current page returned exactly `limit` items)
 - `false`: This is the last page (current page returned fewer than `limit` items)
 
@@ -120,6 +121,7 @@ GET /v1/organizations/{org}/vaults?limit=100
 ```
 
 **Recommendations**:
+
 - Default (50): Good for most use cases
 - Small (10-25): UI pagination, incremental loading
 - Large (100): Batch processing, data export
@@ -158,13 +160,13 @@ async function fetchAllVaults(orgId: string): Promise<Vault[]> {
 function handlePaginatedResponse(response: PaginatedResponse) {
   // Empty result set
   if (response.data.length === 0) {
-    console.log('No results found');
+    console.log("No results found");
     return;
   }
 
   // Last page (partial results)
   if (response.pagination.count < response.pagination.limit) {
-    console.log('Last page');
+    console.log("Last page");
   }
 
   // More pages available
@@ -185,6 +187,7 @@ GET /v1/audit-logs?limit=50&offset=100000
 ```
 
 For large datasets, consider:
+
 - Using filters to reduce the result set
 - Implementing cursor-based pagination (future enhancement)
 - Exporting data in batches during off-peak hours
@@ -193,15 +196,15 @@ For large datasets, consider:
 
 All list endpoints support pagination:
 
-| Endpoint | Default Limit | Notes |
-|----------|--------------|-------|
-| `GET /v1/organizations` | 50 | User's organizations |
-| `GET /v1/organizations/{org}/vaults` | 50 | Organization vaults |
-| `GET /v1/organizations/{org}/teams` | 50 | Organization teams |
-| `GET /v1/organizations/{org}/clients` | 50 | OAuth clients |
-| `GET /v1/organizations/{org}/sessions` | 50 | User sessions |
-| `GET /v1/organizations/{org}/audit-logs` | 50 | Audit logs (streaming mode) |
-| `GET /v1/teams/{team}/members` | 50 | Team members |
+| Endpoint                                 | Default Limit | Notes                       |
+| ---------------------------------------- | ------------- | --------------------------- |
+| `GET /v1/organizations`                  | 50            | User's organizations        |
+| `GET /v1/organizations/{org}/vaults`     | 50            | Organization vaults         |
+| `GET /v1/organizations/{org}/teams`      | 50            | Organization teams          |
+| `GET /v1/organizations/{org}/clients`    | 50            | OAuth clients               |
+| `GET /v1/organizations/{org}/sessions`   | 50            | User sessions               |
+| `GET /v1/organizations/{org}/audit-logs` | 50            | Audit logs (streaming mode) |
+| `GET /v1/teams/{team}/members`           | 50            | Team members                |
 
 ## Examples
 
@@ -271,7 +274,7 @@ async function* fetchVaultsPaginated(
 }
 
 // Usage
-for await (const vaults of fetchVaultsPaginated('org-123')) {
+for await (const vaults of fetchVaultsPaginated("org-123")) {
   console.log(`Processing ${vaults.length} vaults...`);
   processVaults(vaults);
 }
@@ -347,6 +350,7 @@ func FetchAllVaults(orgID string) ([]Vault, error) {
 **Cause**: Database scans entire offset range on each request.
 
 **Solution**:
+
 - Add filters to reduce result set
 - Use smaller page sizes for UI
 - Consider cursor-based pagination for very large datasets

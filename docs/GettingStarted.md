@@ -5,49 +5,13 @@ This tutorial walks you through setting up and using the InferaDB Management API
 ## Prerequisites
 
 - **Rust** 1.75+ (install via [rustup](https://rustup.rs/))
-- **FoundationDB** 7.1+ (see [Installation](#foundationdb-installation))
 - **curl** or similar HTTP client
+
+**Note**: This guide uses the in-memory storage backend for quick setup. FoundationDB backend is planned for future multi-instance production deployments but is not yet implemented.
 
 ## Installation
 
-### 1. FoundationDB Installation
-
-#### macOS
-
-```bash
-# Download and install FoundationDB
-curl -O https://github.com/apple/foundationdb/releases/download/7.1.38/FoundationDB-7.1.38_x86_64.pkg
-sudo installer -pkg FoundationDB-7.1.38_x86_64.pkg -target /
-
-# Verify installation
-fdbcli --version
-```
-
-#### Linux (Ubuntu/Debian)
-
-```bash
-# Download client and server packages
-wget https://github.com/apple/foundationdb/releases/download/7.1.38/foundationdb-clients_7.1.38-1_amd64.deb
-wget https://github.com/apple/foundationdb/releases/download/7.1.38/foundationdb-server_7.1.38-1_amd64.deb
-
-# Install packages
-sudo dpkg -i foundationdb-clients_7.1.38-1_amd64.deb foundationdb-server_7.1.38-1_amd64.deb
-
-# Verify installation
-fdbcli --version
-```
-
-#### Docker (Development)
-
-```bash
-# Quick start with Docker
-docker run -d \
-  --name fdb \
-  -p 4500:4500 \
-  foundationdb/foundationdb:7.1.38
-```
-
-### 2. Build the Management API
+### 1. Build the Management API
 
 ```bash
 # Clone repository
@@ -61,7 +25,7 @@ cargo build --release
 ./target/release/inferadb-management --version
 ```
 
-### 3. Configure the API
+### 2. Configure the API
 
 Create a development configuration file:
 
@@ -79,8 +43,7 @@ server:
   grpc_port: 3001
 
 storage:
-  backend: "foundationdb"
-  fdb_cluster_file: "/usr/local/etc/foundationdb/fdb.cluster"
+  backend: "memory"  # Use in-memory backend for development
 
 auth:
   key_encryption_secret: "dev-secret-key-at-least-32-bytes-long-for-aes256"
@@ -91,7 +54,7 @@ observability:
 
 **Security Note**: Never commit `config.local.yaml` to version control. It's already in `.gitignore`.
 
-### 4. Start the API Server
+### 3. Start the API Server
 
 ```bash
 # Run with local config
@@ -380,7 +343,7 @@ Enable debug logging:
 ```yaml
 # config.local.yaml
 observability:
-  log_level: "debug"  # or "trace" for maximum detail
+  log_level: "debug" # or "trace" for maximum detail
 ```
 
 View structured logs:
@@ -395,18 +358,16 @@ View structured logs:
 
 ### Resetting the Database
 
-If you need to start fresh:
+If you need to start fresh with the in-memory backend:
 
 ```bash
 # Stop the API server (Ctrl+C)
 
-# Delete FDB data (caution!)
-fdbcli -C /usr/local/etc/foundationdb/fdb.cluster \
-  --exec "writemode on; clearrange \\x00 \\xff"
-
-# Restart the API server
+# Restart the API server (in-memory data is automatically cleared on restart)
 ./target/release/inferadb-management --config config.local.yaml
 ```
+
+**Note**: The in-memory backend stores all data in RAM. Restarting the server clears all data.
 
 ## Next Steps
 
@@ -420,20 +381,24 @@ Now that you have the basics working, explore:
 
 ## Troubleshooting
 
-### FoundationDB connection failed
+### Storage backend issues
 
-**Error**: `Failed to connect to FoundationDB`
+**Note**: This guide uses the in-memory backend. FoundationDB backend is not yet implemented.
+
+**Error**: `Failed to initialize storage backend`
 
 **Solutions**:
-1. Check FDB is running: `sudo systemctl status foundationdb` (Linux) or `launchctl list | grep foundationdb` (macOS)
-2. Verify cluster file path in config matches your installation
-3. Test FDB connection: `fdbcli -C /usr/local/etc/foundationdb/fdb.cluster`
+
+1. Verify `config.local.yaml` has `backend: "memory"` in the storage section
+2. Check that you have sufficient memory available (at least 1GB free)
+3. Review error logs for specific issues
 
 ### Port already in use
 
 **Error**: `Address already in use (os error 48)`
 
 **Solutions**:
+
 1. Change port in config: `http_port: 8080`
 2. Find and stop conflicting process: `lsof -i :3000`
 3. Use environment variable: `export INFERA_HTTP_PORT=8080`
@@ -457,6 +422,7 @@ key_encryption_secret: "generated-secret-here"
 **Issue**: Requests return 401 Unauthorized
 
 **Solutions**:
+
 1. Check cookie format: `-H "Cookie: infera_session=sess_xyz789..."`
 2. Verify session hasn't expired (default: 30 days)
 3. Check for typos in session ID
@@ -467,6 +433,7 @@ key_encryption_secret: "generated-secret-here"
 **Error**: `429 Too Many Requests`
 
 **Solutions**:
+
 1. Wait before retrying (exponential backoff recommended)
 2. Reduce request frequency
 3. Check rate limiting config in `config.local.yaml`
@@ -474,7 +441,7 @@ key_encryption_secret: "generated-secret-here"
 
 ```yaml
 rate_limiting:
-  login_attempts_per_ip_per_hour: 1000  # Increase for testing
+  login_attempts_per_ip_per_hour: 1000 # Increase for testing
 ```
 
 ## Getting Help

@@ -16,7 +16,7 @@ Start here: **[Getting Started Guide](GettingStarted.md)** - Step-by-step tutori
 ### System Architecture
 
 - **[Overview](Overview.md)** - Complete entity definitions, data model, relationships, and behavioral rules
-  - ⚠️ *Note: This is a large file (5,000+ lines). Use your editor's search function or the table of contents to navigate.*
+  - ⚠️ _Note: This is a large file (5,000+ lines). Use your editor's search function or the table of contents to navigate._
 - **[Architecture](Architecture.md)** - System architecture diagrams showing component layers and deployment topologies
 - **[Data Flows](Flows.md)** - Detailed sequence diagrams for user registration, login, token generation, and org setup
 
@@ -31,6 +31,7 @@ Start here: **[Getting Started Guide](GettingStarted.md)** - Step-by-step tutori
 ### API Features
 
 - **[Pagination](Pagination.md)** - List endpoint pagination specification
+
   - Offset-based pagination
   - Query parameters and response format
   - Performance considerations
@@ -46,6 +47,7 @@ Start here: **[Getting Started Guide](GettingStarted.md)** - Step-by-step tutori
 ### Deployment & Performance
 
 - **[Deployment Guide](Deployment.md)** - Production deployment guide
+
   - Single-instance and multi-instance (HA) setup
   - Kubernetes configuration examples
   - Health checks and graceful shutdown

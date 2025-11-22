@@ -5,12 +5,14 @@ The InferaDB Management API provides comprehensive audit logging for security co
 ## Overview
 
 Audit logs capture all security-relevant events including:
+
 - Authentication and authorization events
 - Resource creation, modification, and deletion
 - Permission changes and access grants
 - Security incidents (token reuse, rate limiting, etc.)
 
 **Key characteristics**:
+
 - **Immutable**: Audit logs cannot be modified or deleted by users
 - **Per-organization**: Each organization can only view its own audit logs
 - **Indexed**: Optimized for time-range and event-type queries
@@ -20,105 +22,105 @@ Audit logs capture all security-relevant events including:
 
 ### Authentication Events
 
-| Event Type | Description | Severity |
-|------------|-------------|----------|
-| `user_login` | Successful user login | Info |
-| `user_logout` | User logout | Info |
-| `user_session_revoked` | Session manually revoked | Warning |
-| `user_session_expired` | Session expired naturally | Info |
+| Event Type             | Description               | Severity |
+| ---------------------- | ------------------------- | -------- |
+| `user_login`           | Successful user login     | Info     |
+| `user_logout`          | User logout               | Info     |
+| `user_session_revoked` | Session manually revoked  | Warning  |
+| `user_session_expired` | Session expired naturally | Info     |
 
 ### Passkey Events
 
-| Event Type | Description | Severity |
-|------------|-------------|----------|
-| `passkey_added` | New passkey registered | Info |
-| `passkey_removed` | Passkey deleted | Warning |
+| Event Type        | Description            | Severity |
+| ----------------- | ---------------------- | -------- |
+| `passkey_added`   | New passkey registered | Info     |
+| `passkey_removed` | Passkey deleted        | Warning  |
 
 ### Password Events
 
-| Event Type | Description | Severity |
-|------------|-------------|----------|
-| `password_changed` | Password updated | Info |
-| `password_reset_requested` | Password reset email sent | Info |
-| `password_reset_completed` | Password reset completed | Warning |
+| Event Type                 | Description               | Severity |
+| -------------------------- | ------------------------- | -------- |
+| `password_changed`         | Password updated          | Info     |
+| `password_reset_requested` | Password reset email sent | Info     |
+| `password_reset_completed` | Password reset completed  | Warning  |
 
 ### User Management
 
-| Event Type | Description | Severity |
-|------------|-------------|----------|
-| `user_registered` | New user account created | Info |
-| `user_deleted` | User account deleted | Critical |
-| `user_email_added` | Email address added to account | Info |
-| `user_email_verified` | Email address verified | Info |
-| `user_email_removed` | Email address removed | Warning |
+| Event Type            | Description                    | Severity |
+| --------------------- | ------------------------------ | -------- |
+| `user_registered`     | New user account created       | Info     |
+| `user_deleted`        | User account deleted           | Critical |
+| `user_email_added`    | Email address added to account | Info     |
+| `user_email_verified` | Email address verified         | Info     |
+| `user_email_removed`  | Email address removed          | Warning  |
 
 ### Organization Management
 
-| Event Type | Description | Severity |
-|------------|-------------|----------|
-| `organization_created` | New organization created | Info |
-| `organization_updated` | Organization settings changed | Info |
-| `organization_deleted` | Organization deleted | Critical |
-| `organization_member_added` | Member invited to organization | Info |
-| `organization_member_role_changed` | Member role updated | Warning |
-| `organization_member_removed` | Member removed from organization | Warning |
+| Event Type                           | Description                           | Severity |
+| ------------------------------------ | ------------------------------------- | -------- |
+| `organization_created`               | New organization created              | Info     |
+| `organization_updated`               | Organization settings changed         | Info     |
+| `organization_deleted`               | Organization deleted                  | Critical |
+| `organization_member_added`          | Member invited to organization        | Info     |
+| `organization_member_role_changed`   | Member role updated                   | Warning  |
+| `organization_member_removed`        | Member removed from organization      | Warning  |
 | `organization_ownership_transferred` | Ownership transferred to another user | Critical |
 
 ### Team Management
 
-| Event Type | Description | Severity |
-|------------|-------------|----------|
-| `team_created` | New team created | Info |
-| `team_updated` | Team settings changed | Info |
-| `team_deleted` | Team deleted | Warning |
-| `team_member_added` | Member added to team | Info |
-| `team_member_role_changed` | Team member role updated | Warning |
-| `team_member_removed` | Member removed from team | Warning |
-| `team_permission_granted` | Permission granted to team | Warning |
-| `team_permission_revoked` | Permission revoked from team | Warning |
+| Event Type                 | Description                  | Severity |
+| -------------------------- | ---------------------------- | -------- |
+| `team_created`             | New team created             | Info     |
+| `team_updated`             | Team settings changed        | Info     |
+| `team_deleted`             | Team deleted                 | Warning  |
+| `team_member_added`        | Member added to team         | Info     |
+| `team_member_role_changed` | Team member role updated     | Warning  |
+| `team_member_removed`      | Member removed from team     | Warning  |
+| `team_permission_granted`  | Permission granted to team   | Warning  |
+| `team_permission_revoked`  | Permission revoked from team | Warning  |
 
 ### Vault Management
 
-| Event Type | Description | Severity |
-|------------|-------------|----------|
-| `vault_created` | New vault created | Info |
-| `vault_updated` | Vault settings changed | Info |
-| `vault_deleted` | Vault deleted | Critical |
-| `vault_access_granted` | User granted access to vault | Warning |
-| `vault_access_revoked` | User access revoked | Warning |
-| `vault_access_updated` | User access level changed | Warning |
-| `vault_team_access_granted` | Team granted access to vault | Warning |
-| `vault_team_access_revoked` | Team access revoked | Warning |
-| `vault_team_access_updated` | Team access level changed | Warning |
+| Event Type                  | Description                  | Severity |
+| --------------------------- | ---------------------------- | -------- |
+| `vault_created`             | New vault created            | Info     |
+| `vault_updated`             | Vault settings changed       | Info     |
+| `vault_deleted`             | Vault deleted                | Critical |
+| `vault_access_granted`      | User granted access to vault | Warning  |
+| `vault_access_revoked`      | User access revoked          | Warning  |
+| `vault_access_updated`      | User access level changed    | Warning  |
+| `vault_team_access_granted` | Team granted access to vault | Warning  |
+| `vault_team_access_revoked` | Team access revoked          | Warning  |
+| `vault_team_access_updated` | Team access level changed    | Warning  |
 
 ### Client Management
 
-| Event Type | Description | Severity |
-|------------|-------------|----------|
-| `client_created` | OAuth client created | Info |
-| `client_updated` | Client settings changed | Info |
-| `client_deleted` | Client deleted | Warning |
-| `client_certificate_created` | Client certificate issued | Info |
-| `client_certificate_revoked` | Certificate revoked | Warning |
-| `client_certificate_deleted` | Certificate deleted | Warning |
+| Event Type                   | Description               | Severity |
+| ---------------------------- | ------------------------- | -------- |
+| `client_created`             | OAuth client created      | Info     |
+| `client_updated`             | Client settings changed   | Info     |
+| `client_deleted`             | Client deleted            | Warning  |
+| `client_certificate_created` | Client certificate issued | Info     |
+| `client_certificate_revoked` | Certificate revoked       | Warning  |
+| `client_certificate_deleted` | Certificate deleted       | Warning  |
 
 ### Token Events
 
-| Event Type | Description | Severity |
-|------------|-------------|----------|
-| `vault_token_generated` | Vault JWT generated | Info |
-| `vault_token_refreshed` | Vault JWT refreshed | Info |
-| `refresh_token_revoked` | Refresh token revoked | Warning |
+| Event Type              | Description           | Severity |
+| ----------------------- | --------------------- | -------- |
+| `vault_token_generated` | Vault JWT generated   | Info     |
+| `vault_token_refreshed` | Vault JWT refreshed   | Info     |
+| `refresh_token_revoked` | Refresh token revoked | Warning  |
 
 ### Security Events
 
-| Event Type | Description | Severity |
-|------------|-------------|----------|
+| Event Type             | Description                        | Severity |
+| ---------------------- | ---------------------------------- | -------- |
 | `refresh_token_reused` | **SECURITY**: Token reuse detected | Critical |
-| `invalid_jwt` | Invalid JWT signature detected | Warning |
-| `rate_limit_exceeded` | Rate limit exceeded | Warning |
-| `clock_skew_detected` | System clock skew detected | Warning |
-| `worker_id_collision` | Snowflake ID worker collision | Critical |
+| `invalid_jwt`          | Invalid JWT signature detected     | Warning  |
+| `rate_limit_exceeded`  | Rate limit exceeded                | Warning  |
+| `clock_skew_detected`  | System clock skew detected         | Warning  |
+| `worker_id_collision`  | Snowflake ID worker collision      | Critical |
 
 ## Audit Log Structure
 
@@ -148,19 +150,19 @@ Each audit log entry contains:
 
 ### Field Descriptions
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | integer | Unique Snowflake ID |
-| `organization_id` | integer? | Organization context (null for user-level events) |
-| `user_id` | integer? | User who performed the action |
-| `client_id` | integer? | OAuth client that performed the action |
-| `event_type` | enum | Type of event (see tables above) |
-| `resource_type` | enum? | Type of resource affected |
-| `resource_id` | integer? | ID of affected resource |
-| `event_data` | object? | Additional structured event data |
-| `ip_address` | string? | Client IP address |
-| `user_agent` | string? | HTTP User-Agent header |
-| `created_at` | timestamp | When the event occurred (UTC) |
+| Field             | Type      | Description                                       |
+| ----------------- | --------- | ------------------------------------------------- |
+| `id`              | integer   | Unique Snowflake ID                               |
+| `organization_id` | integer?  | Organization context (null for user-level events) |
+| `user_id`         | integer?  | User who performed the action                     |
+| `client_id`       | integer?  | OAuth client that performed the action            |
+| `event_type`      | enum      | Type of event (see tables above)                  |
+| `resource_type`   | enum?     | Type of resource affected                         |
+| `resource_id`     | integer?  | ID of affected resource                           |
+| `event_data`      | object?   | Additional structured event data                  |
+| `ip_address`      | string?   | Client IP address                                 |
+| `user_agent`      | string?   | HTTP User-Agent header                            |
+| `created_at`      | timestamp | When the event occurred (UTC)                     |
 
 ## Querying Audit Logs
 
@@ -171,6 +173,7 @@ GET /v1/organizations/{org}/audit-logs
 ```
 
 Query parameters:
+
 - `limit` (integer): Page size (default: 50, max: 100)
 - `offset` (integer): Offset for pagination (default: 0)
 - `event_type` (string): Filter by event type (optional)
@@ -374,22 +377,22 @@ def monitor_security_events(org_id: str, poll_interval: int = 60):
 
 Audit log access is controlled by organization roles:
 
-| Role | Access |
-|------|--------|
-| **Owner** | Full access to all organization audit logs |
-| **Admin** | Full access to all organization audit logs |
-| **Member** | No access (audit logs are admin-only) |
-| **Viewer** | No access |
+| Role       | Access                                     |
+| ---------- | ------------------------------------------ |
+| **Owner**  | Full access to all organization audit logs |
+| **Admin**  | Full access to all organization audit logs |
+| **Member** | No access (audit logs are admin-only)      |
+| **Viewer** | No access                                  |
 
 **Note**: Users can only view audit logs for organizations where they have Owner or Admin role.
 
 ## Data Retention
 
-| Tier | Retention Period | Notes |
-|------|-----------------|-------|
-| **Free** | 90 days | Automatically deleted after 90 days |
-| **Paid** | 1 year | Automatically deleted after 365 days |
-| **Enterprise** | Configurable | Custom retention policies available |
+| Tier           | Retention Period | Notes                                |
+| -------------- | ---------------- | ------------------------------------ |
+| **Free**       | 90 days          | Automatically deleted after 90 days  |
+| **Paid**       | 1 year           | Automatically deleted after 365 days |
+| **Enterprise** | Configurable     | Custom retention policies available  |
 
 **Important**: Audit logs are never deleted when organizations or resources are deleted. They are retained for the full retention period for compliance purposes.
 
@@ -457,6 +460,7 @@ Schedule regular reviews of audit logs:
 ### 2. Alert on Critical Events
 
 Set up monitoring for critical security events:
+
 - `refresh_token_reused`: Possible token theft
 - `worker_id_collision`: ID generation issue
 - `organization_deleted`: Accidental or malicious deletion
@@ -547,6 +551,7 @@ def send_to_datadog(audit_log: dict):
 **Cause**: Time filter excludes all events, or user lacks permissions.
 
 **Solution**:
+
 1. Verify you have Owner or Admin role
 2. Expand time range: `start_date=2025-01-01T00:00:00Z`
 3. Remove event type filter to see all events
@@ -556,6 +561,7 @@ def send_to_datadog(audit_log: dict):
 **Cause**: Querying very large date range without filters.
 
 **Solution**:
+
 1. Add time-range filters (limit to 30-90 days)
 2. Add event type or user filters
 3. Reduce page size: `limit=25`

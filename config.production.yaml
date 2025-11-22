@@ -31,9 +31,9 @@ storage:
 # Authentication and security
 auth:
   # Session TTLs (in seconds)
-  session_ttl_web: 2592000      # 30 days
-  session_ttl_cli: 7776000      # 90 days
-  session_ttl_sdk: 7776000      # 90 days
+  session_ttl_web: 2592000 # 30 days
+  session_ttl_cli: 7776000 # 90 days
+  session_ttl_sdk: 7776000 # 90 days
 
   # Password requirements
   password_min_length: 12

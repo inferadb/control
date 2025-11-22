@@ -2,27 +2,22 @@
 
 This guide provides instructions for deploying the InferaDB Management API in production environments.
 
+**IMPORTANT**: The Management API currently supports in-memory storage backend only. FoundationDB backend is planned for future multi-instance production deployments but is not yet implemented. This limits deployment to single-instance configurations.
+
 ## Prerequisites
 
 ### Infrastructure Requirements
 
-- **FoundationDB Cluster**: Version 7.1+
-
-  - Multi-node cluster recommended for high availability
-  - Properly configured cluster file (`fdb.cluster`)
-  - Network connectivity from management API instances to FDB cluster
-
-- **Compute Resources** (per instance):
+- **Compute Resources** (single instance):
 
   - CPU: 4+ cores recommended
-  - RAM: 4GB+ recommended
-  - Storage: Minimal (logs only, data in FoundationDB)
+  - RAM: 8GB+ recommended (data stored in memory)
+  - Storage: Minimal (logs only, data in RAM)
 
 - **Network**:
   - HTTP port (default: 3000) - Management REST API
   - gRPC port (default: 3001) - Internal gRPC server
   - Outbound access to:
-    - FoundationDB cluster ports (4500, 4501)
     - InferaDB policy engine (gRPC)
     - SMTP server (for email)
     - Observability endpoints (metrics, tracing)
@@ -30,7 +25,6 @@ This guide provides instructions for deploying the InferaDB Management API in pr
 ### Software Dependencies
 
 - Rust toolchain (for building from source)
-- FoundationDB client libraries
 - TLS certificates (for production HTTPS)
 
 ## Configuration
@@ -49,11 +43,15 @@ Edit `config.yaml` and replace all placeholder values marked with `<...>`:
 
 ```yaml
 storage:
-  backend: "foundationdb"
-  fdb_cluster_file: "/etc/foundationdb/fdb.cluster"
+  backend: "memory"  # Only implemented backend currently
 ```
 
-**Action**: Ensure the FoundationDB cluster file is accessible and contains the correct cluster connection string.
+**Note**: The Management API currently only supports the in-memory storage backend. FoundationDB backend is planned but not yet implemented. This means:
+
+- All data is stored in RAM
+- Data is lost on server restart
+- Not suitable for high-availability multi-instance deployments
+- Ensure adequate RAM allocation (8GB+ recommended)
 
 #### Authentication Security
 
@@ -127,49 +125,28 @@ export SMTP_PASSWORD="smtp-pass"
 export WORKER_ID="0"
 ```
 
-## Multi-Instance Deployment
+## Single-Instance Deployment
 
-For high availability, deploy multiple instances of the management API behind a load balancer.
+**Current Limitation**: Due to the in-memory storage backend, only single-instance deployments are currently supported. Multi-instance high-availability deployments will be possible when the FoundationDB backend is implemented.
 
-### Worker ID Management
+### Single Instance Configuration
 
-Each instance MUST have a unique worker ID (0-1023):
+Deploy one instance of the Management API:
 
 ```yaml
 id_generation:
-  worker_id: ${WORKER_ID} # Use environment variable
+  worker_id: 0  # Fixed for single instance
 ```
 
-**Recommended approaches**:
+### Load Balancer (Optional)
 
-1. **Kubernetes**: Use pod ordinal index from StatefulSet
-2. **Docker Swarm**: Use service replica index
-3. **Manual**: Assign IDs sequentially (0, 1, 2, ...)
-
-### Leader Election
-
-Leader election is automatically handled using FoundationDB:
-
-```yaml
-leader_election:
-  enabled: true
-  lease_ttl_seconds: 30
-  renewal_interval_seconds: 10
-```
-
-- Only the leader instance runs background jobs (cleanup, notifications)
-- Leadership automatically transfers if the leader instance fails
-- No manual intervention required
-
-### Load Balancing
-
-Configure your load balancer for:
+You can still use a load balancer for TLS termination and health checks:
 
 - **Health checks**: `GET /v1/health/ready`
-- **Session affinity**: Not required (stateless API)
+- **Session affinity**: Not required
 - **TLS termination**: Recommended at load balancer
 
-Example (Kubernetes Ingress):
+Example (Kubernetes Service):
 
 ```yaml
 apiVersion: v1
@@ -209,6 +186,48 @@ spec:
                 port:
                   number: 80
 ```
+
+### Data Persistence Considerations
+
+**Important**: With the in-memory backend:
+
+- All data (users, sessions, vaults, etc.) is stored in RAM
+- Restarting the server loses all data
+- For production use, implement regular backups or wait for FoundationDB backend
+
+**Recommended Approach**:
+
+- Use persistent volumes to store export snapshots
+- Implement automated backup scripts
+- Plan migration strategy for when FoundationDB backend is available
+
+## Future: Multi-Instance Deployment
+
+When FoundationDB backend is implemented, the following features will enable multi-instance HA deployments:
+
+### Worker ID Management (Future)
+
+Each instance will require a unique worker ID (0-1023) for Snowflake ID generation:
+
+```yaml
+id_generation:
+  worker_id: ${WORKER_ID}  # Unique per instance
+```
+
+### Leader Election (Future)
+
+Leader election will be automatically handled using FoundationDB:
+
+```yaml
+leader_election:
+  enabled: true
+  lease_ttl_seconds: 30
+  renewal_interval_seconds: 10
+```
+
+- Only the leader instance will run background jobs
+- Leadership will automatically transfer on failure
+- No manual intervention required
 
 ## Health Checks
 
@@ -361,30 +380,33 @@ cors:
 
 ## Deployment Checklist
 
-- [ ] FoundationDB cluster configured and accessible
-- [ ] Production config file created with all required values
+- [ ] Production config file created with `backend: "memory"` storage
 - [ ] Secrets stored securely (environment variables/secrets manager)
-- [ ] Worker IDs assigned uniquely to each instance
-- [ ] Load balancer configured with health checks
+- [ ] Sufficient RAM allocated (8GB+ recommended)
+- [ ] Data backup/export procedures documented
+- [ ] Load balancer configured with health checks (if using)
 - [ ] TLS certificates provisioned
 - [ ] CORS configured for web dashboard
 - [ ] Email SMTP credentials configured and tested
 - [ ] Logging and monitoring configured
-- [ ] Backup and disaster recovery plan established
+- [ ] Disaster recovery plan established (understand data loss on restart)
 - [ ] Security review completed
 - [ ] Load testing performed
+- [ ] Team aware of single-instance limitation
 
 ## Troubleshooting
 
-### Instance Not Becoming Leader
+### Data Loss on Restart
 
-**Symptoms**: No instance shows `is_leader: true` in health checks.
+**Symptoms**: All users, sessions, and data lost after server restart.
+
+**Explanation**: This is expected behavior with the in-memory backend.
 
 **Solutions**:
 
-1. Check FoundationDB connectivity: `fdbcli --exec "status"`
-2. Verify clock synchronization across instances (NTP)
-3. Check logs for leader election errors
+1. Implement regular data export/backup procedures
+2. Document recovery procedures for team
+3. Wait for FoundationDB backend implementation for persistent storage
 
 ### High Rate Limit Rejections
 
@@ -434,9 +456,9 @@ cors:
 
 ### Database Migrations
 
-Currently, the management API uses FoundationDB with automatic schema evolution. No manual migrations required.
+Currently, the management API uses in-memory storage. Schema evolution is handled in-code.
 
-Future schema changes will be documented in release notes.
+When FoundationDB backend is implemented, migration procedures will be documented in release notes.
 
 ## Support
 

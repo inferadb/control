@@ -2,14 +2,16 @@
 
 This document describes the performance characteristics, benchmarks, and scalability guidance for the InferaDB Management API.
 
+**IMPORTANT NOTE**: This document describes both current capabilities (in-memory backend) and planned capabilities (FoundationDB backend). Sections marked "Future" or referencing FoundationDB features apply to the planned FoundationDB backend implementation.
+
 ## Summary
 
-The Management API is designed for high performance and horizontal scalability:
+The Management API is designed for high performance:
 
 - **Target Latency**: p95 < 500ms, p99 < 1000ms for most operations
 - **Target Throughput**: 1000+ requests/second on modest hardware
-- **Scalability**: Horizontally scalable with no single point of failure
-- **Storage**: FoundationDB provides automatic sharding and replication
+- **Current Scalability**: Single-instance with in-memory storage
+- **Future Scalability**: Horizontally scalable with FoundationDB backend (planned)
 
 ## Benchmark Environment
 
@@ -107,9 +109,11 @@ The Management API is designed for high performance and horizontal scalability:
 
 ## Scalability
 
-### Horizontal Scaling
+### Horizontal Scaling (Future - Requires FoundationDB)
 
-The Management API supports horizontal scaling through:
+**Note**: Horizontal scaling will be supported when FoundationDB backend is implemented. Currently limited to single-instance deployments.
+
+Planned horizontal scaling features:
 
 1. **Stateless Design**: No in-memory state beyond configuration
 2. **Leader Election**: FoundationDB-based coordination for background jobs
@@ -148,15 +152,17 @@ Resource recommendations per instance:
 - **Storage**: FoundationDB transaction throughput
 - **Network**: Typically not a bottleneck
 
-### Database Scaling
+### Database Scaling (Future - Requires FoundationDB)
 
-FoundationDB automatically handles:
+**Current**: In-memory backend scales with available RAM on single instance.
+
+**Future**: When FoundationDB backend is implemented, it will automatically handle:
 
 - **Sharding**: Data distributed across cluster nodes
 - **Replication**: 3x replication by default
 - **Failover**: Automatic leader election
 
-**FoundationDB Cluster Sizing:**
+**Planned FoundationDB Cluster Sizing:**
 
 | Management API Load | FDB Nodes | Storage Per Node | Notes                           |
 | ------------------- | --------- | ---------------- | ------------------------------- |

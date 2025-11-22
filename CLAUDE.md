@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-InferaDB Management API is the control plane for InferaDB, providing user authentication, multi-tenant organization management, vault access control, and token issuance. Built in Rust with a layered architecture supporting pluggable storage backends (in-memory for development, FoundationDB for production).
+InferaDB Management API is the control plane for InferaDB, providing user authentication, multi-tenant organization management, vault access control, and token issuance. Built in Rust with a layered architecture supporting pluggable storage backends.
+
+**Storage Backends**:
+
+- **MemoryBackend** (HashMap-based): Currently implemented, suitable for development/testing and single-instance deployments
+- **FoundationDB** (Planned): Stub implementation in place, full production implementation planned for future release
 
 **Binary**: `inferadb-management` (REST on port 3000, gRPC on port 3001)
 
@@ -100,9 +105,12 @@ The API uses `config.yaml` or environment variables with `INFERADB_MGMT__` prefi
 # Required: encryption secret for client private keys
 export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 
-# Use FoundationDB instead of memory
-export INFERADB_MGMT__STORAGE__BACKEND=foundationdb
-export INFERADB_MGMT__STORAGE__FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster
+# Use memory backend (default - only fully implemented backend)
+export INFERADB_MGMT__STORAGE__BACKEND=memory
+
+# Note: FoundationDB backend is planned but not yet implemented
+# export INFERADB_MGMT__STORAGE__BACKEND=foundationdb
+# export INFERADB_MGMT__STORAGE__FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster
 
 # Change ports
 export INFERADB_MGMT__SERVER__HTTP_PORT=4000
@@ -130,6 +138,7 @@ crates/
 The codebase follows strict layering:
 
 1. **API Layer** (`infera-management-api/`)
+
    - Axum HTTP handlers in `handlers/`
    - Tonic gRPC services
    - Middleware: session auth, rate limiting, organization context, permission checks
@@ -137,6 +146,7 @@ The codebase follows strict layering:
    - Routes defined in `routes.rs`
 
 2. **Core Layer** (`infera-management-core/`)
+
    - **Entities** (`entities/`): Domain models (User, Organization, Vault, etc.)
    - **Repositories** (`repository/`): Data access trait definitions
    - **Services**: JWT signing, email, cryptography, rate limiting
@@ -144,10 +154,11 @@ The codebase follows strict layering:
    - All IDs are Twitter Snowflake format (64-bit, time-sortable, globally unique)
 
 3. **Storage Layer** (`infera-management-storage/`)
+
    - **Backend Trait**: Async key-value interface with transactions
    - **Implementations**:
-     - `MemoryBackend`: HashMap-based, for development/testing
-     - `FdbBackend`: FoundationDB, for production
+     - `MemoryBackend`: HashMap-based, fully implemented (suitable for development/testing and single-instance deployments)
+     - `FdbBackend`: FoundationDB stub, planned for multi-instance production deployments (not yet implemented)
    - Factory pattern in `factory.rs` selects backend from config
 
 4. **Integration Layer** (`infera-management-grpc/`)
@@ -163,6 +174,7 @@ The codebase follows strict layering:
 **Snowflake IDs**: All entities use 64-bit Snowflake IDs generated via `IdGenerator`. Worker IDs (0-1023) prevent collisions in multi-instance deployments. Call `IdGenerator::init(worker_id)` once at startup.
 
 **Middleware Chain**: Requests flow through middleware layers:
+
 - Rate limiting (per-IP, per-user)
 - Session validation (cookie-based)
 - Organization context extraction
@@ -182,6 +194,7 @@ The codebase follows strict layering:
 - **Client**: Service identity with Ed25519 certificates for backend auth
 
 **Access Control**:
+
 - Organization-level: Role-based (Owner > Admin > Member)
 - Vault-level: Grant-based (Admin > Manager > Writer > Reader)
 - Team-level: Permission delegation (invite_members, manage_teams, etc.)
@@ -189,11 +202,13 @@ The codebase follows strict layering:
 ### Testing Patterns
 
 **Integration Tests**: Located in `crates/infera-management-api/tests/`. Each file tests a specific domain:
+
 - `vault_tests.rs`: Vault CRUD, grants
 - `organization_tests.rs`: Org lifecycle
 - `security_*.rs`: Authorization, isolation, input validation
 
 **Test Helpers** (see `vault_tests.rs:1-64`):
+
 - `create_test_state()`: AppState with MemoryBackend
 - `create_test_app(state)`: Configured router with middleware
 - `register_user(app, name, email, password)`: Returns session cookie
@@ -201,13 +216,14 @@ The codebase follows strict layering:
 
 **Unit Tests**: Use `#[cfg(test)]` modules within source files. Mock external dependencies (email sender, Server API client).
 
-**FoundationDB Tests**: `docker/fdb-integration-tests/` provides Docker-based FDB cluster for integration testing. Run via `docker-compose up --build`.
+**FoundationDB Tests**: `docker/fdb-integration-tests/` provides Docker-based FDB cluster setup for integration testing when the FDB backend is implemented. Currently uses MemoryBackend for tests.
 
 ### Configuration & Secrets
 
 **Hierarchy**: `config.yaml` < environment variables (`INFERADB_MGMT__*`)
 
 **Critical Secrets**:
+
 - `AUTH__KEY_ENCRYPTION_SECRET`: Encrypts client Ed25519 private keys at rest (AES-GCM)
 - `EMAIL__SMTP_PASSWORD`: SMTP authentication
 - Never commit secrets. Use `.env` (gitignored) or secure secret management.
@@ -216,18 +232,19 @@ The codebase follows strict layering:
 
 ### Multi-Instance Coordination
 
-**Leader Election**: Only one instance runs background jobs (session cleanup, email queue, expired token deletion). Uses FDB-based locking (`leader.rs`).
+**Leader Election**: Only one instance runs background jobs (session cleanup, email queue, expired token deletion). Uses storage backend locking (`leader.rs`). Note: Multi-instance coordination requires FoundationDB backend (not yet implemented), so currently limited to single-instance deployments with MemoryBackend.
 
-**Worker Registry**: Each instance registers its Worker ID in FDB with heartbeat. Stale registrations (>30s) auto-expire. Prevents ID collision on startup.
+**Worker Registry**: Each instance registers its Worker ID in storage backend with heartbeat. Stale registrations (>30s) auto-expire. Prevents ID collision on startup. Note: Requires FoundationDB backend for multi-instance deployments.
 
 **Background Jobs** (`jobs.rs`): Periodic tasks run on leader only:
+
 - Session cleanup (every 30s)
 - Token expiration (every 30s)
 - Email queue processing (every 10s)
 
 ### Storage Keyspace Organization
 
-FoundationDB keyspace structure (see `Architecture.md:298-349`):
+Planned FoundationDB keyspace structure (see `Architecture.md:298-349` for details):
 
 ```
 users/{id}
@@ -239,12 +256,12 @@ vaults/{id}
 vaults_by_org/{org_id}/{vault_id}
 vault_grants_user/{vault_id}/{user_id}
 sessions/{id}
-workers/active/{worker_id}    # Multi-instance coordination
-leader/lock                    # Leader election
+workers/active/{worker_id}    # Multi-instance coordination (FDB only)
+leader/lock                    # Leader election (FDB only)
 jti_replay/{jti}              # JWT replay protection
 ```
 
-Indexes enable efficient lookups. Transactions ensure consistency.
+Note: Currently, MemoryBackend uses HashMap-based storage with the same logical structure. When FoundationDB backend is implemented, this keyspace structure will enable efficient lookups and transactions across distributed instances.
 
 ### Authentication Flows
 
@@ -273,6 +290,7 @@ See `docs/Authentication.md` and `docs/Flows.md` for sequence diagrams.
 ### Documentation References
 
 For architectural diagrams, entity definitions, and deployment guides, see:
+
 - `docs/Architecture.md`: Component diagrams, deployment topologies
 - `docs/Overview.md`: Complete entity reference and data model
 - `docs/Flows.md`: Sequence diagrams for key operations
