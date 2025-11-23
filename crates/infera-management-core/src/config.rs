@@ -479,6 +479,77 @@ impl ManagementConfig {
             );
         }
 
+        // Validate cache_invalidation.http_endpoints format
+        for (idx, endpoint) in self.cache_invalidation.http_endpoints.iter().enumerate() {
+            if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+                return Err(Error::Config(format!(
+                    "cache_invalidation.http_endpoints[{}] must start with http:// or https://, got: {}",
+                    idx, endpoint
+                )));
+            }
+            if endpoint.ends_with('/') {
+                return Err(Error::Config(format!(
+                    "cache_invalidation.http_endpoints[{}] must not end with trailing slash: {}",
+                    idx, endpoint
+                )));
+            }
+        }
+
+        // Validate cache_invalidation.timeout_ms is reasonable
+        if self.cache_invalidation.timeout_ms == 0 {
+            return Err(Error::Config(
+                "cache_invalidation.timeout_ms must be greater than 0".to_string(),
+            ));
+        }
+        if self.cache_invalidation.timeout_ms > 60000 {
+            tracing::warn!(
+                timeout_ms = self.cache_invalidation.timeout_ms,
+                "cache_invalidation.timeout_ms is very high (>60s). Consider using a lower timeout."
+            );
+        }
+
+        // Validate WebAuthn configuration
+        if self.auth.webauthn.rp_id.is_empty() {
+            return Err(Error::Config("auth.webauthn.rp_id cannot be empty".to_string()));
+        }
+        if self.auth.webauthn.origin.is_empty() {
+            return Err(Error::Config("auth.webauthn.origin cannot be empty".to_string()));
+        }
+        if !self.auth.webauthn.origin.starts_with("http://")
+            && !self.auth.webauthn.origin.starts_with("https://")
+        {
+            return Err(Error::Config(
+                "auth.webauthn.origin must start with http:// or https://".to_string(),
+            ));
+        }
+
+        // Validate server_api.grpc_endpoint format
+        if !self.server_api.grpc_endpoint.starts_with("http://")
+            && !self.server_api.grpc_endpoint.starts_with("https://")
+        {
+            return Err(Error::Config(
+                "server_api.grpc_endpoint must start with http:// or https://".to_string(),
+            ));
+        }
+
+        // Validate password minimum length is reasonable
+        if self.auth.password_min_length < 8 {
+            tracing::warn!(
+                min_length = self.auth.password_min_length,
+                "auth.password_min_length is less than 8. Consider using at least 8 characters for security."
+            );
+        }
+
+        // Validate management_identity configuration
+        if self.management_identity.management_id.is_empty() {
+            return Err(Error::Config(
+                "management_identity.management_id cannot be empty".to_string(),
+            ));
+        }
+        if self.management_identity.kid.is_empty() {
+            return Err(Error::Config("management_identity.kid cannot be empty".to_string()));
+        }
+
         Ok(())
     }
 }
