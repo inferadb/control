@@ -30,6 +30,8 @@ pub struct RegisterResponse {
     pub email: String,
     /// Session ID
     pub session_id: i64,
+    /// Default organization ID created for the user
+    pub default_organization_id: i64,
 }
 
 /// Request body for password login

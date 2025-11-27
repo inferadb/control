@@ -404,6 +404,7 @@ pub async fn register(
             name: payload.name,
             email: payload.email,
             session_id,
+            default_organization_id: org_id,
         }),
     ))
 }

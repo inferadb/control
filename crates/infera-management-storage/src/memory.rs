@@ -1,9 +1,10 @@
-use crate::backend::{KeyValue, StorageBackend, StorageError, StorageResult, Transaction};
+use crate::backend::{KeyValue, StorageBackend, StorageResult, Transaction};
 use async_trait::async_trait;
 use bytes::Bytes;
+use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::ops::{Bound, RangeBounds};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
@@ -46,7 +47,8 @@ impl MemoryBackend {
             let mut expired_keys = Vec::new();
 
             // Find expired keys
-            if let Ok(ttl_guard) = self.ttl_data.read() {
+            {
+                let ttl_guard = self.ttl_data.read();
                 for (key, expiry) in ttl_guard.iter() {
                     if *expiry <= now {
                         expired_keys.push(key.clone());
@@ -56,13 +58,11 @@ impl MemoryBackend {
 
             // Remove expired keys
             if !expired_keys.is_empty() {
-                if let Ok(mut data_guard) = self.data.write() {
-                    if let Ok(mut ttl_guard) = self.ttl_data.write() {
-                        for key in expired_keys {
-                            data_guard.remove(&key);
-                            ttl_guard.remove(&key);
-                        }
-                    }
+                let mut data_guard = self.data.write();
+                let mut ttl_guard = self.ttl_data.write();
+                for key in expired_keys {
+                    data_guard.remove(&key);
+                    ttl_guard.remove(&key);
                 }
             }
         }
@@ -70,10 +70,9 @@ impl MemoryBackend {
 
     /// Check if a key has expired
     fn is_expired(&self, key: &[u8]) -> bool {
-        if let Ok(ttl_guard) = self.ttl_data.read() {
-            if let Some(expiry) = ttl_guard.get(key) {
-                return *expiry <= Instant::now();
-            }
+        let ttl_guard = self.ttl_data.read();
+        if let Some(expiry) = ttl_guard.get(key) {
+            return *expiry <= Instant::now();
         }
         false
     }
@@ -93,24 +92,19 @@ impl StorageBackend for MemoryBackend {
             return Ok(None);
         }
 
-        let data = self
-            .data
-            .read()
-            .map_err(|e| StorageError::Internal(format!("Lock poisoned: {}", e)))?;
+        let data = self.data.read();
 
         Ok(data.get(key).cloned())
     }
 
     async fn set(&self, key: Vec<u8>, value: Vec<u8>) -> StorageResult<()> {
-        let mut data = self
-            .data
-            .write()
-            .map_err(|e| StorageError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut data = self.data.write();
 
         data.insert(key.clone(), Bytes::from(value));
 
         // Remove TTL if exists
-        if let Ok(mut ttl_guard) = self.ttl_data.write() {
+        {
+            let mut ttl_guard = self.ttl_data.write();
             ttl_guard.remove(&key);
         }
 
@@ -118,15 +112,13 @@ impl StorageBackend for MemoryBackend {
     }
 
     async fn delete(&self, key: &[u8]) -> StorageResult<()> {
-        let mut data = self
-            .data
-            .write()
-            .map_err(|e| StorageError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut data = self.data.write();
 
         data.remove(key);
 
         // Remove TTL if exists
-        if let Ok(mut ttl_guard) = self.ttl_data.write() {
+        {
+            let mut ttl_guard = self.ttl_data.write();
             ttl_guard.remove(key);
         }
 
@@ -137,10 +129,7 @@ impl StorageBackend for MemoryBackend {
     where
         R: RangeBounds<Vec<u8>> + Send,
     {
-        let data = self
-            .data
-            .read()
-            .map_err(|e| StorageError::Internal(format!("Lock poisoned: {}", e)))?;
+        let data = self.data.read();
 
         let start = match range.start_bound() {
             Bound::Included(b) => Bound::Included(b.as_slice()),
@@ -170,18 +159,14 @@ impl StorageBackend for MemoryBackend {
     where
         R: RangeBounds<Vec<u8>> + Send,
     {
-        let mut data = self
-            .data
-            .write()
-            .map_err(|e| StorageError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut data = self.data.write();
 
         let keys_to_remove: Vec<Vec<u8>> = data.range(range).map(|(k, _)| k.clone()).collect();
 
         for key in keys_to_remove {
             data.remove(&key);
-            if let Ok(mut ttl_guard) = self.ttl_data.write() {
-                ttl_guard.remove(&key);
-            }
+            let mut ttl_guard = self.ttl_data.write();
+            ttl_guard.remove(&key);
         }
 
         Ok(())
@@ -193,15 +178,9 @@ impl StorageBackend for MemoryBackend {
         value: Vec<u8>,
         ttl_seconds: u64,
     ) -> StorageResult<()> {
-        let mut data = self
-            .data
-            .write()
-            .map_err(|e| StorageError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut data = self.data.write();
 
-        let mut ttl_data = self
-            .ttl_data
-            .write()
-            .map_err(|e| StorageError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut ttl_data = self.ttl_data.write();
 
         let expiry = Instant::now() + Duration::from_secs(ttl_seconds);
 
@@ -217,10 +196,7 @@ impl StorageBackend for MemoryBackend {
 
     async fn health_check(&self) -> StorageResult<()> {
         // Try to acquire read lock
-        let _unused = self
-            .data
-            .read()
-            .map_err(|e| StorageError::Internal(format!("Lock poisoned: {}", e)))?;
+        let _unused = self.data.read();
         Ok(())
     }
 }
@@ -261,11 +237,7 @@ impl Transaction for MemoryTransaction {
     }
 
     async fn commit(self: Box<Self>) -> StorageResult<()> {
-        let mut data = self
-            .backend
-            .data
-            .write()
-            .map_err(|e| StorageError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut data = self.backend.data.write();
 
         // Apply all pending writes
         for (key, value) in self.pending_writes {

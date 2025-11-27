@@ -4,6 +4,7 @@ pub use infera_management_types::{entities::*, error::*, *};
 pub mod auth;
 pub mod clock;
 pub mod config;
+pub mod config_refresh;
 pub mod crypto;
 pub mod email;
 pub mod id;
@@ -20,6 +21,7 @@ pub mod webhook_client;
 pub use auth::{hash_password, verify_password, PasswordHasher};
 pub use clock::{ClockStatus, ClockValidator};
 pub use config::ManagementConfig;
+pub use config_refresh::ConfigRefresher;
 pub use crypto::{keypair, PrivateKeyEncryptor};
 pub use email::{
     EmailSender, EmailService, EmailTemplate, InvitationAcceptedEmailTemplate,

@@ -4,8 +4,9 @@
 //! instances when vaults or organizations are updated in the Management API.
 
 use infera_management_types::ManagementIdentity;
+use parking_lot::RwLock;
 use reqwest::Client as HttpClient;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
@@ -213,7 +214,7 @@ impl WebhookClient {
     async fn get_endpoints(&self) -> Vec<String> {
         // Check cache first
         {
-            let cache = self.endpoint_cache.read().unwrap();
+            let cache = self.endpoint_cache.read();
             if let Some(cached) = cache.as_ref() {
                 if cached.is_valid() {
                     debug!(count = cached.endpoints.len(), "Using cached endpoints");
@@ -286,7 +287,7 @@ impl WebhookClient {
 
         // Update cache
         {
-            let mut cache = self.endpoint_cache.write().unwrap();
+            let mut cache = self.endpoint_cache.write();
             *cache = Some(CachedEndpoints {
                 endpoints: endpoints.clone(),
                 cached_at: Instant::now(),

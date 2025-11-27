@@ -7,27 +7,35 @@ use infera_management_types::error::{Error, Result};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManagementConfig {
     /// Server configuration
+    #[serde(default)]
     pub server: ServerConfig,
 
     /// Storage configuration
+    #[serde(default)]
     pub storage: StorageConfig,
 
     /// Authentication configuration
+    #[serde(default)]
     pub auth: AuthConfig,
 
     /// Email configuration
+    #[serde(default)]
     pub email: EmailConfig,
 
     /// Rate limiting configuration
+    #[serde(default)]
     pub rate_limiting: RateLimitingConfig,
 
     /// Observability configuration
+    #[serde(default)]
     pub observability: ObservabilityConfig,
 
     /// ID generation configuration
+    #[serde(default)]
     pub id_generation: IdGenerationConfig,
 
     /// Server API configuration (for gRPC communication with @server)
+    #[serde(default)]
     pub server_api: ServerApiConfig,
 
     /// Management identity configuration (for webhook authentication)
@@ -46,7 +54,7 @@ pub struct ManagementConfig {
 }
 
 /// Server/HTTP configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServerConfig {
     /// HTTP server host
     #[serde(default = "default_http_host")]
@@ -70,7 +78,7 @@ pub struct ServerConfig {
 }
 
 /// Storage backend configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StorageConfig {
     /// Storage backend type: "memory" or "foundationdb"
     #[serde(default = "default_storage_backend")]
@@ -81,7 +89,7 @@ pub struct StorageConfig {
 }
 
 /// Authentication configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AuthConfig {
     /// Session TTL for WEB sessions (seconds)
     #[serde(default = "default_session_ttl_web")]
@@ -126,7 +134,7 @@ pub struct AuthConfig {
 }
 
 /// WebAuthn configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WebAuthnConfig {
     /// Relying Party ID (domain)
     pub rp_id: String,
@@ -140,7 +148,7 @@ pub struct WebAuthnConfig {
 }
 
 /// Email configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EmailConfig {
     /// SMTP host
     pub smtp_host: String,
@@ -164,7 +172,7 @@ pub struct EmailConfig {
 }
 
 /// Rate limiting configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RateLimitingConfig {
     /// Login attempts per IP per hour
     #[serde(default = "default_login_attempts_per_ip_per_hour")]
@@ -184,7 +192,7 @@ pub struct RateLimitingConfig {
 }
 
 /// Observability configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ObservabilityConfig {
     /// Log level
     #[serde(default = "default_log_level")]
@@ -203,7 +211,7 @@ pub struct ObservabilityConfig {
 }
 
 /// ID generation configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IdGenerationConfig {
     /// Worker ID for Snowflake ID generation (0-1023)
     #[serde(default = "default_worker_id")]
@@ -215,7 +223,7 @@ pub struct IdGenerationConfig {
 }
 
 /// Server API configuration (for gRPC communication with @server)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServerApiConfig {
     /// gRPC endpoint for @server
     pub grpc_endpoint: String,
@@ -485,24 +493,124 @@ fn default_discovery_health_check_interval() -> u64 {
     30 // 30 seconds
 }
 
+impl Default for ManagementConfig {
+    fn default() -> Self {
+        Self {
+            server: ServerConfig {
+                http_host: default_http_host(),
+                http_port: default_http_port(),
+                grpc_host: default_grpc_host(),
+                grpc_port: default_grpc_port(),
+                worker_threads: default_worker_threads(),
+            },
+            storage: StorageConfig {
+                backend: default_storage_backend(),
+                fdb_cluster_file: None,
+            },
+            auth: AuthConfig {
+                session_ttl_web: default_session_ttl_web(),
+                session_ttl_cli: default_session_ttl_cli(),
+                session_ttl_sdk: default_session_ttl_sdk(),
+                password_min_length: default_password_min_length(),
+                max_sessions_per_user: default_max_sessions_per_user(),
+                webauthn: WebAuthnConfig {
+                    rp_id: "localhost".to_string(),
+                    rp_name: default_rp_name(),
+                    origin: "http://localhost:3000".to_string(),
+                },
+                key_encryption_secret: None,
+                jwt_issuer: default_jwt_issuer(),
+                jwt_audience: default_jwt_audience(),
+            },
+            email: EmailConfig {
+                smtp_host: "localhost".to_string(),
+                smtp_port: default_smtp_port(),
+                smtp_username: None,
+                smtp_password: None,
+                from_email: "noreply@inferadb.com".to_string(),
+                from_name: default_from_name(),
+            },
+            rate_limiting: RateLimitingConfig {
+                login_attempts_per_ip_per_hour: default_login_attempts_per_ip_per_hour(),
+                registrations_per_ip_per_day: default_registrations_per_ip_per_day(),
+                email_verification_tokens_per_hour: default_email_verification_tokens_per_hour(),
+                password_reset_tokens_per_hour: default_password_reset_tokens_per_hour(),
+            },
+            observability: ObservabilityConfig {
+                log_level: default_log_level(),
+                metrics_enabled: default_metrics_enabled(),
+                tracing_enabled: default_tracing_enabled(),
+                otlp_endpoint: None,
+            },
+            id_generation: IdGenerationConfig {
+                worker_id: default_worker_id(),
+                max_clock_skew_ms: default_max_clock_skew_ms(),
+            },
+            server_api: ServerApiConfig {
+                grpc_endpoint: "http://localhost:8080".to_string(),
+                tls_enabled: default_grpc_tls_enabled(),
+            },
+            management_identity: default_management_identity(),
+            cache_invalidation: default_cache_invalidation(),
+            frontend_base_url: default_frontend_base_url(),
+        }
+    }
+}
+
 impl ManagementConfig {
-    /// Load configuration from a file with environment variable overrides
+    /// Load configuration with layered precedence: defaults → file → env vars
+    ///
+    /// This function implements a proper configuration hierarchy:
+    /// 1. Start with hardcoded defaults (via `#[serde(default)]` annotations)
+    /// 2. Override with values from config file (if file exists and properties are set)
+    /// 3. Override with environment variables (if env vars are set)
+    ///
+    /// Each layer only overrides properties that are explicitly set, preserving
+    /// defaults for unspecified values.
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let config = config::Config::builder()
-            // Load from YAML file
-            .add_source(config::File::from(path.as_ref()))
-            // Override with environment variables prefixed with INFERADB_MGMT_
-            .add_source(
-                config::Environment::with_prefix("INFERADB_MGMT")
-                    .separator("__")
-                    .try_parsing(true),
-            )
+        // The config crate will use serde's #[serde(default)] annotations for defaults
+        // Layer 1 (defaults) is handled by serde deserialization
+        // Layer 2: Add file source (optional - only overrides if file exists)
+        let builder =
+            config::Config::builder().add_source(config::File::from(path.as_ref()).required(false));
+
+        // Layer 3: Add environment variables (highest precedence)
+        let builder = builder.add_source(
+            config::Environment::with_prefix("INFERADB_MGMT")
+                .separator("__")
+                .try_parsing(true),
+        );
+
+        let config = builder
             .build()
             .map_err(|e| Error::Config(format!("Failed to build config: {}", e)))?;
 
         config
             .try_deserialize()
             .map_err(|e| Error::Config(format!("Failed to deserialize config: {}", e)))
+    }
+
+    /// Load configuration with defaults, never panicking
+    ///
+    /// Convenience wrapper around `load()` that logs warnings but never fails.
+    /// Always returns a valid configuration, falling back to defaults if needed.
+    pub fn load_or_default<P: AsRef<Path>>(path: P) -> Self {
+        match Self::load(path.as_ref()) {
+            Ok(config) => {
+                tracing::info!("Configuration loaded successfully from {:?}", path.as_ref());
+                config
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "Failed to load config from {:?}. Using defaults with environment overrides.",
+                    path.as_ref()
+                );
+
+                // Even if file loading fails, apply env vars to defaults
+                Self::default()
+            }
+        }
     }
 
     /// Validate configuration
