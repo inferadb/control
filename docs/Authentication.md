@@ -1261,51 +1261,72 @@ Response:
 - **x**: Base64url-encoded public key (32 bytes)
 - **use**: Key usage (always "sig" for signature)
 
-### Dual Authentication Middleware
+### Dual-Server Architecture
 
-Certain Management API endpoints accept EITHER session authentication OR server JWT authentication:
+The Management API runs **two separate HTTP servers** for security isolation:
 
-**Dual-Auth Endpoints**:
+- **Public Server** (port 3000): User-facing API with session authentication and permission checks
+- **Internal Server** (port 9091): Server-to-server API with JWT authentication for privileged operations
 
-- `GET /v1/organizations/{org}` - Fetch organization details
-- `GET /v1/vaults/{vault}` - Fetch vault details
+This architecture ensures that privileged endpoints are only accessible via the internal network and cannot be reached from the public internet.
 
-**Authentication Logic**:
+#### Public Endpoints (Port 3000)
 
-```rust
-// Check if request has Bearer token (non-numeric)
-if has_bearer_token && !has_session {
-    return require_server_jwt(request);  // Server authentication
-}
+User-facing endpoints with session authentication and permission enforcement:
 
-// Check if request has session cookie or numeric Bearer token
-if has_session {
-    return require_session(request);  // User authentication
-}
-
-// No recognizable auth
-return Err("Authentication required");
-```
+- `GET /v1/organizations/{org}` - Fetch organization details (requires organization membership)
+- `GET /v1/vaults/{vault}` - Fetch vault details (requires vault access)
 
 **User Request Example**:
 
 ```bash
-curl -X GET http://localhost:8081/v1/organizations/123456789 \
+# Request to public server (port 3000)
+curl -X GET http://localhost:3000/v1/organizations/123456789 \
   -H "Cookie: session_id=987654321"
 ```
+
+**Authorization**:
+- User must be authenticated via session cookie
+- User must be a member of the organization
+- User must have appropriate permissions (checked via middleware)
+
+#### Internal Endpoints (Port 9091)
+
+Privileged server-to-server endpoints with JWT authentication, **no permission checks**:
+
+- `GET /internal/organizations/{org}` - Fetch organization details (any valid server JWT)
+- `GET /internal/vaults/{vault}` - Fetch vault details (any valid server JWT)
 
 **Server Request Example**:
 
 ```bash
-curl -X GET http://localhost:8081/v1/organizations/123456789 \
+# Request to internal server (port 9091)
+curl -X GET http://localhost:9091/internal/organizations/123456789 \
   -H "Authorization: Bearer eyJhbGc...(server JWT)"
 ```
 
-Both requests access the same endpoint but authenticate differently:
+**Authorization**:
+- Server must provide valid Ed25519-signed JWT
+- JWT must be signed by a trusted server (verified via JWKS)
+- No organization membership or vault access checks
+- Used for server-to-server verification (vault ownership, org status)
 
-- User requests validate session against database
-- Server requests validate JWT signature against server's JWKS
-- Authorization logic adapts to the authentication type
+#### Key Differences
+
+| Aspect | Public Server (3000) | Internal Server (9091) |
+|--------|---------------------|------------------------|
+| **Authentication** | Session cookies | Server JWTs (EdDSA) |
+| **Authorization** | Permission checks required | No permission checks |
+| **Network** | Public internet | Internal network only |
+| **Endpoints** | `/v1/*` | `/internal/*` |
+| **Use Case** | User requests | Server-to-server verification |
+
+#### Security Benefits
+
+1. **Network Isolation**: Internal endpoints cannot be reached from public internet
+2. **No Permission Bypass**: Public endpoints enforce permissions; internal endpoints are isolated
+3. **Separate Attack Surface**: Compromising public server doesn't expose privileged endpoints
+4. **Audit Trail**: Different ports allow separate logging and monitoring
 
 ### JWKS Caching Strategy
 

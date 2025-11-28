@@ -3,7 +3,7 @@ use crate::handlers::{
     organizations, sessions, teams, tokens, users, vaults, AppState,
 };
 use crate::middleware::{
-    logging_middleware, require_organization_member, require_session, require_session_or_server_jwt,
+    logging_middleware, require_organization_member, require_server_jwt, require_session,
 };
 use axum::{
     middleware,
@@ -18,14 +18,12 @@ use axum::{
 pub fn create_router_with_state(state: AppState) -> axum::Router {
     // Routes that need organization context (session + org membership)
     let org_scoped = Router::new()
-        // Organization management routes (PATCH/DELETE only, GET is in dual_auth)
+        // Organization management routes
         .route(
             "/v1/organizations/{org}",
-            patch(organizations::update_organization),
-        )
-        .route(
-            "/v1/organizations/{org}",
-            delete(organizations::delete_organization),
+            get(organizations::get_organization)
+                .patch(organizations::update_organization)
+                .delete(organizations::delete_organization),
         )
         // Organization member management routes
         .route(
@@ -100,7 +98,7 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/v1/organizations/{org}/clients/{client}/certificates/{cert}",
             get(clients::get_certificate).delete(clients::delete_certificate),
         )
-        // Vault management routes (GET for single vault is in dual_auth)
+        // Vault management routes
         .route("/v1/organizations/{org}/vaults", post(vaults::create_vault))
         .route("/v1/organizations/{org}/vaults", get(vaults::list_vaults))
         .route(
@@ -242,25 +240,12 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         )
         // CLI authentication routes (protected, needs session for authorize)
         .route("/v1/auth/cli/authorize", post(cli_auth::cli_authorize))
-        .with_state(state.clone())
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            require_session,
-        ));
-
-    // Routes that accept EITHER session auth OR server JWT (for server-to-server)
-    let dual_auth = Router::new()
-        // Organization GET endpoint - used by users and by server for verification
-        .route(
-            "/v1/organizations/{org}",
-            get(organizations::get_organization_dual_auth),
-        )
-        // Vault GET endpoint - used by users and by server for vault ownership verification
+        // Vault GET by ID route (session-protected, no org membership required)
         .route("/v1/vaults/{vault}", get(vaults::get_vault_by_id))
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            require_session_or_server_jwt,
+            require_session,
         ));
 
     // Combine public, protected, and org-scoped routes
@@ -309,7 +294,6 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .with_state(state)
         .merge(org_scoped)
         .merge(protected)
-        .merge(dual_auth)
         // Add logging middleware to log all requests
         .layer(middleware::from_fn(logging_middleware))
 }
@@ -317,4 +301,49 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
 /// Health check endpoint
 async fn health_check() -> &'static str {
     "OK"
+}
+
+/// Create public routes (client-facing)
+/// All user-facing endpoints including auth, organizations, vaults, etc.
+pub fn public_routes(state: AppState) -> Router {
+    // Wrapper around existing create_router_with_state
+    // The existing function already has all client-facing routes
+    create_router_with_state(state)
+}
+
+/// Create internal routes (server-to-server communication)
+/// Exposes JWKS endpoints (no auth) and privileged /internal/v1/* endpoints (server JWT auth)
+pub fn internal_routes(state: AppState) -> Router {
+    // Public JWKS endpoints (no authentication required)
+    let jwks_routes = Router::new()
+        .route("/.well-known/jwks.json", get(jwks::get_global_jwks))
+        .route(
+            "/.well-known/management-jwks.json",
+            get(jwks::get_management_jwks),
+        )
+        .with_state(state.clone());
+
+    // Privileged internal routes (require server JWT authentication)
+    let privileged_routes = Router::new()
+        // Organization GET endpoint - for server-to-server org verification
+        .route(
+            "/internal/organizations/{org}",
+            get(organizations::get_organization_privileged),
+        )
+        // Vault GET endpoint - for server-to-server vault ownership verification
+        .route(
+            "/internal/vaults/{vault}",
+            get(vaults::get_vault_by_id_privileged),
+        )
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_server_jwt,
+        ));
+
+    // Combine JWKS (no auth) and privileged routes (server JWT auth)
+    jwks_routes
+        .merge(privileged_routes)
+        // Add logging middleware to log all internal requests
+        .layer(middleware::from_fn(logging_middleware))
 }

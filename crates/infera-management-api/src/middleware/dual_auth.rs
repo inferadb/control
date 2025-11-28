@@ -55,7 +55,7 @@ pub async fn require_session_or_server_jwt(
                 decode_header(token).ok()
             })
             .and_then(|header| header.kid)
-            .map(|kid| !kid.contains("-client-"))  // Server JWTs don't have "-client-" in kid
+            .map(|kid| !kid.contains("-client-")) // Server JWTs don't have "-client-" in kid
             .unwrap_or(false);
 
         if is_server_jwt {

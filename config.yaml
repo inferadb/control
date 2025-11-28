@@ -6,10 +6,20 @@
 frontend_base_url: "http://localhost:3000"
 
 server:
+  # Public server (client-facing traffic - web, CLI, SDK)
   http_host: "127.0.0.1"
   http_port: 3000
+
+  # Internal server (server-to-server communication)
+  # Always enabled for network-level security isolation
+  # Runs a separate HTTP server for internal endpoints (JWKS)
+  internal_host: "0.0.0.0"
+  internal_port: 9091  # Server uses 9090, Management uses 9091
+
+  # gRPC server configuration
   grpc_host: "127.0.0.1"
   grpc_port: 3001
+
   worker_threads: 4
 
 storage:

@@ -60,13 +60,21 @@ pub struct ManagementConfig {
 /// Server/HTTP configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServerConfig {
-    /// HTTP server host
+    /// Public HTTP server host (client-facing)
     #[serde(default = "default_http_host")]
     pub http_host: String,
 
-    /// HTTP server port
+    /// Public HTTP server port (client-facing)
     #[serde(default = "default_http_port")]
     pub http_port: u16,
+
+    /// Internal HTTP server host (server-to-server)
+    #[serde(default = "default_internal_host")]
+    pub internal_host: String,
+
+    /// Internal HTTP server port (server-to-server, JWKS endpoint)
+    #[serde(default = "default_internal_port")]
+    pub internal_port: u16,
 
     /// gRPC server host
     #[serde(default = "default_grpc_host")]
@@ -374,6 +382,14 @@ fn default_grpc_port() -> u16 {
     3001
 }
 
+fn default_internal_host() -> String {
+    "0.0.0.0".to_string() // Bind to all interfaces, restrict via network policies
+}
+
+fn default_internal_port() -> u16 {
+    9091 // Management internal server port (Server uses 9090)
+}
+
 fn default_worker_threads() -> usize {
     4
 }
@@ -541,6 +557,8 @@ impl Default for ManagementConfig {
             server: ServerConfig {
                 http_host: default_http_host(),
                 http_port: default_http_port(),
+                internal_host: default_internal_host(),
+                internal_port: default_internal_port(),
                 grpc_host: default_grpc_host(),
                 grpc_port: default_grpc_port(),
                 worker_threads: default_worker_threads(),
@@ -814,6 +832,8 @@ mod tests {
             server: ServerConfig {
                 http_host: default_http_host(),
                 http_port: default_http_port(),
+                internal_host: default_internal_host(),
+                internal_port: default_internal_port(),
                 grpc_host: default_grpc_host(),
                 grpc_port: default_grpc_port(),
                 worker_threads: default_worker_threads(),
@@ -885,6 +905,8 @@ mod tests {
             server: ServerConfig {
                 http_host: default_http_host(),
                 http_port: default_http_port(),
+                internal_host: default_internal_host(),
+                internal_port: default_internal_port(),
                 grpc_host: default_grpc_host(),
                 grpc_port: default_grpc_port(),
                 worker_threads: default_worker_threads(),

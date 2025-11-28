@@ -7,7 +7,6 @@ pub mod server_auth;
 pub mod session;
 pub mod vault;
 
-pub use dual_auth::{extract_dual_auth_context, require_session_or_server_jwt, AuthContextType};
 pub use logging::logging_middleware;
 pub use organization::{
     require_admin_or_owner, require_member, require_organization_member, require_owner,

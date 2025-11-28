@@ -1,6 +1,5 @@
 use axum::{
     extract::{Path, State},
-    response::IntoResponse,
     Extension, Json,
 };
 use infera_management_core::{error::Error as CoreError, IdGenerator, RepositoryContext};
@@ -22,10 +21,7 @@ use infera_management_types::{
 };
 
 use crate::handlers::auth::{AppState, Result};
-use crate::middleware::{
-    dual_auth::extract_dual_auth_context, dual_auth::AuthContextType, OrganizationContext,
-    SessionContext,
-};
+use crate::middleware::{server_auth::ServerContext, OrganizationContext, SessionContext};
 
 /// Global limit on total organizations
 const GLOBAL_ORGANIZATION_LIMIT: i64 = 100_000;
@@ -259,94 +255,40 @@ pub async fn get_organization_by_id(
     }))
 }
 
-/// Get organization with dual authentication
+/// Get organization (privileged server-to-server endpoint)
 ///
-/// GET /v1/organizations/:org
-/// Auth: Session or Server JWT (dual authentication)
+/// GET /internal/v1/organizations/:org
 ///
-/// This endpoint handles both user requests (with organization membership checks)
-/// and server-to-server requests (without membership checks).
-///
-/// For session auth (users):
-///   - Checks organization membership
-///   - Returns GetOrganizationResponse with user's role
-///   - Returns 403 if user is not a member
-///
-/// For server JWT auth:
-///   - No membership check required
-///   - Returns OrganizationServerResponse with organization status
-pub async fn get_organization_dual_auth(
+/// Returns organization details for server-to-server authentication.
+/// No membership or permission checks - any valid server JWT can access.
+pub async fn get_organization_privileged(
     State(state): State<AppState>,
     Path(org_id): Path<i64>,
-    request: axum::extract::Request,
-) -> Result<axum::response::Response> {
-    let auth_context = extract_dual_auth_context(&request)?;
+    Extension(_server_ctx): Extension<ServerContext>,
+) -> Result<Json<OrganizationServerResponse>> {
+    let repos = RepositoryContext::new((*state.storage).clone());
 
-    match auth_context {
-        AuthContextType::Session(session_ctx) => {
-            // User request - verify membership and return full response
-            let repos = RepositoryContext::new((*state.storage).clone());
+    // Get organization
+    let org = repos
+        .org
+        .get(org_id)
+        .await?
+        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
 
-            // Check if user is a member of this organization
-            let member = repos
-                .org_member
-                .get_by_org_and_user(org_id, session_ctx.user_id)
-                .await?
-                .ok_or_else(|| {
-                    CoreError::Authz("You are not a member of this organization".to_string())
-                })?;
+    // Determine status
+    let status = if org.is_deleted() {
+        OrganizationStatus::Deleted
+    } else {
+        OrganizationStatus::Active
+    };
 
-            // Get organization
-            let org = repos
-                .org
-                .get(org_id)
-                .await?
-                .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+    let response = OrganizationServerResponse {
+        id: org.id,
+        name: org.name,
+        status,
+    };
 
-            // Check if deleted
-            if org.is_deleted() {
-                return Err(CoreError::NotFound("Organization not found".to_string()).into());
-            }
-
-            let response = GetOrganizationResponse {
-                organization: OrganizationResponse {
-                    id: org.id,
-                    name: org.name,
-                    tier: tier_to_string(&org.tier),
-                    created_at: org.created_at.to_rfc3339(),
-                    role: role_to_string(&member.role),
-                },
-            };
-
-            Ok(Json(response).into_response())
-        }
-        AuthContextType::Server(_) => {
-            // Server request - no membership check, return minimal response
-            let repos = RepositoryContext::new((*state.storage).clone());
-
-            // Get organization
-            let org = repos
-                .org
-                .get(org_id)
-                .await?
-                .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
-
-            // Determine status
-            let status = if org.is_deleted() {
-                OrganizationStatus::Deleted
-            } else {
-                OrganizationStatus::Active
-            };
-
-            let response = OrganizationServerResponse {
-                id: org.id,
-                name: org.name,
-                status,
-            };
-
-            Ok(Json(response).into_response())
-        }
-    }
+    Ok(Json(response))
 }
 
 /// Update organization

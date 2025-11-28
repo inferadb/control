@@ -1,5 +1,7 @@
 use crate::handlers::auth::Result;
-use crate::middleware::{require_admin_or_owner, require_member, OrganizationContext};
+use crate::middleware::{
+    require_admin_or_owner, require_member, server_auth::ServerContext, OrganizationContext,
+};
 use crate::AppState;
 use axum::{
     extract::{Path, State},
@@ -241,6 +243,32 @@ pub async fn get_vault(
 pub async fn get_vault_by_id(
     State(state): State<AppState>,
     Path(vault_id): Path<i64>,
+) -> Result<Json<VaultResponse>> {
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let vault = repos
+        .vault
+        .get(vault_id)
+        .await?
+        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+
+    // Don't return deleted vaults
+    if vault.is_deleted() {
+        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+    }
+
+    Ok(Json(vault_to_response(vault)))
+}
+
+/// Get vault by ID (privileged server-to-server endpoint)
+///
+/// GET /internal/v1/vaults/:vault
+///
+/// Returns vault details for server-to-server authentication.
+/// No membership or permission checks - any valid server JWT can access.
+pub async fn get_vault_by_id_privileged(
+    State(state): State<AppState>,
+    Path(vault_id): Path<i64>,
+    Extension(_server_ctx): Extension<ServerContext>,
 ) -> Result<Json<VaultResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
