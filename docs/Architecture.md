@@ -90,9 +90,7 @@ graph TB
 
 ## Deployment Topology
 
-### Single Instance Deployment (Current)
-
-**Note**: Only single-instance deployment is currently supported due to in-memory storage backend. Multi-instance deployment will be available when FoundationDB backend is implemented.
+### Single Instance Deployment
 
 ```mermaid
 graph LR
@@ -125,9 +123,7 @@ graph LR
 - Ensure adequate RAM allocation (8GB+ recommended)
 - Implement regular export/backup procedures
 
-### Multi-Instance Deployment (Future - Requires FoundationDB)
-
-**Status**: Planned for when FoundationDB backend is implemented.
+### Multi-Instance Deployment
 
 ```mermaid
 graph TB
@@ -298,16 +294,16 @@ graph TB
 
 ## Storage Architecture
 
-### Current: In-Memory Storage
+### In-Memory Storage
 
-The Management API currently uses a HashMap-based in-memory storage backend with the following characteristics:
+The Management API supports a HashMap-based in-memory storage backend with the following characteristics:
 
 - All data stored in RAM
 - No persistence across restarts
 - Suitable for development, testing, and single-instance deployments
 - Uses the same logical keyspace structure as planned FoundationDB backend
 
-### Future: FoundationDB Storage
+### FoundationDB Storage
 
 When implemented, data will be organized in FoundationDB keyspace:
 
