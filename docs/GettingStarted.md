@@ -43,7 +43,7 @@ server:
   grpc_port: 3001
 
 storage:
-  backend: "memory"  # Use in-memory backend for development
+  backend: "memory" # Use in-memory backend for development
 
 auth:
   key_encryption_secret: "dev-secret-key-at-least-32-bytes-long-for-aes256"

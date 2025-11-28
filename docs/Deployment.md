@@ -43,7 +43,7 @@ Edit `config.yaml` and replace all placeholder values marked with `<...>`:
 
 ```yaml
 storage:
-  backend: "memory"  # Only implemented backend currently
+  backend: "memory" # Only implemented backend currently
 ```
 
 **Note**: The Management API currently only supports the in-memory storage backend. FoundationDB backend is planned but not yet implemented. This means:
@@ -135,7 +135,7 @@ Deploy one instance of the Management API:
 
 ```yaml
 id_generation:
-  worker_id: 0  # Fixed for single instance
+  worker_id: 0 # Fixed for single instance
 ```
 
 ### Load Balancer (Optional)
@@ -211,7 +211,7 @@ Each instance will require a unique worker ID (0-1023) for Snowflake ID generati
 
 ```yaml
 id_generation:
-  worker_id: ${WORKER_ID}  # Unique per instance
+  worker_id: ${WORKER_ID} # Unique per instance
 ```
 
 ### Leader Election (Future)

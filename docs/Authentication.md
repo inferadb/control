@@ -1286,6 +1286,7 @@ curl -X GET http://localhost:3000/v1/organizations/123456789 \
 ```
 
 **Authorization**:
+
 - User must be authenticated via session cookie
 - User must be a member of the organization
 - User must have appropriate permissions (checked via middleware)
@@ -1306,6 +1307,7 @@ curl -X GET http://localhost:9091/internal/organizations/123456789 \
 ```
 
 **Authorization**:
+
 - Server must provide valid Ed25519-signed JWT
 - JWT must be signed by a trusted server (verified via JWKS)
 - No organization membership or vault access checks
@@ -1313,13 +1315,13 @@ curl -X GET http://localhost:9091/internal/organizations/123456789 \
 
 #### Key Differences
 
-| Aspect | Public Server (3000) | Internal Server (9091) |
-|--------|---------------------|------------------------|
-| **Authentication** | Session cookies | Server JWTs (EdDSA) |
-| **Authorization** | Permission checks required | No permission checks |
-| **Network** | Public internet | Internal network only |
-| **Endpoints** | `/v1/*` | `/internal/*` |
-| **Use Case** | User requests | Server-to-server verification |
+| Aspect             | Public Server (3000)       | Internal Server (9091)        |
+| ------------------ | -------------------------- | ----------------------------- |
+| **Authentication** | Session cookies            | Server JWTs (EdDSA)           |
+| **Authorization**  | Permission checks required | No permission checks          |
+| **Network**        | Public internet            | Internal network only         |
+| **Endpoints**      | `/v1/*`                    | `/internal/*`                 |
+| **Use Case**       | User requests              | Server-to-server verification |
 
 #### Security Benefits
 

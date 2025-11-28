@@ -43,11 +43,25 @@ RUN cargo build --release --bin inferadb-management --features infera-management
 # Final stage - minimal runtime image
 FROM debian:bookworm-slim
 
-# Install runtime dependencies
+# Install runtime dependencies including FDB client libraries
+ARG TARGETARCH
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
     curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "Installing FDB client libraries for architecture: ${TARGETARCH:-amd64}" \
+    && if [ "$TARGETARCH" = "arm64" ]; then \
+        wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_aarch64.deb -O /tmp/fdb-clients.deb; \
+    else \
+        wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb -O /tmp/fdb-clients.deb; \
+    fi \
+    && dpkg -i /tmp/fdb-clients.deb || (apt-get update && apt-get install -f -y) \
+    && rm /tmp/fdb-clients.deb \
+    && ldconfig \
+    && apt-get remove -y wget \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
