@@ -340,7 +340,7 @@ pub struct RemoteCluster {
     /// Tailscale domain for this cluster (e.g., "eu-west-1.ts.net")
     pub tailscale_domain: String,
 
-    /// Service name within the cluster (e.g., "inferadb-management-api")
+    /// Service name within the cluster (e.g., "inferadb-management")
     pub service_name: String,
 
     /// Service port
