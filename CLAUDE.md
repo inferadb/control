@@ -241,8 +241,8 @@ All tests must pass. Use `thiserror` for error types.
 
 | Doc                      | Purpose                        |
 | ------------------------ | ------------------------------ |
-| `docs/Architecture.md`   | Component diagrams, deployment |
-| `docs/Overview.md`       | Entity reference, data model   |
-| `docs/Flows.md`          | Sequence diagrams              |
-| `docs/Authentication.md` | Auth flows, security           |
+| `docs/architecture.md`   | Component diagrams, deployment |
+| `docs/overview.md`       | Entity reference, data model   |
+| `docs/flows.md`          | Sequence diagrams              |
+| `docs/authentication.md` | Auth flows, security           |
 | `OpenAPI.yaml`           | REST API specification         |

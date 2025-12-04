@@ -568,6 +568,6 @@ graph TB
 
 ## Further Reading
 
-- [Overview](Overview.md): Complete entity definitions and data model
-- [Authentication](Authentication.md): Authentication flows and security model
-- [Deployment](Deployment.md): Production deployment guide
+- [Overview](overview.md): Complete entity definitions and data model
+- [Authentication](authentication.md): Authentication flows and security model
+- [Deployment](deployment.md): Production deployment guide

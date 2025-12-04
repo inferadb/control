@@ -648,9 +648,9 @@ If these solutions don't resolve your issue:
 
 1. **Check existing documentation**:
 
-   - [Getting Started](GettingStarted.md)
-   - [Deployment Guide](Deployment.md)
-   - [API Examples](Examples.md)
+   - [Getting Started](getting-started.md)
+   - [Deployment Guide](deployment.md)
+   - [API Examples](examples.md)
 
 2. **Enable debug logging**:
 

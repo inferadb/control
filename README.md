@@ -15,7 +15,7 @@ Control Plane API for InferaDB providing self-service user authentication, organ
 
 ## Quick Start
 
-**New to InferaDB Management API?** See [docs/GettingStarted.md](docs/GettingStarted.md) for a complete step-by-step tutorial.
+**New to InferaDB Management API?** See [docs/getting-started.md](docs/getting-started.md) for a complete step-by-step tutorial.
 
 **Prerequisites**: Rust 1.70+, Docker (for local services)
 
@@ -121,7 +121,7 @@ cargo doc --no-deps --open
 2. User requests vault access → Management API generates vault-scoped JWT
 3. Application uses JWT → Server API evaluates authorization policies
 
-See [`docs/Authentication.md`](docs/Authentication.md) for complete flow diagrams.
+See [`docs/authentication.md`](docs/authentication.md) for complete flow diagrams.
 
 ## Production Deployment
 
@@ -137,7 +137,7 @@ export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 ./target/release/inferadb-management --config /etc/inferadb/config.yaml
 ```
 
-**Multi-Instance** (Kubernetes with leader election): See [Deployment Guide](docs/Deployment.md)
+**Multi-Instance** (Kubernetes with leader election): See [Deployment Guide](docs/deployment.md)
 
 ## Monitoring
 
@@ -152,7 +152,7 @@ export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 
 **Tracing**: Optional OpenTelemetry integration for distributed tracing
 
-**Audit Logs**: Comprehensive audit trail for security and compliance. See [docs/AuditLogs.md](docs/AuditLogs.md) for:
+**Audit Logs**: Comprehensive audit trail for security and compliance. See [docs/audit-logs.md](docs/audit-logs.md) for:
 
 - Event types and severity levels
 - Querying and filtering
@@ -161,7 +161,7 @@ export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 
 ## Performance & Load Testing
 
-**Performance Benchmarks**: See [Performance Guide](docs/Performance.md) for:
+**Performance Benchmarks**: See [Performance Guide](docs/performance.md) for:
 
 - Latency characteristics (p50/p95/p99) for all operations
 - Throughput benchmarks (RPS) under various loads
@@ -221,7 +221,7 @@ curl -X POST http://localhost:3000/v1/organizations/{org_id}/vaults/{vault_id}/t
 
 See [OpenAPI.yaml](OpenAPI.yaml) for complete API endpoint specifications.
 
-**Pagination**: All list endpoints support offset-based pagination. See [docs/Pagination.md](docs/Pagination.md) for:
+**Pagination**: All list endpoints support offset-based pagination. See [docs/pagination.md](docs/pagination.md) for:
 
 - Query parameter usage (`limit`, `offset`)
 - Response format and metadata
@@ -232,32 +232,32 @@ See [OpenAPI.yaml](OpenAPI.yaml) for complete API endpoint specifications.
 
 ### Getting Started
 
-- **[Getting Started Guide](docs/GettingStarted.md)**: Step-by-step tutorial for new users
+- **[Getting Started Guide](docs/getting-started.md)**: Step-by-step tutorial for new users
 - **[OpenAPI Specification](OpenAPI.yaml)**: Complete REST API reference
-- **[Examples](docs/Examples.md)**: Real-world integration examples
+- **[Examples](docs/examples.md)**: Real-world integration examples
 
 ### Core Concepts
 
-- **[Overview](docs/Overview.md)**: Entities, relationships, and data model
-- **[Architecture](docs/Architecture.md)**: System architecture and components
-- **[Data Flows](docs/Flows.md)**: Detailed data flow diagrams
+- **[Overview](docs/overview.md)**: Entities, relationships, and data model
+- **[Architecture](docs/architecture.md)**: System architecture and components
+- **[Data Flows](docs/flows.md)**: Detailed data flow diagrams
 
 ### Features
 
-- **[Authentication](docs/Authentication.md)**: Auth flows, sessions, and security
-- **[Pagination](docs/Pagination.md)**: List endpoints and pagination best practices
-- **[Audit Logs](docs/AuditLogs.md)**: Security audit trail and compliance
+- **[Authentication](docs/authentication.md)**: Auth flows, sessions, and security
+- **[Pagination](docs/pagination.md)**: List endpoints and pagination best practices
+- **[Audit Logs](docs/audit-logs.md)**: Security audit trail and compliance
 
 ### Operations
 
-- **[Deployment](docs/Deployment.md)**: Production deployment guide
-- **[Performance](docs/Performance.md)**: Benchmarks and optimization
-- **[Troubleshooting](docs/Troubleshooting.md)**: Common issues and solutions
+- **[Deployment](docs/deployment.md)**: Production deployment guide
+- **[Performance](docs/performance.md)**: Benchmarks and optimization
+- **[Troubleshooting](docs/troubleshooting.md)**: Common issues and solutions
 - **[Contributing](CONTRIBUTING.md)**: Development guidelines
 
 ## Troubleshooting
 
-See [docs/Troubleshooting.md](docs/Troubleshooting.md) for comprehensive troubleshooting guide covering installation, database, authentication, API errors, performance, and deployment issues.
+See [docs/troubleshooting.md](docs/troubleshooting.md) for comprehensive troubleshooting guide covering installation, database, authentication, API errors, performance, and deployment issues.
 
 ## License
 

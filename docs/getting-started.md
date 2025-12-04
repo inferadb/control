@@ -373,11 +373,11 @@ If you need to start fresh with the in-memory backend:
 
 Now that you have the basics working, explore:
 
-- **[Authentication](Authentication.md)**: Deep dive into auth flows and session management
-- **[Entities](Overview.md)**: Complete data model reference
-- **[API Examples](Examples.md)**: Real-world integration examples
-- **[Deployment](Deployment.md)**: Production deployment guide
-- **[Audit Logs](AuditLogs.md)**: Security audit trail and compliance
+- **[Authentication](authentication.md)**: Deep dive into auth flows and session management
+- **[Entities](overview.md)**: Complete data model reference
+- **[API Examples](examples.md)**: Real-world integration examples
+- **[Deployment](deployment.md)**: Production deployment guide
+- **[Audit Logs](audit-logs.md)**: Security audit trail and compliance
 
 ## Troubleshooting
 
@@ -448,7 +448,7 @@ rate_limiting:
 
 - **Documentation**: [docs/](.)
 - **OpenAPI Spec**: [OpenAPI.yaml](../OpenAPI.yaml)
-- **Examples**: [Examples.md](Examples.md)
+- **Examples**: [examples.md](examples.md)
 - **Issues**: [GitHub Issues](https://github.com/yourusername/inferadb/issues)
 
 ## Security Checklist
@@ -465,4 +465,4 @@ Before deploying to production, review:
 - [ ] Backed up FoundationDB cluster file
 - [ ] Tested disaster recovery procedures
 
-See [Deployment Guide](Deployment.md) for complete production deployment guide.
+See [Deployment Guide](deployment.md) for complete production deployment guide.

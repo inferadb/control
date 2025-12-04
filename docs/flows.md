@@ -603,6 +603,6 @@ sequenceDiagram
 
 ## Further Reading
 
-- [Architecture](Architecture.md): System architecture diagrams and deployment topology
-- [Authentication](Authentication.md): Detailed authentication mechanisms
-- [Overview](Overview.md): Complete entity definitions and data model
+- [Architecture](architecture.md): System architecture diagrams and deployment topology
+- [Authentication](authentication.md): Detailed authentication mechanisms
+- [Overview](overview.md): Complete entity definitions and data model

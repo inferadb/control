@@ -4,25 +4,25 @@ Welcome to the InferaDB Management API documentation. This directory contains co
 
 ## New to Management API?
 
-Start here: **[Getting Started Guide](GettingStarted.md)** - Step-by-step tutorial for setting up your first Management API instance and making your first API calls.
+Start here: **[Getting Started Guide](getting-started.md)** - Step-by-step tutorial for setting up your first Management API instance and making your first API calls.
 
 ## Quick Reference
 
 - **[OpenAPI Specification](../OpenAPI.yaml)** - Complete REST API reference with all endpoints, request/response schemas
-- **[Examples](Examples.md)** - Real-world code examples and integration patterns
+- **[Examples](examples.md)** - Real-world code examples and integration patterns
 
 ## Core Documentation
 
 ### System Architecture
 
-- **[Overview](Overview.md)** - Complete entity definitions, data model, relationships, and behavioral rules
-  - ⚠️ _Note: This is a large file (5,000+ lines). Use your editor's search function or the table of contents to navigate._
-- **[Architecture](Architecture.md)** - System architecture diagrams showing component layers and deployment topologies
-- **[Data Flows](Flows.md)** - Detailed sequence diagrams for user registration, login, token generation, and org setup
+- **[Overview](overview.md)** - Complete entity definitions, data model, relationships, and behavioral rules
+  - _Note: This is a large file (5,000+ lines). Use your editor's search function or the table of contents to navigate._
+- **[Architecture](architecture.md)** - System architecture diagrams showing component layers and deployment topologies
+- **[Data Flows](flows.md)** - Detailed sequence diagrams for user registration, login, token generation, and org setup
 
 ### Authentication & Security
 
-- **[Authentication](Authentication.md)** - Complete authentication documentation covering:
+- **[Authentication](authentication.md)** - Complete authentication documentation covering:
   - Two-token architecture (session tokens + vault JWTs)
   - Authentication methods (password, passkey, OAuth, client assertion)
   - JWT claims structure and token validation
@@ -30,13 +30,13 @@ Start here: **[Getting Started Guide](GettingStarted.md)** - Step-by-step tutori
 
 ### API Features
 
-- **[Pagination](Pagination.md)** - List endpoint pagination specification
+- **[Pagination](pagination.md)** - List endpoint pagination specification
 
   - Offset-based pagination
   - Query parameters and response format
   - Performance considerations
 
-- **[Audit Logs](AuditLogs.md)** - Security audit trail and compliance
+- **[Audit Logs](audit-logs.md)** - Security audit trail and compliance
   - Event types (auth, user mgmt, organization, vault, client)
   - Event severity levels
   - Querying and filtering
@@ -46,14 +46,14 @@ Start here: **[Getting Started Guide](GettingStarted.md)** - Step-by-step tutori
 
 ### Deployment & Performance
 
-- **[Deployment Guide](Deployment.md)** - Production deployment guide
+- **[Deployment Guide](deployment.md)** - Production deployment guide
 
   - Single-instance and multi-instance (HA) setup
   - Kubernetes configuration examples
   - Health checks and graceful shutdown
   - Security best practices
 
-- **[Performance Benchmarks](Performance.md)** - Performance and optimization
+- **[Performance Benchmarks](performance.md)** - Performance and optimization
   - Latency characteristics (p50/p95/p99)
   - Throughput benchmarks (RPS)
   - Scalability guidelines
@@ -61,7 +61,7 @@ Start here: **[Getting Started Guide](GettingStarted.md)** - Step-by-step tutori
 
 ### Troubleshooting
 
-- **[Troubleshooting Guide](Troubleshooting.md)** - Common issues and solutions
+- **[Troubleshooting Guide](troubleshooting.md)** - Common issues and solutions
   - Installation and setup issues
   - Database/storage problems
   - Authentication failures

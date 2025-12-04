@@ -367,5 +367,5 @@ Planned improvements to pagination:
 ## See Also
 
 - [OpenAPI.yaml](../OpenAPI.yaml): Complete API specifications with pagination examples
-- [Architecture](Architecture.md): Pagination implementation architecture
-- [Performance](Performance.md): Pagination performance benchmarks
+- [Architecture](architecture.md): Pagination implementation architecture
+- [Performance](performance.md): Pagination performance benchmarks

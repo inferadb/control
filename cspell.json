@@ -1,0 +1,20 @@
+{
+    "version": "0.2",
+    "ignorePaths": [],
+    "dictionaryDefinitions": [],
+    "dictionaries": [],
+    "words": [
+        "inferadb",
+        "InferaDB",
+        "fdb",
+        "fdbserver",
+        "fdbclient",
+        "fdbcli",
+        "fdbmonitor",
+        "fdbserver",
+        "fdbclient",
+        "fdbcli"
+    ],
+    "ignoreWords": [],
+    "import": []
+}
