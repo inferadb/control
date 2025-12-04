@@ -13,8 +13,8 @@
 # Number of retries for failing tests (0 = no retries)
 retries = 0
 
-# Test threads (0 = number of logical CPUs)
-test-threads = 0
+# Test threads ("num-cpus" = number of logical CPUs)
+test-threads = "num-cpus"
 
 # Status level (none, fail, retry, slow, pass, skip, all)
 status-level = "pass"
@@ -48,6 +48,13 @@ failure-output = "immediate-final"
 
 # Longer timeouts for CI environments
 slow-timeout = { period = "120s", terminate-after = 5 }
+
+# JUnit XML output for CI
+[profile.ci.junit]
+path = "target/nextest/ci/junit.xml"
+report-name = "InferaDB Management API Tests (CI)"
+store-success-output = false
+store-failure-output = true
 
 # Development profile - fast feedback loop
 [profile.dev]
