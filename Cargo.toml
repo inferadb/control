@@ -38,7 +38,7 @@ serde_yaml = "0.9"
 
 # Tracing and observability
 metrics = "0.24"
-metrics-exporter-prometheus = "0.17.2"
+metrics-exporter-prometheus = "0.18.0"
 opentelemetry = "0.31.0"
 opentelemetry-otlp = { version = "0.31.0", features = ["grpc-tonic", "trace"] }
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }
