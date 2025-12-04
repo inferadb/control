@@ -17,7 +17,7 @@ out = ["Html", "Xml"]
 exclude = ["*/tests/*", "*/test_fixtures/*", "*/benches/*"]
 
 # Exclude files from coverage
-exclude-files = ["crates/*/tests/*", "crates/infera-management-test-fixtures/*"]
+exclude-files = ["crates/*/tests/*", "crates/inferadb-management-test-fixtures/*"]
 
 # Run type
 run-types = ["Tests"]

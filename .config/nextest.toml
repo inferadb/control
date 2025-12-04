@@ -7,7 +7,7 @@
 # Usage:
 #   cargo nextest run                  # Run all tests
 #   cargo nextest run --all-features   # Run with all features
-#   cargo nextest run -p infera-management-core  # Run specific crate tests
+#   cargo nextest run -p inferadb-management-core  # Run specific crate tests
 
 [profile.default]
 # Number of retries for failing tests (0 = no retries)

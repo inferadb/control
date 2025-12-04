@@ -1,12 +1,12 @@
 [workspace]
 members = [
-  "crates/infera-management",
-  "crates/infera-management-api",
-  "crates/infera-management-core",
-  "crates/infera-management-grpc",
-  "crates/infera-management-storage",
-  "crates/infera-management-test-fixtures",
-  "crates/infera-management-types",
+  "crates/inferadb-management",
+  "crates/inferadb-management-api",
+  "crates/inferadb-management-core",
+  "crates/inferadb-management-grpc",
+  "crates/inferadb-management-storage",
+  "crates/inferadb-management-test-fixtures",
+  "crates/inferadb-management-types",
 ]
 resolver = "2"
 

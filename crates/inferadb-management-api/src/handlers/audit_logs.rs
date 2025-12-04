@@ -1,0 +1,174 @@
+use axum::{
+    Extension, Json,
+    extract::{Query, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use inferadb_management_core::{AuditLogFilters, RepositoryContext};
+use inferadb_management_types::{
+    dto::{
+        AuditLogInfo, CreateAuditLogRequest, CreateAuditLogResponse, ListAuditLogsQuery,
+        ListAuditLogsResponse,
+    },
+    entities::AuditLog,
+};
+
+use super::AppState;
+use crate::middleware::{OrganizationContext, require_owner};
+
+/// Internal endpoint for recording audit log events
+///
+/// POST /internal/audit
+///
+/// This is an internal endpoint used by other handlers to record audit events.
+/// It's not exposed in the public API routes.
+pub async fn create_audit_log(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateAuditLogRequest>,
+) -> Response {
+    let repos = RepositoryContext::new((*state.storage).clone());
+
+    // Build audit log entry
+    let mut log = AuditLog::new(payload.event_type, payload.organization_id, payload.user_id);
+
+    if let Some(client_id) = payload.client_id {
+        log = log.with_client_id(client_id);
+    }
+
+    if let (Some(resource_type), Some(resource_id)) = (payload.resource_type, payload.resource_id) {
+        log = log.with_resource(resource_type, resource_id);
+    }
+
+    if let Some(data) = payload.event_data {
+        log = log.with_data(data);
+    }
+
+    if let Some(ip) = payload.ip_address {
+        log = log.with_ip_address(ip);
+    }
+
+    if let Some(ua) = payload.user_agent {
+        log = log.with_user_agent(ua);
+    }
+
+    match repos.audit_log.create(log).await {
+        Ok(_) => {
+            (StatusCode::CREATED, Json(CreateAuditLogResponse { success: true })).into_response()
+        },
+        Err(e) => {
+            tracing::error!("Failed to create audit log: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Failed to create audit log"
+                })),
+            )
+                .into_response()
+        },
+    }
+}
+
+/// List audit logs for an organization
+///
+/// GET /v1/organizations/:org/audit-logs
+///
+/// Only OWNER role members can access audit logs.
+pub async fn list_audit_logs(
+    State(state): State<AppState>,
+    Extension(org_ctx): Extension<OrganizationContext>,
+    Query(params): Query<ListAuditLogsQuery>,
+) -> Response {
+    // Require owner role
+    if require_owner(&org_ctx).is_err() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "Only organization owners can access audit logs"
+            })),
+        )
+            .into_response();
+    }
+
+    let limit = params.limit.unwrap_or(50).min(100);
+    let offset = params.offset.unwrap_or(0);
+
+    // Build filters
+    let filters = AuditLogFilters {
+        actor: params.actor,
+        action: params.action,
+        resource_type: params.resource_type,
+        start_date: params.start_date,
+        end_date: params.end_date,
+    };
+
+    // Query audit logs
+    let repos = RepositoryContext::new((*state.storage).clone());
+    match repos
+        .audit_log
+        .list_by_organization(org_ctx.organization_id, filters, limit, offset)
+        .await
+    {
+        Ok((logs, total)) => {
+            let audit_logs: Vec<AuditLogInfo> = logs
+                .into_iter()
+                .map(|log| AuditLogInfo {
+                    id: log.id,
+                    organization_id: log.organization_id,
+                    user_id: log.user_id,
+                    client_id: log.client_id,
+                    event_type: log.event_type,
+                    resource_type: log.resource_type,
+                    resource_id: log.resource_id,
+                    event_data: log.event_data,
+                    ip_address: log.ip_address,
+                    user_agent: log.user_agent,
+                    created_at: log.created_at.to_rfc3339(),
+                })
+                .collect();
+
+            (StatusCode::OK, Json(ListAuditLogsResponse { audit_logs, total, limit, offset }))
+                .into_response()
+        },
+        Err(e) => {
+            tracing::error!("Failed to list audit logs: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Failed to list audit logs"
+                })),
+            )
+                .into_response()
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use inferadb_management_core::AuditEventType;
+    use inferadb_management_storage::{Backend, MemoryBackend};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_create_audit_log() {
+        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let state = AppState::new_test(storage);
+
+        let payload = CreateAuditLogRequest {
+            event_type: AuditEventType::UserLogin,
+            organization_id: Some(1),
+            user_id: Some(100),
+            client_id: None,
+            resource_type: None,
+            resource_id: None,
+            event_data: None,
+            ip_address: Some("192.168.1.1".to_string()),
+            user_agent: Some("Mozilla/5.0".to_string()),
+        };
+
+        let response = create_audit_log(State(state), Json(payload)).await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+}

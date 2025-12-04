@@ -4681,7 +4681,7 @@ Follow @server patterns:
 - **Unit tests**: In `src/` files (`#[cfg(test)] mod tests`)
 - **Integration tests**: In `tests/` directory
 - **Use cargo-nextest** for test execution
-- **Test fixtures**: Shared utilities in `infera-management-test-fixtures` crate
+- **Test fixtures**: Shared utilities in `inferadb-management-test-fixtures` crate
 - **Storage tests**: Run against both in-memory and FoundationDB backends
 
 **Key Test Coverage**:

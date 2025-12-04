@@ -15,7 +15,7 @@ cargo watch -x 'run --bin inferadb-management' # Dev with auto-reload
 
 # Testing
 cargo test                                     # All tests
-cargo test --package infera-management-core    # Specific crate
+cargo test --package inferadb-management-core    # Specific crate
 cargo test test_create_vault                   # Single test
 cargo test -- --nocapture                      # With output
 
@@ -29,14 +29,14 @@ make check                                     # All checks
 
 ### Workspace Structure
 
-| Crate                             | Purpose                                |
-| --------------------------------- | -------------------------------------- |
-| `infera-management`               | Main binary entry point                |
-| `infera-management-api`           | REST/gRPC handlers, middleware, routes |
-| `infera-management-core`          | Business logic, entities, repositories |
-| `infera-management-storage`       | Storage backends (Memory, FDB planned) |
-| `infera-management-grpc`          | Server API gRPC client                 |
-| `infera-management-test-fixtures` | Test utilities                         |
+| Crate                               | Purpose                                |
+| ----------------------------------- | -------------------------------------- |
+| `inferadb-management`               | Main binary entry point                |
+| `inferadb-management-api`           | REST/gRPC handlers, middleware, routes |
+| `inferadb-management-core`          | Business logic, entities, repositories |
+| `inferadb-management-storage`       | Storage backends (Memory, FDB planned) |
+| `inferadb-management-grpc`          | Server API gRPC client                 |
+| `inferadb-management-test-fixtures` | Test utilities                         |
 
 ### Layered Architecture
 
@@ -189,9 +189,9 @@ let cookie = extract_session_cookie(response.headers());
 
 ### Test Organization
 
-- Integration tests: `crates/infera-management-api/tests/`
+- Integration tests: `crates/inferadb-management-api/tests/`
 - Unit tests: `#[cfg(test)]` modules in source files
-- Fixtures: `crates/infera-management-test-fixtures/`
+- Fixtures: `crates/inferadb-management-test-fixtures/`
 
 ## Multi-Instance (FDB Required)
 

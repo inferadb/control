@@ -52,7 +52,7 @@ docker-compose up -d
 docker exec -it inferadb-mgmt-test-runner bash
 
 # Inside container, run specific tests
-cargo test -p infera-management-storage --features foundationdb -- --nocapture
+cargo test -p inferadb-management-storage --features foundationdb -- --nocapture
 
 # Or run full suite
 INFERADB_MGMT__STORAGE__BACKEND=foundationdb \

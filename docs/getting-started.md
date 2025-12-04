@@ -350,10 +350,10 @@ View structured logs:
 
 ```bash
 # Pretty-print JSON logs
-./target/release/infera-management-api | jq
+./target/release/inferadb-management-api | jq
 
 # Filter for errors
-./target/release/infera-management-api | jq 'select(.level == "ERROR")'
+./target/release/inferadb-management-api | jq 'select(.level == "ERROR")'
 ```
 
 ### Resetting the Database

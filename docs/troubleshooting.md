@@ -70,7 +70,7 @@ server:
 ```bash
 export INFERADB_MGMT__SERVER__HTTP_PORT=8080
 export INFERADB_MGMT__SERVER__GRPC_PORT=8081
-./target/release/infera-management-api
+./target/release/inferadb-management-api
 ```
 
 **Option 3**: Kill conflicting process
@@ -93,7 +93,7 @@ kill -9 <PID>
 
 ```bash
 # Specify config file explicitly
-./target/release/infera-management-api --config /path/to/config.yaml
+./target/release/inferadb-management-api --config /path/to/config.yaml
 
 # Or use environment variable
 export INFERADB_MGMT_CONFIG_PATH=/path/to/config.yaml
@@ -372,10 +372,10 @@ curl -X GET http://localhost:3000/v1/organizations \
 
 ```bash
 # View recent logs
-tail -f /var/log/infera-management-api.log
+tail -f /var/log/inferadb-management-api.log
 
 # Or if running directly
-./target/release/infera-management-api --config config.yaml 2>&1 | tee api.log
+./target/release/inferadb-management-api --config config.yaml 2>&1 | tee api.log
 ```
 
 **Step 2**: Enable debug logging
@@ -432,7 +432,7 @@ GET /v1/organizations/{org}/vaults?limit=25
 
 ```bash
 # Check memory usage
-ps aux | grep infera-management-api
+ps aux | grep inferadb-management-api
 
 # Use Prometheus metrics
 curl http://localhost:3000/metrics | grep memory
@@ -459,24 +459,24 @@ server:
 **Step 1**: Check container logs
 
 ```bash
-docker logs infera-management-api
+docker logs inferadb-management-api
 
 # Follow logs in real-time
-docker logs -f infera-management-api
+docker logs -f inferadb-management-api
 ```
 
 **Step 2**: Verify environment variables
 
 ```bash
 # List container environment
-docker inspect infera-management-api | jq '.[0].Config.Env'
+docker inspect inferadb-management-api | jq '.[0].Config.Env'
 ```
 
 **Step 3**: Check volume mounts
 
 ```bash
 # Verify config file is accessible
-docker exec infera-management-api cat /app/config.yaml
+docker exec inferadb-management-api cat /app/config.yaml
 ```
 
 ### Kubernetes Deployment
@@ -490,10 +490,10 @@ docker exec infera-management-api cat /app/config.yaml
 **Step 1**: Check pod logs
 
 ```bash
-kubectl logs -n infera pod/infera-management-api-xxxxx
+kubectl logs -n infera pod/inferadb-management-api-xxxxx
 
 # Check previous crashed pod
-kubectl logs -n infera pod/infera-management-api-xxxxx --previous
+kubectl logs -n infera pod/inferadb-management-api-xxxxx --previous
 ```
 
 **Step 2**: Verify ConfigMap
@@ -520,14 +520,14 @@ kubectl get secret -n infera infera-secrets -o yaml
 kubectl get svc -n infera
 
 # Check endpoints
-kubectl get endpoints -n infera infera-management-api
+kubectl get endpoints -n infera inferadb-management-api
 ```
 
 **Step 2**: Test from within cluster
 
 ```bash
 kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
-  curl http://infera-management-api.infera.svc.cluster.local:3000/health
+  curl http://inferadb-management-api.infera.svc.cluster.local:3000/health
 ```
 
 ## Development & Testing
@@ -545,7 +545,7 @@ kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
 cargo test -- --test-threads=1
 
 # Or kill conflicting processes
-pkill -f infera-management
+pkill -f inferadb-management
 ```
 
 #### Issue: Integration tests failing
@@ -672,7 +672,7 @@ If these solutions don't resolve your issue:
    cat config.yaml | grep -v secret
 
    # Recent logs
-   tail -n 100 /var/log/infera-management-api.log
+   tail -n 100 /var/log/inferadb-management-api.log
    ```
 
 4. **File an issue**:

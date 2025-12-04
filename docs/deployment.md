@@ -151,10 +151,10 @@ Example (Kubernetes Service):
 apiVersion: v1
 kind: Service
 metadata:
-  name: infera-management-api
+  name: inferadb-management-api
 spec:
   selector:
-    app: infera-management-api
+    app: inferadb-management-api
   ports:
     - name: http
       port: 80
@@ -165,7 +165,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: infera-management-api
+  name: inferadb-management-api
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
@@ -181,7 +181,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: infera-management-api
+                name: inferadb-management-api
                 port:
                   number: 80
 ```

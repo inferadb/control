@@ -1,0 +1,25 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+name = "inferadb-management-test-fixtures"
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+# Workspace crates
+inferadb-management-api = { path = "../inferadb-management-api" }
+inferadb-management-core = { path = "../inferadb-management-core" }
+inferadb-management-storage = { path = "../inferadb-management-storage" }
+
+# External dependencies
+anyhow = { workspace = true }
+axum = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+
+[dev-dependencies]

@@ -84,7 +84,7 @@ mod tests {
 
 - Use the `Result` type for operations that can fail
 - Provide meaningful error messages
-- Use the error types defined in `infera-management-core::error`
+- Use the error types defined in `inferadb-management-core::error`
 
 #### Documentation
 
@@ -227,7 +227,7 @@ Before submitting a PR, ensure:
 cargo test
 
 # Specific package
-cargo test --package infera-management-core
+cargo test --package inferadb-management-core
 
 # Specific test
 cargo test test_name

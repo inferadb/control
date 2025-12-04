@@ -36,13 +36,13 @@ cargo run --bin inferadb-management
 ## Architecture
 
 ```text
-infera-management              # Binary
-├── infera-management-api      # REST/gRPC handlers
-├── infera-management-core     # Business logic, entities, repositories
-├── infera-management-storage  # Storage backends (memory, FoundationDB)
-├── infera-management-grpc     # Server API client
-├── infera-management-types    # Shared type definitions
-└── infera-management-test-fixtures  # Test utilities
+inferadb-management              # Binary
+├── inferadb-management-api      # REST/gRPC handlers
+├── inferadb-management-core     # Business logic, entities, repositories
+├── inferadb-management-storage  # Storage backends (memory, FoundationDB)
+├── inferadb-management-grpc     # Server API client
+├── inferadb-management-types    # Shared type definitions
+└── inferadb-management-test-fixtures  # Test utilities
 ```
 
 **Storage**: Memory (dev/testing) or FoundationDB (production, distributed ACID)
@@ -64,7 +64,7 @@ See [config.yaml](config.yaml) for all options.
 
 ```bash
 cargo test                                    # All tests
-cargo test --package infera-management-core   # Specific crate
+cargo test --package inferadb-management-core   # Specific crate
 cargo clippy -- -D warnings                   # Lint
 cargo fmt                                     # Format
 ```

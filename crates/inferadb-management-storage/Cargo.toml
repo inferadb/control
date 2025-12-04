@@ -1,0 +1,30 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+name = "inferadb-management-storage"
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+# External dependencies
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+foundationdb = { workspace = true, optional = true }
+futures = { workspace = true }
+parking_lot = "0.12"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+
+[features]
+default = []
+fdb = ["foundationdb"]
