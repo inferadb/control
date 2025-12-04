@@ -56,9 +56,14 @@ management_identity:
 
 cache_invalidation:
   http_endpoints:
-    - "http://inferadb-server:8080"
+    - "http://inferadb-server.inferadb:9090"
   timeout_ms: 5000
   retry_attempts: 0
+  # Kubernetes discovery for pod-level cache invalidation
+  discovery:
+    mode:
+      type: kubernetes
+    cache_ttl_seconds: 30
 
 server_verification:
   server_jwks_url: "http://localhost:9090/.well-known/jwks.json"  # Default for Docker Compose

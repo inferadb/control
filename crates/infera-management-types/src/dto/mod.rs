@@ -46,7 +46,8 @@ pub use organizations::{
     DeleteInvitationResponse, DeleteOrganizationResponse, GetOrganizationResponse,
     InvitationResponse, ListInvitationsResponse, ListMembersResponse, ListOrganizationsResponse,
     OrganizationMemberResponse, OrganizationResponse, OrganizationServerResponse,
-    OrganizationStatus, RemoveMemberResponse, TransferOwnershipRequest, TransferOwnershipResponse,
+    OrganizationStatus, RemoveMemberResponse, ResumeOrganizationResponse,
+    SuspendOrganizationResponse, TransferOwnershipRequest, TransferOwnershipResponse,
     UpdateMemberRoleRequest, UpdateMemberRoleResponse, UpdateOrganizationRequest,
     UpdateOrganizationResponse,
 };

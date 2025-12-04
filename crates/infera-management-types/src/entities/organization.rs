@@ -61,6 +61,8 @@ pub struct Organization {
     pub created_at: DateTime<Utc>,
     /// When the organization was soft-deleted (if applicable)
     pub deleted_at: Option<DateTime<Utc>>,
+    /// When the organization was suspended (if applicable)
+    pub suspended_at: Option<DateTime<Utc>>,
 }
 
 impl Organization {
@@ -84,6 +86,7 @@ impl Organization {
             tier,
             created_at: Utc::now(),
             deleted_at: None,
+            suspended_at: None,
         })
     }
 
@@ -134,6 +137,21 @@ impl Organization {
     /// Soft-delete the organization
     pub fn soft_delete(&mut self) {
         self.deleted_at = Some(Utc::now());
+    }
+
+    /// Check if the organization is suspended
+    pub fn is_suspended(&self) -> bool {
+        self.suspended_at.is_some() && self.deleted_at.is_none()
+    }
+
+    /// Suspend the organization
+    pub fn suspend(&mut self) {
+        self.suspended_at = Some(Utc::now());
+    }
+
+    /// Resume the organization (unsuspend)
+    pub fn resume(&mut self) {
+        self.suspended_at = None;
     }
 }
 
@@ -323,5 +341,35 @@ mod tests {
         assert!(member.has_permission(OrganizationRole::Member));
         assert!(!member.has_permission(OrganizationRole::Admin));
         assert!(!member.has_permission(OrganizationRole::Owner));
+    }
+
+    #[test]
+    fn test_suspend_organization() {
+        let mut org =
+            Organization::new(1, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+
+        assert!(!org.is_suspended());
+        org.suspend();
+        assert!(org.is_suspended());
+        org.resume();
+        assert!(!org.is_suspended());
+    }
+
+    #[test]
+    fn test_suspended_not_deleted() {
+        let mut org =
+            Organization::new(1, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+
+        org.suspend();
+        assert!(org.is_suspended());
+
+        // Suspending shouldn't affect deleted state
+        assert!(!org.is_deleted());
+
+        // Deleting a suspended org should work
+        org.soft_delete();
+        assert!(org.is_deleted());
+        // Deleted orgs are not considered suspended
+        assert!(!org.is_suspended());
     }
 }

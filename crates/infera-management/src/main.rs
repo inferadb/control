@@ -25,6 +25,13 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install the rustls crypto provider early, before any TLS operations.
+    // This is required for crates like `kube` that use rustls internally.
+    // Using aws-lc-rs as the provider for consistency with jsonwebtoken.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let args = Args::parse();
 
     // Load configuration

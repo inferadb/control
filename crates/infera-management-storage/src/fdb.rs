@@ -295,10 +295,7 @@ impl StorageBackend for FdbBackend {
                                 Ok(values) => {
                                     // Each batch contains multiple key-value pairs
                                     for kv in values.iter() {
-                                        all_results.push((
-                                            kv.key().to_vec(),
-                                            kv.value().to_vec(),
-                                        ));
+                                        all_results.push((kv.key().to_vec(), kv.value().to_vec()));
                                     }
                                 }
                                 Err(e) => {

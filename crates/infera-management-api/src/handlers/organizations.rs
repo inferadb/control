@@ -11,8 +11,9 @@ use infera_management_types::{
         InvitationResponse, ListInvitationsResponse, ListMembersResponse,
         ListOrganizationsResponse, OrganizationMemberResponse, OrganizationResponse,
         OrganizationServerResponse, OrganizationStatus, RemoveMemberResponse,
-        TransferOwnershipRequest, TransferOwnershipResponse, UpdateMemberRoleRequest,
-        UpdateMemberRoleResponse, UpdateOrganizationRequest, UpdateOrganizationResponse,
+        ResumeOrganizationResponse, SuspendOrganizationResponse, TransferOwnershipRequest,
+        TransferOwnershipResponse, UpdateMemberRoleRequest, UpdateMemberRoleResponse,
+        UpdateOrganizationRequest, UpdateOrganizationResponse,
     },
     entities::{
         Organization, OrganizationInvitation, OrganizationMember, OrganizationRole,
@@ -239,11 +240,11 @@ pub async fn get_organization_by_id(
         .await?
         .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
 
-    // Determine status based on deleted_at field
-    // Currently we only have Active and Deleted states
-    // Suspended state would require adding a new field to the Organization entity
+    // Determine status: Deleted > Suspended > Active
     let status = if org.is_deleted() {
         OrganizationStatus::Deleted
+    } else if org.is_suspended() {
+        OrganizationStatus::Suspended
     } else {
         OrganizationStatus::Active
     };
@@ -275,9 +276,11 @@ pub async fn get_organization_privileged(
         .await?
         .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
 
-    // Determine status
+    // Determine status: Deleted > Suspended > Active
     let status = if org.is_deleted() {
         OrganizationStatus::Deleted
+    } else if org.is_suspended() {
+        OrganizationStatus::Suspended
     } else {
         OrganizationStatus::Active
     };
@@ -419,6 +422,102 @@ pub async fn delete_organization(
 
     Ok(Json(DeleteOrganizationResponse {
         message: "Organization deleted successfully".to_string(),
+    }))
+}
+
+/// Suspend organization
+///
+/// POST /v1/organizations/:org/suspend
+///
+/// Suspends an organization, blocking all API access for that organization.
+/// Requires owner role.
+pub async fn suspend_organization(
+    State(state): State<AppState>,
+    Extension(org_ctx): Extension<OrganizationContext>,
+) -> Result<Json<SuspendOrganizationResponse>> {
+    let repos = RepositoryContext::new((*state.storage).clone());
+
+    // Require owner
+    crate::middleware::require_owner(&org_ctx)?;
+
+    // Get organization
+    let mut org = repos
+        .org
+        .get(org_ctx.organization_id)
+        .await?
+        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+
+    // Check if deleted
+    if org.is_deleted() {
+        return Err(CoreError::NotFound("Organization not found".to_string()).into());
+    }
+
+    // Check if already suspended
+    if org.is_suspended() {
+        return Err(CoreError::Validation("Organization is already suspended".to_string()).into());
+    }
+
+    // Suspend the organization
+    org.suspend();
+    repos.org.update(org).await?;
+
+    // Invalidate caches on all servers
+    if let Some(ref webhook_client) = state.webhook_client {
+        webhook_client
+            .invalidate_organization(org_ctx.organization_id)
+            .await;
+    }
+
+    Ok(Json(SuspendOrganizationResponse {
+        message: "Organization suspended successfully".to_string(),
+    }))
+}
+
+/// Resume organization
+///
+/// POST /v1/organizations/:org/resume
+///
+/// Resumes a suspended organization, restoring API access.
+/// Requires owner role.
+pub async fn resume_organization(
+    State(state): State<AppState>,
+    Extension(org_ctx): Extension<OrganizationContext>,
+) -> Result<Json<ResumeOrganizationResponse>> {
+    let repos = RepositoryContext::new((*state.storage).clone());
+
+    // Require owner
+    crate::middleware::require_owner(&org_ctx)?;
+
+    // Get organization
+    let mut org = repos
+        .org
+        .get(org_ctx.organization_id)
+        .await?
+        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+
+    // Check if deleted
+    if org.is_deleted() {
+        return Err(CoreError::NotFound("Organization not found".to_string()).into());
+    }
+
+    // Check if not suspended
+    if !org.is_suspended() {
+        return Err(CoreError::Validation("Organization is not suspended".to_string()).into());
+    }
+
+    // Resume the organization
+    org.resume();
+    repos.org.update(org).await?;
+
+    // Invalidate caches on all servers
+    if let Some(ref webhook_client) = state.webhook_client {
+        webhook_client
+            .invalidate_organization(org_ctx.organization_id)
+            .await;
+    }
+
+    Ok(Json(ResumeOrganizationResponse {
+        message: "Organization resumed successfully".to_string(),
     }))
 }
 

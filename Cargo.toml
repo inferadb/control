@@ -120,6 +120,9 @@ validator = { version = "0.20", features = ["derive"] }
 kube = { version = "0.97", features = ["runtime", "client", "derive"] }
 k8s-openapi = { version = "0.23", features = ["v1_31"] }
 
+# TLS (for crypto provider initialization)
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
+
 [profile.release]
 codegen-units = 1
 lto = "thin"

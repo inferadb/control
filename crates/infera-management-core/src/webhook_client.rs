@@ -681,6 +681,135 @@ impl WebhookClient {
         );
     }
 
+    /// Invalidate certificate cache on all server instances
+    ///
+    /// Sends cache invalidation webhooks to all configured server endpoints in parallel.
+    /// This is a fire-and-forget operation - errors are logged but don't fail the operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `org_id` - The organization ID
+    /// * `client_id` - The client ID
+    /// * `cert_id` - The certificate ID to invalidate
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// client.invalidate_certificate(123, 456, 789).await;
+    /// ```
+    pub async fn invalidate_certificate(&self, org_id: i64, client_id: i64, cert_id: i64) {
+        let endpoints = self.get_endpoints().await;
+
+        if endpoints.is_empty() {
+            warn!(
+                org_id = %org_id,
+                client_id = %client_id,
+                cert_id = %cert_id,
+                "No server endpoints configured, skipping cache invalidation"
+            );
+            return;
+        }
+
+        info!(
+            org_id = %org_id,
+            client_id = %client_id,
+            cert_id = %cert_id,
+            endpoints_count = endpoints.len(),
+            "Invalidating certificate cache across all servers"
+        );
+
+        // Send requests to all endpoints in parallel
+        let mut tasks = Vec::new();
+
+        for endpoint in &endpoints {
+            let http_client = self.http_client.clone();
+            let url = format!(
+                "{}/internal/cache/invalidate/certificate/{}/{}/{}",
+                endpoint, org_id, client_id, cert_id
+            );
+            let endpoint_clone = endpoint.clone();
+            let management_identity = Arc::clone(&self.management_identity);
+
+            let task = tokio::spawn(async move {
+                debug!(
+                    org_id = %org_id,
+                    client_id = %client_id,
+                    cert_id = %cert_id,
+                    endpoint = %endpoint_clone,
+                    "Sending certificate invalidation webhook"
+                );
+
+                // Sign JWT for server authentication
+                let jwt = match management_identity.sign_jwt(&endpoint_clone) {
+                    Ok(token) => token,
+                    Err(e) => {
+                        error!(
+                            org_id = %org_id,
+                            client_id = %client_id,
+                            cert_id = %cert_id,
+                            endpoint = %endpoint_clone,
+                            error = %e,
+                            "Failed to sign JWT for certificate invalidation webhook"
+                        );
+                        return;
+                    }
+                };
+
+                let request = http_client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", jwt));
+
+                match request.send().await {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            debug!(
+                                org_id = %org_id,
+                                client_id = %client_id,
+                                cert_id = %cert_id,
+                                endpoint = %endpoint_clone,
+                                "Certificate invalidation webhook succeeded"
+                            );
+                        } else {
+                            warn!(
+                                org_id = %org_id,
+                                client_id = %client_id,
+                                cert_id = %cert_id,
+                                endpoint = %endpoint_clone,
+                                status = %response.status(),
+                                "Certificate invalidation webhook returned non-success status"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            org_id = %org_id,
+                            client_id = %client_id,
+                            cert_id = %cert_id,
+                            endpoint = %endpoint_clone,
+                            error = %e,
+                            "Failed to send certificate invalidation webhook"
+                        );
+                    }
+                }
+            });
+
+            tasks.push(task);
+        }
+
+        // Wait for all tasks to complete (fire-and-forget)
+        for task in tasks {
+            let _ = task.await;
+        }
+
+        info!(
+            org_id = %org_id,
+            client_id = %client_id,
+            cert_id = %cert_id,
+            endpoints_count = endpoints.len(),
+            "Completed certificate invalidation webhooks"
+        );
+    }
+
     /// Discover server endpoints, with support for Kubernetes service discovery
     ///
     /// If the endpoint is a Kubernetes service format (e.g., "http://service-name:port")

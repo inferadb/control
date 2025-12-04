@@ -56,6 +56,15 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/v1/organizations/{org}/transfer-ownership",
             post(organizations::transfer_ownership),
         )
+        // Organization suspension routes
+        .route(
+            "/v1/organizations/{org}/suspend",
+            post(organizations::suspend_organization),
+        )
+        .route(
+            "/v1/organizations/{org}/resume",
+            post(organizations::resume_organization),
+        )
         // Client management routes
         .route(
             "/v1/organizations/{org}/clients",

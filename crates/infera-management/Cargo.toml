@@ -23,6 +23,7 @@ infera-management-storage = { path = "../infera-management-storage" }
 anyhow = { workspace = true }
 clap = { workspace = true }
 config = { workspace = true }
+rustls = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

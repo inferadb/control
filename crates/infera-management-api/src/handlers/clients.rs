@@ -232,9 +232,21 @@ pub async fn delete_client(
         return Err(CoreError::NotFound("Client not found".to_string()).into());
     }
 
+    // Get all certificates for this client to invalidate their caches
+    let certs = repos.client_certificate.list_by_client(client_id).await?;
+
     // Soft delete
     client.mark_deleted();
     repos.client.update(client).await?;
+
+    // Invalidate certificate cache for all certificates of this client
+    if let Some(ref webhook_client) = state.webhook_client {
+        for cert in certs {
+            webhook_client
+                .invalidate_certificate(org_ctx.organization_id, client_id, cert.id)
+                .await;
+        }
+    }
 
     Ok(Json(DeleteClientResponse {
         message: "Client deleted successfully".to_string(),
@@ -477,6 +489,13 @@ pub async fn revoke_certificate(
     cert.mark_revoked(org_ctx.member.user_id);
     repos.client_certificate.update(cert).await?;
 
+    // Invalidate certificate cache on all servers
+    if let Some(ref webhook_client) = state.webhook_client {
+        webhook_client
+            .invalidate_certificate(org_ctx.organization_id, client_id, cert_id)
+            .await;
+    }
+
     Ok(Json(RevokeCertificateResponse {
         message: "Certificate revoked successfully".to_string(),
     }))
@@ -520,6 +539,13 @@ pub async fn delete_certificate(
 
     // Delete the certificate
     repos.client_certificate.delete(cert_id).await?;
+
+    // Invalidate certificate cache on all servers
+    if let Some(ref webhook_client) = state.webhook_client {
+        webhook_client
+            .invalidate_certificate(org_ctx.organization_id, client_id, cert_id)
+            .await;
+    }
 
     Ok(Json(DeleteCertificateResponse {
         message: "Certificate deleted successfully".to_string(),

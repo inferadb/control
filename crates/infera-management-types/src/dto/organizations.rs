@@ -69,6 +69,20 @@ pub struct DeleteOrganizationResponse {
     pub message: String,
 }
 
+/// Response body for organization suspension
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SuspendOrganizationResponse {
+    /// Confirmation message
+    pub message: String,
+}
+
+/// Response body for organization resumption
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResumeOrganizationResponse {
+    /// Confirmation message
+    pub message: String,
+}
+
 // ============================================================================
 // Organization Member Management
 // ============================================================================
