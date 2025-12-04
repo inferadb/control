@@ -36,12 +36,12 @@ cargo run --bin inferadb-management
 ## Architecture
 
 ```text
-inferadb-management              # Binary
-├── inferadb-management-api      # REST/gRPC handlers
-├── inferadb-management-core     # Business logic, entities, repositories
-├── inferadb-management-storage  # Storage backends (memory, FoundationDB)
-├── inferadb-management-grpc     # Server API client
-├── inferadb-management-types    # Shared type definitions
+inferadb-management                    # Binary
+├── inferadb-management-api            # REST/gRPC handlers
+├── inferadb-management-core           # Business logic, entities, repositories
+├── inferadb-management-storage        # Storage backends (memory, FoundationDB)
+├── inferadb-management-grpc           # Server API client
+├── inferadb-management-types          # Shared type definitions
 └── inferadb-management-test-fixtures  # Test utilities
 ```
 
