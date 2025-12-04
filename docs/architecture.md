@@ -471,7 +471,7 @@ sequenceDiagram
 ```mermaid
 graph LR
     subgraph "Runtime"
-        Rust[Rust 1.70+]
+        Rust[Rust 1.78+]
         Tokio[Tokio<br/>Async Runtime]
     end
 
