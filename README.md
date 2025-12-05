@@ -1,6 +1,6 @@
 # InferaDB Management API
 
-Control plane for InferaDB: user authentication, organization management, and vault access control.
+**InferaDB control plane** — multi-tenant orchestration with headless APIs, Kubernetes-native deployment, and WebAuthn authentication.
 
 > [!IMPORTANT]
 > Under active development. Not production-ready.
