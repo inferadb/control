@@ -124,6 +124,9 @@ regex = "1.11"
 # URL parsing
 url = "2.5"
 
+# Terminal utilities
+terminal_size = "0.4"
+
 # Validation
 validator = { version = "0.20", features = ["derive"] }
 

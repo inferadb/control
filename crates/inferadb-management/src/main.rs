@@ -60,7 +60,8 @@ async fn main() -> Result<()> {
     let use_json = args.json_logs || args.environment == "production";
     if !use_json {
         startup::StartupDisplay::new(startup::ServiceInfo {
-            name: "InferaDB Management API",
+            name: "InferaDB",
+            subtext: "Management API Server",
             version: env!("CARGO_PKG_VERSION"),
             environment: args.environment.clone(),
         })
