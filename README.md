@@ -14,17 +14,15 @@ export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 cargo run --bin inferadb-management
 ```
 
-Register a user:
+Register and login:
 
 ```bash
+# Register
 curl -X POST http://localhost:3000/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email": "alice@example.com", "password": "securepass123", "name": "Alice"}'
-```
 
-Login:
-
-```bash
+# Login
 curl -X POST http://localhost:3000/v1/auth/login/password \
   -H "Content-Type: application/json" \
   -d '{"email": "alice@example.com", "password": "securepass123"}'
@@ -47,6 +45,18 @@ curl -X POST http://localhost:3000/v1/auth/login/password \
 | **Client Auth**      | Ed25519 certificates, JWT assertions         |
 | **Token Issuance**   | Vault-scoped JWTs for Server API             |
 
+## Key Concepts
+
+| Entity       | Description                                   |
+| ------------ | --------------------------------------------- |
+| User         | Account with auth methods (password, passkey) |
+| Organization | Workspace with members and roles              |
+| Vault        | Authorization policy container                |
+| Client       | Service identity with Ed25519 certs           |
+| Team         | Group-based vault access                      |
+
+**Auth Flow:** User → Session → Vault access → JWT → Server API
+
 ## Architecture
 
 ```mermaid
@@ -63,18 +73,6 @@ graph TD
 | inferadb-management-core    | Business logic, entities |
 | inferadb-management-storage | Memory or FoundationDB   |
 | inferadb-management-grpc    | Server API client        |
-
-## Key Concepts
-
-| Entity       | Description                                   |
-| ------------ | --------------------------------------------- |
-| User         | Account with auth methods (password, passkey) |
-| Organization | Workspace with members and roles              |
-| Vault        | Authorization policy container                |
-| Client       | Service identity with Ed25519 certs           |
-| Team         | Group-based vault access                      |
-
-**Auth Flow:** User → Session → Vault access → JWT → Server API
 
 ## Configuration
 
