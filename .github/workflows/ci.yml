@@ -22,6 +22,37 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # Detect if this is a workflow-only change (for skipping builds on Dependabot workflow PRs)
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@df199fb7be9f65074067a9eb93f12bb4c5547cf2 # v2.13.3
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Check for code changes
+        id: filter
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        with:
+          filters: |
+            code:
+              - '**/*.rs'
+              - '**/Cargo.toml'
+              - '**/Cargo.lock'
+              - 'config*.yaml'
+              - 'rust-toolchain.toml'
+              - 'openapi.yaml'
+
   # Check code formatting
   fmt:
     name: Formatting
@@ -96,7 +127,10 @@ jobs:
   # Build workspace once and cache for downstream jobs
   build:
     name: Build
+    needs: changes
     runs-on: ubuntu-latest
+    # Skip build for Dependabot PRs that only modify workflows/docs
+    if: needs.changes.outputs.code == 'true' || github.actor != 'dependabot[bot]'
     permissions:
       contents: read
     env:
@@ -311,7 +345,7 @@ jobs:
   # Overall status check
   ci-success:
     name: CI Success
-    needs: [fmt, clippy, build, test, coverage, dependencies]
+    needs: [changes, fmt, clippy, build, test, coverage, dependencies]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -333,12 +367,12 @@ jobs:
             echo "Clippy check failed"
             exit 1
           fi
-          # Build and test are always required
-          if [[ "${{ needs.build.result }}" != "success" ]]; then
+          # Build and test are required unless skipped for Dependabot workflow-only PRs
+          if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
             echo "Build failed"
             exit 1
           fi
-          if [[ "${{ needs.test.result }}" != "success" ]]; then
+          if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
             echo "Tests failed"
             exit 1
           fi
