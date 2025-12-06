@@ -291,7 +291,7 @@ storage:
             &config_path,
             r#"
 server:
-  http_port: 3001
+  port: 3001
 storage:
   storage_type: "memory"
 auth:
@@ -309,14 +309,14 @@ server_api:
         let config = Arc::new(RwLock::new(initial_config));
 
         // Verify initial port
-        assert_eq!(config.read().server.http_port, 3001);
+        assert_eq!(config.read().server.port, 3001);
 
         // Modify config file with a different port
         fs::write(
             &config_path,
             r#"
 server:
-  http_port: 3002
+  port: 3002
 storage:
   storage_type: "memory"
 auth:
@@ -338,7 +338,7 @@ server_api:
 
         // Verify port was updated
         let current = config.read();
-        assert_eq!(current.server.http_port, 3002, "Port should be updated to 3002");
+        assert_eq!(current.server.port, 3002, "Port should be updated to 3002");
     }
 
     #[tokio::test]
@@ -352,7 +352,7 @@ server_api:
             &config_path,
             r#"
 server:
-  http_port: 3001
+  port: 3001
 storage:
   storage_type: "memory"
 "#,
@@ -364,15 +364,15 @@ storage:
         let config = Arc::new(RwLock::new(initial_config));
 
         // Verify initial values
-        assert_eq!(config.read().server.http_port, 3001);
+        assert_eq!(config.read().server.port, 3001);
 
         // Write invalid config (port out of range)
         fs::write(
             &config_path,
             r#"
 server:
-  http_host: "0.0.0.0"
-  http_port: 0
+  host: "0.0.0.0"
+  port: 0
 storage:
   storage_type: "memory"
 "#,
@@ -388,7 +388,7 @@ storage:
 
         // Verify config was not changed (should still be valid)
         let current = config.read();
-        assert_eq!(current.server.http_port, 3001);
+        assert_eq!(current.server.port, 3001);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -402,7 +402,7 @@ storage:
             &config_path,
             r#"
 server:
-  http_port: 3001
+  port: 3001
 storage:
   storage_type: "memory"
 auth:
@@ -420,7 +420,7 @@ server_api:
         let config = Arc::new(RwLock::new(initial_config));
 
         // Verify initial port
-        assert_eq!(config.read().server.http_port, 3001);
+        assert_eq!(config.read().server.port, 3001);
 
         // Create and spawn refresher with 1 second interval
         let refresher = Arc::new(ConfigRefresher::new(config.clone(), config_path.clone(), 1));
@@ -433,7 +433,7 @@ server_api:
             &config_path,
             r#"
 server:
-  http_port: 3002
+  port: 3002
 storage:
   storage_type: "memory"
 auth:
@@ -451,6 +451,6 @@ server_api:
 
         // Verify config was updated
         let current = config.read();
-        assert_eq!(current.server.http_port, 3002, "Port should be updated to 3002");
+        assert_eq!(current.server.port, 3002, "Port should be updated to 3002");
     }
 }

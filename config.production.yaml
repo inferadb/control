@@ -9,8 +9,8 @@
 # Server configuration
 server:
   # HTTP server binding
-  http_host: "0.0.0.0"
-  http_port: 3000
+  host: "0.0.0.0"
+  port: 3000
 
   # gRPC server binding
   grpc_host: "0.0.0.0"
@@ -109,9 +109,6 @@ id_generation:
   # Recommended: Use environment variable or orchestration-provided ID
   # Example: ${WORKER_ID}
   worker_id: 0
-
-  # Maximum clock skew in milliseconds (for NTP validation)
-  max_clock_skew_ms: 1000
 
 # Server API (InferaDB policy engine) configuration
 server_api:

@@ -68,10 +68,11 @@ impl WebhookClient {
     ///
     /// # Arguments
     ///
-    /// * `server_endpoints` - List of server URLs to send webhooks to
+    /// * `server_internal_url` - Server internal API URL (e.g., "http://localhost:9090")
+    ///   Used directly when discovery is None, or as a template for service discovery
     /// * `management_identity` - Management identity for signing webhook JWTs
     /// * `timeout_ms` - Request timeout in milliseconds (default: 5000)
-    /// * `discovery_mode` - Service discovery mode (None or Kubernetes)
+    /// * `discovery_mode` - Service discovery mode (None, Kubernetes, or Tailscale)
     /// * `cache_ttl_seconds` - Cache TTL for discovered endpoints (default: 300)
     ///
     /// # Example
@@ -82,17 +83,16 @@ impl WebhookClient {
     /// use inferadb_management_core::config::DiscoveryMode;
     ///
     /// let identity = Arc::new(ManagementIdentity::generate("mgmt-1".to_string(), "key-1".to_string()));
-    /// let endpoints = vec!["http://server1:8080".to_string(), "http://server2:8080".to_string()];
-    /// let client = WebhookClient::new_with_discovery(
-    ///     endpoints,
+    /// let client = WebhookClient::new(
+    ///     "http://localhost:9090".to_string(),
     ///     identity,
     ///     5000,
     ///     DiscoveryMode::None,
     ///     300
     /// ).unwrap();
     /// ```
-    pub fn new_with_discovery(
-        server_endpoints: Vec<String>,
+    pub fn new(
+        server_internal_url: String,
         management_identity: Arc<ManagementIdentity>,
         timeout_ms: u64,
         discovery_mode: DiscoveryMode,
@@ -104,26 +104,21 @@ impl WebhookClient {
             .build()
             .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
+        let url = url::Url::parse(&server_internal_url)
+            .map_err(|e| format!("Invalid server internal URL: {}", e))?;
+
+        let service_host =
+            url.host_str().ok_or_else(|| "No host in server internal URL".to_string())?;
+        let service_port = url
+            .port_or_known_default()
+            .ok_or_else(|| "No port in server internal URL".to_string())?;
+
         let internal_discovery_mode = match discovery_mode {
-            DiscoveryMode::None => InternalDiscoveryMode::Static(server_endpoints),
+            DiscoveryMode::None => {
+                debug!(url = %server_internal_url, "Using static endpoint (no discovery)");
+                InternalDiscoveryMode::Static(vec![server_internal_url])
+            }
             DiscoveryMode::Kubernetes => {
-                // Parse the first endpoint as Kubernetes service
-                if server_endpoints.is_empty() {
-                    return Err(
-                        "Kubernetes discovery requires at least one service URL".to_string()
-                    );
-                }
-
-                let service_endpoint = &server_endpoints[0];
-                let url = url::Url::parse(service_endpoint)
-                    .map_err(|e| format!("Invalid service URL: {}", e))?;
-
-                let service_host =
-                    url.host_str().ok_or_else(|| "No host in service URL".to_string())?;
-                let service_port = url
-                    .port_or_known_default()
-                    .ok_or_else(|| "No port in service URL".to_string())?;
-
                 // Extract service name and namespace from hostname
                 let parts: Vec<&str> = service_host.split('.').collect();
                 let default_namespace =
@@ -142,7 +137,7 @@ impl WebhookClient {
                 );
 
                 InternalDiscoveryMode::Kubernetes { service_name, namespace, port: service_port }
-            },
+            }
             DiscoveryMode::Tailscale { local_cluster, remote_clusters } => {
                 info!(
                     local_cluster = %local_cluster,
@@ -151,7 +146,7 @@ impl WebhookClient {
                 );
 
                 InternalDiscoveryMode::Tailscale { local_cluster, remote_clusters }
-            },
+            }
         };
 
         Ok(Self {
@@ -161,38 +156,6 @@ impl WebhookClient {
             endpoint_cache: Arc::new(RwLock::new(None)),
             cache_ttl_seconds,
         })
-    }
-
-    /// Create a new webhook client (legacy, for backward compatibility)
-    ///
-    /// # Arguments
-    ///
-    /// * `server_endpoints` - List of server URLs to send webhooks to
-    /// * `management_identity` - Management identity for signing webhook JWTs
-    /// * `timeout_ms` - Request timeout in milliseconds (default: 5000)
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use std::sync::Arc;
-    /// use inferadb_management_core::{WebhookClient, ManagementIdentity};
-    ///
-    /// let identity = Arc::new(ManagementIdentity::generate("mgmt-1".to_string(), "key-1".to_string()));
-    /// let endpoints = vec!["http://server1:8080".to_string(), "http://server2:8080".to_string()];
-    /// let client = WebhookClient::new(endpoints, identity, 5000).unwrap();
-    /// ```
-    pub fn new(
-        server_endpoints: Vec<String>,
-        management_identity: Arc<ManagementIdentity>,
-        timeout_ms: u64,
-    ) -> Result<Self, String> {
-        Self::new_with_discovery(
-            server_endpoints,
-            management_identity,
-            timeout_ms,
-            DiscoveryMode::None,
-            300,
-        )
     }
 
     /// Get endpoints (with discovery and caching)
@@ -996,8 +959,13 @@ mod tests {
     async fn test_webhook_client_creation() {
         let identity =
             Arc::new(ManagementIdentity::generate("test-mgmt".to_string(), "test-key".to_string()));
-        let endpoints = vec!["http://localhost:8080".to_string()];
-        let client = WebhookClient::new(endpoints, identity, 5000);
+        let client = WebhookClient::new(
+            "http://localhost:8080".to_string(),
+            identity,
+            5000,
+            DiscoveryMode::None,
+            300,
+        );
         assert!(client.is_ok());
     }
 
@@ -1005,11 +973,10 @@ mod tests {
     async fn test_webhook_client_creation_with_discovery() {
         let identity =
             Arc::new(ManagementIdentity::generate("test-mgmt".to_string(), "test-key".to_string()));
-        let endpoints = vec!["http://localhost:8080".to_string()];
 
         // Test with DiscoveryMode::None
-        let client = WebhookClient::new_with_discovery(
-            endpoints.clone(),
+        let client = WebhookClient::new(
+            "http://localhost:8080".to_string(),
             identity.clone(),
             5000,
             DiscoveryMode::None,
@@ -1018,8 +985,8 @@ mod tests {
         assert!(client.is_ok());
 
         // Test with DiscoveryMode::Kubernetes
-        let client = WebhookClient::new_with_discovery(
-            vec!["http://inferadb-server:8080".to_string()],
+        let client = WebhookClient::new(
+            "http://inferadb-server:8080".to_string(),
             identity,
             5000,
             DiscoveryMode::Kubernetes,
@@ -1060,10 +1027,9 @@ mod tests {
     async fn test_get_endpoints_caching() {
         let identity =
             Arc::new(ManagementIdentity::generate("test-mgmt".to_string(), "test-key".to_string()));
-        let endpoints = vec!["http://server1:8080".to_string(), "http://server2:8080".to_string()];
 
-        let client = WebhookClient::new_with_discovery(
-            endpoints.clone(),
+        let client = WebhookClient::new(
+            "http://server1:8080".to_string(),
             identity,
             5000,
             DiscoveryMode::None,
@@ -1073,25 +1039,21 @@ mod tests {
 
         // First call should cache
         let result1 = client.get_endpoints().await;
-        assert_eq!(result1, endpoints);
+        assert_eq!(result1, vec!["http://server1:8080".to_string()]);
 
         // Second call should use cache (same result)
         let result2 = client.get_endpoints().await;
-        assert_eq!(result2, endpoints);
+        assert_eq!(result2, vec!["http://server1:8080".to_string()]);
     }
 
     #[tokio::test]
     async fn test_endpoint_count() {
         let identity =
             Arc::new(ManagementIdentity::generate("test-mgmt".to_string(), "test-key".to_string()));
-        let endpoints = vec![
-            "http://server1:8080".to_string(),
-            "http://server2:8080".to_string(),
-            "http://server3:8080".to_string(),
-        ];
 
-        let client = WebhookClient::new_with_discovery(
-            endpoints.clone(),
+        // With static discovery, we get a single endpoint
+        let client = WebhookClient::new(
+            "http://server1:8080".to_string(),
             identity,
             5000,
             DiscoveryMode::None,
@@ -1099,7 +1061,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(client.endpoint_count().await, 3);
+        assert_eq!(client.endpoint_count().await, 1);
     }
 
     #[tokio::test]
@@ -1108,8 +1070,8 @@ mod tests {
             Arc::new(ManagementIdentity::generate("test-mgmt".to_string(), "test-key".to_string()));
 
         // Simple service name
-        let client = WebhookClient::new_with_discovery(
-            vec!["http://inferadb-server:8080".to_string()],
+        let client = WebhookClient::new(
+            "http://inferadb-server:8080".to_string(),
             identity.clone(),
             5000,
             DiscoveryMode::Kubernetes,
@@ -1118,8 +1080,8 @@ mod tests {
         assert!(client.is_ok());
 
         // Service with namespace
-        let client = WebhookClient::new_with_discovery(
-            vec!["http://inferadb-server.default:8080".to_string()],
+        let client = WebhookClient::new(
+            "http://inferadb-server.default:8080".to_string(),
             identity.clone(),
             5000,
             DiscoveryMode::Kubernetes,
@@ -1128,30 +1090,13 @@ mod tests {
         assert!(client.is_ok());
 
         // Full FQDN
-        let client = WebhookClient::new_with_discovery(
-            vec!["http://inferadb-server.default.svc.cluster.local:8080".to_string()],
+        let client = WebhookClient::new(
+            "http://inferadb-server.default.svc.cluster.local:8080".to_string(),
             identity,
             5000,
             DiscoveryMode::Kubernetes,
             300,
         );
         assert!(client.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_kubernetes_discovery_mode_empty_endpoints() {
-        let identity =
-            Arc::new(ManagementIdentity::generate("test-mgmt".to_string(), "test-key".to_string()));
-
-        let client = WebhookClient::new_with_discovery(
-            vec![],
-            identity,
-            5000,
-            DiscoveryMode::Kubernetes,
-            300,
-        );
-
-        assert!(client.is_err());
-        assert!(client.unwrap_err().contains("requires at least one service URL"));
     }
 }

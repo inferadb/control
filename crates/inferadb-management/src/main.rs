@@ -4,12 +4,13 @@ use anyhow::Result;
 use clap::Parser;
 use inferadb_management_api::ManagementIdentity;
 use inferadb_management_core::{ManagementConfig, WebhookClient, logging, startup};
+use inferadb_management_core::config::DiscoveryMode;
 use inferadb_management_grpc::ServerApiClient;
 use inferadb_management_storage::factory::{StorageConfig, create_storage_backend};
 
 #[derive(Parser, Debug)]
 #[command(name = "inferadb-management")]
-#[command(about = "InferaDB Management API - Control Plane for InferaDB", long_about = None)]
+#[command(about = "InferaDB Management Service", long_about = None)]
 struct Args {
     /// Path to configuration file
     #[arg(short, long, default_value = "config.yaml")]
@@ -34,6 +35,11 @@ async fn main() -> Result<()> {
         .expect("Failed to install rustls crypto provider");
 
     let args = Args::parse();
+
+    // Clear terminal in development mode when running interactively
+    if args.environment != "production" && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        print!("\x1B[2J\x1B[1;1H");
+    }
 
     // Load configuration
     let config = ManagementConfig::load(&args.config)?;
@@ -65,7 +71,7 @@ async fn main() -> Result<()> {
     let use_json = args.json_logs || args.environment == "production";
     if !use_json {
         // Create the private key entry based on whether it's configured
-        let private_key_entry = if let Some(ref pem) = config.management_identity.private_key_pem {
+        let private_key_entry = if let Some(ref pem) = config.identity.private_key_pem {
             startup::ConfigEntry::new(
                 "Identity",
                 "Private Key",
@@ -75,31 +81,39 @@ async fn main() -> Result<()> {
             startup::ConfigEntry::warning("Identity", "Private Key", "○ Unassigned")
         };
 
+        // Create discovery mode entry
+        let discovery_entry = match config.discovery.mode {
+            DiscoveryMode::None => {
+                startup::ConfigEntry::warning("Network", "Service Discovery", "○ Disabled")
+            }
+            DiscoveryMode::Kubernetes | DiscoveryMode::Tailscale { .. } => {
+                startup::ConfigEntry::new("Network", "Service Discovery", "✓ Enabled")
+            }
+        };
+
         startup::StartupDisplay::new(startup::ServiceInfo {
             name: "InferaDB",
-            subtext: "Management API Server",
+            subtext: "Management Service",
             version: env!("CARGO_PKG_VERSION"),
             environment: args.environment.clone(),
         })
         .entries(vec![
             // General
             startup::ConfigEntry::new("General", "Environment", &args.environment),
-            startup::ConfigEntry::new("General", "Configuration File", &config_path),
             startup::ConfigEntry::new("General", "Worker ID", config.id_generation.worker_id),
+            startup::ConfigEntry::new("General", "Configuration File", &config_path),
             // Storage
             startup::ConfigEntry::new("Storage", "Backend", &config.storage.backend),
             // Network
-            startup::ConfigEntry::new("Network", "Public API", format!("{}:{}", config.server.http_host, config.server.http_port)),
+            startup::ConfigEntry::new("Network", "Public API", format!("{}:{}", config.server.host, config.server.port)),
             startup::ConfigEntry::new("Network", "Private API", format!("{}:{}", config.server.internal_host, config.server.internal_port)),
-            startup::ConfigEntry::new("Network", "Policy API Service gRPC", &config.server_api.grpc_endpoint),
-            if config.cache_invalidation.http_endpoints.is_empty() {
-                startup::ConfigEntry::warning("Network", "Webhook Client", "○ Disabled")
-            } else {
-                startup::ConfigEntry::new("Network", "Webhook Client", "✓ Enabled")
-            },
+            startup::ConfigEntry::separator("Network"),
+            startup::ConfigEntry::new("Network", "Policy Service gRPC", &config.server_api.grpc_endpoint),
+            startup::ConfigEntry::new("Network", "Policy Service Internal", &config.cache_invalidation.server_internal_url),
+            discovery_entry,
             // Identity
-            startup::ConfigEntry::new("Identity", "Service ID", &config.management_identity.management_id),
-            startup::ConfigEntry::new("Identity", "Service KID", &config.management_identity.kid),
+            startup::ConfigEntry::new("Identity", "Service ID", &config.identity.service_id),
+            startup::ConfigEntry::new("Identity", "Service KID", &config.identity.kid),
             private_key_entry,
         ])
         .display();
@@ -109,7 +123,7 @@ async fn main() -> Result<()> {
             environment = %args.environment,
             config_file = %args.config,
             worker_id = config.id_generation.worker_id,
-            "Starting InferaDB Management API"
+            "Starting InferaDB Management Service"
         );
     }
 
@@ -124,45 +138,41 @@ async fn main() -> Result<()> {
 
     // Server API client (for gRPC communication with @server)
     let server_client = Arc::new(ServerApiClient::new(config.server_api.grpc_endpoint.clone())?);
-    startup::log_initialized("Server API client");
+    startup::log_initialized("Policy Service client");
 
     // Management API identity for webhook authentication
-    let management_identity = if let Some(ref pem) = config.management_identity.private_key_pem {
+    let management_identity = if let Some(ref pem) = config.identity.private_key_pem {
         ManagementIdentity::from_pem(
-            config.management_identity.management_id.clone(),
-            config.management_identity.kid.clone(),
+            config.identity.service_id.clone(),
+            config.identity.kid.clone(),
             pem,
         )
         .map_err(|e| anyhow::anyhow!("Failed to load Management identity from PEM: {}", e))?
     } else {
         // Generate new identity and display in formatted box
         let identity = ManagementIdentity::generate(
-            config.management_identity.management_id.clone(),
-            config.management_identity.kid.clone(),
+            config.identity.service_id.clone(),
+            config.identity.kid.clone(),
         );
         let pem = identity.to_pem();
-        startup::print_generated_keypair(&pem, "management_identity.private_key_pem");
+        startup::print_generated_keypair(&pem, "identity.private_key_pem");
         identity
     };
     let management_identity = Arc::new(management_identity);
-    startup::log_initialized("Management identity");
+    startup::log_initialized("Identity");
 
-    // Webhook client for cache invalidation (if endpoints configured)
-    let webhook_client = if !config.cache_invalidation.http_endpoints.is_empty() {
-        let client = WebhookClient::new_with_discovery(
-            config.cache_invalidation.http_endpoints.clone(),
-            Arc::clone(&management_identity),
-            config.cache_invalidation.timeout_ms,
-            config.cache_invalidation.discovery.mode.clone(),
-            config.cache_invalidation.discovery.cache_ttl_seconds,
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to create webhook client: {}", e))?;
-
-        startup::log_initialized("Webhook client");
-        Some(Arc::new(client))
-    } else {
-        None
-    };
+    // Webhook client for cache invalidation
+    // Always enabled - uses discovery mode to find server instances automatically
+    let webhook_client = WebhookClient::new(
+        config.cache_invalidation.server_internal_url.clone(),
+        Arc::clone(&management_identity),
+        config.cache_invalidation.timeout_ms,
+        config.discovery.mode.clone(),
+        config.discovery.cache_ttl_seconds,
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to create webhook client: {}", e))?;
+    startup::log_initialized("Webhook client");
+    let webhook_client = Some(Arc::new(webhook_client));
 
     // Wrap config in Arc for sharing across services
     let config = Arc::new(config);

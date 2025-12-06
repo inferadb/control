@@ -41,9 +41,9 @@ const MIN_WIDTH_FOR_TABLE: usize = 50;
 /// Service information for the startup banner
 #[derive(Debug, Clone)]
 pub struct ServiceInfo {
-    /// Service name (e.g., "InferaDB Management API")
+    /// Service name (e.g., "InferaDB")
     pub name: &'static str,
-    /// Service subtext (e.g., "Management API Server")
+    /// Service subtext (e.g., "Management API Service")
     pub subtext: &'static str,
     /// Version string
     pub version: &'static str,
@@ -61,6 +61,8 @@ pub enum ConfigEntryStyle {
     Warning,
     /// Sensitive value (masked)
     Sensitive,
+    /// Separator line (renders as horizontal divider in table)
+    Separator,
 }
 
 /// A single configuration entry for display
@@ -136,6 +138,19 @@ impl ConfigEntry {
         self.style = ConfigEntryStyle::Warning;
         self
     }
+
+    /// Create a separator entry (renders as horizontal divider in table)
+    ///
+    /// Separators visually divide groups of entries within a single category.
+    pub fn separator(category: &'static str) -> Self {
+        Self {
+            category,
+            display_name: String::new(),
+            value: String::new(),
+            sensitive: false,
+            style: ConfigEntryStyle::Separator,
+        }
+    }
 }
 
 /// Builder for creating a structured startup display
@@ -192,131 +207,77 @@ impl StartupDisplay {
     }
 
     fn print_full_banner(&self, terminal_width: usize) {
-        let (reset, bold, dim, bright_cyan, cyan) = if self.use_ansi {
-            (colors::RESET, colors::BOLD, colors::DIM, colors::BRIGHT_CYAN, colors::CYAN)
+        let (reset, bold, dim, bright_cyan) = if self.use_ansi {
+            (colors::RESET, colors::BOLD, colors::DIM, colors::BRIGHT_CYAN)
         } else {
-            ("", "", "", "", "")
+            ("", "", "", "")
         };
 
-        // Calculate box width (art width + padding + borders)
-        let inner_width = ASCII_ART_WIDTH + 4; // 2 spaces padding on each side
-        let box_width = inner_width.min(terminal_width.saturating_sub(2));
-
-        // Calculate left padding to center the box
-        let box_left_pad =
-            if terminal_width > box_width + 2 { (terminal_width - box_width - 2) / 2 } else { 0 };
-        let box_indent = " ".repeat(box_left_pad);
-
-        // Calculate padding inside the box to center the ASCII art
-        let art_left_pad =
-            if box_width > ASCII_ART_WIDTH + 2 { (box_width - ASCII_ART_WIDTH - 2) / 2 } else { 1 };
+        // Calculate left padding to center the ASCII art
+        let art_left_pad = terminal_width.saturating_sub(ASCII_ART_WIDTH) / 2;
         let art_indent = " ".repeat(art_left_pad);
 
         println!();
 
-        // Top border
-        println!("{box_indent}{cyan}╔{border}╗{reset}", border = "═".repeat(box_width));
-
-        // Empty line
-        println!(
-            "{box_indent}{cyan}║{reset}{spaces}{cyan}║{reset}",
-            spaces = " ".repeat(box_width)
-        );
-
-        // ASCII art lines
+        // ASCII art lines (centered, no border)
         for line in ASCII_ART {
-            let right_pad = box_width.saturating_sub(art_left_pad + ASCII_ART_WIDTH);
-            println!(
-                "{box_indent}{cyan}║{reset}{art_indent}{bold}{bright_cyan}{line}{reset}{right_pad}{cyan}║{reset}",
-                right_pad = " ".repeat(right_pad)
-            );
+            println!("{art_indent}{bold}{bright_cyan}{line}{reset}");
         }
 
         // Empty line
-        println!(
-            "{box_indent}{cyan}║{reset}{spaces}{cyan}║{reset}",
-            spaces = " ".repeat(box_width)
-        );
+        println!();
 
         // Subtext (centered)
         let subtext = self.service.subtext;
-        let subtext_left_pad = (box_width.saturating_sub(subtext.len())) / 2;
-        let subtext_right_pad = box_width.saturating_sub(subtext_left_pad + subtext.len());
+        let subtext_left_pad = terminal_width.saturating_sub(subtext.len()) / 2;
         println!(
-            "{box_indent}{cyan}║{reset}{left_pad}{dim}{subtext}{reset}{right_pad}{cyan}║{reset}",
-            left_pad = " ".repeat(subtext_left_pad),
-            right_pad = " ".repeat(subtext_right_pad)
+            "{left_pad}{dim}{subtext}{reset}",
+            left_pad = " ".repeat(subtext_left_pad)
         );
 
         // Version (centered)
         let version_str = format!("v{}", self.service.version);
-        let version_left_pad = (box_width.saturating_sub(version_str.len())) / 2;
-        let version_right_pad = box_width.saturating_sub(version_left_pad + version_str.len());
+        let version_left_pad = terminal_width.saturating_sub(version_str.len()) / 2;
         println!(
-            "{box_indent}{cyan}║{reset}{left_pad}{dim}{version_str}{reset}{right_pad}{cyan}║{reset}",
-            left_pad = " ".repeat(version_left_pad),
-            right_pad = " ".repeat(version_right_pad)
+            "{left_pad}{dim}{version_str}{reset}",
+            left_pad = " ".repeat(version_left_pad)
         );
-
-        // Empty line
-        println!(
-            "{box_indent}{cyan}║{reset}{spaces}{cyan}║{reset}",
-            spaces = " ".repeat(box_width)
-        );
-
-        // Bottom border
-        println!("{box_indent}{cyan}╚{border}╝{reset}", border = "═".repeat(box_width));
 
         println!();
     }
 
     fn print_compact_banner(&self, terminal_width: usize) {
-        let (reset, bold, dim, bright_cyan, cyan) = if self.use_ansi {
-            (colors::RESET, colors::BOLD, colors::DIM, colors::BRIGHT_CYAN, colors::CYAN)
+        let (reset, bold, dim, bright_cyan) = if self.use_ansi {
+            (colors::RESET, colors::BOLD, colors::DIM, colors::BRIGHT_CYAN)
         } else {
-            ("", "", "", "", "")
+            ("", "", "", "")
         };
-
-        // Calculate box width
-        let box_width = terminal_width.saturating_sub(4).max(30);
 
         println!();
 
-        // Top border
-        println!("{cyan}╔{border}╗{reset}", border = "═".repeat(box_width));
-
-        // Title line with decorative elements
+        // Title line with decorative elements (centered, no border)
         let title = "▀▀▀ INFERADB ▀▀▀";
-        let title_left_pad = (box_width.saturating_sub(title.len())) / 2;
-        let title_right_pad = box_width.saturating_sub(title_left_pad + title.len());
+        let title_left_pad = terminal_width.saturating_sub(title.len()) / 2;
         println!(
-            "{cyan}║{reset}{left_pad}{bold}{bright_cyan}{title}{reset}{right_pad}{cyan}║{reset}",
-            left_pad = " ".repeat(title_left_pad),
-            right_pad = " ".repeat(title_right_pad)
+            "{left_pad}{bold}{bright_cyan}{title}{reset}",
+            left_pad = " ".repeat(title_left_pad)
         );
 
         // Subtext (centered)
         let subtext = self.service.subtext;
-        let subtext_left_pad = (box_width.saturating_sub(subtext.len())) / 2;
-        let subtext_right_pad = box_width.saturating_sub(subtext_left_pad + subtext.len());
+        let subtext_left_pad = terminal_width.saturating_sub(subtext.len()) / 2;
         println!(
-            "{cyan}║{reset}{left_pad}{dim}{subtext}{reset}{right_pad}{cyan}║{reset}",
-            left_pad = " ".repeat(subtext_left_pad),
-            right_pad = " ".repeat(subtext_right_pad)
+            "{left_pad}{dim}{subtext}{reset}",
+            left_pad = " ".repeat(subtext_left_pad)
         );
 
         // Version (centered)
         let version_str = format!("v{}", self.service.version);
-        let version_left_pad = (box_width.saturating_sub(version_str.len())) / 2;
-        let version_right_pad = box_width.saturating_sub(version_left_pad + version_str.len());
+        let version_left_pad = terminal_width.saturating_sub(version_str.len()) / 2;
         println!(
-            "{cyan}║{reset}{left_pad}{dim}{version_str}{reset}{right_pad}{cyan}║{reset}",
-            left_pad = " ".repeat(version_left_pad),
-            right_pad = " ".repeat(version_right_pad)
+            "{left_pad}{dim}{version_str}{reset}",
+            left_pad = " ".repeat(version_left_pad)
         );
-
-        // Bottom border
-        println!("{cyan}╚{border}╝{reset}", border = "═".repeat(box_width));
 
         println!();
     }
@@ -349,17 +310,16 @@ impl StartupDisplay {
     }
 
     fn print_config_tables(&self, categories: &[(&str, Vec<&ConfigEntry>)], terminal_width: usize) {
-        let (reset, bold, dim, cyan, green, yellow) = if self.use_ansi {
+        let (reset, dim, cyan, green, yellow) = if self.use_ansi {
             (
                 colors::RESET,
-                colors::BOLD,
                 colors::DIM,
                 colors::CYAN,
                 colors::GREEN,
                 colors::YELLOW,
             )
         } else {
-            ("", "", "", "", "", "")
+            ("", "", "", "", "")
         };
 
         for (category, entries) in categories {
@@ -367,15 +327,11 @@ impl StartupDisplay {
             println!("{dim}# {category}{reset}");
 
             // Calculate column widths for this category
-            let property_header = "Property";
-            let value_header = "Value";
-
             let max_property_len = entries
                 .iter()
                 .map(|e| e.display_name.len())
                 .max()
-                .unwrap_or(0)
-                .max(property_header.len());
+                .unwrap_or(0);
 
             // Table should fill terminal width
             // Layout: ║ Property ║ Value ║
@@ -388,7 +344,7 @@ impl StartupDisplay {
                 .saturating_sub(3) // 3 border characters (║ ║ ║)
                 .saturating_sub(4) // 4 padding spaces
                 .saturating_sub(property_col_width)
-                .max(value_header.len());
+                .max(10); // Minimum value column width
 
             // Draw top border
             println!(
@@ -397,24 +353,18 @@ impl StartupDisplay {
                 val_border = "═".repeat(value_col_width + 2)
             );
 
-            // Draw header row
-            println!(
-                "{cyan}║{reset} {bold}{prop:<prop_width$}{reset} {cyan}║{reset} {bold}{val:<val_width$}{reset} {cyan}║{reset}",
-                prop = property_header,
-                prop_width = property_col_width,
-                val = value_header,
-                val_width = value_col_width
-            );
-
-            // Draw header separator
-            println!(
-                "{cyan}╠{prop_border}╬{val_border}╣{reset}",
-                prop_border = "═".repeat(property_col_width + 2),
-                val_border = "═".repeat(value_col_width + 2)
-            );
-
             // Draw data rows
             for entry in entries {
+                // Handle separator entries
+                if entry.style == ConfigEntryStyle::Separator {
+                    println!(
+                        "{cyan}╠{prop_border}╬{val_border}╣{reset}",
+                        prop_border = "═".repeat(property_col_width + 2),
+                        val_border = "═".repeat(value_col_width + 2)
+                    );
+                    continue;
+                }
+
                 let (display_value, value_display_len) = match entry.style {
                     ConfigEntryStyle::Sensitive => {
                         (format!("{yellow}********{reset}"), 8)
@@ -459,6 +409,7 @@ impl StartupDisplay {
                             (format!("{green}{}{reset}", val), display_width)
                         }
                     }
+                    ConfigEntryStyle::Separator => unreachable!(), // Handled above
                 };
 
                 let value_padding = value_col_width.saturating_sub(value_display_len);
@@ -493,10 +444,17 @@ impl StartupDisplay {
         for (category, entries) in categories {
             println!("{dim}# {category}{reset}");
             for entry in entries {
+                // Handle separator entries
+                if entry.style == ConfigEntryStyle::Separator {
+                    println!("{dim}  ────{reset}");
+                    continue;
+                }
+
                 let display_value = match entry.style {
                     ConfigEntryStyle::Sensitive => format!("{yellow}********{reset}"),
                     ConfigEntryStyle::Warning => format!("{yellow}{}{reset}", entry.value),
                     ConfigEntryStyle::Normal => format!("{green}{}{reset}", entry.value),
+                    ConfigEntryStyle::Separator => unreachable!(), // Handled above
                 };
                 println!("  {}: {}", entry.display_name, display_value);
             }

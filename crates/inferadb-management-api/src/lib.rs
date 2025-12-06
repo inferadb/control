@@ -96,14 +96,14 @@ pub async fn serve(
     let internal_router = routes::internal_routes(state.clone());
 
     // Bind listeners
-    let public_addr = format!("{}:{}", config.server.http_host, config.server.http_port);
+    let public_addr = format!("{}:{}", config.server.host, config.server.port);
     let internal_addr = format!("{}:{}", config.server.internal_host, config.server.internal_port);
 
     let public_listener = tokio::net::TcpListener::bind(&public_addr).await?;
     let internal_listener = tokio::net::TcpListener::bind(&internal_addr).await?;
 
     // Log ready status
-    startup::log_ready("Management API Service");
+    startup::log_ready("Management Service");
 
     // Setup graceful shutdown
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel::<()>(2);

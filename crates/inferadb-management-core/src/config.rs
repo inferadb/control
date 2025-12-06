@@ -38,17 +38,17 @@ pub struct ManagementConfig {
     #[serde(default)]
     pub server_api: ServerApiConfig,
 
-    /// Management identity configuration (for webhook authentication)
-    #[serde(default = "default_management_identity")]
-    pub management_identity: ManagementIdentityConfig,
+    /// Identity configuration (for webhook authentication)
+    #[serde(default = "default_identity")]
+    pub identity: IdentityConfig,
 
     /// Cache invalidation webhook configuration
     #[serde(default = "default_cache_invalidation")]
     pub cache_invalidation: CacheInvalidationConfig,
 
-    /// Server verification configuration (for verifying Server JWTs)
-    #[serde(default = "default_server_verification")]
-    pub server_verification: ServerVerificationConfig,
+    /// Service discovery configuration
+    #[serde(default)]
+    pub discovery: DiscoveryConfig,
 
     /// Frontend base URL for email links (verification, password reset)
     /// Example: "https://app.inferadb.com" or "http://localhost:3000"
@@ -61,12 +61,12 @@ pub struct ManagementConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServerConfig {
     /// Public HTTP server host (client-facing)
-    #[serde(default = "default_http_host")]
-    pub http_host: String,
+    #[serde(default = "default_host")]
+    pub host: String,
 
     /// Public HTTP server port (client-facing)
-    #[serde(default = "default_http_port")]
-    pub http_port: u16,
+    #[serde(default = "default_port")]
+    pub port: u16,
 
     /// Internal HTTP server host (server-to-server)
     #[serde(default = "default_internal_host")]
@@ -228,10 +228,6 @@ pub struct IdGenerationConfig {
     /// Worker ID for Snowflake ID generation (0-1023)
     #[serde(default = "default_worker_id")]
     pub worker_id: u16,
-
-    /// Maximum acceptable clock skew in milliseconds
-    #[serde(default = "default_max_clock_skew_ms")]
-    pub max_clock_skew_ms: u64,
 }
 
 /// Server API configuration (for gRPC communication with @server)
@@ -245,12 +241,12 @@ pub struct ServerApiConfig {
     pub tls_enabled: bool,
 }
 
-/// Management identity configuration
+/// Identity configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ManagementIdentityConfig {
-    /// Management instance ID (unique identifier for this management instance)
-    #[serde(default = "default_management_id")]
-    pub management_id: String,
+pub struct IdentityConfig {
+    /// Service instance ID (unique identifier for this management instance)
+    #[serde(default = "default_service_id")]
+    pub service_id: String,
 
     /// Key ID for JWKS
     #[serde(default = "default_kid")]
@@ -263,10 +259,12 @@ pub struct ManagementIdentityConfig {
 /// Cache invalidation webhook configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheInvalidationConfig {
-    /// HTTP endpoints for Server API instances (for webhook calls)
-    /// Example: ["http://localhost:8080", "http://server-2:8080"]
-    #[serde(default = "default_http_endpoints")]
-    pub http_endpoints: Vec<String>,
+    /// Server internal API URL for cache invalidation webhooks
+    /// Used when discovery mode is None (development/single-instance)
+    /// When discovery is enabled (Kubernetes/Tailscale), this is used as a template
+    /// for the service URL pattern
+    #[serde(default = "default_server_internal_url")]
+    pub server_internal_url: String,
 
     /// Webhook request timeout in milliseconds
     #[serde(default = "default_webhook_timeout_ms")]
@@ -275,10 +273,6 @@ pub struct CacheInvalidationConfig {
     /// Number of retry attempts on webhook failure
     #[serde(default = "default_webhook_retry_attempts")]
     pub retry_attempts: u8,
-
-    /// Service discovery configuration
-    #[serde(default)]
-    pub discovery: DiscoveryConfig,
 }
 
 /// Service discovery configuration
@@ -347,29 +341,13 @@ pub struct RemoteCluster {
     pub port: u16,
 }
 
-/// Server verification configuration
-/// Used by Management API to verify Server JWTs for mutual authentication
-///
-/// Server verification is always enabled when the middleware is applied.
-/// Configure `server_jwks_url` to point to your server's JWKS endpoint.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerVerificationConfig {
-    /// Server JWKS URL for fetching server public keys
-    /// Example: "http://inferadb-server:8080/.well-known/jwks.json"
-    #[serde(default = "default_server_jwks_url")]
-    pub server_jwks_url: String,
-
-    /// Cache TTL for server JWKS (in seconds)
-    #[serde(default = "default_server_jwks_cache_ttl")]
-    pub cache_ttl_seconds: u64,
-}
 
 // Default value functions
-fn default_http_host() -> String {
+fn default_host() -> String {
     "127.0.0.1".to_string()
 }
 
-fn default_http_port() -> u16 {
+fn default_port() -> u16 {
     3000
 }
 
@@ -461,10 +439,6 @@ fn default_worker_id() -> u16 {
     0
 }
 
-fn default_max_clock_skew_ms() -> u64 {
-    1000 // 1 second
-}
-
 fn default_grpc_tls_enabled() -> bool {
     true
 }
@@ -481,9 +455,9 @@ fn default_jwt_audience() -> String {
     "https://api.inferadb.com/evaluate".to_string()
 }
 
-fn default_management_identity() -> ManagementIdentityConfig {
-    ManagementIdentityConfig {
-        management_id: "management-primary".to_string(),
+fn default_identity() -> IdentityConfig {
+    IdentityConfig {
+        service_id: "management-primary".to_string(),
         kid: "mgmt-2024-01".to_string(),
         private_key_pem: None, // Auto-generate on startup
     }
@@ -491,14 +465,13 @@ fn default_management_identity() -> ManagementIdentityConfig {
 
 fn default_cache_invalidation() -> CacheInvalidationConfig {
     CacheInvalidationConfig {
-        http_endpoints: vec![], // No webhooks by default
-        timeout_ms: 5000,       // 5 seconds
-        retry_attempts: 0,      // Fire-and-forget (no retries)
-        discovery: DiscoveryConfig::default(),
+        server_internal_url: default_server_internal_url(),
+        timeout_ms: 5000,  // 5 seconds
+        retry_attempts: 0, // Fire-and-forget (no retries)
     }
 }
 
-fn default_management_id() -> String {
+fn default_service_id() -> String {
     "management-primary".to_string()
 }
 
@@ -506,8 +479,8 @@ fn default_kid() -> String {
     "mgmt-2024-01".to_string()
 }
 
-fn default_http_endpoints() -> Vec<String> {
-    vec![] // Empty by default - webhooks disabled
+fn default_server_internal_url() -> String {
+    "http://localhost:9090".to_string() // Server's internal API port
 }
 
 fn default_webhook_timeout_ms() -> u64 {
@@ -530,27 +503,12 @@ fn default_discovery_health_check_interval() -> u64 {
     30 // 30 seconds
 }
 
-fn default_server_jwks_url() -> String {
-    "http://localhost:8080/.well-known/jwks.json".to_string()
-}
-
-fn default_server_jwks_cache_ttl() -> u64 {
-    300 // 5 minutes
-}
-
-fn default_server_verification() -> ServerVerificationConfig {
-    ServerVerificationConfig {
-        server_jwks_url: default_server_jwks_url(),
-        cache_ttl_seconds: default_server_jwks_cache_ttl(),
-    }
-}
-
 impl Default for ManagementConfig {
     fn default() -> Self {
         Self {
             server: ServerConfig {
-                http_host: default_http_host(),
-                http_port: default_http_port(),
+                host: default_host(),
+                port: default_port(),
                 internal_host: default_internal_host(),
                 internal_port: default_internal_port(),
                 grpc_host: default_grpc_host(),
@@ -593,17 +551,14 @@ impl Default for ManagementConfig {
                 tracing_enabled: default_tracing_enabled(),
                 otlp_endpoint: None,
             },
-            id_generation: IdGenerationConfig {
-                worker_id: default_worker_id(),
-                max_clock_skew_ms: default_max_clock_skew_ms(),
-            },
+            id_generation: IdGenerationConfig { worker_id: default_worker_id() },
             server_api: ServerApiConfig {
                 grpc_endpoint: "http://localhost:8080".to_string(),
                 tls_enabled: default_grpc_tls_enabled(),
             },
-            management_identity: default_management_identity(),
+            identity: default_identity(),
             cache_invalidation: default_cache_invalidation(),
-            server_verification: default_server_verification(),
+            discovery: DiscoveryConfig::default(),
             frontend_base_url: default_frontend_base_url(),
         }
     }
@@ -719,20 +674,20 @@ impl ManagementConfig {
             );
         }
 
-        // Validate cache_invalidation.http_endpoints format
-        for (idx, endpoint) in self.cache_invalidation.http_endpoints.iter().enumerate() {
-            if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
-                return Err(Error::Config(format!(
-                    "cache_invalidation.http_endpoints[{}] must start with http:// or https://, got: {}",
-                    idx, endpoint
-                )));
-            }
-            if endpoint.ends_with('/') {
-                return Err(Error::Config(format!(
-                    "cache_invalidation.http_endpoints[{}] must not end with trailing slash: {}",
-                    idx, endpoint
-                )));
-            }
+        // Validate cache_invalidation.server_internal_url format
+        if !self.cache_invalidation.server_internal_url.starts_with("http://")
+            && !self.cache_invalidation.server_internal_url.starts_with("https://")
+        {
+            return Err(Error::Config(format!(
+                "cache_invalidation.server_internal_url must start with http:// or https://, got: {}",
+                self.cache_invalidation.server_internal_url
+            )));
+        }
+        if self.cache_invalidation.server_internal_url.ends_with('/') {
+            return Err(Error::Config(format!(
+                "cache_invalidation.server_internal_url must not end with trailing slash: {}",
+                self.cache_invalidation.server_internal_url
+            )));
         }
 
         // Validate cache_invalidation.timeout_ms is reasonable
@@ -780,14 +735,12 @@ impl ManagementConfig {
             );
         }
 
-        // Validate management_identity configuration
-        if self.management_identity.management_id.is_empty() {
-            return Err(Error::Config(
-                "management_identity.management_id cannot be empty".to_string(),
-            ));
+        // Validate identity configuration
+        if self.identity.service_id.is_empty() {
+            return Err(Error::Config("identity.service_id cannot be empty".to_string()));
         }
-        if self.management_identity.kid.is_empty() {
-            return Err(Error::Config("management_identity.kid cannot be empty".to_string()));
+        if self.identity.kid.is_empty() {
+            return Err(Error::Config("identity.kid cannot be empty".to_string()));
         }
 
         Ok(())
@@ -800,8 +753,8 @@ mod tests {
 
     #[test]
     fn test_config_defaults() {
-        assert_eq!(default_http_host(), "127.0.0.1");
-        assert_eq!(default_http_port(), 3000);
+        assert_eq!(default_host(), "127.0.0.1");
+        assert_eq!(default_port(), 3000);
         assert_eq!(default_grpc_port(), 3001);
         assert_eq!(default_storage_backend(), "memory");
         assert_eq!(default_password_min_length(), 12);
@@ -812,8 +765,8 @@ mod tests {
     fn test_worker_id_validation() {
         let mut config = ManagementConfig {
             server: ServerConfig {
-                http_host: default_http_host(),
-                http_port: default_http_port(),
+                host: default_host(),
+                port: default_port(),
                 internal_host: default_internal_host(),
                 internal_port: default_internal_port(),
                 grpc_host: default_grpc_host(),
@@ -856,17 +809,14 @@ mod tests {
                 tracing_enabled: default_tracing_enabled(),
                 otlp_endpoint: None,
             },
-            id_generation: IdGenerationConfig {
-                worker_id: 0,
-                max_clock_skew_ms: default_max_clock_skew_ms(),
-            },
+            id_generation: IdGenerationConfig { worker_id: 0 },
             server_api: ServerApiConfig {
                 grpc_endpoint: "http://localhost:8080".to_string(),
                 tls_enabled: false,
             },
-            management_identity: default_management_identity(),
+            identity: default_identity(),
             cache_invalidation: default_cache_invalidation(),
-            server_verification: default_server_verification(),
+            discovery: DiscoveryConfig::default(),
             frontend_base_url: default_frontend_base_url(),
         };
 
@@ -882,8 +832,8 @@ mod tests {
     fn test_storage_backend_validation() {
         let mut config = ManagementConfig {
             server: ServerConfig {
-                http_host: default_http_host(),
-                http_port: default_http_port(),
+                host: default_host(),
+                port: default_port(),
                 internal_host: default_internal_host(),
                 internal_port: default_internal_port(),
                 grpc_host: default_grpc_host(),
@@ -926,17 +876,14 @@ mod tests {
                 tracing_enabled: default_tracing_enabled(),
                 otlp_endpoint: None,
             },
-            id_generation: IdGenerationConfig {
-                worker_id: 0,
-                max_clock_skew_ms: default_max_clock_skew_ms(),
-            },
+            id_generation: IdGenerationConfig { worker_id: 0 },
             server_api: ServerApiConfig {
                 grpc_endpoint: "http://localhost:8080".to_string(),
                 tls_enabled: false,
             },
-            management_identity: default_management_identity(),
+            identity: default_identity(),
             cache_invalidation: default_cache_invalidation(),
-            server_verification: default_server_verification(),
+            discovery: DiscoveryConfig::default(),
             frontend_base_url: default_frontend_base_url(),
         };
 

@@ -4,8 +4,8 @@
 frontend_base_url: "http://localhost:3000"
 
 server:
-  http_host: "0.0.0.0" # Bind to all interfaces for Docker
-  http_port: 8081 # Match docker-compose exposed port
+  host: "0.0.0.0" # Bind to all interfaces for Docker
+  port: 8081 # Match docker-compose exposed port
   grpc_host: "0.0.0.0"
   grpc_port: 8082
   worker_threads: 2 # Reduced for test environment
@@ -44,27 +44,22 @@ observability:
 
 id_generation:
   worker_id: 0
-  max_clock_skew_ms: 5000
 
 server_api:
   grpc_endpoint: "http://server:8080" # Docker service name
   tls_enabled: false
 
-management_identity:
-  management_id: "management-integration-test"
+identity:
+  service_id: "management-integration-test"
   kid: "mgmt-test-2024"
 
 cache_invalidation:
-  http_endpoints:
-    - "http://inferadb-server.inferadb:9090"
+  server_internal_url: "http://inferadb-server.inferadb:9090"
   timeout_ms: 5000
   retry_attempts: 0
-  # Kubernetes discovery for pod-level cache invalidation
-  discovery:
-    mode:
-      type: kubernetes
-    cache_ttl_seconds: 30
 
-server_verification:
-  server_jwks_url: "http://localhost:9090/.well-known/jwks.json" # Default for Docker Compose
-  cache_ttl_seconds: 300
+# Kubernetes discovery for pod-level cache invalidation
+discovery:
+  mode:
+    type: kubernetes
+  cache_ttl_seconds: 30

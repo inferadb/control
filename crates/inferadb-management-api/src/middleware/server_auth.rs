@@ -139,11 +139,16 @@ pub async fn require_server_jwt(
 
     let kid = header.kid.ok_or_else(|| CoreError::Auth("JWT missing kid claim".to_string()))?;
 
-    // Get server JWKS URL from config
-    let server_jwks_url = &state.config.server_verification.server_jwks_url;
+    // Derive server JWKS URL from server_api.grpc_endpoint
+    // The JWKS endpoint is at /.well-known/jwks.json on the server's internal port
+    // server_api.grpc_endpoint typically points to the server's internal port
+    let server_jwks_url = format!(
+        "{}/.well-known/jwks.json",
+        state.config.server_api.grpc_endpoint.trim_end_matches('/')
+    );
 
     // Fetch JWKS and find the key
-    let jwks = JWKS_CACHE.get_or_fetch(server_jwks_url).await?;
+    let jwks = JWKS_CACHE.get_or_fetch(&server_jwks_url).await?;
 
     let jwk = jwks
         .keys

@@ -7,8 +7,8 @@ frontend_base_url: "http://localhost:3000"
 
 server:
   # Public server (client-facing traffic - web, CLI, SDK)
-  http_host: "127.0.0.1"
-  http_port: 3000
+  host: "127.0.0.1"
+  port: 3000
 
   # Internal server (server-to-server communication)
   # Always enabled for network-level security isolation
@@ -63,7 +63,6 @@ observability:
 
 id_generation:
   worker_id: 0
-  max_clock_skew_ms: 1000
 
 server_api:
   grpc_endpoint: "http://localhost:8080"
