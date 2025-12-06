@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use inferadb_management_core::ManagementConfig;
+use inferadb_management_core::{ManagementConfig, startup};
 use inferadb_management_grpc::ServerApiClient;
 use inferadb_management_storage::Backend;
 use tracing::info;
@@ -91,14 +91,6 @@ pub async fn serve(
 
     let state = builder.build();
 
-    info!(
-        "Starting dual-server mode - Public: {}:{}, Internal: {}:{}",
-        config.server.http_host,
-        config.server.http_port,
-        config.server.internal_host,
-        config.server.internal_port
-    );
-
     // Create routers for both servers
     let public_router = routes::public_routes(state.clone());
     let internal_router = routes::internal_routes(state.clone());
@@ -107,11 +99,11 @@ pub async fn serve(
     let public_addr = format!("{}:{}", config.server.http_host, config.server.http_port);
     let internal_addr = format!("{}:{}", config.server.internal_host, config.server.internal_port);
 
-    info!("Binding public server to {}", public_addr);
     let public_listener = tokio::net::TcpListener::bind(&public_addr).await?;
-
-    info!("Binding internal server to {}", internal_addr);
     let internal_listener = tokio::net::TcpListener::bind(&internal_addr).await?;
+
+    // Log ready status
+    startup::log_ready("Management API Service");
 
     // Setup graceful shutdown
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel::<()>(2);
@@ -122,9 +114,6 @@ pub async fn serve(
         shutdown_signal().await;
         let _ = shutdown_tx.send(());
     });
-
-    // Start both servers concurrently
-    info!("Starting public and internal servers concurrently");
     tokio::try_join!(
         async {
             axum::serve(public_listener, public_router)

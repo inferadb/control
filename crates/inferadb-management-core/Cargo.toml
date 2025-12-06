@@ -24,6 +24,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 terminal_size = { workspace = true }
+unicode-width = { workspace = true }
 
 # Configuration
 config = { workspace = true }

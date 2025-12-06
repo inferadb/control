@@ -63,7 +63,7 @@ impl Default for LogConfig {
         Self {
             format: LogFormat::default(),
             include_location: cfg!(debug_assertions),
-            include_target: true,
+            include_target: false,
             include_thread_id: false,
             log_spans: cfg!(debug_assertions),
             ansi: None, // Auto-detect
@@ -206,7 +206,7 @@ pub fn init(config: &ObservabilityConfig, json: bool) {
         format: if json { LogFormat::Json } else { LogFormat::Full },
         filter: Some(config.log_level.clone()),
         include_location: false,
-        include_target: true,
+        include_target: json, // Include target only in JSON mode for log aggregation
         include_thread_id: json, // Include thread info in JSON mode
         log_spans: false,
         ansi: None, // Auto-detect
@@ -247,7 +247,7 @@ pub fn init_with_tracing(
 
     // Build the base logging layer
     let fmt_layer = if json {
-        // Production: JSON structured logging
+        // Production: JSON structured logging (include target for log aggregation)
         fmt::layer()
             .json()
             .with_target(true)
@@ -258,8 +258,8 @@ pub fn init_with_tracing(
             .with_filter(env_filter.clone())
             .boxed()
     } else {
-        // Development: Standard format (matches server default)
-        fmt::layer().with_target(true).with_filter(env_filter.clone()).boxed()
+        // Development: Standard format without target (cleaner output)
+        fmt::layer().with_target(false).with_filter(env_filter.clone()).boxed()
     };
 
     let subscriber = tracing_subscriber::registry().with(fmt_layer);
@@ -334,7 +334,7 @@ mod tests {
     fn test_log_config_default() {
         let config = LogConfig::default();
         assert_eq!(config.format, LogFormat::default());
-        assert!(config.include_target);
+        assert!(!config.include_target);
         assert!(!config.include_thread_id);
         assert!(config.ansi.is_none()); // Auto-detect
     }

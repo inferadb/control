@@ -56,9 +56,25 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
+    // Get full path of configuration file
+    let config_path = std::fs::canonicalize(&args.config)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| args.config.clone());
+
     // Display startup banner and configuration summary
     let use_json = args.json_logs || args.environment == "production";
     if !use_json {
+        // Create the private key entry based on whether it's configured
+        let private_key_entry = if let Some(ref pem) = config.management_identity.private_key_pem {
+            startup::ConfigEntry::new(
+                "Identity",
+                "Private Key",
+                startup::private_key_hint(pem),
+            )
+        } else {
+            startup::ConfigEntry::warning("Identity", "Private Key", "○ Unassigned")
+        };
+
         startup::StartupDisplay::new(startup::ServiceInfo {
             name: "InferaDB",
             subtext: "Management API Server",
@@ -66,31 +82,25 @@ async fn main() -> Result<()> {
             environment: args.environment.clone(),
         })
         .entries(vec![
-            startup::ConfigEntry::new("General", "environment", &args.environment),
-            startup::ConfigEntry::new("General", "config_file", &args.config),
-            startup::ConfigEntry::new("General", "worker_id", config.id_generation.worker_id),
-            startup::ConfigEntry::new("Storage", "backend", &config.storage.backend),
-            startup::ConfigEntry::new(
-                "Server API",
-                "grpc_endpoint",
-                &config.server_api.grpc_endpoint,
-            ),
-            startup::ConfigEntry::new(
-                "Identity",
-                "management_id",
-                &config.management_identity.management_id,
-            ),
-            startup::ConfigEntry::new("Identity", "kid", &config.management_identity.kid),
-            startup::ConfigEntry::new(
-                "Observability",
-                "log_level",
-                &config.observability.log_level,
-            ),
-            startup::ConfigEntry::new(
-                "Observability",
-                "metrics_enabled",
-                config.observability.metrics_enabled,
-            ),
+            // General
+            startup::ConfigEntry::new("General", "Environment", &args.environment),
+            startup::ConfigEntry::new("General", "Configuration File", &config_path),
+            startup::ConfigEntry::new("General", "Worker ID", config.id_generation.worker_id),
+            // Storage
+            startup::ConfigEntry::new("Storage", "Backend", &config.storage.backend),
+            // Network
+            startup::ConfigEntry::new("Network", "Public API", format!("{}:{}", config.server.http_host, config.server.http_port)),
+            startup::ConfigEntry::new("Network", "Private API", format!("{}:{}", config.server.internal_host, config.server.internal_port)),
+            startup::ConfigEntry::new("Network", "Policy API Service gRPC", &config.server_api.grpc_endpoint),
+            if config.cache_invalidation.http_endpoints.is_empty() {
+                startup::ConfigEntry::warning("Network", "Webhook Client", "○ Disabled")
+            } else {
+                startup::ConfigEntry::new("Network", "Webhook Client", "✓ Enabled")
+            },
+            // Identity
+            startup::ConfigEntry::new("Identity", "Service ID", &config.management_identity.management_id),
+            startup::ConfigEntry::new("Identity", "Service KID", &config.management_identity.kid),
+            private_key_entry,
         ])
         .display();
     } else {
@@ -102,9 +112,6 @@ async fn main() -> Result<()> {
             "Starting InferaDB Management API"
         );
     }
-
-    // ━━━ Initialize Components ━━━
-    startup::log_phase("Initializing Components");
 
     // Storage backend
     let storage_config = match config.storage.backend.as_str() {
@@ -128,20 +135,13 @@ async fn main() -> Result<()> {
         )
         .map_err(|e| anyhow::anyhow!("Failed to load Management identity from PEM: {}", e))?
     } else {
+        // Generate new identity and display in formatted box
         let identity = ManagementIdentity::generate(
             config.management_identity.management_id.clone(),
             config.management_identity.kid.clone(),
         );
-
-        // Log the generated PEM for persistence (in production, save this to config)
         let pem = identity.to_pem();
-        tracing::warn!(
-            "Generated new Ed25519 keypair for Management identity. \
-             To persist this identity across restarts, add this to your config:\n\
-             management_identity:\n  private_key_pem: |\n{}",
-            pem.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n")
-        );
-
+        startup::print_generated_keypair(&pem, "management_identity.private_key_pem");
         identity
     };
     let management_identity = Arc::new(management_identity);
@@ -161,15 +161,12 @@ async fn main() -> Result<()> {
         startup::log_initialized("Webhook client");
         Some(Arc::new(client))
     } else {
-        startup::log_skipped("Webhook client", "no http_endpoints configured");
         None
     };
 
     // Wrap config in Arc for sharing across services
     let config = Arc::new(config);
 
-    // ━━━ Start Server ━━━
-    startup::log_phase("Starting Server");
     inferadb_management_api::serve(
         storage.clone(),
         config.clone(),
