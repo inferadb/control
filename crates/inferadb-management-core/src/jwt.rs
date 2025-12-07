@@ -9,6 +9,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::crypto::PrivateKeyEncryptor;
 
+/// Required JWT audience for InferaDB Server API
+///
+/// Per RFC 8725 (JWT Best Current Practices), the audience claim identifies
+/// the intended recipient of the token - in this case, the InferaDB Server API.
+///
+/// This is intentionally NOT an endpoint path (like `/evaluate`) because:
+/// - The `aud` claim identifies the SERVICE, not a specific endpoint
+/// - A single token should be valid for all Server API endpoints
+/// - Endpoint-specific authorization is handled by scopes, not audience
+///
+/// This value MUST match the server's REQUIRED_AUDIENCE constant in:
+/// `inferadb_auth::validation::REQUIRED_AUDIENCE`
+pub const REQUIRED_AUDIENCE: &str = "https://api.inferadb.com";
+
 /// JWT claims for vault-scoped access tokens
 ///
 /// These tokens allow a client to access a specific vault with a specific role.
@@ -19,7 +33,7 @@ pub struct VaultTokenClaims {
     pub iss: String,
     /// Subject: Format "client:<client_id>" for service accounts
     pub sub: String,
-    /// Audience: Server API evaluation endpoint
+    /// Audience: InferaDB Server API (hardcoded to REQUIRED_AUDIENCE)
     pub aud: String,
     /// Expiration time (Unix timestamp)
     pub exp: i64,

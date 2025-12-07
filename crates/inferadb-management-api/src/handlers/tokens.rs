@@ -6,6 +6,7 @@ use axum::{
 use inferadb_management_core::{
     IdGenerator, JwtSigner, PrivateKeyEncryptor, RepositoryContext, VaultTokenClaims,
     error::Error as CoreError,
+    REQUIRED_AUDIENCE,
 };
 use inferadb_management_types::{
     dto::{
@@ -148,7 +149,7 @@ pub async fn generate_vault_token(
         vault_role,
         access_ttl,
         &state.config.auth.jwt_issuer,
-        &state.config.auth.jwt_audience,
+        REQUIRED_AUDIENCE, // Hardcoded audience for InferaDB Server API
     );
 
     // Sign the access token
@@ -293,7 +294,7 @@ pub async fn refresh_vault_token(
         old_token.vault_role,
         access_ttl,
         &state.config.auth.jwt_issuer,
-        &state.config.auth.jwt_audience,
+        REQUIRED_AUDIENCE, // Hardcoded audience for InferaDB Server API
     );
 
     let access_token = signer.sign_vault_token(&claims, &certificate)?;
@@ -567,7 +568,7 @@ pub async fn client_assertion_authenticate(
         requested_role,
         access_ttl,
         &state.config.auth.jwt_issuer,
-        &state.config.auth.jwt_audience,
+        REQUIRED_AUDIENCE, // Hardcoded audience for InferaDB Server API
     );
 
     let access_token = signer.sign_vault_token(&vault_claims, &certificate)?;

@@ -281,7 +281,10 @@ Controls user authentication, sessions, and security.
 | `max_sessions_per_user` | integer           | `10`                                  | Maximum concurrent sessions per user       |
 | `key_encryption_secret` | string (optional) | `null`                                | Secret for encrypting private keys at rest |
 | `jwt_issuer`            | string            | `"https://api.inferadb.com"`          | JWT issuer URL                             |
-| `jwt_audience`          | string            | `"https://api.inferadb.com/evaluate"` | JWT audience URL                           |
+
+> **Note**: The JWT audience is hardcoded to `https://api.inferadb.com` per RFC 8725 best practices.
+> The audience identifies the InferaDB Server API as the intended recipient, not a specific endpoint.
+> This value is not configurable and must match the server's `REQUIRED_AUDIENCE` constant.
 
 ### WebAuthn Configuration
 
@@ -319,7 +322,7 @@ auth:
   max_sessions_per_user: 10
   key_encryption_secret: "${KEY_ENCRYPTION_SECRET}"
   jwt_issuer: "https://api.inferadb.com"
-  jwt_audience: "https://api.inferadb.com/evaluate"
+  # Note: jwt_audience is hardcoded to https://api.inferadb.com (not configurable)
   webauthn:
     rp_id: "inferadb.com"
     rp_name: "InferaDB"
@@ -817,7 +820,7 @@ auth:
   max_sessions_per_user: 10
   key_encryption_secret: "${KEY_ENCRYPTION_SECRET}"
   jwt_issuer: "https://api.inferadb.com"
-  jwt_audience: "https://api.inferadb.com/evaluate"
+  # Note: jwt_audience is hardcoded to https://api.inferadb.com (not configurable)
   webauthn:
     rp_id: "inferadb.com"
     rp_name: "InferaDB"

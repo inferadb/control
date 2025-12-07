@@ -136,13 +136,8 @@ pub struct AuthConfig {
     /// Environment variable: INFERADB_MGMT__AUTH__JWT_ISSUER
     #[serde(default = "default_jwt_issuer")]
     pub jwt_issuer: String,
-
-    /// JWT audience URL (the Server API)
-    /// Used in vault-scoped JWTs issued to clients
-    /// Example: "https://api.inferadb.com/evaluate" or "http://localhost:8080/evaluate"
-    /// Environment variable: INFERADB_MGMT__AUTH__JWT_AUDIENCE
-    #[serde(default = "default_jwt_audience")]
-    pub jwt_audience: String,
+    // Note: JWT audience is now hardcoded in jwt.rs as REQUIRED_AUDIENCE
+    // to ensure consistency with the Server API and follow RFC 8725 best practices
 }
 
 /// WebAuthn configuration
@@ -491,10 +486,6 @@ fn default_jwt_issuer() -> String {
     "https://api.inferadb.com".to_string()
 }
 
-fn default_jwt_audience() -> String {
-    "https://api.inferadb.com/evaluate".to_string()
-}
-
 impl Default for IdentityConfig {
     fn default() -> Self {
         Self { service_id: default_service_id(), kid: default_kid(), private_key_pem: None }
@@ -555,7 +546,6 @@ impl Default for ManagementConfig {
                 },
                 key_encryption_secret: None,
                 jwt_issuer: default_jwt_issuer(),
-                jwt_audience: default_jwt_audience(),
             },
             email: EmailConfig {
                 smtp_host: "localhost".to_string(),
