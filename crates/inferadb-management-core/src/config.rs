@@ -129,15 +129,9 @@ pub struct AuthConfig {
     /// Key encryption secret for encrypting private keys at rest
     /// Should be set via environment variable INFERADB_MGMT_KEY_ENCRYPTION_SECRET
     pub key_encryption_secret: Option<String>,
-
-    /// JWT issuer URL (this Management API instance)
-    /// Used in vault-scoped JWTs issued to clients
-    /// Example: "https://api.inferadb.com" or "http://localhost:8081"
-    /// Environment variable: INFERADB_MGMT__AUTH__JWT_ISSUER
-    #[serde(default = "default_jwt_issuer")]
-    pub jwt_issuer: String,
-    // Note: JWT audience is now hardcoded in jwt.rs as REQUIRED_AUDIENCE
-    // to ensure consistency with the Server API and follow RFC 8725 best practices
+    // Note: JWT issuer and audience are now hardcoded in jwt.rs as REQUIRED_ISSUER
+    // and REQUIRED_AUDIENCE to ensure consistency with the Server API and follow
+    // RFC 8725 best practices.
 }
 
 /// WebAuthn configuration
@@ -476,10 +470,6 @@ fn default_frontend_base_url() -> String {
     "http://localhost:3000".to_string()
 }
 
-fn default_jwt_issuer() -> String {
-    "https://api.inferadb.com".to_string()
-}
-
 fn default_webhook_timeout_ms() -> u64 {
     5000 // 5 seconds
 }
@@ -525,7 +515,6 @@ impl Default for ManagementConfig {
                     origin: "http://localhost:3000".to_string(),
                 },
                 key_encryption_secret: None,
-                jwt_issuer: default_jwt_issuer(),
             },
             email: EmailConfig {
                 smtp_host: "localhost".to_string(),

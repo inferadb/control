@@ -9,6 +9,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::crypto::PrivateKeyEncryptor;
 
+/// Required JWT issuer for vault tokens
+///
+/// Per RFC 8725 (JWT Best Current Practices), the issuer claim identifies
+/// the entity that issued the token - in this case, the InferaDB Management API.
+///
+/// This value is hardcoded since we own the entire experience end-to-end.
+/// The server uses this issuer to identify tokens issued by the Management API.
+pub const REQUIRED_ISSUER: &str = "https://api.inferadb.com";
+
 /// Required JWT audience for InferaDB Server API
 ///
 /// Per RFC 8725 (JWT Best Current Practices), the audience claim identifies
@@ -58,16 +67,15 @@ impl VaultTokenClaims {
     /// * `vault_id` - Vault ID (Snowflake ID)
     /// * `vault_role` - Role granted to this token
     /// * `ttl_seconds` - Time to live in seconds (default: 300 = 5 minutes)
-    /// * `issuer` - JWT issuer URL (Management API)
-    /// * `audience` - JWT audience URL (Server API)
+    ///
+    /// Note: issuer and audience are hardcoded to REQUIRED_ISSUER and REQUIRED_AUDIENCE
+    /// since we own the entire experience end-to-end.
     pub fn new(
         organization_id: i64,
         client_id: i64,
         vault_id: i64,
         vault_role: VaultRole,
         ttl_seconds: i64,
-        issuer: impl Into<String>,
-        audience: impl Into<String>,
     ) -> Self {
         let now = Utc::now();
         let exp = now + Duration::seconds(ttl_seconds);
@@ -92,9 +100,9 @@ impl VaultTokenClaims {
         };
 
         Self {
-            iss: issuer.into(),
+            iss: REQUIRED_ISSUER.to_string(),
             sub: format!("client:{}", client_id),
-            aud: audience.into(),
+            aud: REQUIRED_AUDIENCE.to_string(),
             exp: exp.timestamp(),
             iat: now.timestamp(),
             org_id: organization_id.to_string(),
@@ -296,19 +304,11 @@ mod tests {
 
     #[test]
     fn test_vault_token_claims_creation() {
-        let claims = VaultTokenClaims::new(
-            123,
-            789,
-            456,
-            VaultRole::Reader,
-            3600,
-            "https://api.inferadb.com",
-            "https://api.inferadb.com/evaluate",
-        );
+        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
 
-        assert_eq!(claims.iss, "https://api.inferadb.com");
+        assert_eq!(claims.iss, REQUIRED_ISSUER);
         assert_eq!(claims.sub, "client:789");
-        assert_eq!(claims.aud, "https://api.inferadb.com/evaluate");
+        assert_eq!(claims.aud, REQUIRED_AUDIENCE);
         assert_eq!(claims.org_id, "123");
         assert_eq!(claims.vault_id, "456");
         assert_eq!(claims.vault_role, "read");
@@ -321,60 +321,28 @@ mod tests {
 
     #[test]
     fn test_vault_token_scopes() {
-        let reader = VaultTokenClaims::new(
-            1,
-            2,
-            3,
-            VaultRole::Reader,
-            3600,
-            "https://api.inferadb.com",
-            "https://api.inferadb.com/evaluate",
-        );
+        let reader = VaultTokenClaims::new(1, 2, 3, VaultRole::Reader, 3600);
         assert_eq!(
             reader.scope,
             "inferadb.check inferadb.read inferadb.expand inferadb.list inferadb.list-relationships inferadb.list-subjects inferadb.list-resources"
         );
         assert_eq!(reader.vault_role, "read");
 
-        let writer = VaultTokenClaims::new(
-            1,
-            2,
-            3,
-            VaultRole::Writer,
-            3600,
-            "https://api.inferadb.com",
-            "https://api.inferadb.com/evaluate",
-        );
+        let writer = VaultTokenClaims::new(1, 2, 3, VaultRole::Writer, 3600);
         assert_eq!(
             writer.scope,
             "inferadb.check inferadb.read inferadb.write inferadb.expand inferadb.list inferadb.list-relationships inferadb.list-subjects inferadb.list-resources"
         );
         assert_eq!(writer.vault_role, "write");
 
-        let manager = VaultTokenClaims::new(
-            1,
-            2,
-            3,
-            VaultRole::Manager,
-            3600,
-            "https://api.inferadb.com",
-            "https://api.inferadb.com/evaluate",
-        );
+        let manager = VaultTokenClaims::new(1, 2, 3, VaultRole::Manager, 3600);
         assert_eq!(
             manager.scope,
             "inferadb.check inferadb.read inferadb.write inferadb.expand inferadb.list inferadb.list-relationships inferadb.list-subjects inferadb.list-resources inferadb.vault.manage"
         );
         assert_eq!(manager.vault_role, "manage");
 
-        let admin = VaultTokenClaims::new(
-            1,
-            2,
-            3,
-            VaultRole::Admin,
-            3600,
-            "https://api.inferadb.com",
-            "https://api.inferadb.com/evaluate",
-        );
+        let admin = VaultTokenClaims::new(1, 2, 3, VaultRole::Admin, 3600);
         assert_eq!(
             admin.scope,
             "inferadb.check inferadb.read inferadb.write inferadb.expand inferadb.list inferadb.list-relationships inferadb.list-subjects inferadb.list-resources inferadb.vault.manage inferadb.admin"
@@ -385,27 +353,11 @@ mod tests {
     #[test]
     fn test_vault_token_expiration() {
         // Create an expired token (TTL = -1 second)
-        let expired = VaultTokenClaims::new(
-            1,
-            2,
-            3,
-            VaultRole::Reader,
-            -1,
-            "https://api.inferadb.com",
-            "https://api.inferadb.com/evaluate",
-        );
+        let expired = VaultTokenClaims::new(1, 2, 3, VaultRole::Reader, -1);
         assert!(expired.is_expired());
 
         // Create a valid token
-        let valid = VaultTokenClaims::new(
-            1,
-            2,
-            3,
-            VaultRole::Reader,
-            3600,
-            "https://api.inferadb.com",
-            "https://api.inferadb.com/evaluate",
-        );
+        let valid = VaultTokenClaims::new(1, 2, 3, VaultRole::Reader, 3600);
         assert!(!valid.is_expired());
     }
 
@@ -415,15 +367,7 @@ mod tests {
         let certificate = create_test_certificate(&encryptor);
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(
-            123,
-            789,
-            456,
-            VaultRole::Writer,
-            3600,
-            "https://api.inferadb.com",
-            "https://api.inferadb.com/evaluate",
-        );
+        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Writer, 3600);
 
         // Sign the token
         let token = signer.sign_vault_token(&claims, &certificate).unwrap();
@@ -445,15 +389,7 @@ mod tests {
         let certificate = create_test_certificate(&encryptor);
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(
-            123,
-            789,
-            456,
-            VaultRole::Reader,
-            3600,
-            "https://api.inferadb.com",
-            "https://api.inferadb.com/evaluate",
-        );
+        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
         let token = signer.sign_vault_token(&claims, &certificate).unwrap();
 
         // Decode header to check kid
@@ -470,15 +406,7 @@ mod tests {
         let cert2 = create_test_certificate(&encryptor); // Different certificate
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(
-            123,
-            789,
-            456,
-            VaultRole::Reader,
-            3600,
-            "https://api.inferadb.com",
-            "https://api.inferadb.com/evaluate",
-        );
+        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
         let token = signer.sign_vault_token(&claims, &cert1).unwrap();
 
         // Verification with wrong certificate should fail
@@ -488,15 +416,7 @@ mod tests {
 
     #[test]
     fn test_vault_token_datetime_conversion() {
-        let claims = VaultTokenClaims::new(
-            123,
-            789,
-            456,
-            VaultRole::Reader,
-            3600,
-            "https://api.inferadb.com",
-            "https://api.inferadb.com/evaluate",
-        );
+        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
 
         let issued_at = claims.issued_at();
         let expires_at = claims.expires_at();

@@ -32,7 +32,7 @@ pub use email::{
 };
 pub use id::{IdGenerator, WorkerRegistry};
 pub use jobs::BackgroundJobs;
-pub use jwt::{JwtSigner, REQUIRED_AUDIENCE, VaultTokenClaims};
+pub use jwt::{JwtSigner, REQUIRED_AUDIENCE, REQUIRED_ISSUER, VaultTokenClaims};
 pub use leader::LeaderElection;
 pub use ratelimit::{RateLimit, RateLimitResult, RateLimiter, categories, limits};
 pub use repository::{

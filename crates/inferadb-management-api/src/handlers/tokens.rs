@@ -4,8 +4,8 @@ use axum::{
     http::StatusCode,
 };
 use inferadb_management_core::{
-    IdGenerator, JwtSigner, PrivateKeyEncryptor, REQUIRED_AUDIENCE, RepositoryContext,
-    VaultTokenClaims, error::Error as CoreError,
+    IdGenerator, JwtSigner, PrivateKeyEncryptor, RepositoryContext, VaultTokenClaims,
+    error::Error as CoreError,
 };
 use inferadb_management_types::{
     dto::{
@@ -140,6 +140,7 @@ pub async fn generate_vault_token(
     let signer = JwtSigner::new(encryptor);
 
     // Create access token claims
+    // Note: issuer and audience are hardcoded in VaultTokenClaims::new
     let access_ttl = req.access_token_ttl.unwrap_or(300); // Default 5 minutes (per spec)
     let claims = VaultTokenClaims::new(
         org_ctx.organization_id,
@@ -147,8 +148,6 @@ pub async fn generate_vault_token(
         vault_id,
         vault_role,
         access_ttl,
-        &state.config.auth.jwt_issuer,
-        REQUIRED_AUDIENCE, // Hardcoded audience for InferaDB Server API
     );
 
     // Sign the access token
@@ -285,6 +284,7 @@ pub async fn refresh_vault_token(
     let signer = JwtSigner::new(encryptor);
 
     // Create new access token
+    // Note: issuer and audience are hardcoded in VaultTokenClaims::new
     let access_ttl = req.access_token_ttl.unwrap_or(300); // Default 5 minutes (per spec)
     let claims = VaultTokenClaims::new(
         old_token.organization_id,
@@ -292,8 +292,6 @@ pub async fn refresh_vault_token(
         old_token.vault_id,
         old_token.vault_role,
         access_ttl,
-        &state.config.auth.jwt_issuer,
-        REQUIRED_AUDIENCE, // Hardcoded audience for InferaDB Server API
     );
 
     let access_token = signer.sign_vault_token(&claims, &certificate)?;
@@ -559,6 +557,7 @@ pub async fn client_assertion_authenticate(
     let signer = JwtSigner::new(encryptor);
 
     // Generate vault-scoped JWT (5 minutes default per spec)
+    // Note: issuer and audience are hardcoded in VaultTokenClaims::new
     let access_ttl = 300;
     let vault_claims = VaultTokenClaims::new(
         client.organization_id,
@@ -566,8 +565,6 @@ pub async fn client_assertion_authenticate(
         vault_id,
         requested_role,
         access_ttl,
-        &state.config.auth.jwt_issuer,
-        REQUIRED_AUDIENCE, // Hardcoded audience for InferaDB Server API
     );
 
     let access_token = signer.sign_vault_token(&vault_claims, &certificate)?;
