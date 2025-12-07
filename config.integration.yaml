@@ -4,17 +4,14 @@
 frontend_base_url: "http://localhost:9090"
 
 server:
-  # Public REST API server
-  host: "0.0.0.0" # Bind to all interfaces for Docker
-  port: 9090
+  # Public REST API server (combined host:port)
+  public_rest: "0.0.0.0:9090"
 
   # Public gRPC API server
-  grpc_host: "0.0.0.0"
-  grpc_port: 9091
+  public_grpc: "0.0.0.0:9091"
 
   # Internal/Private REST API server
-  internal_host: "0.0.0.0"
-  internal_port: 9092
+  private_rest: "0.0.0.0:9092"
 
   worker_threads: 2 # Reduced for test environment
 

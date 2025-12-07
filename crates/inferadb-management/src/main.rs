@@ -122,21 +122,9 @@ async fn main() -> Result<()> {
             // Storage
             startup::ConfigEntry::new("Storage", "Backend", &config.storage.backend),
             // Network
-            startup::ConfigEntry::new(
-                "Network",
-                "Public API (REST)",
-                format!("{}:{}", config.server.host, config.server.port),
-            ),
-            startup::ConfigEntry::new(
-                "Network",
-                "Public API (gRPC)",
-                format!("{}:{}", config.server.grpc_host, config.server.grpc_port),
-            ),
-            startup::ConfigEntry::new(
-                "Network",
-                "Private API (REST)",
-                format!("{}:{}", config.server.internal_host, config.server.internal_port),
-            ),
+            startup::ConfigEntry::new("Network", "Public API (REST)", &config.server.public_rest),
+            startup::ConfigEntry::new("Network", "Public API (gRPC)", &config.server.public_grpc),
+            startup::ConfigEntry::new("Network", "Private API (REST)", &config.server.private_rest),
             startup::ConfigEntry::separator("Network"),
             policy_entry,
             discovery_entry,

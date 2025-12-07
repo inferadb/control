@@ -291,7 +291,7 @@ storage:
             &config_path,
             r#"
 server:
-  port: 3001
+  public_rest: "0.0.0.0:3001"
 storage:
   storage_type: "memory"
 auth:
@@ -308,15 +308,15 @@ server_api:
         let initial_config = ManagementConfig::load(&config_path).unwrap();
         let config = Arc::new(RwLock::new(initial_config));
 
-        // Verify initial port
-        assert_eq!(config.read().server.port, 3001);
+        // Verify initial address
+        assert_eq!(config.read().server.public_rest, "0.0.0.0:3001");
 
-        // Modify config file with a different port
+        // Modify config file with a different address
         fs::write(
             &config_path,
             r#"
 server:
-  port: 3002
+  public_rest: "0.0.0.0:3002"
 storage:
   storage_type: "memory"
 auth:
@@ -336,9 +336,9 @@ server_api:
         let changed = refresher.refresh_once().await.unwrap();
         assert!(changed, "Config should have changed");
 
-        // Verify port was updated
+        // Verify address was updated
         let current = config.read();
-        assert_eq!(current.server.port, 3002, "Port should be updated to 3002");
+        assert_eq!(current.server.public_rest, "0.0.0.0:3002", "Address should be updated to 0.0.0.0:3002");
     }
 
     #[tokio::test]
@@ -352,7 +352,7 @@ server_api:
             &config_path,
             r#"
 server:
-  port: 3001
+  public_rest: "0.0.0.0:3001"
 storage:
   storage_type: "memory"
 "#,
@@ -364,15 +364,14 @@ storage:
         let config = Arc::new(RwLock::new(initial_config));
 
         // Verify initial values
-        assert_eq!(config.read().server.port, 3001);
+        assert_eq!(config.read().server.public_rest, "0.0.0.0:3001");
 
-        // Write invalid config (port out of range)
+        // Write invalid config (invalid address format)
         fs::write(
             &config_path,
             r#"
 server:
-  host: "0.0.0.0"
-  port: 0
+  public_rest: "invalid-address"
 storage:
   storage_type: "memory"
 "#,
@@ -382,13 +381,13 @@ storage:
         // Create refresher
         let refresher = ConfigRefresher::new(config.clone(), config_path, 30);
 
-        // Refresh should fail validation (invalid port)
+        // Refresh should fail validation (invalid address)
         let result = refresher.refresh_once().await;
-        assert!(result.is_err(), "Should reject invalid port");
+        assert!(result.is_err(), "Should reject invalid address");
 
         // Verify config was not changed (should still be valid)
         let current = config.read();
-        assert_eq!(current.server.port, 3001);
+        assert_eq!(current.server.public_rest, "0.0.0.0:3001");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -402,7 +401,7 @@ storage:
             &config_path,
             r#"
 server:
-  port: 3001
+  public_rest: "0.0.0.0:3001"
 storage:
   storage_type: "memory"
 auth:
@@ -419,8 +418,8 @@ server_api:
         let initial_config = ManagementConfig::load(&config_path).unwrap();
         let config = Arc::new(RwLock::new(initial_config));
 
-        // Verify initial port
-        assert_eq!(config.read().server.port, 3001);
+        // Verify initial address
+        assert_eq!(config.read().server.public_rest, "0.0.0.0:3001");
 
         // Create and spawn refresher with 1 second interval
         let refresher = Arc::new(ConfigRefresher::new(config.clone(), config_path.clone(), 1));
@@ -433,7 +432,7 @@ server_api:
             &config_path,
             r#"
 server:
-  port: 3002
+  public_rest: "0.0.0.0:3002"
 storage:
   storage_type: "memory"
 auth:
@@ -451,6 +450,6 @@ server_api:
 
         // Verify config was updated
         let current = config.read();
-        assert_eq!(current.server.port, 3002, "Port should be updated to 3002");
+        assert_eq!(current.server.public_rest, "0.0.0.0:3002", "Address should be updated to 0.0.0.0:3002");
     }
 }

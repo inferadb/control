@@ -60,29 +60,20 @@ pub struct ManagementConfig {
 /// Server/HTTP configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServerConfig {
-    /// Public HTTP server host (client-facing)
-    #[serde(default = "default_host")]
-    pub host: String,
+    /// Public REST API server address (client-facing)
+    /// Format: "host:port" (e.g., "127.0.0.1:9090")
+    #[serde(default = "default_public_rest")]
+    pub public_rest: String,
 
-    /// Public HTTP server port (client-facing)
-    #[serde(default = "default_port")]
-    pub port: u16,
+    /// Public gRPC API server address
+    /// Format: "host:port" (e.g., "127.0.0.1:9091")
+    #[serde(default = "default_public_grpc")]
+    pub public_grpc: String,
 
-    /// Internal HTTP server host (server-to-server)
-    #[serde(default = "default_internal_host")]
-    pub internal_host: String,
-
-    /// Internal HTTP server port (server-to-server, JWKS endpoint)
-    #[serde(default = "default_internal_port")]
-    pub internal_port: u16,
-
-    /// gRPC server host
-    #[serde(default = "default_grpc_host")]
-    pub grpc_host: String,
-
-    /// gRPC server port
-    #[serde(default = "default_grpc_port")]
-    pub grpc_port: u16,
+    /// Internal/Private REST API server address (server-to-server, JWKS endpoint)
+    /// Format: "host:port" (e.g., "0.0.0.0:9092")
+    #[serde(default = "default_private_rest")]
+    pub private_rest: String,
 
     /// Worker threads for async runtime
     #[serde(default = "default_worker_threads")]
@@ -354,28 +345,16 @@ pub struct RemoteCluster {
 }
 
 // Default value functions
-fn default_host() -> String {
-    "127.0.0.1".to_string()
+fn default_public_rest() -> String {
+    "127.0.0.1:9090".to_string()
 }
 
-fn default_port() -> u16 {
-    9090
+fn default_public_grpc() -> String {
+    "127.0.0.1:9091".to_string()
 }
 
-fn default_grpc_host() -> String {
-    "127.0.0.1".to_string()
-}
-
-fn default_grpc_port() -> u16 {
-    9091
-}
-
-fn default_internal_host() -> String {
-    "0.0.0.0".to_string() // Bind to all interfaces, restrict via network policies
-}
-
-fn default_internal_port() -> u16 {
-    9092 // Management internal/private server port
+fn default_private_rest() -> String {
+    "0.0.0.0:9092".to_string() // Management internal/private server port
 }
 
 fn default_worker_threads() -> usize {
@@ -494,12 +473,9 @@ impl Default for ManagementConfig {
     fn default() -> Self {
         Self {
             server: ServerConfig {
-                host: default_host(),
-                port: default_port(),
-                internal_host: default_internal_host(),
-                internal_port: default_internal_port(),
-                grpc_host: default_grpc_host(),
-                grpc_port: default_grpc_port(),
+                public_rest: default_public_rest(),
+                public_grpc: default_public_grpc(),
+                private_rest: default_private_rest(),
                 worker_threads: default_worker_threads(),
             },
             storage: StorageConfig { backend: default_storage_backend(), fdb_cluster_file: None },
@@ -736,10 +712,9 @@ mod tests {
 
     #[test]
     fn test_config_defaults() {
-        assert_eq!(default_host(), "127.0.0.1");
-        assert_eq!(default_port(), 9090);
-        assert_eq!(default_grpc_port(), 9091);
-        assert_eq!(default_internal_port(), 9092);
+        assert_eq!(default_public_rest(), "127.0.0.1:9090");
+        assert_eq!(default_public_grpc(), "127.0.0.1:9091");
+        assert_eq!(default_private_rest(), "0.0.0.0:9092");
         assert_eq!(default_storage_backend(), "memory");
         assert_eq!(default_password_min_length(), 12);
         assert_eq!(default_max_sessions_per_user(), 10);
