@@ -1,6 +1,6 @@
 # Pagination
 
-All list endpoints in the InferaDB Management API support offset-based pagination for efficient data retrieval.
+All list endpoints in InferaDB Control support offset-based pagination for efficient data retrieval.
 
 ## Overview
 

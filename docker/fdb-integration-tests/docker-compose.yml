@@ -8,7 +8,7 @@ services:
     build:
       context: ../../
       dockerfile: docker/fdb-integration-tests/Dockerfile.fdb
-    container_name: inferadb-mgmt-fdb-test
+    container_name: inferadb-control-fdb-test
     hostname: fdb-server
     networks:
       - fdb-test-network
@@ -39,7 +39,7 @@ services:
     build:
       context: ../../
       dockerfile: docker/fdb-integration-tests/Dockerfile
-    container_name: inferadb-mgmt-test-runner
+    container_name: inferadb-control-test-runner
     networks:
       - fdb-test-network
     depends_on:
@@ -68,14 +68,14 @@ services:
 networks:
   fdb-test-network:
     driver: bridge
-    name: inferadb-mgmt-fdb-test-net
+    name: inferadb-control-fdb-test-net
 
 volumes:
   fdb-config:
-    name: inferadb-mgmt-fdb-config
+    name: inferadb-control-fdb-config
   cargo-registry:
-    name: inferadb-mgmt-cargo-registry
+    name: inferadb-control-cargo-registry
   cargo-git:
-    name: inferadb-mgmt-cargo-git
+    name: inferadb-control-cargo-git
   target-cache:
-    name: inferadb-mgmt-target-cache
+    name: inferadb-control-target-cache

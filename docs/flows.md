@@ -1,13 +1,13 @@
 # Data Flows
 
-This document illustrates the data flows for key operations in the InferaDB Management API.
+This document illustrates the data flows for key operations in InferaDB Control.
 
 ## User Registration Flow
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant API as Management API
+    participant API as Control
     participant DB as FoundationDB
     participant Email as Email Service
 
@@ -54,7 +54,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant User
-    participant API as Management API
+    participant API as Control
     participant DB as FoundationDB
 
     User->>API: POST /v1/auth/login<br/>{email, password}
@@ -92,7 +92,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant App as Application
-    participant API as Management API
+    participant API as Control
     participant DB as FoundationDB
     participant Server as InferaDB Server
 
@@ -142,7 +142,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant User
-    participant API as Management API
+    participant API as Control
     participant DB as FoundationDB
 
     User->>API: POST /v1/organizations<br/>{name, tier}<br/>Cookie: infera_session={session_id}
@@ -174,7 +174,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Admin
-    participant API as Management API
+    participant API as Control
     participant DB as FoundationDB
 
     Admin->>API: POST /v1/organizations/{org_id}/vaults/{vault_id}/access/users<br/>{user_id, role}<br/>Cookie: infera_session={session_id}
@@ -219,7 +219,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Admin
-    participant API as Management API
+    participant API as Control
     participant DB as FoundationDB
 
     Admin->>API: POST /v1/organizations/{org_id}/clients/{client_id}/certificates<br/>{name}<br/>Cookie: infera_session={session_id}
@@ -267,7 +267,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant App as Application
-    participant API as Management API
+    participant API as Control
     participant DB as FoundationDB
 
     App->>API: POST /v1/vaults/token/refresh<br/>{refresh_token}
@@ -312,7 +312,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant User
-    participant API as Management API
+    participant API as Control
     participant DB as FoundationDB
 
     User->>API: POST /v1/auth/verify-email<br/>{token}
@@ -350,7 +350,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant User
-    participant API as Management API
+    participant API as Control
     participant DB as FoundationDB
     participant Email as Email Service
 
@@ -466,7 +466,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant User
-    participant API as Management API
+    participant API as Control
     participant Handler as Request Handler
     participant DB as FoundationDB
 
@@ -536,7 +536,7 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant User
-    participant API as Management API
+    participant API as Control
     participant RateLimit as Rate Limiter
     participant DB as FoundationDB
 

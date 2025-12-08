@@ -34,14 +34,14 @@ auth:
     rp_id: "localhost"
     rp_name: "InferaDB"
     origin: "http://localhost:9090"
-  # Set via environment variable: INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET
+  # Set via environment variable: INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET
   # key_encryption_secret: "your-secret-key-here"
 
 email:
   smtp_host: "localhost"
   smtp_port: 1025 # MailHog default port for development
   # smtp_username: ""
-  # smtp_password: "" # Set via INFERADB_MGMT__EMAIL__SMTP_PASSWORD
+  # smtp_password: "" # Set via INFERADB_CTRL__EMAIL__SMTP_PASSWORD
   from_email: "noreply@inferadb.local"
   from_name: "InferaDB"
 

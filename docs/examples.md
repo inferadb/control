@@ -1,6 +1,6 @@
 # Code Examples
 
-This document provides practical code examples for common workflows using the InferaDB Management API.
+This document provides practical code examples for common workflows using InferaDB Control.
 
 > **Note**: Values like `{org_id}`, `{vault_id}`, and numeric IDs (e.g., `111222333`, `777888999`)
 > are placeholders. Replace them with actual IDs from your API responses.
@@ -572,8 +572,8 @@ curl -X POST http://localhost:8080/v1/evaluate \
 
 ```bash
 # Save these in .env file
-export MGMT_API_URL="http://localhost:9090"      # Management API (public REST)
-export SERVER_API_URL="http://localhost:8080"    # InferaDB Server (public REST)
+export MGMT_API_URL="http://localhost:9090"      # InferaDB Control (public REST)
+export SERVER_API_URL="http://localhost:8080"    # InferaDB Engine (public REST)
 export ADMIN_EMAIL="alice@acme.com"
 export ADMIN_PASSWORD="AliceSecure123!"
 export ORG_ID="987654321"

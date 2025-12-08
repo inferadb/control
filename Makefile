@@ -1,4 +1,4 @@
-# Makefile for InferaDB Management API
+# Makefile for InferaDB Control
 # Provides convenient shortcuts for common cargo commands
 #
 # Quick start:
@@ -21,7 +21,7 @@ MARKDOWNLINT := $(shell command -v mise > /dev/null 2>&1 && echo "mise exec -- m
 .DEFAULT_GOAL := help
 
 help: ## Show this help message
-	@echo "InferaDB Management API Commands"
+	@echo "InferaDB Control Commands"
 	@echo ""
 	@echo "Setup & Development:"
 	@grep -E '^(setup|run|dev|build|release|clean|reset):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -42,7 +42,7 @@ help: ## Show this help message
 	@echo ""
 
 setup: ## One-time development environment setup
-	@echo "🔧 Setting up Management API development environment..."
+	@echo "🔧 Setting up Control development environment..."
 	@if command -v mise > /dev/null 2>&1; then \
 		mise trust && mise install; \
 	else \
@@ -91,13 +91,13 @@ deny: ## Check dependencies with cargo-deny
 	@echo "🔍 Checking dependencies..."
 	@$(CARGO) deny check || echo "⚠️  cargo-deny not installed, skipping..."
 
-run: ## Run the management API server (debug mode)
-	@echo "🚀 Starting Management API server..."
-	@$(CARGO) run --bin inferadb-management
+run: ## Run Control server (debug mode)
+	@echo "🚀 Starting Control server..."
+	@$(CARGO) run --bin inferadb-control
 
 dev: ## Run with auto-reload (requires cargo-watch)
-	@echo "🔄 Starting Management API server with auto-reload..."
-	@$(CARGO) watch -x 'run --bin inferadb-management'
+	@echo "🔄 Starting Control server with auto-reload..."
+	@$(CARGO) watch -x 'run --bin inferadb-control'
 
 build: ## Build debug binary
 	@echo "🔨 Building debug binary..."

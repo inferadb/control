@@ -1,6 +1,6 @@
 # Audit Logs
 
-The InferaDB Management API provides comprehensive audit logging for security compliance, incident response, and operational visibility.
+The InferaDB Control provides comprehensive audit logging for security compliance, incident response, and operational visibility.
 
 ## Overview
 
@@ -481,7 +481,7 @@ Cross-reference audit logs with application logs for complete incident investiga
 
 ```bash
 # Find application logs around suspicious event
-grep "2025-11-18T10:30" /var/log/inferadb-management-api.log
+grep "2025-11-18T10:30" /var/log/inferadb-control-api.log
 ```
 
 ## Integration Examples

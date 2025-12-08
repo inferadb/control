@@ -116,9 +116,9 @@ id_generation:
 # In production with Kubernetes/Tailscale discovery, set discovery.mode appropriately
 policy_service:
   # Base service URL (without port)
-  # For Kubernetes: use the k8s service name (e.g., "http://inferadb-server.inferadb")
+  # For Kubernetes: use the k8s service name (e.g., "http://inferadb-engine.inferadb")
   # For direct connection: use the host (e.g., "http://localhost")
-  service_url: "http://inferadb-server.inferadb"
+  service_url: "http://inferadb-engine.inferadb"
 
   # gRPC port for policy engine communication
   grpc_port: 8081

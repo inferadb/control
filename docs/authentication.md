@@ -27,18 +27,18 @@
   - [Token Scoping](#token-scoping)
   - [Revocation](#revocation)
 - [Integration Points](#integration-points)
-  - [Management API Responsibilities](#management-api-responsibilities)
+  - [Control Responsibilities](#management-api-responsibilities)
   - [Server API Responsibilities](#server-api-responsibilities)
 
 ## Overview
 
-The **Management API** acts as the central authentication orchestrator for the entire InferaDB system. This architecture allows the **Server API** to focus exclusively on authorization policy enforcement and decision evaluation, while delegating all identity and authentication concerns to the Management API.
+The **Control** acts as the central authentication orchestrator for the entire InferaDB system. This architecture allows the **Server API** to focus exclusively on authorization policy enforcement and decision evaluation, while delegating all identity and authentication concerns to Control.
 
 ## Two-Token Architecture
 
 InferaDB uses a **two-token system** to maintain clean separation of concerns:
 
-1. **Session Tokens** - Used for Management API operations
+1. **Session Tokens** - Used for Control operations
    - Identity and account management
    - Organization and vault administration
    - User profile and settings
@@ -59,10 +59,10 @@ This separation ensures that authentication (identity) and authorization (policy
 - Format: Cryptographically secure random string (base64url-encoded)
 - Length: 43 characters (256 bits of entropy)
 - Example: `sess_7k9mxPqR2vN4wLtY8jFnEaGbUcH5ZdKs3iOoXpW1`
-- Storage: Management API database with associated metadata (user_id, org_id, created_at, expires_at)
+- Storage: Control database with associated metadata (user_id, org_id, created_at, expires_at)
 - Transmission: Bearer token in Authorization header
 - Validation: Looked up in database on each use
-- Renewal: "Sliding window" - `expires_at` updated on active Management API requests
+- Renewal: "Sliding window" - `expires_at` updated on active Control requests
 
 **Vault-Scoped JWTs**:
 
@@ -79,7 +79,7 @@ This separation ensures that authentication (identity) and authorization (policy
 - Format: Cryptographically secure random string (base64url-encoded)
 - Length: 43 characters (256 bits of entropy)
 - Example: `vrt_9aB3cD4eF5gH6iJ7kL8mN0oP1qR2sT3uV4wX5yZ6`
-- Storage: Management API database with single-use flag
+- Storage: Control database with single-use flag
 - Transmission: In request body (not header) for refresh endpoint
 - Validation: Looked up in database, marked as used, then invalidated
 - Renewal: New refresh token issued with each successful refresh
@@ -92,7 +92,7 @@ This separation ensures that authentication (identity) and authorization (policy
 ```mermaid
 sequenceDiagram
     participant Client as Client Application
-    participant MgmtAPI as Management API<br/>(Authentication Orchestrator)
+    participant MgmtAPI as Control<br/>(Authentication Orchestrator)
     participant ServerAPI as Server API<br/>(Authorization Policy Engine)
 
     Note over Client: User initiates login
@@ -121,7 +121,7 @@ sequenceDiagram
 
 ## JWT Claims Structure
 
-Vault-scoped JWTs issued by the Management API contain the following claims:
+Vault-scoped JWTs issued by Control contain the following claims:
 
 ```json
 {
@@ -139,7 +139,7 @@ Vault-scoped JWTs issued by the Management API contain the following claims:
 
 ### Claim Descriptions
 
-- **iss** (Issuer): Management API URL (`https://api.inferadb.com`)
+- **iss** (Issuer): Control URL (`https://api.inferadb.com`)
 - **sub** (Subject): Format `client:<client_id>` for service accounts (where client_id is a Snowflake ID)
 - **aud** (Audience): Target service (Server API evaluation endpoint: `https://api.inferadb.com/evaluate`)
 - **exp** (Expiration): Unix timestamp when token expires (5 minutes from issuance by default)
@@ -155,7 +155,7 @@ Vault-scoped JWTs issued by the Management API contain the following claims:
 
 **Note**: This structure follows the Server API specification where:
 
-- `iss` identifies the Management API (not the organization tenant)
+- `iss` identifies Control (not the organization tenant)
 - `sub` identifies the client/service account making the request
 - `org_id` and `vault_id` are provided as separate claims (Snowflake IDs as strings)
 - Custom claims (`org_id`, `vault_id`, `vault_role`) provide authorization context
@@ -265,7 +265,7 @@ HTTP 401 Unauthorized
 
 ## Vault Token Response Format
 
-When a client requests a vault access token, the Management API returns:
+When a client requests a vault access token, Control returns:
 
 ```json
 {
@@ -286,7 +286,7 @@ Vault access tokens expire after a short duration (5 minutes). Clients can use r
 ```mermaid
 sequenceDiagram
     participant Client as Client Application
-    participant MgmtAPI as Management API
+    participant MgmtAPI as Control
 
     Client->>MgmtAPI: POST /v1/tokens/refresh<br/>{refresh_token}
 
@@ -394,7 +394,7 @@ async function refreshVaultToken(vaultId, refreshToken) {
 
 ## Authentication Methods
 
-The Management API supports multiple authentication methods:
+Control supports multiple authentication methods:
 
 ### 1. Password Authentication
 
@@ -430,8 +430,8 @@ The Management API supports multiple authentication methods:
 ```mermaid
 sequenceDiagram
     participant Dev as Developer
-    participant Portal as Management API<br/>Dashboard/Portal
-    participant MgmtAPI as Management API
+    participant Portal as Control<br/>Dashboard/Portal
+    participant MgmtAPI as Control
 
     Dev->>Portal: 1. Create Client<br/>(name, organization, vault permissions)
 
@@ -451,7 +451,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Backend as Backend Application
-    participant MgmtAPI as Management API
+    participant MgmtAPI as Control
 
     Note over Backend: 1. Create Client Assertion JWT:<br/>{iss: client_id, sub: client_id,<br/>aud: token_endpoint, exp: now+60s,<br/>iat: now, jti: unique_id}
 
@@ -493,7 +493,7 @@ Content-Type: application/json
 2. **Cryptographic Proof** - Signed JWTs prove identity without shared secrets
 3. **Short-Lived Assertions** - Each assertion expires in 60 seconds, limiting attack window
 4. **Replay Protection** - JTI (JWT ID) prevents assertion reuse
-5. **Key Rotation** - Update public key in Management API without app downtime
+5. **Key Rotation** - Update public key in Control without app downtime
 6. **Audit Trail** - Every token request is signed and traceable
 7. **Standards-Based** - OAuth 2.0 RFC 7523 (widely supported)
 8. **Better Developer Experience** - No password/API key management
@@ -503,7 +503,7 @@ Content-Type: application/json
 - **Private Key Protection**: Store private keys in secure vaults (HashiCorp Vault, AWS Secrets Manager, etc.)
 - **Key Algorithm**: Ed25519 for fast signing and small signatures (64 bytes)
 - **Assertion Lifetime**: Maximum 60 seconds to limit replay attack window
-- **JTI Tracking**: Management API maintains short-term cache of used JTIs
+- **JTI Tracking**: Control maintains short-term cache of used JTIs
 - **Rate Limiting**: Per-client rate limits on token endpoint
 - **Key Revocation**: Instantly revoke client by deleting public key
 
@@ -716,20 +716,20 @@ See [examples/spa-integration/CORRECT_SPA_ARCHITECTURE.md](../examples/spa-integ
 
 ## Server API Token Validation
 
-The Server API validates vault-scoped JWTs without making synchronous calls to the Management API:
+The Server API validates vault-scoped JWTs without making synchronous calls to Control:
 
-1. **Fetch JWKS** (JSON Web Key Set) from Management API's `/.well-known/jwks.json` endpoint
+1. **Fetch JWKS** (JSON Web Key Set) from Control's `/.well-known/jwks.json` endpoint
 2. **Cache JWKS** with TTL and background refresh mechanism
 3. **Verify JWT Signature** using Ed25519 public key from JWKS
 4. **Validate Claims**:
-   - `iss` matches expected Management API endpoint
+   - `iss` matches expected Control endpoint
    - `aud` matches Server API identifier
    - `exp` is in the future (token not expired)
    - `vault_id` and `org_id` are valid
    - `vault_role` has sufficient permissions for requested operation
 5. **Execute Policy** with authenticated context
 
-This stateless validation allows the Server API to operate independently while still trusting tokens issued by the Management API.
+This stateless validation allows the Server API to operate independently while still trusting tokens issued by Control.
 
 ### JWKS Caching Strategy
 
@@ -738,7 +738,7 @@ This stateless validation allows the Server API to operate independently while s
 - **Cache TTL**: 5 minutes (300 seconds)
 - **Background Refresh**: Refresh JWKS 1 minute before expiration (at 4-minute mark)
 - **Capacity**: Support multiple signing keys simultaneously (for rotation)
-- **Failure Handling**: Use stale cache for up to 1 hour if Management API is unreachable
+- **Failure Handling**: Use stale cache for up to 1 hour if Control is unreachable
 
 **Implementation Flow**:
 
@@ -767,7 +767,7 @@ flowchart TD
 
 **Key Rotation Handling**:
 
-1. **During Rotation**: Management API publishes both old and new keys in JWKS
+1. **During Rotation**: Control publishes both old and new keys in JWKS
 2. **Grace Period**: Both keys remain valid for overlap period (30 minutes)
 3. **Cache Invalidation**: Server API caches all keys from JWKS, automatically picking up new keys
 4. **Gradual Migration**: Existing JWTs continue to validate with old key while new JWTs use new key
@@ -871,7 +871,7 @@ InferaDB follows security-first principles with short-lived tokens as the defaul
   - **Web Sessions**: 24 hours (86,400 seconds)
   - **CLI Sessions**: 7 days (604,800 seconds)
   - **SDK Sessions**: 30 days (2,592,000 seconds)
-  - Sliding window: Renewed on active Management API use
+  - Sliding window: Renewed on active Control use
   - Revocable: Can be invalidated immediately
   - Forces regular re-authentication for enhanced security
 
@@ -949,7 +949,7 @@ Token revocation provides immediate invalidation of compromised or unwanted acce
 
 **How It Works**:
 
-1. Management API marks session as revoked in database
+1. Control marks session as revoked in database
 2. Session ID added to Redis revocation cache (TTL: 7 days)
 3. All vault tokens derived from this session become invalid
 4. Next refresh attempt returns `invalid_grant` error
@@ -1012,7 +1012,7 @@ Authorization: Bearer {admin_session_token}
 
 **How It Works**:
 
-1. Delete client certificate from Management API database
+1. Delete client certificate from Control database
 2. Remove certificate from JWKS endpoint response
 3. Server API cache expires (max 5 minutes)
 4. New token requests with this certificate fail
@@ -1070,7 +1070,7 @@ Track these metrics:
 ```mermaid
 sequenceDiagram
     participant Admin as Administrator
-    participant MgmtAPI as Management API
+    participant MgmtAPI as Control
     participant Redis as Redis Cache
     participant ServerAPI as Server API
     participant Client as Client Application
@@ -1105,12 +1105,12 @@ sequenceDiagram
 
 ### Overview
 
-The Server API and Management API implement bidirectional JWT authentication using Ed25519 keypairs:
+The Server API and Control implement bidirectional JWT authentication using Ed25519 keypairs:
 
-1. **Management-to-Server**: Management API issues vault tokens for clients (documented above)
-2. **Server-to-Management**: Server API authenticates to Management API for verification operations
+1. **Management-to-Server**: Control issues vault tokens for clients (documented above)
+2. **Server-to-Management**: Server API authenticates to Control for verification operations
 
-This bidirectional architecture allows the Server API to verify vault ownership and organization status by making authenticated requests back to the Management API.
+This bidirectional architecture allows the Server API to verify vault ownership and organization status by making authenticated requests back to Control.
 
 ### Authentication Flow
 
@@ -1118,7 +1118,7 @@ This bidirectional architecture allows the Server API to verify vault ownership 
 sequenceDiagram
     participant Client as Client App
     participant ServerAPI as Server API
-    participant MgmtAPI as Management API
+    participant MgmtAPI as Control
 
     Note over ServerAPI: Server boots with Ed25519 keypair
 
@@ -1191,7 +1191,7 @@ Server-to-Management JWTs use the following claims:
 
 ```json
 {
-  "iss": "inferadb-server:{server_id}",
+  "iss": "inferadb-engine:{server_id}",
   "sub": "server:{server_id}",
   "aud": "http://localhost:8081",
   "iat": 1704123456,
@@ -1202,9 +1202,9 @@ Server-to-Management JWTs use the following claims:
 
 **Claim Descriptions**:
 
-- **iss** (issuer): Identifies the server instance (`inferadb-server:{server_id}`)
+- **iss** (issuer): Identifies the server instance (`inferadb-engine:{server_id}`)
 - **sub** (subject): Server principal (`server:{server_id}`)
-- **aud** (audience): Management API base URL (from config)
+- **aud** (audience): Control base URL (from config)
 - **iat** (issued at): Unix timestamp of token creation
 - **exp** (expiration): 5 minutes from issuance (short-lived for security)
 - **jti** (JWT ID): Unique identifier for replay protection (UUID v4)
@@ -1251,7 +1251,7 @@ Response:
 
 ### Dual-Server Architecture
 
-The Management API runs **two separate HTTP servers** for security isolation:
+Control runs **two separate HTTP servers** for security isolation:
 
 - **Public Server** (port 9090): User-facing API with session authentication and permission checks
 - **Internal Server** (port 9092): Server-to-server API with JWT authentication for privileged operations
@@ -1320,7 +1320,7 @@ curl -X GET http://localhost:9092/internal/organizations/123456789 \
 
 ### JWKS Caching Strategy
 
-The Management API caches server JWKS to avoid fetching on every request:
+Control caches server JWKS to avoid fetching on every request:
 
 ```rust
 static JWKS_CACHE: once_cell::sync::Lazy<JwksCache> =
@@ -1366,7 +1366,7 @@ if org.status != "active" {
 **Client Certificate Verification** (from Management-to-Server flow):
 
 ```rust
-// Server validates client certificate via Management API
+// Server validates client certificate via Control
 let cert = management_client
     .get_certificate(org_id, client_id, cert_id)
     .await?;
@@ -1388,7 +1388,7 @@ if cert.revoked {
 
 **Threat Model**:
 
-- **Server key compromise**: Attacker can impersonate server to Management API (mitigated by short JWT TTL)
+- **Server key compromise**: Attacker can impersonate server to Control (mitigated by short JWT TTL)
 - **JWKS endpoint spoofing**: Attacker cannot spoof without DNS/network access (use HTTPS in production)
 - **Replay attacks**: JTI claim enables detection (not currently enforced)
 
@@ -1396,13 +1396,13 @@ if cert.revoked {
 
 - Use HTTPS for all production traffic
 - Store server private keys in secret management systems
-- Monitor authentication failures in Management API logs
+- Monitor authentication failures in Control logs
 - Implement JTI-based replay protection for high-security deployments
 - Rotate keys on a regular schedule (e.g., quarterly)
 
 ## Integration Points
 
-### Management API Responsibilities
+### Control Responsibilities
 
 - User identity verification
 - Session lifecycle management
@@ -1421,8 +1421,8 @@ if cert.revoked {
 - Policy evaluation
 - Authorization decisions
 - Relationship graph queries
-- **Server JWT issuance** (signing requests to Management API)
+- **Server JWT issuance** (signing requests to Control)
 - **Server JWKS publication** (exposing public key at `/.well-known/jwks.json`)
-- **Management API verification calls** (fetching vault/org data for verification)
+- **Control verification calls** (fetching vault/org data for verification)
 
 This clean separation allows each service to focus on its core competency while maintaining strong security guarantees across the system. The bidirectional authentication architecture enables secure server-to-server communication for verification operations while preserving the stateless nature of policy evaluation.

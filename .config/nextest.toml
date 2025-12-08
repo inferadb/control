@@ -1,4 +1,4 @@
-# Nextest Configuration for InferaDB Management API
+# Nextest Configuration for InferaDB Control
 # cargo-nextest is a next-generation test runner for Rust
 #
 # Installation:
@@ -7,7 +7,7 @@
 # Usage:
 #   cargo nextest run                  # Run all tests
 #   cargo nextest run --all-features   # Run with all features
-#   cargo nextest run -p inferadb-management-core  # Run specific crate tests
+#   cargo nextest run -p inferadb-control-core  # Run specific crate tests
 
 [profile.default]
 # Number of retries for failing tests (0 = no retries)
@@ -52,7 +52,7 @@ slow-timeout = { period = "120s", terminate-after = 5 }
 # JUnit XML output for CI
 [profile.ci.junit]
 path = "target/nextest/ci/junit.xml"
-report-name = "InferaDB Management API Tests (CI)"
+report-name = "InferaDB Control Tests (CI)"
 store-success-output = false
 store-failure-output = true
 
@@ -78,7 +78,7 @@ slow-timeout = { period = "120s", terminate-after = 3 }
 # JUnit XML output configuration
 [profile.default.junit]
 path = "target/nextest/junit.xml"
-report-name = "InferaDB Management API Tests"
+report-name = "InferaDB Control Tests"
 store-success-output = false
 store-failure-output = true
 

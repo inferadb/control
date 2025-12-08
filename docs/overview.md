@@ -1,24 +1,24 @@
-# Management API: Architecture & Entity Reference
+# Control: Architecture & Entity Reference
 
-> **Developer Guide**: This document provides a comprehensive reference for the InferaDB Management API architecture, data model, and core entity definitions. Use this as your primary reference when implementing features or understanding system behavior.
+> **Developer Guide**: This document provides a comprehensive reference for InferaDB Control architecture, data model, and core entity definitions. Use this as your primary reference when implementing features or understanding system behavior.
 
 ## Overview
 
-The **Management API** is InferaDB's control plane, providing self-service capabilities for users to manage their accounts, organizations, teams, vaults, and access control. It serves as the orchestration layer between client applications (Dashboard, CLI, SDKs) and the InferaDB Server (data plane).
+The **Control** is InferaDB's control plane, providing self-service capabilities for users to manage their accounts, organizations, teams, vaults, and access control. It serves as the orchestration layer between client applications (Dashboard, CLI, SDKs) and the InferaDB Engine (data plane).
 
 **Key Responsibilities**:
 
 - User authentication & session management (password, passkey/WebAuthn, OAuth)
 - Multi-tenant organization management with role-based access control (RBAC)
-- Vault lifecycle management (create, configure, sync with Server, delete)
+- Vault lifecycle management (create, configure, sync with Engine, delete)
 - Client credential management for backend services (Ed25519 certificates, OAuth 2.0 JWT Bearer)
-- Token issuance for Server API access (vault-scoped JWTs with refresh tokens)
+- Token issuance for Engine API access (vault-scoped JWTs with refresh tokens)
 - Audit logging for security events and compliance
 
 **Architecture**:
 
 - **Storage**: FoundationDB (production) or in-memory (development)
-- **Server Communication**: gRPC for real-time vault synchronization
+- **Engine Communication**: gRPC for real-time vault synchronization
 - **Client APIs**: REST (Dashboard, CLI) and gRPC (SDKs)
 - **Deployment**: Single-instance (dev/small deployments) or multi-instance HA (production)
 
@@ -68,7 +68,7 @@ The **Management API** is InferaDB's control plane, providing self-service capab
 
 - [Vaults](#vaults)
   - [Vault](#vault) - Authorization policy containers
-  - [VaultSyncStatus](#vaultsyncstatus) - Synchronization status with Server
+  - [VaultSyncStatus](#vaultsyncstatus) - Synchronization status with Engine
   - [VaultTeamGrant](#vaultteamgrant) - Team-based vault access
   - [VaultUserGrant](#vaultusergrant) - Direct user vault access
   - [VaultRole](#vaultrole) - Reader, Writer, Manager, Admin roles
@@ -89,8 +89,8 @@ The **Management API** is InferaDB's control plane, providing self-service capab
 ### System Design
 
 - [API Design](#api-design) - REST conventions and best practices
-- [Management → Server Authentication](#management--server-privileged-authentication) - gRPC inter-service communication
-- [Server API Integration](#server-api-role-enforcement--tenant-isolation) - Role enforcement and tenant isolation
+- [Control → Engine Authentication](#control--engine-privileged-authentication) - gRPC inter-service communication
+- [Engine API Integration](#engine-api-role-enforcement--tenant-isolation) - Role enforcement and tenant isolation
 - [Configuration](#configuration) - Environment variables and settings
 - [Multi-Instance Deployment](#multi-instance-deployment--distributed-coordination) - HA setup and leader election
 - [Multi-Tenancy & Data Isolation](#multi-tenancy--data-isolation) - Tenant separation guarantees
@@ -128,9 +128,9 @@ We use the [idgenerator](https://crates.io/crates/idgenerator) crate for Twitter
 
 - **Worker ID**: Derived from server instance (0-1023)
   - For single-instance deployments: 0
-  - For multi-instance deployments: assigned via environment variable `INFERADB_MGMT__ID_GENERATION__WORKER_ID`
+  - For multi-instance deployments: assigned via environment variable `INFERADB_CTRL__ID_GENERATION__WORKER_ID`
   - Worker IDs must be statically assigned and unique across all instances
-  - In Kubernetes: Use pod ordinal index from StatefulSet (e.g., `inferadb-management-0` → worker_id=0)
+  - In Kubernetes: Use pod ordinal index from StatefulSet (e.g., `inferadb-control-0` → worker_id=0)
   - In Docker/VM: Assign via environment variable in deployment configuration
   - **Collision Detection**: On startup, register worker_id in storage with heartbeat timestamp:
     - Create ephemeral key: `workers/active/<worker_id>` with TTL (30 seconds)
@@ -169,7 +169,7 @@ let user_id = id_gen.next_id(); // Returns i64
 
 ## Entity Definitions
 
-This section provides detailed specifications for all entities in the Management API data model. Each entity includes:
+This section provides detailed specifications for all entities in Control data model. Each entity includes:
 
 - **Purpose**: What the entity represents
 - **Data**: Field definitions with types, constraints, and validation rules
@@ -383,7 +383,7 @@ Represents a single organization (tenant). Lives under the `/v1/organizations` A
 
 **Data**:
 
-- **id** (Snowflake ID, required): Unique identifier (also used as tenant ID in @server)
+- **id** (Snowflake ID, required): Unique identifier (also used as tenant ID in @engine)
 - **name** (string, required): Organization display name
   - Max length: 100 characters
   - Allowed characters: Unicode letters, numbers, spaces, hyphens (regex: `^[\p{L}\p{N}\s-]+$`)
@@ -478,7 +478,7 @@ Lives under the `/v1/organizations/:org/clients/:client/certificates` API path.
 - **id** (Snowflake ID, required): Unique identifier
 - **client_id** (Snowflake ID, required): Client this certificate belongs to
 - **public_key** (bytes, required): Ed25519 public key (32 bytes)
-  - Exposed via JWKS endpoint for @server to verify JWTs
+  - Exposed via JWKS endpoint for @engine to verify JWTs
 - **private_key** (bytes, required): Ed25519 private key (64 bytes)
   - **Exposed ONLY during creation** (one-time display for developer to save)
   - After creation, never returned by any API endpoint
@@ -493,7 +493,7 @@ Lives under the `/v1/organizations/:org/clients/:client/certificates` API path.
 - **created_at** (DateTime UTC, required): When certificate was created
 - **created_by_user_id** (Snowflake ID, required): User who created this certificate
 - **last_used_at** (DateTime UTC, optional): Last time this certificate signed a valid JWT
-  - Updated when Management API validates a client assertion signed with this certificate
+  - Updated when Control validates a client assertion signed with this certificate
 - **revoked_at** (DateTime UTC, optional): When certificate was revoked
   - Revoked certificates cannot sign new JWTs
   - Existing JWTs signed with revoked certificates are immediately invalid
@@ -517,10 +517,10 @@ Lives under the `/v1/organizations/:org/clients/:client/certificates` API path.
 
 **Security**:
 
-- Private keys are encrypted at rest using AES-256-GCM with a master key derived from `INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET`
+- Private keys are encrypted at rest using AES-256-GCM with a master key derived from `INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET`
 - Private keys should be stored securely by client applications (e.g., HashiCorp Vault, AWS Secrets Manager)
 - Client applications use private keys to sign short-lived JWT assertions (max 60 seconds TTL)
-- Management API validates client assertions using the certificate's public_key
+- Control validates client assertions using the certificate's public_key
 - Certificate rotation is recommended every 90 days (logged warnings but not enforced)
 - JWKS endpoint returns all active (non-revoked) certificates for a client
 
@@ -536,7 +536,7 @@ Enum defining Organization membership roles (hard-coded).
   - Can view organization details
   - Can view teams they are a member of
   - Can view vaults they have access to
-  - Can use vaults they have access to via @server API
+  - Can use vaults they have access to via @engine API
 - **ADMIN**: Administrator
   - All Member permissions, plus:
   - Can create and manage Teams
@@ -612,11 +612,11 @@ Enum defining Organization billing/feature tiers (hard-coded).
 - **Max users**: 5
 - **Max teams**: 3
 - **Max vaults**: 5
-- **Management API rate limits** (per org, per hour):
+- **Control rate limits** (per org, per hour):
   - User operations: 1,000 requests
   - Organization operations: 500 requests
   - Vault operations: 2,000 requests
-- **Server API rate limits** (per org, per hour):
+- **Engine API rate limits** (per org, per hour):
   - Relationship writes: 10,000 requests
   - Evaluation checks: 100,000 requests
 
@@ -625,32 +625,32 @@ Enum defining Organization billing/feature tiers (hard-coded).
 - **Max users**: 50
 - **Max teams**: 20
 - **Max vaults**: 50
-- **Management API rate limits** (per org, per hour):
+- **Control rate limits** (per org, per hour):
   - User operations: 10,000 requests
   - Organization operations: 5,000 requests
   - Vault operations: 20,000 requests
-- **Server API rate limits** (per org, per hour):
+- **Engine API rate limits** (per org, per hour):
   - Relationship writes: 100,000 requests
   - Evaluation checks: 1,000,000 requests
-- **Overage billing**: Available for Server API usage beyond base limits
+- **Overage billing**: Available for Engine API usage beyond base limits
 
 #### TIER_MAX_V1 (Subscription tier for enterprises)
 
 - **Max users**: 500
 - **Max teams**: 100
 - **Max vaults**: 200
-- **Management API rate limits** (per org, per hour):
+- **Control rate limits** (per org, per hour):
   - User operations: 50,000 requests
   - Organization operations: 25,000 requests
   - Vault operations: 100,000 requests
-- **Server API rate limits** (per org, per hour):
+- **Engine API rate limits** (per org, per hour):
   - Relationship writes: 1,000,000 requests
   - Evaluation checks: 10,000,000 requests
 - **Overage billing**: Available with higher baselines before charges begin
 
 **Notes**:
 
-- Rate limits are enforced at the @server data plane API layer
+- Rate limits are enforced at the @engine data plane API layer
 - Limits are measured per organization per hour (rolling window)
 - These values are initial estimates and should be easily configurable for future adjustments
 - Billing integration hooks will be added in the future
@@ -840,11 +840,11 @@ Users can accumulate permissions from multiple sources:
 
 ### Vault
 
-Represents an authorization vault (tenant in @server). Lives under the `/v1/vaults` API path.
+Represents an authorization vault (tenant in @engine). Lives under the `/v1/vaults` API path.
 
 **Data**:
 
-- **id** (Snowflake ID, required): Unique identifier (also used as tenant/vault ID in @server)
+- **id** (Snowflake ID, required): Unique identifier (also used as tenant/vault ID in @engine)
 - **organization_id** (Snowflake ID, required): Organization this vault belongs to
 - **name** (string, required): Vault display name
   - Max length: 100 characters
@@ -853,7 +853,7 @@ Represents an authorization vault (tenant in @server). Lives under the `/v1/vaul
   - **Must be unique within the Organization**
 - **created_at** (DateTime UTC, required): When vault was created
 - **updated_at** (DateTime UTC, required): Last time vault metadata was updated
-- **sync_status** (VaultSyncStatus enum, required): Synchronization status with @server
+- **sync_status** (VaultSyncStatus enum, required): Synchronization status with @engine
   - Values: PENDING, SYNCED, FAILED
 - **deleted_at** (DateTime UTC, optional): Soft delete timestamp
   - 90-day grace period before cleanup
@@ -862,7 +862,7 @@ Represents an authorization vault (tenant in @server). Lives under the `/v1/vaul
 
 - Vault names must be unique within an Organization (but can be duplicated across different Organizations)
 - Only Admins and Owners can create vaults
-- Vaults must be synchronized with @server in real-time upon creation
+- Vaults must be synchronized with @engine in real-time upon creation
 
 **Cascade Delete**: When Organization is deleted, all Vault entries are soft-deleted. When Vault is deleted, all VaultTeamGrant and VaultUserGrant entries are soft-deleted.
 
@@ -870,13 +870,13 @@ Represents an authorization vault (tenant in @server). Lives under the `/v1/vaul
 
 ### VaultSyncStatus
 
-Enum for vault synchronization status with @server (hard-coded).
+Enum for vault synchronization status with @engine (hard-coded).
 
 **Values**:
 
-- **PENDING**: Vault created in Management API, awaiting @server sync
-- **SYNCED**: Vault successfully created in @server
-- **FAILED**: @server sync failed (requires retry or manual intervention)
+- **PENDING**: Vault created in Control, awaiting @engine sync
+- **SYNCED**: Vault successfully created in @engine
+- **FAILED**: @engine sync failed (requires retry or manual intervention)
 
 ---
 
@@ -933,14 +933,14 @@ Enum defining Vault access roles (hard-coded).
 **Values**:
 
 - **VAULT_ROLE_READER**: Read-only access
-  - Can query relationships via @server API
-  - Can perform authorization checks via @server API
+  - Can query relationships via @engine API
+  - Can perform authorization checks via @engine API
   - Cannot modify anything
 
 - **VAULT_ROLE_WRITER**: Read and write access
   - All Reader permissions, plus:
-  - Can write relationships via @server API
-  - Can delete relationships via @server API
+  - Can write relationships via @engine API
+  - Can delete relationships via @engine API
   - Cannot modify vault schema/policy or manage access
 
 - **VAULT_ROLE_MANAGER**: Policy management access
@@ -961,7 +961,7 @@ Enum defining Vault access roles (hard-coded).
 
 ### VaultRefreshToken
 
-Represents a refresh token for vault-scoped JWTs. Enables long-running operations and background jobs to refresh their Server API access tokens without re-authenticating. Not exposed via REST API (internal use only).
+Represents a refresh token for vault-scoped JWTs. Enables long-running operations and background jobs to refresh their Engine API access tokens without re-authenticating. Not exposed via REST API (internal use only).
 
 **Data**:
 
@@ -1234,7 +1234,7 @@ fn user_has_org_permission(
 1. Must be bound to an Organization
 2. Validate that vault name is unique within the Organization
 3. Set `sync_status = PENDING`
-4. Initiate real-time gRPC call to @server to create vault there
+4. Initiate real-time gRPC call to @engine to create vault there
 5. On success: Update `sync_status = SYNCED`
 6. On failure: Update `sync_status = FAILED` and return error to client
 7. Grant the creating User VAULT_ROLE_ADMIN access automatically via VaultUserGrant
@@ -1255,9 +1255,9 @@ fn user_has_org_permission(
 ### When a Vault is deleted
 
 1. Soft-delete Vault entity (set deleted_at)
-2. Initiate real-time gRPC call to @server to delete vault data
+2. Initiate real-time gRPC call to @engine to delete vault data
 3. On success:
-   - Mark all relationships and data as deleted in @server
+   - Mark all relationships and data as deleted in @engine
    - Cascade soft-delete all VaultTeamGrant and VaultUserGrant entries
 4. On failure:
    - Log error with vault_id and error details
@@ -1457,9 +1457,9 @@ fn user_has_org_permission(
 
 1. **Do NOT revoke refresh tokens** (permission changes are not reflected in existing refresh tokens)
 2. Refresh tokens continue to work with cached `vault_role` until expiry
-3. When client uses refreshed JWT to access @server:
-   - @server checks current permissions independently
-   - @server returns 403 if permissions were revoked
+3. When client uses refreshed JWT to access @engine:
+   - @engine checks current permissions independently
+   - @engine returns 403 if permissions were revoked
    - Client should handle 403 by re-authenticating to get updated permissions
 
 **Background cleanup job**:
@@ -1483,7 +1483,7 @@ fn user_has_org_permission(
      - Log critical security alert for immediate operator attention
      - Continue to return `REFRESH_TOKEN_USED` error to client (fail closed)
      - Until revocation succeeds, all refresh attempts for that context will fail with `REFRESH_TOKEN_USED`
-5. Force client to re-authenticate with Management API
+5. Force client to re-authenticate with Control
 6. Log security event (AuditEventType::REFRESH_TOKEN_REUSE_DETECTED) for monitoring and incident response
 
 ### VaultRole permission hierarchy
@@ -1685,10 +1685,10 @@ Response includes:
 
 ### Vault sync failure recovery
 
-**When vault creation fails at @server**:
+**When vault creation fails at @engine**:
 
 1. Set Vault.sync_status = FAILED
-2. Keep Vault entity in Management API (do not delete)
+2. Keep Vault entity in Control (do not delete)
 3. **Manual retry**: Admin can trigger retry via `POST /v1/vaults/:vault/retry-sync`
 4. **Automatic retry**: Background job retries failed syncs every 5 minutes (up to 3 attempts)
 5. After 3 failed attempts:
@@ -1696,14 +1696,14 @@ Response includes:
    - Vault remains in FAILED state until manual intervention
 6. User can delete failed vault and recreate (vault name becomes available after deletion)
 
-**When vault deletion fails at @server**:
+**When vault deletion fails at @engine**:
 
 1. Set Vault.sync_status = FAILED
-2. Set Vault.deleted_at = now() (vault marked as deleted in Management API)
+2. Set Vault.deleted_at = now() (vault marked as deleted in Control)
 3. Cascade soft-delete all VaultTeamGrant and VaultUserGrant entries
-4. **Orphaned data**: @server vault data remains until cleanup succeeds
+4. **Orphaned data**: @engine vault data remains until cleanup succeeds
 5. **Automatic retry**: Background job retries failed deletions every hour (indefinitely until success)
-6. Vault name remains reserved (cannot reuse) until deletion succeeds at @server
+6. Vault name remains reserved (cannot reuse) until deletion succeeds at @engine
 7. Alert operators after 24 hours of failed deletion attempts
 
 ---
@@ -1767,7 +1767,7 @@ Response includes:
   - Can only access existing resources (read-only mode for organizations, vaults, teams)
   - Cannot create new vaults, teams, or organizations
   - Cannot modify vault access grants or team memberships
-  - Can still read data from vaults they have access to (via @server API)
+  - Can still read data from vaults they have access to (via @engine API)
   - Must verify email to restore full functionality
   - UI displays prominent banner: "Please verify your email to restore full access"
 - Verification reminders are paused if user has verified at least one email
@@ -1800,7 +1800,7 @@ Users can also register with passkey-only (no password):
 
 ### Authentication Flow
 
-Management API supports **three authentication methods**:
+Control supports **three authentication methods**:
 
 #### 1. Password Authentication
 
@@ -1895,9 +1895,9 @@ Management API supports **three authentication methods**:
 
 ---
 
-#### 3. Client Assertion Authentication (for @server access)
+#### 3. Client Assertion Authentication (for @engine access)
 
-Backend applications authenticate to @server using **Client Assertion** (OAuth 2.0 JWT Bearer, RFC 7523). See [AUTHENTICATION.md](AUTHENTICATION.md#4-client-assertion-recommended-for-backend-services) for the complete flow.
+Backend applications authenticate to @engine using **Client Assertion** (OAuth 2.0 JWT Bearer, RFC 7523). See [AUTHENTICATION.md](AUTHENTICATION.md#4-client-assertion-recommended-for-backend-services) for the complete flow.
 
 **Token Claims**:
 
@@ -1905,7 +1905,7 @@ Backend applications authenticate to @server using **Client Assertion** (OAuth 2
 {
   "iss": "org:<organization_id>",
   "sub": "org:<organization_id>",
-  "aud": "https://server.inferadb.com",
+  "aud": "https://engine.inferadb.com",
   "exp": 1234567890,
   "iat": 1234567800,
   "jti": "<unique_id>",
@@ -1917,24 +1917,24 @@ Backend applications authenticate to @server using **Client Assertion** (OAuth 2
 **Client Key Management**:
 
 - Organizations create Clients via Dashboard or CLI
-- Each Client receives an Ed25519 key pair (client stores private key, Management API stores public key)
+- Each Client receives an Ed25519 key pair (client stores private key, Control stores public key)
 - Private keys shown only once during creation (developer saves securely)
-- Public keys published to JWKS endpoint for @server verification
+- Public keys published to JWKS endpoint for @engine verification
 - Clients can be created, rotated, and revoked by organization Owners
 
 **Client Assertion Flow**:
 
 1. Backend application creates a short-lived JWT assertion (max 60 seconds)
 2. Signs assertion with its private key (Ed25519)
-3. Sends assertion to Management API `/v1/token` endpoint
-4. Management API verifies signature using stored public key
-5. Management API issues vault-scoped JWT for @server requests
-6. Backend uses vault JWT to call @server API
+3. Sends assertion to Control `/v1/token` endpoint
+4. Control verifies signature using stored public key
+5. Control issues vault-scoped JWT for @engine requests
+6. Backend uses vault JWT to call @engine API
 
 **Token Scoping**:
 
 - Clients have scopes defining allowed vaults + roles (e.g., `vault:vault_123:WRITER`)
-- Management API only issues tokens for vaults the Client has access to
+- Control only issues tokens for vaults the Client has access to
 - Tokens scoped to specific vaults based on Client's configured VaultScope entries
 
 ---
@@ -2066,20 +2066,20 @@ Users can register and manage multiple passkeys for their account.
 
 ---
 
-### Client Authentication for @server API
+### Client Authentication for @engine API
 
 **Flow**:
 
-1. Client authenticates to Management API (password, passkey, or existing session)
+1. Client authenticates to Control (password, passkey, or existing session)
 2. Client requests a vault-scoped JWT: `POST /v1/tokens/vault/:vault_id`
-3. Management API validates:
+3. Control validates:
    - User has active session (or valid API key client assertion)
    - User has access to vault (via VaultUserGrant or VaultTeamGrant)
    - Determines highest VaultRole the user has
-4. Management API generates private key JWT signed with Organization's key
-5. Management API generates refresh token
-6. Client uses JWT as Bearer token for @server gRPC/REST API calls
-7. @server validates JWT signature against Organization's JWKS
+4. Control generates private key JWT signed with Organization's key
+5. Control generates refresh token
+6. Client uses JWT as Bearer token for @engine gRPC/REST API calls
+7. @engine validates JWT signature against Organization's JWKS
 8. When JWT expires, client can use refresh token to get new JWT without re-authenticating
 
 **Endpoint**: `POST /v1/tokens/vault/:vault_id`
@@ -2177,7 +2177,7 @@ Users can register and manage multiple passkeys for their account.
 - Refresh tokens are single-use and automatically rotated
 - Detecting a used refresh token indicates possible token theft → revoke all refresh tokens for that auth context
 - Refresh tokens do NOT check current permissions (uses cached vault_role)
-- If permissions change, client will receive 403 from @server and must re-authenticate
+- If permissions change, client will receive 403 from @engine and must re-authenticate
 
 ---
 
@@ -2185,7 +2185,7 @@ Users can register and manage multiple passkeys for their account.
 
 **When to Use Refresh Tokens**:
 
-Refresh tokens are always provided by the Management API. Clients should use them when:
+Refresh tokens are always provided by Control. Clients should use them when:
 
 ✅ **Recommended use cases**:
 
@@ -2258,16 +2258,16 @@ class VaultClient:
 
         return self.access_token
 
-    def call_server_api(self, vault_id, operation):
-        """Call @server API with automatic token refresh"""
+    def call_engine_api(self, vault_id, operation):
+        """Call @engine API with automatic token refresh"""
 
         # Get valid access token
         access_token = self.get_vault_access_token(vault_id, use_refresh=True)
 
-        # Call @server API
+        # Call @engine API
         try:
             response = requests.post(
-                f"{self.server_url}/check",
+                f"{self.engine_url}/check",
                 headers={"Authorization": f"Bearer {access_token}"},
                 json=operation
             )
@@ -2280,7 +2280,7 @@ class VaultClient:
 
                 # Retry request
                 response = requests.post(
-                    f"{self.server_url}/check",
+                    f"{self.engine_url}/check",
                     headers={"Authorization": f"Bearer {access_token}"},
                     json=operation
                 )
@@ -2304,12 +2304,12 @@ class VaultClient:
 
 1. **401 Unauthorized**: Token expired
    - Attempt refresh if refresh token available
-   - Otherwise, request new tokens from Management API
+   - Otherwise, request new tokens from Control
    - Retry original request once
 
 2. **403 Forbidden**: Permissions changed
    - Clear all cached tokens (access + refresh)
-   - Re-authenticate with Management API to get updated permissions
+   - Re-authenticate with Control to get updated permissions
    - Do NOT retry automatically
 
 3. **`REFRESH_TOKEN_USED`**: Possible token theft
@@ -2318,7 +2318,7 @@ class VaultClient:
    - Log security event
 
 4. **`REFRESH_TOKEN_EXPIRED`**: Refresh token expired
-   - Request new tokens from Management API
+   - Request new tokens from Control
    - For API keys (7-day expiry), this indicates job ran longer than expected
 
 **Token Expiry Timeline**:
@@ -2347,7 +2347,7 @@ Strategy: |<-- Use JWT -->|<- Refresh ->|<-- Use new JWT -->
 
 ### CLI & SDK Authentication Methods
 
-The Management API supports multiple authentication methods for command-line tools (CLI) and SDKs to accommodate different deployment scenarios and security requirements.
+Control supports multiple authentication methods for command-line tools (CLI) and SDKs to accommodate different deployment scenarios and security requirements.
 
 #### CLI Authentication Methods
 
@@ -2412,7 +2412,7 @@ Dashboard UI (`https://app.inferadb.com/cli-login`):
 - Dashboard generates authorization code (single-use, 5-minute expiry)
 - Redirects to callback URL
 
-**Management API Endpoint**: `POST /v1/auth/cli/authorize` (called by Dashboard)
+**Control Endpoint**: `POST /v1/auth/cli/authorize` (called by Dashboard)
 
 **Request**:
 
@@ -2459,9 +2459,9 @@ CLI callback handler receives:
 GET /callback?code=<authorization_code>&state=<state>
 ```
 
-CLI calls Management API to exchange code for session token:
+CLI calls Control to exchange code for session token:
 
-**Management API Endpoint**: `POST /v1/auth/cli/token`
+**Control Endpoint**: `POST /v1/auth/cli/token`
 
 **Request**:
 
@@ -2536,7 +2536,7 @@ For non-interactive environments (CI/CD pipelines, automation scripts, backend s
 5. User sets environment variable in CI/CD: `INFERADB_CLIENT_ID=<client_id>` and `INFERADB_PRIVATE_KEY=<private_key>`
 6. CLI/SDK uses private key to generate and sign client assertion JWTs
 
-**Management API Endpoint**: `POST /v1/organizations/:org/clients`
+**Control Endpoint**: `POST /v1/organizations/:org/clients`
 
 **Request**:
 
@@ -2584,7 +2584,7 @@ use serde::{Serialize, Deserialize};
 struct ClientAssertion {
     iss: String,  // "org:<org_id>"
     sub: String,  // "org:<org_id>"
-    aud: String,  // "https://management.inferadb.com"
+    aud: String,  // "https://control.inferadb.com"
     exp: i64,     // Current time + 5 minutes
     iat: i64,     // Current time
     jti: String,  // Random UUID
@@ -2594,7 +2594,7 @@ fn generate_client_assertion(client_id: &str, private_key_pem: &str) -> Result<S
     let claims = ClientAssertion {
         iss: client_id.to_string(),  // e.g., "client_123456789"
         sub: client_id.to_string(),
-        aud: "https://management.inferadb.com/v1/token".to_string(),
+        aud: "https://control.inferadb.com/v1/token".to_string(),
         exp: Utc::now().timestamp() + 60,  // 60 seconds (short-lived)
         iat: Utc::now().timestamp(),
         jti: Uuid::new_v4().to_string(),
@@ -2621,7 +2621,7 @@ client_assertion=<signed_jwt>&
 scope=vault:vault_123:WRITER
 ```
 
-**Management API Token Endpoint**: `/v1/token`
+**Control Token Endpoint**: `/v1/token`
 
 **Validation**:
 
@@ -2631,7 +2631,7 @@ scope=vault:vault_123:WRITER
 4. Validate claims: `iss`, `sub`, `aud`, `exp`, `iat`
 5. Check `jti` not previously used (replay protection)
 6. Verify Client has permission for requested scope (vault + role)
-7. Issue vault-scoped JWT signed with Management API's key
+7. Issue vault-scoped JWT signed with Control's key
 
 **Authorization Scope**:
 
@@ -2659,7 +2659,7 @@ For programmatic scenarios where browser-based auth is not feasible but API keys
 
 **Flow**:
 
-1. User authenticates to Management API via password or passkey
+1. User authenticates to Control via password or passkey
 2. User receives session token (30-day or 90-day depending on SessionType)
 3. User stores token in environment variable or config file
 4. CLI/SDK uses session token for API requests
@@ -2680,7 +2680,7 @@ $ export INFERADB_SESSION_TOKEN="<session_token>"
 $ inferadb vaults list
 ```
 
-**Management API Request**:
+**Control Request**:
 
 ```http
 GET /v1/organizations
@@ -2760,9 +2760,9 @@ SDKs automatically:
 
 ---
 
-### JWKS Endpoint (for @server verification)
+### JWKS Endpoint (for @engine verification)
 
-The Management API exposes organization public keys via JWKS (JSON Web Key Set) for @server to verify JWTs.
+Control exposes organization public keys via JWKS (JSON Web Key Set) for @engine to verify JWTs.
 
 **Endpoint**: `GET /.well-known/jwks.json` (Global JWKS for all organizations)
 
@@ -2815,8 +2815,8 @@ The Management API exposes organization public keys via JWKS (JSON Web Key Set) 
 - Include Client entries where:
   - `revoked_at IS NULL` (active clients), OR
   - `revoked_at > (now - 5 minutes)` (recently revoked clients in grace period)
-- Keys are cached by @server with TTL (5 minutes recommended)
-- @server uses stale-while-revalidate pattern for JWKS caching (same as tenant JWT verification in @server)
+- Keys are cached by @engine with TTL (5 minutes recommended)
+- @engine uses stale-while-revalidate pattern for JWKS caching (same as tenant JWT verification in @engine)
 - No authentication required (public endpoint)
 - Returns 404 if organization doesn't exist or has no active clients
 - Note: After 5 minutes, revoked clients are excluded from JWKS automatically (time-based, no additional field needed)
@@ -2931,7 +2931,7 @@ When manually revoking a client (without rotation):
 
 ### REST API
 
-**Base URL**: `https://api.inferadb.com/v1/management`
+**Base URL**: `https://api.inferadb.com/v1/control`
 
 **Authentication**: Bearer token (UserSession ID) in `Authorization` header
 
@@ -3061,7 +3061,7 @@ When manually revoking a client (without rotation):
 
 #### Token Endpoints
 
-- `POST /v1/tokens/vault/:vault` - Generate vault-scoped JWT and refresh token for @server
+- `POST /v1/tokens/vault/:vault` - Generate vault-scoped JWT and refresh token for @engine
 - `POST /v1/tokens/refresh` - Refresh an expired vault JWT using a refresh token
 
 #### Public Endpoints (No Authentication Required)
@@ -3073,7 +3073,7 @@ When manually revoking a client (without rotation):
 
 ### gRPC API
 
-**Services Exposed by Management API**:
+**Services Exposed by Control**:
 
 1. **AuthService**: Authentication operations
    - `LoginPassword(LoginPasswordRequest) → Session`
@@ -3119,9 +3119,9 @@ When manually revoking a client (without rotation):
    - `RevokeUserAccess(VaultUserGrantId) → Empty`
 
 5. **TokenService**: Vault token generation
-   - `GenerateVaultToken(VaultId) → VaultToken` (returns JWT for @server)
+   - `GenerateVaultToken(VaultId) → VaultToken` (returns JWT for @engine)
 
-**Services Consumed from @server**:
+**Services Consumed from @engine**:
 
 1. **VaultManagementService**:
    - `CreateVault(VaultId, OrganizationId) → VaultStatus`
@@ -3129,13 +3129,13 @@ When manually revoking a client (without rotation):
 
 ---
 
-## Management → Server Privileged Authentication
+## Control → Engine Privileged Authentication
 
-The Management API requires privileged access to the Server API to perform administrative operations on behalf of organizations and users. This section defines how the Management API authenticates with the Server API for these privileged operations.
+Control requires privileged access to the Engine API to perform administrative operations on behalf of organizations and users. This section defines how Control authenticates with the Engine API for these privileged operations.
 
 ### Authentication Mechanism: Client Assertion JWT/JWKS
 
-**Approach**: Use **Client Assertion JWT with JWKS** for Management → Server authentication, mirroring the same pattern used for Client authentication.
+**Approach**: Use **Client Assertion JWT with JWKS** for Control → Engine authentication, mirroring the same pattern used for Client authentication.
 
 **Why JWT/JWKS**:
 
@@ -3144,21 +3144,21 @@ The Management API requires privileged access to the Server API to perform admin
 - **Cryptographically strong**: Ed25519 signatures provide strong authentication
 - **Simple key rotation**: Publish new keys to JWKS endpoint, no orchestrated certificate rollout
 - **Excellent developer experience**: Works seamlessly in all environments (local, cloud, Kubernetes)
-- **Stateless verification**: Server validates JWTs using public keys from JWKS endpoint
+- **Stateless verification**: Engine validates JWTs using public keys from JWKS endpoint
 
 ### System API Key
 
-The Management API uses a special **System Client** to authenticate with the Server API. This is distinct from organization clients:
+Control uses a special **System Client** to authenticate with the Engine API. This is distinct from organization clients:
 
 **Key Properties**:
 
 - **Type**: `system` (vs. `organization` for org-level clients)
-- **Audience**: `inferadb-server`
+- **Audience**: `inferadb-engine`
 - **Scope**: Privileged operations only (`vault.create`, `vault.delete`, `vault.configure`)
 - **Lifecycle**: Generated once during initial deployment, rotated periodically (recommended: every 90 days)
-- **Storage**: Stored securely in Management API configuration (environment variable or secret management system)
+- **Storage**: Stored securely in Control configuration (environment variable or secret management system)
 
-**System API Key Record** (stored in Management database):
+**System API Key Record** (stored in Control database):
 
 ```rust
 pub struct SystemApiKey {
@@ -3176,9 +3176,9 @@ pub struct SystemApiKey {
 
 ### JWT Client Assertion Flow
 
-#### Step 1: Management API generates client assertion JWT
+#### Step 1: Control generates client assertion JWT
 
-When the Management API needs to call the Server API, it generates a short-lived JWT (client assertion) signed with its System API Key:
+When Control needs to call the Engine API, it generates a short-lived JWT (client assertion) signed with its System API Key:
 
 ```rust
 use jsonwebtoken::{encode, Algorithm, Header, EncodingKey};
@@ -3186,9 +3186,9 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize)]
 struct ClientAssertion {
-    iss: String,  // "inferadb-management"
-    sub: String,  // "inferadb-management"
-    aud: String,  // "inferadb-server"
+    iss: String,  // "inferadb-control"
+    sub: String,  // "inferadb-control"
+    aud: String,  // "inferadb-engine"
     exp: i64,     // Current time + 60 seconds (short-lived)
     iat: i64,     // Current time
     jti: String,  // Unique JWT ID (UUID) to prevent replay attacks
@@ -3199,9 +3199,9 @@ async fn generate_client_assertion(system_key: &SystemApiKey) -> Result<String> 
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
 
     let claims = ClientAssertion {
-        iss: "inferadb-management".to_string(),
-        sub: "inferadb-management".to_string(),
-        aud: "inferadb-server".to_string(),
+        iss: "inferadb-control".to_string(),
+        sub: "inferadb-control".to_string(),
+        aud: "inferadb-engine".to_string(),
         exp: now + 60,  // Expires in 60 seconds
         iat: now,
         jti: Uuid::new_v4().to_string(),
@@ -3228,10 +3228,10 @@ async fn generate_client_assertion(system_key: &SystemApiKey) -> Result<String> 
 ```rust
 use tonic::{metadata::MetadataValue, Request};
 
-async fn create_server_client() -> Result<VaultManagementServiceClient<Channel>> {
-    let server_endpoint = env::var("INFERADB_SERVER_GRPC_ENDPOINT")?;
+async fn create_engine_client() -> Result<VaultManagementServiceClient<Channel>> {
+    let engine_endpoint = env::var("INFERADB_ENGINE_GRPC_ENDPOINT")?;
 
-    let channel = Channel::from_shared(server_endpoint)?
+    let channel = Channel::from_shared(engine_endpoint)?
         .tls_config(ClientTlsConfig::new())?  // TLS for transport encryption
         .connect()
         .await?;
@@ -3252,15 +3252,15 @@ async fn create_server_client() -> Result<VaultManagementServiceClient<Channel>>
 }
 ```
 
-#### Step 3: Server validates JWT using JWKS
+#### Step 3: Engine validates JWT using JWKS
 
-The Server API fetches the Management API's JWKS endpoint to retrieve public keys:
+The Engine API fetches Control's JWKS endpoint to retrieve public keys:
 
 ```rust
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 
 pub async fn validate_management_jwt(token: &str) -> Result<ClientAssertion> {
-    // Fetch JWKS from Management API
+    // Fetch JWKS from Control
     let jwks_url = env::var("INFERADB_MANAGEMENT_JWKS_URL")?;
     let jwks = fetch_jwks(&jwks_url).await?;
 
@@ -3275,8 +3275,8 @@ pub async fn validate_management_jwt(token: &str) -> Result<ClientAssertion> {
 
     // Validate JWT
     let mut validation = Validation::new(Algorithm::EdDSA);
-    validation.set_audience(&["inferadb-server"]);
-    validation.set_issuer(&["inferadb-management"]);
+    validation.set_audience(&["inferadb-engine"]);
+    validation.set_issuer(&["inferadb-control"]);
 
     let token_data = decode::<ClientAssertion>(
         token,
@@ -3299,9 +3299,9 @@ pub async fn validate_management_jwt(token: &str) -> Result<ClientAssertion> {
 }
 ```
 
-### JWKS Endpoint (Management API)
+### JWKS Endpoint (Control)
 
-The Management API exposes a JWKS endpoint for the Server to fetch system public keys:
+Control exposes a JWKS endpoint for the Engine to fetch system public keys:
 
 **Endpoint**: `GET /.well-known/system-jwks.json`
 
@@ -3321,7 +3321,7 @@ The Management API exposes a JWKS endpoint for the Server to fetch system public
 }
 ```
 
-**Caching Strategy** (Server-side):
+**Caching Strategy** (Engine-side):
 
 - Cache JWKS for 5 minutes (same as organization API keys)
 - Invalidate cache on JWT validation failure with unknown `kid`
@@ -3333,8 +3333,8 @@ The Management API exposes a JWKS endpoint for the Server to fetch system public
 
 1. Generate new System API Key (new key pair, new `key_id`)
 2. Publish both old and new keys to JWKS endpoint (overlap period: 24 hours)
-3. Update Management API configuration to use new key for signing JWTs
-4. Wait 24 hours (allow all Server instances to refresh JWKS cache)
+3. Update Control configuration to use new key for signing JWTs
+4. Wait 24 hours (allow all Engine instances to refresh JWKS cache)
 5. Revoke old key (remove from JWKS endpoint)
 
 **Automation**:
@@ -3345,9 +3345,9 @@ The Management API exposes a JWKS endpoint for the Server to fetch system public
 
 ### Privileged Operations Authorization
 
-Once authenticated, the Server API must authorize Management API requests based on the JWT scope:
+Once authenticated, the Engine API must authorize Control requests based on the JWT scope:
 
-**Server gRPC Interceptor**:
+**Engine gRPC Interceptor**:
 
 ```rust
 use tonic::{Request, Status};
@@ -3367,12 +3367,12 @@ pub async fn management_auth_interceptor(
         .map_err(|e| Status::unauthenticated(format!("Invalid token: {}", e)))?;
 
     // Verify audience
-    if claims.aud != "inferadb-server" {
+    if claims.aud != "inferadb-engine" {
         return Err(Status::unauthenticated("Invalid audience"));
     }
 
     // Verify issuer
-    if claims.iss != "inferadb-management" {
+    if claims.iss != "inferadb-control" {
         return Err(Status::unauthenticated("Invalid issuer"));
     }
 
@@ -3410,7 +3410,7 @@ impl VaultManagementService for VaultService {
 
 ### Configuration
 
-**Management API Configuration**:
+**Control Configuration**:
 
 ```yaml
 system_api_key:
@@ -3419,18 +3419,18 @@ system_api_key:
   scope: "vault.create vault.delete vault.configure"
   jwt_ttl_seconds: 60 # Short-lived tokens
 
-server_api:
-  grpc_endpoint: "https://server.inferadb.com:8081"
+engine_api:
+  grpc_endpoint: "https://engine.inferadb.com:8081"
 ```
 
-**Server API Configuration**:
+**Engine API Configuration**:
 
 ```yaml
 management_auth:
-  jwks_url: "https://management.inferadb.com/.well-known/system-jwks.json"
+  jwks_url: "https://control.inferadb.com/.well-known/system-jwks.json"
   jwks_cache_ttl: 300 # 5 minutes
-  allowed_issuers: ["inferadb-management"]
-  required_audience: "inferadb-server"
+  allowed_issuers: ["inferadb-control"]
+  required_audience: "inferadb-engine"
 
   # JTI replay attack prevention (MANDATORY in production)
   jti_replay_protection:
@@ -3444,7 +3444,7 @@ management_auth:
 
 For local development, use the same JWT/JWKS flow but with relaxed validation:
 
-**Management API (Development)**:
+**Control (Development)**:
 
 ```yaml
 system_api_key:
@@ -3452,11 +3452,11 @@ system_api_key:
   private_key_path: "./dev/system-key.pem" # Local development key
   scope: "vault.create vault.delete vault.configure"
 
-server_api:
+engine_api:
   grpc_endpoint: "http://localhost:8081" # Plain HTTP is acceptable in dev
 ```
 
-**Server API (Development)**:
+**Engine API (Development)**:
 
 ```yaml
 management_auth:
@@ -3470,22 +3470,22 @@ management_auth:
 
 ---
 
-## Server API: Role Enforcement & Tenant Isolation
+## Engine API: Role Enforcement & Tenant Isolation
 
-This section defines how the @server API enforces VaultRole-based authorization and tenant isolation when processing requests from client applications (via vault-scoped JWTs issued by the Management API).
+This section defines how the @engine API enforces VaultRole-based authorization and tenant isolation when processing requests from client applications (via vault-scoped JWTs issued by Control).
 
 ### Overview
 
-The Server API receives requests in two categories:
+The Engine API receives requests in two categories:
 
-1. **Privileged requests from Management API**: Administrative operations (CreateVault, DeleteVault) authenticated via mTLS
+1. **Privileged requests from Control**: Administrative operations (CreateVault, DeleteVault) authenticated via mTLS
 2. **Tenant requests from client applications**: Data plane operations (Check, Write, etc.) authenticated via vault-scoped JWTs
 
-This section focuses on **tenant requests** and how the Server enforces VaultRole permissions and vault isolation.
+This section focuses on **tenant requests** and how the Engine enforces VaultRole permissions and vault isolation.
 
 ### Vault-Scoped JWT Authentication
 
-**JWT Issuance**: Management API issues vault-scoped JWTs via the `POST /v1/tokens/vault/:vault` endpoint.
+**JWT Issuance**: Control issues vault-scoped JWTs via the `POST /v1/tokens/vault/:vault` endpoint.
 
 **JWT Claims**:
 
@@ -3527,9 +3527,9 @@ READER < WRITER < MANAGER < ADMIN
 
 **Inheritance**: Higher roles include all permissions of lower roles (ADMIN has all READER/WRITER/MANAGER permissions).
 
-### Server gRPC Interceptor for JWT Validation
+### Engine gRPC Interceptor for JWT Validation
 
-The Server API uses a gRPC interceptor to validate JWTs and extract authorization context.
+The Engine API uses a gRPC interceptor to validate JWTs and extract authorization context.
 
 **Implementation**:
 
@@ -3564,7 +3564,7 @@ pub async fn vault_auth_interceptor(
         .strip_prefix("tenant:")
         .ok_or(Status::unauthenticated("Invalid issuer format"))?;
 
-    // Fetch public key from JWKS cache (via Management API JWKS endpoint)
+    // Fetch public key from JWKS cache (via Control JWKS endpoint)
     let public_key = jwks_cache.get_key(tenant_id, &kid).await
         .map_err(|_| Status::unauthenticated("Unable to fetch JWKS"))?;
 
@@ -3699,9 +3699,9 @@ pub fn validate_vault_isolation(jwt_vault_id: &str, request_vault_id: &str) -> R
 
 ### Tenant Isolation at Storage Layer
 
-The Server API enforces tenant isolation by prefixing all storage operations with the `vault_id` from the JWT:
+The Engine API enforces tenant isolation by prefixing all storage operations with the `vault_id` from the JWT:
 
-**FoundationDB Keyspace** (Server side):
+**FoundationDB Keyspace** (Engine side):
 
 ```text
 vault_<vault_id>/
@@ -3754,13 +3754,13 @@ impl StorageEngine {
 }
 ```
 
-**Security Guarantee**: Since `vault_id` comes from the **JWT (signed by Management API)** and not from the client request body, clients cannot access other vaults' data by tampering with request parameters.
+**Security Guarantee**: Since `vault_id` comes from the **JWT (signed by Control)** and not from the client request body, clients cannot access other vaults' data by tampering with request parameters.
 
 ### JWT Validation with JWKS Cache
 
-The Server API caches JWKS from the Management API to avoid fetching public keys on every request:
+The Engine API caches JWKS from Control to avoid fetching public keys on every request:
 
-**JWKS Endpoint** (Management API): `GET /.well-known/jwks.json`
+**JWKS Endpoint** (Control): `GET /.well-known/jwks.json`
 
 **Response**:
 
@@ -3779,7 +3779,7 @@ The Server API caches JWKS from the Management API to avoid fetching public keys
 }
 ```
 
-**Server JWKS Cache**:
+**Engine JWKS Cache**:
 
 ```rust
 use moka::future::Cache;
@@ -3800,7 +3800,7 @@ impl JwksCache {
             }
         }
 
-        // Cache miss - fetch from Management API
+        // Cache miss - fetch from Control
         let url = format!("{}/.well-known/jwks.json", self.management_api_url);
         let keys: JwksResponse = reqwest::get(&url).await?.json().await?;
 
@@ -3816,19 +3816,19 @@ impl JwksCache {
 }
 ```
 
-**Server Configuration**:
+**Engine Configuration**:
 
 ```yaml
 auth:
-  management_api_url: "https://management.inferadb.com"
-  jwks_cache_ttl: 300 # 5 minutes (matches Management API's grace period)
+  management_api_url: "https://control.inferadb.com"
+  jwks_cache_ttl: 300 # 5 minutes (matches Control's grace period)
 ```
 
 ### Authorization Flow Summary
 
 1. **Client request**: Includes `Authorization: Bearer <vault-scoped-jwt>` header
-2. **Server interceptor**:
-   - Extracts JWT and validates signature using JWKS from Management API
+2. **Engine interceptor**:
+   - Extracts JWT and validates signature using JWKS from Control
    - Extracts `vault_id`, `vault_role`, `scopes` from JWT claims
    - Attaches `VaultAuthContext` to request extensions
 3. **Handler authorization**:
@@ -3844,7 +3844,7 @@ auth:
 ✅ **Tenant Isolation**: Enforced at storage layer using `vault_id` prefix from trusted JWT
 ✅ **Role-Based Access Control**: VaultRole hierarchy enforced via scope validation
 ✅ **No Cross-Vault Access**: Clients cannot access other vaults' data (vault_id from JWT, not request)
-✅ **JWT Integrity**: All JWTs signed by Management API's Client (Ed25519)
+✅ **JWT Integrity**: All JWTs signed by Control's Client (Ed25519)
 ✅ **Key Rotation Support**: JWKS cache automatically picks up new keys within TTL window
 ✅ **Defense in Depth**: Multiple layers of validation (JWT signature, scope, vault isolation)
 
@@ -3852,7 +3852,7 @@ auth:
 
 ## Configuration
 
-Configuration follows @server patterns using YAML and environment variables.
+Configuration follows @engine patterns using YAML and environment variables.
 
 **Config File**: `config.yaml`
 
@@ -3880,7 +3880,7 @@ auth:
   email_verification_token_ttl: 86400 # 24 hours (token expiry for email verification)
   password_min_length: 12 # Minimum password length
   client_rotation_warning_days: 90 # Warn when clients are older than 90 days
-  key_encryption_secret: "${INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET}" # Required for encrypting Client private keys
+  key_encryption_secret: "${INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET}" # Required for encrypting Client private keys
   webauthn:
     rp_id: "inferadb.com"
     rp_name: "InferaDB"
@@ -3921,15 +3921,16 @@ observability:
 
 **Environment Variable Overrides**:
 
-- `INFERADB_MGMT__STORAGE__BACKEND=foundationdb`
-- `INFERADB_MGMT__POLICY_SERVICE__SERVICE_URL=https://server.inferadb.com`
+- `INFERADB_CTRL__STORAGE__BACKEND=foundationdb`
+- `INFERADB_CTRL__POLICY_SERVICE__SERVICE_URL=https://engine.inferadb.com`
+- `CONTROL_API_AUDIENCE=https://control.inferadb.com` - Expected JWT audience for Engine → Control authentication (defaults to `http://localhost:8081`)
 - `SMTP_PASSWORD=<secret>`
 
 ---
 
 ## Multi-Instance Deployment & Distributed Coordination
 
-The Management API is designed to run as multiple instances for high availability and horizontal scalability. This section defines how instances coordinate without requiring external coordination services like etcd or Consul.
+Control is designed to run as multiple instances for high availability and horizontal scalability. This section defines how instances coordinate without requiring external coordination services like etcd or Consul.
 
 ### Architecture Overview
 
@@ -3949,7 +3950,7 @@ The Management API is designed to run as multiple instances for high availabilit
 
 **Static Assignment (Recommended)**:
 
-- Each instance is assigned a unique worker ID via environment variable `INFERADB_MGMT__ID_GENERATION__WORKER_ID`
+- Each instance is assigned a unique worker ID via environment variable `INFERADB_CTRL__ID_GENERATION__WORKER_ID`
 - Worker IDs are static and must be unique across all running instances
 - Configuration examples:
   - Kubernetes StatefulSet: Use pod ordinal index
@@ -3962,25 +3963,25 @@ The Management API is designed to run as multiple instances for high availabilit
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: inferadb-management
+  name: inferadb-control
 spec:
   replicas: 3
-  serviceName: inferadb-management
+  serviceName: inferadb-control
   template:
     spec:
       containers:
-        - name: management
-          image: inferadb/management:latest
+        - name: control
+          image: inferadb/control:latest
           env:
             - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: INFERADB_MGMT__ID_GENERATION__WORKER_ID
+            - name: INFERADB_CTRL__ID_GENERATION__WORKER_ID
               value: "$(echo $POD_NAME | grep -oE '[0-9]+$')" # Extract ordinal
           # For simple numeric extraction, use init container or entrypoint script:
-          # inferadb-management-0 → WORKER_ID=0
-          # inferadb-management-1 → WORKER_ID=1
+          # inferadb-control-0 → WORKER_ID=0
+          # inferadb-control-1 → WORKER_ID=1
 ```
 
 **Docker Compose Example**:
@@ -3988,20 +3989,20 @@ spec:
 ```yaml
 version: "3.8"
 services:
-  management-0:
-    image: inferadb/management:latest
+  control-0:
+    image: inferadb/control:latest
     environment:
-      INFERADB_MGMT__ID_GENERATION__WORKER_ID: 0
+      INFERADB_CTRL__ID_GENERATION__WORKER_ID: 0
 
-  management-1:
-    image: inferadb/management:latest
+  control-1:
+    image: inferadb/control:latest
     environment:
-      INFERADB_MGMT__ID_GENERATION__WORKER_ID: 1
+      INFERADB_CTRL__ID_GENERATION__WORKER_ID: 1
 
-  management-2:
-    image: inferadb/management:latest
+  control-2:
+    image: inferadb/control:latest
     environment:
-      INFERADB_MGMT__ID_GENERATION__WORKER_ID: 2
+      INFERADB_CTRL__ID_GENERATION__WORKER_ID: 2
 ```
 
 ### Background Job Coordination
@@ -4558,13 +4559,13 @@ mgmt/                                    # Namespace prefix
 
 ### Multi-Tenancy Isolation Guarantees
 
-The Management API is designed as a **true multi-tenant SaaS platform** supporting thousands of organizations with complete isolation:
+Control is designed as a **true multi-tenant SaaS platform** supporting thousands of organizations with complete isolation:
 
 **1. Data Isolation (Storage Layer)**:
 
 - **FoundationDB keyspace partitioning**: All organization data prefixed with `orgs/<org_id>/`
 - **Vault data isolation**: Each vault has independent keyspace at `vaults/<vault_id>/`
-- **@server isolation**: Server API enforces vault-level isolation with `vault_id` prefix on all operations
+- **@engine isolation**: Engine API enforces vault-level isolation with `vault_id` prefix on all operations
 - **No shared data**: Organizations cannot access or enumerate other organizations' data
 - **Index isolation**: Global indexes (email, passkey credentials) use opaque identifiers with no organization leakage
 
@@ -4572,7 +4573,7 @@ The Management API is designed as a **true multi-tenant SaaS platform** supporti
 
 - **User sessions**: UserSession scoped to user, no cross-user session access
 - **Client assertions**: Client JWTs scoped to specific organization and vault
-- **JWT validation**: @server validates vault_id in JWT matches request vault_id
+- **JWT validation**: @engine validates vault_id in JWT matches request vault_id
 - **JWKS per-tenant**: Each organization's clients use separate key IDs (kid)
 
 **3. Authorization Isolation**:
@@ -4586,7 +4587,7 @@ The Management API is designed as a **true multi-tenant SaaS platform** supporti
 
 - **Per-organization limits**: Each organization has independent rate limit buckets
 - **Tier-based limits**: Organizations on higher tiers (PRO, MAX) don't affect DEV tier orgs
-- **Server API limits**: @server enforces per-organization rate limits for Check/Write operations
+- **Engine API limits**: @engine enforces per-organization rate limits for Check/Write operations
 - **No noisy neighbor**: One organization's traffic cannot exhaust another's quota
 
 **5. Audit Logging Isolation**:
@@ -4674,12 +4675,12 @@ Runs daily (cron-like scheduler) and performs the following:
 
 ## Testing Strategy
 
-Follow @server patterns:
+Follow @engine patterns:
 
 - **Unit tests**: In `src/` files (`#[cfg(test)] mod tests`)
 - **Integration tests**: In `tests/` directory
 - **Use cargo-nextest** for test execution
-- **Test fixtures**: Shared utilities in `inferadb-management-test-fixtures` crate
+- **Test fixtures**: Shared utilities in `inferadb-control-test-fixtures` crate
 - **Storage tests**: Run against both in-memory and FoundationDB backends
 
 **Key Test Coverage**:
@@ -4772,8 +4773,8 @@ Comprehensive error codes for consistent client handling and debugging.
 ### External Service Errors (EXTERNAL\_\*)
 
 - `EXTERNAL_EMAIL_SEND_FAILED`: Failed to send email (SMTP error)
-- `EXTERNAL_SERVER_SYNC_FAILED`: Failed to sync with @server (vault creation/deletion)
-- `EXTERNAL_JWKS_FETCH_FAILED`: Failed to fetch JWKS from Management API
+- `EXTERNAL_SERVER_SYNC_FAILED`: Failed to sync with @engine (vault creation/deletion)
+- `EXTERNAL_JWKS_FETCH_FAILED`: Failed to fetch JWKS from Control
 
 ### System Errors (SYSTEM\_\*)
 
@@ -4798,7 +4799,7 @@ Comprehensive error codes for consistent client handling and debugging.
 
 ### Client Emergency Revocation
 
-When a Client's private key is compromised, immediate revocation with propagation to @server is critical.
+When a Client's private key is compromised, immediate revocation with propagation to @engine is critical.
 
 **Endpoint**: `POST /v1/organizations/:org/clients/:client/emergency-revoke`
 
@@ -4815,9 +4816,9 @@ When a Client's private key is compromised, immediate revocation with propagatio
 1. Validate requester is an Owner
 2. Set `revoked_at` on Client - immediate revocation
 3. **Do NOT wait for 5-minute JWKS grace period**
-4. Immediately notify @server instances via webhook or gRPC:
-   - Send `InvalidateJWKS` gRPC call to all known @server instances
-   - @server instances immediately clear their JWKS cache
+4. Immediately notify @engine instances via webhook or gRPC:
+   - Send `InvalidateJWKS` gRPC call to all known @engine instances
+   - @engine instances immediately clear their JWKS cache
    - Next JWT validation will fetch fresh JWKS (without revoked Client key)
 5. Log emergency revocation in audit trail with reason
 6. Send notification email to all organization Owners
@@ -4835,18 +4836,18 @@ pub async fn emergency_revoke_client(
     let revoked_at = SystemTime::now();
     db.revoke_client(org_id, client_id, revoked_at).await?;
 
-    // Notify all @server instances (via gRPC or webhook)
-    let server_instances = discover_server_instances().await?;
+    // Notify all @engine instances (via gRPC or webhook)
+    let engine_instances = discover_engine_instances().await?;
 
-    for server_url in server_instances {
+    for engine_url in engine_instances {
         tokio::spawn(async move {
-            let client = ServerManagementClient::connect(server_url).await?;
+            let client = EngineManagementClient::connect(engine_url.clone()).await?;
             client.invalidate_jwks(InvalidateJwksRequest {
                 organization_id: org_id,
                 reason: format!("Emergency Client revocation: {}", reason),
             }).await?;
 
-            info!("Notified @server instance {} of emergency Client revocation", server_url);
+            info!("Notified @engine instance {} of emergency Client revocation", engine_url);
             Ok::<(), anyhow::Error>(())
         });
     }
@@ -4876,7 +4877,7 @@ pub async fn emergency_revoke_client(
 **Properties**:
 
 - ✅ Immediate revocation (no grace period for compromised keys)
-- ✅ Proactive notification to @server (don't wait for cache expiry)
+- ✅ Proactive notification to @engine (don't wait for cache expiry)
 - ✅ Audit trail for security incidents
 - ✅ Owner notifications for transparency
 
@@ -4884,7 +4885,7 @@ pub async fn emergency_revoke_client(
 
 Enhanced JWKS caching with active invalidation support.
 
-**@server JWKS Cache** (updated implementation):
+**@engine JWKS Cache** (updated implementation):
 
 ```rust
 pub struct JwksCache {
@@ -4915,7 +4916,7 @@ impl JwksCache {
             }
         }
 
-        // Cache miss or expired - fetch from Management API
+        // Cache miss or expired - fetch from Control
         self.refresh_jwks(org_id).await?;
 
         // Retry lookup after refresh
@@ -4943,7 +4944,7 @@ impl JwksCache {
         Ok(())
     }
 
-    /// Handle invalidation events from Management API
+    /// Handle invalidation events from Control
     pub async fn run_invalidation_handler(&mut self) {
         while let Some(event) = self.invalidation_receiver.recv().await {
             match event {
@@ -4977,7 +4978,7 @@ enum JwksInvalidationEvent {
 
 - ✅ Stale-while-revalidate pattern (serve cached while refreshing)
 - ✅ Active invalidation via gRPC notifications
-- ✅ Graceful degradation (use cached keys if Management API unavailable)
+- ✅ Graceful degradation (use cached keys if Control unavailable)
 - ✅ Per-organization and global invalidation support
 
 ### Password Reset Session Invalidation Options
@@ -5035,9 +5036,9 @@ Enhanced vault deletion with automatic retry and admin intervention.
 **Vault Deletion States**:
 
 - `ACTIVE`: Vault is active and operational
-- `DELETE_PENDING`: Soft-deleted, awaiting @server sync
-- `DELETE_FAILED`: @server sync failed, requires intervention
-- `DELETED`: Successfully deleted from both Management and @server
+- `DELETE_PENDING`: Soft-deleted, awaiting @engine sync
+- `DELETE_FAILED`: @engine sync failed, requires intervention
+- `DELETED`: Successfully deleted from both Control and @engine
 
 **Enhanced Vault Entity**:
 
@@ -5065,7 +5066,7 @@ pub enum VaultDeletionStatus {
 
 ```rust
 pub async fn delete_vault_with_retry(vault_id: i64) -> Result<()> {
-    // 1. Soft-delete vault in Management API
+    // 1. Soft-delete vault in Control
     let now = SystemTime::now();
     db.update_vault(vault_id, |vault| {
         vault.deleted_at = Some(now);
@@ -5078,7 +5079,7 @@ pub async fn delete_vault_with_retry(vault_id: i64) -> Result<()> {
     // 2. Cascade soft-delete access grants immediately
     db.soft_delete_vault_access_grants(vault_id).await?;
 
-    // 3. Attempt @server deletion (with retries)
+    // 3. Attempt @engine deletion (with retries)
     for attempt in 1..=3 {
         match delete_vault_in_server(vault_id).await {
             Ok(()) => {
@@ -5088,7 +5089,7 @@ pub async fn delete_vault_with_retry(vault_id: i64) -> Result<()> {
                     vault.deletion_status = Some(VaultDeletionStatus::Deleted);
                 }).await?;
 
-                info!("Vault {} successfully deleted from @server", vault_id);
+                info!("Vault {} successfully deleted from @engine", vault_id);
                 return Ok(());
             }
             Err(e) if attempt < 3 => {
@@ -5215,23 +5216,23 @@ Expose Prometheus metrics on `/metrics` endpoint:
 
 **Counter Metrics**:
 
-- `inferadb_mgmt_requests_total{method, path, status}`: Total HTTP requests
-- `inferadb_mgmt_auth_attempts_total{method, result}`: Authentication attempts (password/passkey, success/failure)
-- `inferadb_mgmt_registrations_total{result}`: User registrations (success/failure)
-- `inferadb_mgmt_rate_limits_exceeded_total{limit_type}`: Rate limit violations
+- `inferadb_ctrl_requests_total{method, path, status}`: Total HTTP requests
+- `inferadb_ctrl_auth_attempts_total{method, result}`: Authentication attempts (password/passkey, success/failure)
+- `inferadb_ctrl_registrations_total{result}`: User registrations (success/failure)
+- `inferadb_ctrl_rate_limits_exceeded_total{limit_type}`: Rate limit violations
 
 **Histogram Metrics**:
 
-- `inferadb_mgmt_request_duration_seconds{method, path}`: Request latency
-- `inferadb_mgmt_db_query_duration_seconds{operation}`: Database query latency
-- `inferadb_mgmt_grpc_request_duration_seconds{service, method}`: gRPC request latency (to @server)
+- `inferadb_ctrl_request_duration_seconds{method, path}`: Request latency
+- `inferadb_ctrl_db_query_duration_seconds{operation}`: Database query latency
+- `inferadb_ctrl_grpc_request_duration_seconds{service, method}`: gRPC request latency (to @engine)
 
 **Gauge Metrics**:
 
-- `inferadb_mgmt_active_sessions{session_type}`: Current active sessions
-- `inferadb_mgmt_organizations_total`: Total organizations
-- `inferadb_mgmt_vaults_total{status}`: Total vaults by sync status
-- `inferadb_mgmt_is_leader`: Whether this instance is background job leader (0 or 1)
+- `inferadb_ctrl_active_sessions{session_type}`: Current active sessions
+- `inferadb_ctrl_organizations_total`: Total organizations
+- `inferadb_ctrl_vaults_total{status}`: Total vaults by sync status
+- `inferadb_ctrl_is_leader`: Whether this instance is background job leader (0 or 1)
 
 ### Health Checks
 
@@ -5276,7 +5277,7 @@ OpenTelemetry integration for distributed tracing:
 observability:
   tracing_enabled: true # Enable in production
   otlp_endpoint: "http://otel-collector:4317"
-  service_name: "inferadb-management"
+  service_name: "inferadb-control"
   trace_sampling_rate: 0.1 # Sample 10% of requests
 ```
 

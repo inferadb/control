@@ -1,6 +1,6 @@
 # Getting Started
 
-This tutorial walks you through setting up and using the InferaDB Management API from scratch.
+This tutorial walks you through setting up and using InferaDB Control from scratch.
 
 ## Prerequisites
 
@@ -11,18 +11,18 @@ This tutorial walks you through setting up and using the InferaDB Management API
 
 ## Installation
 
-### 1. Build the Management API
+### 1. Build Control
 
 ```bash
 # Clone repository
 git clone https://github.com/yourusername/inferadb.git
-cd inferadb/management
+cd inferadb/control
 
 # Build the project
 cargo build --release
 
 # Verify build
-./target/release/inferadb-management --version
+./target/release/inferadb-control --version
 ```
 
 ### 2. Configure the API
@@ -58,13 +58,13 @@ observability:
 
 ```bash
 # Run with local config
-./target/release/inferadb-management --config config.local.yaml
+./target/release/inferadb-control --config config.local.yaml
 ```
 
 You should see output like:
 
 ```text
-2025-11-18T10:00:00.000Z INFO  Starting InferaDB Management API
+2025-11-18T10:00:00.000Z INFO  Starting InferaDB Control
 2025-11-18T10:00:00.123Z INFO  Public REST server listening on 127.0.0.1:9090
 2025-11-18T10:00:00.234Z INFO  Public gRPC server listening on 127.0.0.1:9091
 2025-11-18T10:00:00.456Z INFO  Internal REST server listening on 0.0.0.0:9092
@@ -301,14 +301,14 @@ curl -X GET "http://localhost:9090/v1/organizations/9876543210987654321/audit-lo
 
 ### Using Environment Variables
 
-Override config values with environment variables (use `INFERADB_MGMT__` prefix with double underscores as separators):
+Override config values with environment variables (use `INFERADB_CTRL__` prefix with double underscores as separators):
 
 ```bash
-export INFERADB_MGMT__SERVER__PUBLIC_REST="127.0.0.1:8080"
-export INFERADB_MGMT__OBSERVABILITY__LOG_LEVEL=debug
-export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET="your-secret-key"
+export INFERADB_CTRL__SERVER__PUBLIC_REST="127.0.0.1:8080"
+export INFERADB_CTRL__OBSERVABILITY__LOG_LEVEL=debug
+export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="your-secret-key"
 
-./target/release/inferadb-management
+./target/release/inferadb-control
 ```
 
 ### Running Tests
@@ -351,10 +351,10 @@ View structured logs:
 
 ```bash
 # Pretty-print JSON logs
-./target/release/inferadb-management-api | jq
+./target/release/inferadb-control-api | jq
 
 # Filter for errors
-./target/release/inferadb-management-api | jq 'select(.level == "ERROR")'
+./target/release/inferadb-control-api | jq 'select(.level == "ERROR")'
 ```
 
 ### Resetting the Database
@@ -365,7 +365,7 @@ If you need to start fresh with the in-memory backend:
 # Stop the API server (Ctrl+C)
 
 # Restart the API server (in-memory data is automatically cleared on restart)
-./target/release/inferadb-management --config config.local.yaml
+./target/release/inferadb-control --config config.local.yaml
 ```
 
 **Note**: The in-memory backend stores all data in RAM. Restarting the server clears all data.
@@ -402,7 +402,7 @@ Now that you have the basics working, explore:
 
 1. Change port in config: `public_rest: "127.0.0.1:8080"`
 2. Find and stop conflicting process: `lsof -i :9090`
-3. Use environment variable: `export INFERADB_MGMT__SERVER__PUBLIC_REST="127.0.0.1:8080"`
+3. Use environment variable: `export INFERADB_CTRL__SERVER__PUBLIC_REST="127.0.0.1:8080"`
 
 ### Key encryption secret too short
 

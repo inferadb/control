@@ -1,6 +1,6 @@
 # Load Tests
 
-Performance and load testing suite for the InferaDB Management API using [k6](https://k6.io/).
+Performance and load testing suite for InferaDB Control using [k6](https://k6.io/).
 
 ## Prerequisites
 
@@ -151,10 +151,10 @@ done
 
 ### Local Development
 
-1. Start the Management API:
+1. Start Control:
 
    ```bash
-   cargo run --bin inferadb-management
+   cargo run --bin inferadb-control
    ```
 
 2. Run tests against localhost:
@@ -264,7 +264,7 @@ docker run --rm -i grafana/k6 run - <loadtests/auth.js
 
 ### Connection Refused
 
-Ensure the Management API is running:
+Ensure Control is running:
 
 ```bash
 curl http://localhost:3000/v1/health

@@ -4,7 +4,7 @@ services:
   # FoundationDB for production-like development
   foundationdb:
     image: foundationdb/foundationdb:7.3.63
-    container_name: inferadb-management-fdb
+    container_name: inferadb-control-fdb
     ports:
       - "4500:4500"
     environment:
@@ -12,34 +12,34 @@ services:
     volumes:
       - fdb-data:/var/fdb/data
     networks:
-      - inferadb-mgmt-network
+      - inferadb-control-network
 
   # MailHog for email testing
   mailhog:
     image: mailhog/mailhog:latest
-    container_name: inferadb-management-mailhog
+    container_name: inferadb-control-mailhog
     ports:
       - "1025:1025" # SMTP server
       - "8025:8025" # Web UI
     networks:
-      - inferadb-mgmt-network
+      - inferadb-control-network
 
   # Optional: Jaeger for distributed tracing
   jaeger:
     image: jaegertracing/all-in-one:latest
-    container_name: inferadb-management-jaeger
+    container_name: inferadb-control-jaeger
     ports:
       - "4317:4317" # OTLP gRPC
       - "16686:16686" # Jaeger UI
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:
-      - inferadb-mgmt-network
+      - inferadb-control-network
 
   # Optional: Prometheus for metrics
   prometheus:
     image: prom/prometheus:latest
-    container_name: inferadb-management-prometheus
+    container_name: inferadb-control-prometheus
     ports:
       - "9090:9090"
     volumes:
@@ -49,12 +49,12 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
     networks:
-      - inferadb-mgmt-network
+      - inferadb-control-network
 
   # Optional: Grafana for metrics visualization
   grafana:
     image: grafana/grafana:latest
-    container_name: inferadb-management-grafana
+    container_name: inferadb-control-grafana
     ports:
       - "3030:3000"
     environment:
@@ -62,7 +62,7 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
     networks:
-      - inferadb-mgmt-network
+      - inferadb-control-network
     depends_on:
       - prometheus
 
@@ -72,5 +72,5 @@ volumes:
   grafana-data:
 
 networks:
-  inferadb-mgmt-network:
+  inferadb-control-network:
     driver: bridge

@@ -1,8 +1,6 @@
-# InferaDB Management API - Deployment Guide
+# InferaDB Control - Deployment Guide
 
-This guide provides instructions for deploying the InferaDB Management API in production environments.
-
-**IMPORTANT**: The Management API currently supports in-memory storage backend only. FoundationDB backend is planned for future multi-instance production deployments but is not yet implemented. This limits deployment to single-instance configurations.
+This guide provides instructions for deploying InferaDB Control in production environments.
 
 ## Prerequisites
 
@@ -45,13 +43,6 @@ Edit `config.yaml` and replace all placeholder values marked with `<...>`:
 storage:
   backend: "memory" # Only implemented backend currently
 ```
-
-**Note**: The Management API currently only supports the in-memory storage backend. FoundationDB backend is planned but not yet implemented. This means:
-
-- All data is stored in RAM
-- Data is lost on server restart
-- Not suitable for high-availability multi-instance deployments
-- Ensure adequate RAM allocation (8GB+ recommended)
 
 #### Authentication Security
 
@@ -103,7 +94,7 @@ export SMTP_PASSWORD="your-password"
 
 ```yaml
 policy_service:
-  service_url: "http://inferadb-server.inferadb" # K8s service name
+  service_url: "http://inferadb-engine.inferadb" # K8s service name
   grpc_port: 8081
   internal_port: 8082
 ```
@@ -115,24 +106,22 @@ policy_service:
 Use environment variables to override sensitive configuration:
 
 ```bash
-# Key encryption secret (use INFERADB_MGMT__ prefix for all config overrides)
-export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret"
+# Key encryption secret (use INFERADB_CTRL__ prefix for all config overrides)
+export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret"
 
 # SMTP credentials
-export INFERADB_MGMT__EMAIL__SMTP_USERNAME="smtp-user"
-export INFERADB_MGMT__EMAIL__SMTP_PASSWORD="smtp-pass"
+export INFERADB_CTRL__EMAIL__SMTP_USERNAME="smtp-user"
+export INFERADB_CTRL__EMAIL__SMTP_PASSWORD="smtp-pass"
 
 # Worker ID (for multi-instance deployments)
-export INFERADB_MGMT__ID_GENERATION__WORKER_ID="0"
+export INFERADB_CTRL__ID_GENERATION__WORKER_ID="0"
 ```
 
 ## Single-Instance Deployment
 
-**Current Limitation**: Due to the in-memory storage backend, only single-instance deployments are currently supported. Multi-instance high-availability deployments will be possible when the FoundationDB backend is implemented.
-
 ### Single Instance Configuration
 
-Deploy one instance of the Management API:
+Deploy one instance of Control:
 
 ```yaml
 id_generation:
@@ -153,10 +142,10 @@ Example (Kubernetes Service):
 apiVersion: v1
 kind: Service
 metadata:
-  name: inferadb-management-api
+  name: inferadb-control-api
 spec:
   selector:
-    app: inferadb-management-api
+    app: inferadb-control-api
   ports:
     - name: http
       port: 80
@@ -173,7 +162,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: inferadb-management-api
+  name: inferadb-control-api
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
@@ -189,7 +178,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: inferadb-management-api
+                name: inferadb-control-api
                 port:
                   number: 80
 ```
@@ -460,12 +449,6 @@ cors:
 2. Ensure unique worker IDs
 3. Update load balancer backends
 4. Leader election automatically adjusts
-
-### Database Migrations
-
-Currently, the management API uses in-memory storage. Schema evolution is handled in-code.
-
-When FoundationDB backend is implemented, migration procedures will be documented in release notes.
 
 ## Support
 

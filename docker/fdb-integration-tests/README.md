@@ -1,10 +1,10 @@
-# FoundationDB Integration Tests for Management API
+# FoundationDB Integration Tests for Control
 
-This directory contains Docker-based integration tests for the InferaDB Management API with FoundationDB.
+This directory contains Docker-based integration tests for the InferaDB Control with FoundationDB.
 
 ## Overview
 
-The integration test suite validates that the management API works correctly with a real FoundationDB cluster, testing:
+The integration test suite validates that Control works correctly with a real FoundationDB cluster, testing:
 
 - Transaction handling and retries
 - Conflict resolution
@@ -52,11 +52,11 @@ docker-compose up -d
 docker exec -it inferadb-mgmt-test-runner bash
 
 # Inside container, run specific tests
-cargo test -p inferadb-management-storage --features foundationdb -- --nocapture
+cargo test -p inferadb-control-storage --features foundationdb -- --nocapture
 
 # Or run full suite
-INFERADB_MGMT__STORAGE__BACKEND=foundationdb \
-INFERADB_MGMT__STORAGE__FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster \
+INFERADB_CTRL__STORAGE__BACKEND=foundationdb \
+INFERADB_CTRL__STORAGE__FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster \
 cargo test --workspace --lib --bins
 ```
 
@@ -106,13 +106,13 @@ Both containers run on an isolated bridge network (`inferadb-mgmt-fdb-test-net`)
 - `RUN_ALL_TESTS`: Run all storage tests (default: `false`)
 - `RUN_FULL_SUITE`: Run full test suite (default: `false`)
 
-### Management API Configuration
+### Control Configuration
 
 When running full suite, configure via environment:
 
 ```bash
-INFERADB_MGMT__STORAGE__BACKEND=foundationdb
-INFERADB_MGMT__STORAGE__FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster
+INFERADB_CTRL__STORAGE__BACKEND=foundationdb
+INFERADB_CTRL__STORAGE__FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster
 ```
 
 ## Troubleshooting

@@ -1,6 +1,6 @@
-# InferaDB Management API Configuration Guide
+# InferaDB Control Configuration Guide
 
-Complete guide for configuring the InferaDB Management API using configuration files and environment variables.
+Complete guide for configuring InferaDB Control using configuration files and environment variables.
 
 ## Table of Contents
 
@@ -24,13 +24,13 @@ Complete guide for configuring the InferaDB Management API using configuration f
 
 ## Overview
 
-The Management API supports configuration through multiple sources with the following precedence (highest to lowest):
+Control supports configuration through multiple sources with the following precedence (highest to lowest):
 
 1. **Environment variables** (highest priority)
 2. **Configuration file**
 3. **Default values** (lowest priority)
 
-Configuration files use **YAML or JSON** format, and environment variables use the `INFERADB_MGMT__` prefix with double underscores (`__`) as separators.
+Configuration files use **YAML or JSON** format, and environment variables use the `INFERADB_CTRL__` prefix with double underscores (`__`) as separators.
 
 ## Configuration Methods
 
@@ -105,40 +105,40 @@ discovery:
 **Load configuration file**:
 
 ```bash
-inferadb-management --config config.yaml
+inferadb-control --config config.yaml
 ```
 
 ### Method 2: Environment Variables
 
-All configuration options can be set via environment variables using the `INFERADB_MGMT__` prefix:
+All configuration options can be set via environment variables using the `INFERADB_CTRL__` prefix:
 
 ```bash
 # Frontend URL
-export INFERADB_MGMT__FRONTEND_BASE_URL="https://app.inferadb.com"
+export INFERADB_CTRL__FRONTEND_BASE_URL="https://app.inferadb.com"
 
 # Server configuration (combined address strings)
-export INFERADB_MGMT__SERVER__PUBLIC_REST="127.0.0.1:9090"
-export INFERADB_MGMT__SERVER__PUBLIC_GRPC="127.0.0.1:9091"
-export INFERADB_MGMT__SERVER__PRIVATE_REST="0.0.0.0:9092"
-export INFERADB_MGMT__SERVER__WORKER_THREADS=4
+export INFERADB_CTRL__SERVER__PUBLIC_REST="127.0.0.1:9090"
+export INFERADB_CTRL__SERVER__PUBLIC_GRPC="127.0.0.1:9091"
+export INFERADB_CTRL__SERVER__PRIVATE_REST="0.0.0.0:9092"
+export INFERADB_CTRL__SERVER__WORKER_THREADS=4
 
 # Storage configuration
-export INFERADB_MGMT__STORAGE__BACKEND="memory"
-export INFERADB_MGMT__STORAGE__FDB_CLUSTER_FILE="/etc/foundationdb/fdb.cluster"
+export INFERADB_CTRL__STORAGE__BACKEND="memory"
+export INFERADB_CTRL__STORAGE__FDB_CLUSTER_FILE="/etc/foundationdb/fdb.cluster"
 
 # Authentication
-export INFERADB_MGMT__AUTH__SESSION_TTL_WEB=2592000
-export INFERADB_MGMT__AUTH__PASSWORD_MIN_LENGTH=12
-export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret-key-here!!!"
+export INFERADB_CTRL__AUTH__SESSION_TTL_WEB=2592000
+export INFERADB_CTRL__AUTH__PASSWORD_MIN_LENGTH=12
+export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret-key-here!!!"
 
 # Email
-export INFERADB_MGMT__EMAIL__SMTP_HOST="smtp.sendgrid.net"
-export INFERADB_MGMT__EMAIL__SMTP_PORT=587
-export INFERADB_MGMT__EMAIL__SMTP_PASSWORD="your-smtp-password"
+export INFERADB_CTRL__EMAIL__SMTP_HOST="smtp.sendgrid.net"
+export INFERADB_CTRL__EMAIL__SMTP_PORT=587
+export INFERADB_CTRL__EMAIL__SMTP_PASSWORD="your-smtp-password"
 
 # Observability
-export INFERADB_MGMT__OBSERVABILITY__LOG_LEVEL="info"
-export INFERADB_MGMT__OBSERVABILITY__METRICS_ENABLED=true
+export INFERADB_CTRL__OBSERVABILITY__LOG_LEVEL="info"
+export INFERADB_CTRL__OBSERVABILITY__METRICS_ENABLED=true
 ```
 
 ### Method 3: Combined (File + Environment)
@@ -148,14 +148,14 @@ Environment variables override file configuration:
 ```bash
 # config.yaml sets public_rest to "127.0.0.1:9090"
 # Environment variable overrides to bind to all interfaces
-export INFERADB_MGMT__SERVER__PUBLIC_REST="0.0.0.0:9090"
-inferadb-management --config config.yaml
+export INFERADB_CTRL__SERVER__PUBLIC_REST="0.0.0.0:9090"
+inferadb-control --config config.yaml
 # Server binds to 0.0.0.0:9090 instead
 ```
 
 ## Server Configuration
 
-Controls HTTP/gRPC server behavior. The Management API exposes three interfaces:
+Controls HTTP/gRPC server behavior. Control exposes three interfaces:
 
 - **Public REST API** (port 9090): Client-facing HTTP API
 - **Public gRPC API** (port 9091): Client-facing gRPC API
@@ -195,10 +195,10 @@ server:
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__SERVER__PUBLIC_REST="0.0.0.0:9090"
-export INFERADB_MGMT__SERVER__PUBLIC_GRPC="0.0.0.0:9091"
-export INFERADB_MGMT__SERVER__PRIVATE_REST="0.0.0.0:9092"
-export INFERADB_MGMT__SERVER__WORKER_THREADS=8
+export INFERADB_CTRL__SERVER__PUBLIC_REST="0.0.0.0:9090"
+export INFERADB_CTRL__SERVER__PUBLIC_GRPC="0.0.0.0:9091"
+export INFERADB_CTRL__SERVER__PRIVATE_REST="0.0.0.0:9092"
+export INFERADB_CTRL__SERVER__WORKER_THREADS=8
 ```
 
 ## Storage Configuration
@@ -242,8 +242,8 @@ storage:
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__STORAGE__BACKEND="foundationdb"
-export INFERADB_MGMT__STORAGE__FDB_CLUSTER_FILE="/etc/foundationdb/fdb.cluster"
+export INFERADB_CTRL__STORAGE__BACKEND="foundationdb"
+export INFERADB_CTRL__STORAGE__FDB_CLUSTER_FILE="/etc/foundationdb/fdb.cluster"
 ```
 
 ## Authentication Configuration
@@ -263,7 +263,7 @@ Controls user authentication, sessions, and security.
 
 > **Note**: The JWT issuer and audience are hardcoded to `https://api.inferadb.com` per RFC 8725 best practices.
 > Since we own the entire experience end-to-end, these values are not configurable and ensure
-> consistency between the Management API and Server API.
+> consistency between Control and Server API.
 
 ### WebAuthn Configuration
 
@@ -310,17 +310,17 @@ auth:
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__AUTH__SESSION_TTL_WEB=2592000
-export INFERADB_MGMT__AUTH__SESSION_TTL_CLI=7776000
-export INFERADB_MGMT__AUTH__SESSION_TTL_SDK=7776000
-export INFERADB_MGMT__AUTH__PASSWORD_MIN_LENGTH=12
-export INFERADB_MGMT__AUTH__MAX_SESSIONS_PER_USER=10
-export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret-key-here!!!"
-export INFERADB_MGMT__AUTH__JWT_ISSUER="https://api.inferadb.com"
-export INFERADB_MGMT__AUTH__JWT_AUDIENCE="https://api.inferadb.com/evaluate"
-export INFERADB_MGMT__AUTH__WEBAUTHN__RP_ID="inferadb.com"
-export INFERADB_MGMT__AUTH__WEBAUTHN__RP_NAME="InferaDB"
-export INFERADB_MGMT__AUTH__WEBAUTHN__ORIGIN="https://app.inferadb.com"
+export INFERADB_CTRL__AUTH__SESSION_TTL_WEB=2592000
+export INFERADB_CTRL__AUTH__SESSION_TTL_CLI=7776000
+export INFERADB_CTRL__AUTH__SESSION_TTL_SDK=7776000
+export INFERADB_CTRL__AUTH__PASSWORD_MIN_LENGTH=12
+export INFERADB_CTRL__AUTH__MAX_SESSIONS_PER_USER=10
+export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret-key-here!!!"
+export INFERADB_CTRL__AUTH__JWT_ISSUER="https://api.inferadb.com"
+export INFERADB_CTRL__AUTH__JWT_AUDIENCE="https://api.inferadb.com/evaluate"
+export INFERADB_CTRL__AUTH__WEBAUTHN__RP_ID="inferadb.com"
+export INFERADB_CTRL__AUTH__WEBAUTHN__RP_NAME="InferaDB"
+export INFERADB_CTRL__AUTH__WEBAUTHN__ORIGIN="https://app.inferadb.com"
 ```
 
 ### Security Notes
@@ -370,12 +370,12 @@ email:
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__EMAIL__SMTP_HOST="smtp.sendgrid.net"
-export INFERADB_MGMT__EMAIL__SMTP_PORT=587
-export INFERADB_MGMT__EMAIL__SMTP_USERNAME="apikey"
-export INFERADB_MGMT__EMAIL__SMTP_PASSWORD="your-api-key"
-export INFERADB_MGMT__EMAIL__FROM_EMAIL="noreply@inferadb.com"
-export INFERADB_MGMT__EMAIL__FROM_NAME="InferaDB"
+export INFERADB_CTRL__EMAIL__SMTP_HOST="smtp.sendgrid.net"
+export INFERADB_CTRL__EMAIL__SMTP_PORT=587
+export INFERADB_CTRL__EMAIL__SMTP_USERNAME="apikey"
+export INFERADB_CTRL__EMAIL__SMTP_PASSWORD="your-api-key"
+export INFERADB_CTRL__EMAIL__FROM_EMAIL="noreply@inferadb.com"
+export INFERADB_CTRL__EMAIL__FROM_NAME="InferaDB"
 ```
 
 ## Rate Limiting Configuration
@@ -416,10 +416,10 @@ rate_limiting:
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__RATE_LIMITING__LOGIN_ATTEMPTS_PER_IP_PER_HOUR=50
-export INFERADB_MGMT__RATE_LIMITING__REGISTRATIONS_PER_IP_PER_DAY=3
-export INFERADB_MGMT__RATE_LIMITING__EMAIL_VERIFICATION_TOKENS_PER_HOUR=3
-export INFERADB_MGMT__RATE_LIMITING__PASSWORD_RESET_TOKENS_PER_HOUR=2
+export INFERADB_CTRL__RATE_LIMITING__LOGIN_ATTEMPTS_PER_IP_PER_HOUR=50
+export INFERADB_CTRL__RATE_LIMITING__REGISTRATIONS_PER_IP_PER_DAY=3
+export INFERADB_CTRL__RATE_LIMITING__EMAIL_VERIFICATION_TOKENS_PER_HOUR=3
+export INFERADB_CTRL__RATE_LIMITING__PASSWORD_RESET_TOKENS_PER_HOUR=2
 ```
 
 ## Observability Configuration
@@ -459,10 +459,10 @@ observability:
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__OBSERVABILITY__LOG_LEVEL="info"
-export INFERADB_MGMT__OBSERVABILITY__METRICS_ENABLED=true
-export INFERADB_MGMT__OBSERVABILITY__TRACING_ENABLED=true
-export INFERADB_MGMT__OBSERVABILITY__OTLP_ENDPOINT="http://jaeger:4317"
+export INFERADB_CTRL__OBSERVABILITY__LOG_LEVEL="info"
+export INFERADB_CTRL__OBSERVABILITY__METRICS_ENABLED=true
+export INFERADB_CTRL__OBSERVABILITY__TRACING_ENABLED=true
+export INFERADB_CTRL__OBSERVABILITY__OTLP_ENDPOINT="http://jaeger:4317"
 ```
 
 ## ID Generation Configuration
@@ -485,12 +485,12 @@ id_generation:
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__ID_GENERATION__WORKER_ID=0
+export INFERADB_CTRL__ID_GENERATION__WORKER_ID=0
 ```
 
 ### Notes
 
-- Each Management API instance must have a unique `worker_id` (0-1023)
+- Each Control instance must have a unique `worker_id` (0-1023)
 - In Kubernetes, derive from pod ordinal or use a distributed lock
 - Duplicate worker IDs can cause ID collisions
 
@@ -521,14 +521,14 @@ policy_service:
 
 ```yaml
 policy_service:
-  service_url: "http://inferadb-server.inferadb"
+  service_url: "http://inferadb-engine.inferadb"
   grpc_port: 8081
   internal_port: 8082
 ```
 
 ### Computed URLs
 
-The Management API computes full URLs from these settings:
+Control computes full URLs from these settings:
 
 - **gRPC URL**: `{service_url}:{grpc_port}` → `http://localhost:8081`
 - **Internal URL**: `{service_url}:{internal_port}` → `http://localhost:8082`
@@ -536,14 +536,14 @@ The Management API computes full URLs from these settings:
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__POLICY_SERVICE__SERVICE_URL="http://inferadb-server.inferadb"
-export INFERADB_MGMT__POLICY_SERVICE__GRPC_PORT=8081
-export INFERADB_MGMT__POLICY_SERVICE__INTERNAL_PORT=8082
+export INFERADB_CTRL__POLICY_SERVICE__SERVICE_URL="http://inferadb-engine.inferadb"
+export INFERADB_CTRL__POLICY_SERVICE__GRPC_PORT=8081
+export INFERADB_CTRL__POLICY_SERVICE__INTERNAL_PORT=8082
 ```
 
 ## Identity Configuration
 
-Controls Management API identity for service-to-service authentication.
+Controls Control identity for service-to-service authentication.
 
 ### Options
 
@@ -567,7 +567,7 @@ identity: {}
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__IDENTITY__PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n..."
+export INFERADB_CTRL__IDENTITY__PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n..."
 ```
 
 ### Recommendations
@@ -599,8 +599,8 @@ cache_invalidation:
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__CACHE_INVALIDATION__TIMEOUT_MS=5000
-export INFERADB_MGMT__CACHE_INVALIDATION__RETRY_ATTEMPTS=0
+export INFERADB_CTRL__CACHE_INVALIDATION__TIMEOUT_MS=5000
+export INFERADB_CTRL__CACHE_INVALIDATION__RETRY_ATTEMPTS=0
 ```
 
 ### Notes
@@ -659,16 +659,16 @@ discovery:
     remote_clusters:
       - name: "eu-west-1"
         tailscale_domain: "eu-west-1.ts.net"
-        service_name: "inferadb-management"
+        service_name: "inferadb-control"
         port: 9092
 ```
 
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__DISCOVERY__CACHE_TTL_SECONDS=30
-export INFERADB_MGMT__DISCOVERY__ENABLE_HEALTH_CHECK=true
-export INFERADB_MGMT__DISCOVERY__HEALTH_CHECK_INTERVAL_SECONDS=10
+export INFERADB_CTRL__DISCOVERY__CACHE_TTL_SECONDS=30
+export INFERADB_CTRL__DISCOVERY__ENABLE_HEALTH_CHECK=true
+export INFERADB_CTRL__DISCOVERY__HEALTH_CHECK_INTERVAL_SECONDS=10
 ```
 
 ## Frontend Base URL
@@ -690,7 +690,7 @@ frontend_base_url: "https://app.inferadb.com"
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__FRONTEND_BASE_URL="https://app.inferadb.com"
+export INFERADB_CTRL__FRONTEND_BASE_URL="https://app.inferadb.com"
 ```
 
 ### Notes
@@ -815,7 +815,7 @@ id_generation:
   worker_id: 0
 
 policy_service:
-  service_url: "http://inferadb-server.inferadb"
+  service_url: "http://inferadb-engine.inferadb"
   grpc_port: 8081
   internal_port: 8082
 
@@ -882,7 +882,7 @@ id_generation:
   worker_id: 0
 
 policy_service:
-  service_url: "http://inferadb-server.inferadb"
+  service_url: "http://inferadb-engine.inferadb"
   grpc_port: 8081
   internal_port: 8082
 
@@ -913,9 +913,9 @@ discovery:
 ### Environment Variables (Recommended)
 
 ```bash
-export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret-key-here!!!"
-export INFERADB_MGMT__EMAIL__SMTP_PASSWORD="your-smtp-password"
-export INFERADB_MGMT__IDENTITY__PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n..."
+export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret-key-here!!!"
+export INFERADB_CTRL__EMAIL__SMTP_PASSWORD="your-smtp-password"
+export INFERADB_CTRL__IDENTITY__PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n..."
 ```
 
 ### Kubernetes Secrets
@@ -924,7 +924,7 @@ export INFERADB_MGMT__IDENTITY__PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n..
 apiVersion: v1
 kind: Secret
 metadata:
-  name: inferadb-management-secrets
+  name: inferadb-control-secrets
 type: Opaque
 stringData:
   key-encryption-secret: "your-32-byte-secret-key-here!!!"
@@ -938,26 +938,26 @@ stringData:
 ```yaml
 # In deployment
 env:
-  - name: INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET
+  - name: INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET
     valueFrom:
       secretKeyRef:
-        name: inferadb-management-secrets
+        name: inferadb-control-secrets
         key: key-encryption-secret
-  - name: INFERADB_MGMT__EMAIL__SMTP_PASSWORD
+  - name: INFERADB_CTRL__EMAIL__SMTP_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: inferadb-management-secrets
+        name: inferadb-control-secrets
         key: smtp-password
-  - name: INFERADB_MGMT__IDENTITY__PRIVATE_KEY_PEM
+  - name: INFERADB_CTRL__IDENTITY__PRIVATE_KEY_PEM
     valueFrom:
       secretKeyRef:
-        name: inferadb-management-secrets
+        name: inferadb-control-secrets
         key: private-key
 ```
 
 ## Validation
 
-The Management API validates configuration at startup with clear error messages.
+Control validates configuration at startup with clear error messages.
 
 ### Validation Rules
 
@@ -1020,7 +1020,7 @@ Error: frontend_base_url must start with http:// or https://
 1. **Always set key_encryption_secret in production**
 
    ```bash
-   export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET="secure-random-32-byte-string!"
+   export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="secure-random-32-byte-string!"
    ```
 
 2. **Use strong password requirements**
@@ -1082,21 +1082,21 @@ Error: frontend_base_url must start with http:// or https://
 ```yaml
 version: "3.8"
 services:
-  inferadb-management:
-    image: inferadb/management:latest
+  inferadb-control:
+    image: inferadb/control:latest
     ports:
       - "9090:9090"
       - "9091:9091"
       - "9092:9092"
     environment:
-      INFERADB_MGMT__SERVER__PUBLIC_REST: "0.0.0.0:9090"
-      INFERADB_MGMT__SERVER__PUBLIC_GRPC: "0.0.0.0:9091"
-      INFERADB_MGMT__SERVER__PRIVATE_REST: "0.0.0.0:9092"
-      INFERADB_MGMT__STORAGE__BACKEND: "foundationdb"
-      INFERADB_MGMT__STORAGE__FDB_CLUSTER_FILE: "/etc/foundationdb/fdb.cluster"
-      INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET: "${KEY_ENCRYPTION_SECRET}"
-      INFERADB_MGMT__POLICY_SERVICE__SERVICE_URL: "http://inferadb-server"
-      INFERADB_MGMT__FRONTEND_BASE_URL: "https://app.inferadb.com"
+      INFERADB_CTRL__SERVER__PUBLIC_REST: "0.0.0.0:9090"
+      INFERADB_CTRL__SERVER__PUBLIC_GRPC: "0.0.0.0:9091"
+      INFERADB_CTRL__SERVER__PRIVATE_REST: "0.0.0.0:9092"
+      INFERADB_CTRL__STORAGE__BACKEND: "foundationdb"
+      INFERADB_CTRL__STORAGE__FDB_CLUSTER_FILE: "/etc/foundationdb/fdb.cluster"
+      INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET: "${KEY_ENCRYPTION_SECRET}"
+      INFERADB_CTRL__POLICY_SERVICE__SERVICE_URL: "http://inferadb-engine"
+      INFERADB_CTRL__FRONTEND_BASE_URL: "https://app.inferadb.com"
     volumes:
       - /etc/foundationdb:/etc/foundationdb:ro
 ```
@@ -1112,7 +1112,7 @@ See the Kubernetes manifests in the `k8s/` directory for complete deployment exa
 **Check configuration**:
 
 ```bash
-inferadb-management --config config.yaml 2>&1 | grep ERROR
+inferadb-control --config config.yaml 2>&1 | grep ERROR
 ```
 
 ### Email Not Sending

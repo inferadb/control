@@ -1,13 +1,13 @@
 # yaml-language-server: $schema=https://spec.openapis.org/oas/3.1/schema/2022-10-07
 openapi: 3.1.0
 info:
-  title: InferaDB Management API
+  title: InferaDB Control
   description: |
-    Control Plane API for InferaDB providing self-service user authentication, organization management, and vault access control.
+    Control Plane for InferaDB providing self-service user authentication, organization management, and vault access control.
 
     ## Authentication
 
-    The Management API uses two primary authentication methods:
+    Control uses two primary authentication methods:
 
     - **Session Cookie**: For web dashboard and interactive sessions. Set via `infera_session` cookie after login.
     - **JWT Bearer Token**: For programmatic access via client assertions (OAuth 2.0 JWT Bearer flow).
@@ -2263,7 +2263,7 @@ paths:
                     enum: [healthy, degraded, unhealthy]
                   service:
                     type: string
-                    example: inferadb-management
+                    example: inferadb-control
                   version:
                     type: string
                     example: "0.1.0"

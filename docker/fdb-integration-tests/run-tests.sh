@@ -134,8 +134,8 @@ fi
 if [ "${RUN_FULL_SUITE:-false}" = "true" ]; then
     echo ""
     echo -e "${YELLOW}Running full management API test suite against FDB...${NC}"
-    INFERADB_MGMT__STORAGE__BACKEND=foundationdb \
-    INFERADB_MGMT__STORAGE__FDB_CLUSTER_FILE="$FDB_CLUSTER_FILE" \
+    INFERADB_CTRL__STORAGE__BACKEND=foundationdb \
+    INFERADB_CTRL__STORAGE__FDB_CLUSTER_FILE="$FDB_CLUSTER_FILE" \
     cargo test --workspace --lib --bins -- --nocapture
 fi
 

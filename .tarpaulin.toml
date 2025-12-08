@@ -1,4 +1,4 @@
-# Tarpaulin Configuration for InferaDB Management API
+# Tarpaulin Configuration for InferaDB Control
 # Code coverage testing configuration
 #
 # Usage:
@@ -17,7 +17,7 @@ out = ["Html", "Xml"]
 exclude = ["*/tests/*", "*/test_fixtures/*", "*/benches/*"]
 
 # Exclude files from coverage
-exclude-files = ["crates/*/tests/*", "crates/inferadb-management-test-fixtures/*"]
+exclude-files = ["crates/*/tests/*", "crates/inferadb-control-test-fixtures/*"]
 
 # Run type
 run-types = ["Tests"]

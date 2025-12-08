@@ -38,7 +38,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 
 # Build dependencies first (cached layer) with FDB feature
-RUN cargo build --release --bin inferadb-management --features inferadb-management-storage/fdb
+RUN cargo build --release --bin inferadb-control --features inferadb-control-storage/fdb
 
 # Final stage - minimal runtime image
 FROM debian:bookworm-slim
@@ -67,7 +67,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy built binary
-COPY --from=builder /workspace/target/release/inferadb-management /app/inferadb-management
+COPY --from=builder /workspace/target/release/inferadb-control /app/inferadb-control
 
 # Copy integration test config file
 COPY config.integration.yaml /app/config.yaml
@@ -80,4 +80,4 @@ HEALTHCHECK --interval=5s --timeout=3s --retries=10 --start-period=15s \
     CMD curl -f http://localhost:8081/health || exit 1
 
 # Run management API
-CMD ["/app/inferadb-management", "--config", "/app/config.yaml"]
+CMD ["/app/inferadb-control", "--config", "/app/config.yaml"]

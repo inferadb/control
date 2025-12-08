@@ -1,10 +1,10 @@
-# Management API Documentation
+# Control Documentation
 
-Welcome to the InferaDB Management API documentation. This directory contains comprehensive guides for integrating, deploying, and operating the Management API.
+Welcome to InferaDB Control documentation. This directory contains comprehensive guides for integrating, deploying, and operating Control.
 
-## New to Management API?
+## New to Control?
 
-Start here: **[Getting Started Guide](getting-started.md)** - Step-by-step tutorial for setting up your first Management API instance and making your first API calls.
+Start here: **[Getting Started Guide](getting-started.md)** - Step-by-step tutorial for setting up your first Control instance and making your first API calls.
 
 ## Quick Reference
 

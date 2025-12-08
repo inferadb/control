@@ -53,7 +53,7 @@ id_generation:
 # Policy service (server) configuration for Kubernetes
 # Discovery mode discovers all server pod IPs
 policy_service:
-  service_url: "http://inferadb-server.inferadb"
+  service_url: "http://inferadb-engine.inferadb"
   grpc_port: 8081
   internal_port: 8082
 

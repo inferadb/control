@@ -1,10 +1,10 @@
 # System Architecture
 
-This document provides visual diagrams of the InferaDB Management API architecture, deployment topology, and component interactions.
+This document provides visual diagrams of the InferaDB Control architecture, deployment topology, and component interactions.
 
 ## Component Architecture
 
-The Management API follows a layered architecture with clear separation of concerns:
+Control follows a layered architecture with clear separation of concerns:
 
 ```mermaid
 graph TB
@@ -99,8 +99,8 @@ graph LR
         LB[Load Balancer<br/>:443<br/>TLS Termination]
     end
 
-    subgraph "Management API"
-        API[inferadb-management<br/>Public REST: 9090<br/>Public gRPC: 9091<br/>Internal REST: 9092<br/>Storage: In-Memory]
+    subgraph "Control"
+        API[inferadb-control<br/>Public REST: 9090<br/>Public gRPC: 9091<br/>Internal REST: 9092<br/>Storage: In-Memory]
     end
 
     subgraph "Services"
@@ -132,7 +132,7 @@ graph TB
         LB[Load Balancer<br/>TLS Termination]
     end
 
-    subgraph "Management API Instances"
+    subgraph "Control Instances"
         API1[Instance 1<br/>Worker ID: 0<br/>Leader]
         API2[Instance 2<br/>Worker ID: 1]
         API3[Instance 3<br/>Worker ID: 2]
@@ -190,7 +190,7 @@ graph TB
 
 ## Multi-Instance Coordination
 
-How multiple Management API instances coordinate for leader election and distributed ID generation:
+How multiple Control instances coordinate for leader election and distributed ID generation:
 
 ```mermaid
 sequenceDiagram
@@ -297,7 +297,7 @@ graph TB
 
 ### In-Memory Storage
 
-The Management API supports a HashMap-based in-memory storage backend with the following characteristics:
+Control supports a HashMap-based in-memory storage backend with the following characteristics:
 
 - All data stored in RAM
 - No persistence across restarts
@@ -436,7 +436,7 @@ Complete request lifecycle through the system:
 sequenceDiagram
     participant Client
     participant LB as Load Balancer
-    participant API as Management API
+    participant API as Control
     participant Auth as Auth Middleware
     participant Handler as Request Handler
     participant Repo as Repository

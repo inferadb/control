@@ -1,12 +1,12 @@
 # Performance Characteristics
 
-This document describes the performance characteristics, benchmarks, and scalability guidance for the InferaDB Management API.
+This document describes the performance characteristics, benchmarks, and scalability guidance for InferaDB Control.
 
 **IMPORTANT NOTE**: This document describes both current capabilities (in-memory backend) and planned capabilities (FoundationDB backend). Sections marked "Future" or referencing FoundationDB features apply to the planned FoundationDB backend implementation.
 
 ## Summary
 
-The Management API is designed for high performance:
+Control is designed for high performance:
 
 - **Target Latency**: p95 < 500ms, p99 < 1000ms for most operations
 - **Target Throughput**: 1000+ requests/second on modest hardware
@@ -164,7 +164,7 @@ Resource recommendations per instance:
 
 **Planned FoundationDB Cluster Sizing:**
 
-| Management API Load | FDB Nodes | Storage Per Node | Notes                           |
+| Control Load | FDB Nodes | Storage Per Node | Notes                           |
 | ------------------- | --------- | ---------------- | ------------------------------- |
 | Development/Test    | 1         | 50 GB            | Not recommended for production  |
 | Small Production    | 3         | 100 GB           | Standard 3-node cluster         |

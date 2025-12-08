@@ -1,12 +1,12 @@
 ---
-# ServiceAccount for InferaDB Management API
+# ServiceAccount for InferaDB Control
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: inferadb-management
+  name: inferadb-control
   namespace: inferadb
   labels:
-    app.kubernetes.io/name: inferadb-management
+    app.kubernetes.io/name: inferadb-control
     app.kubernetes.io/component: control-plane
 
 ---
@@ -15,9 +15,9 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: inferadb-management-discovery
+  name: inferadb-control-discovery
   labels:
-    app.kubernetes.io/name: inferadb-management
+    app.kubernetes.io/name: inferadb-control
     app.kubernetes.io/component: control-plane
 rules:
   - apiGroups: [""]
@@ -29,15 +29,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: inferadb-management-discovery
+  name: inferadb-control-discovery
   labels:
-    app.kubernetes.io/name: inferadb-management
+    app.kubernetes.io/name: inferadb-control
     app.kubernetes.io/component: control-plane
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: inferadb-management-discovery
+  name: inferadb-control-discovery
 subjects:
   - kind: ServiceAccount
-    name: inferadb-management
+    name: inferadb-control
     namespace: inferadb

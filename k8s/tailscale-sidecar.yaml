@@ -1,6 +1,6 @@
-# Tailscale sidecar configuration for InferaDB Management API
+# Tailscale sidecar configuration for InferaDB Control
 #
-# This manifest adds a Tailscale sidecar container to the management API deployment,
+# This manifest adds a Tailscale sidecar container to Control deployment,
 # enabling multi-region mesh networking via Tailscale VPN for cross-cluster cache
 # invalidation webhooks.
 #
@@ -21,7 +21,7 @@ metadata:
   namespace: inferadb
   labels:
     app.kubernetes.io/component: tailscale
-    app.kubernetes.io/part-of: inferadb-management
+    app.kubernetes.io/part-of: inferadb-control
 data:
   # Tailscale configuration
   TS_USERSPACE: "true"
@@ -36,7 +36,7 @@ metadata:
   namespace: inferadb
   labels:
     app.kubernetes.io/component: tailscale
-    app.kubernetes.io/part-of: inferadb-management
+    app.kubernetes.io/part-of: inferadb-control
 type: Opaque
 stringData:
   # IMPORTANT: Replace this with your actual Tailscale auth key
@@ -48,17 +48,17 @@ stringData:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: inferadb-management-with-tailscale
+  name: inferadb-control-with-tailscale
   namespace: inferadb
 spec:
   template:
     spec:
-      serviceAccountName: inferadb-management
+      serviceAccountName: inferadb-control
 
       containers:
         # Main application container (existing)
-        - name: inferadb-management
-          image: inferadb-management:latest
+        - name: inferadb-control
+          image: inferadb-control:latest
           ports:
             - containerPort: 3000
               name: http
@@ -179,5 +179,5 @@ roleRef:
   name: tailscale-state-manager
 subjects:
   - kind: ServiceAccount
-    name: inferadb-management
+    name: inferadb-control
     namespace: inferadb

@@ -1,6 +1,6 @@
-# Contributing to InferaDB Management API
+# Contributing to InferaDB Control
 
-Thank you for your interest in contributing to the InferaDB Management API! This document provides guidelines and best practices for contributing to this project.
+Thank you for your interest in contributing to the InferaDB Control! This document provides guidelines and best practices for contributing to this project.
 
 ## Getting Started
 
@@ -84,7 +84,7 @@ mod tests {
 
 - Use the `Result` type for operations that can fail
 - Provide meaningful error messages
-- Use the error types defined in `inferadb-management-core::error`
+- Use the error types defined in `inferadb-control-core::error`
 
 #### Documentation
 
@@ -227,7 +227,7 @@ Before submitting a PR, ensure:
 cargo test
 
 # Specific package
-cargo test --package inferadb-management-core
+cargo test --package inferadb-control-core
 
 # Specific test
 cargo test test_name

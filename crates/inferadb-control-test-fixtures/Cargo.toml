@@ -1,0 +1,25 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+name = "inferadb-control-test-fixtures"
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+# Workspace crates
+inferadb-control-api = { path = "../inferadb-control-api" }
+inferadb-control-core = { path = "../inferadb-control-core" }
+inferadb-control-storage = { path = "../inferadb-control-storage" }
+
+# External dependencies
+anyhow = { workspace = true }
+axum = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+
+[dev-dependencies]

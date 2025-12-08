@@ -1,8 +1,8 @@
-# InferaDB Management API
+# InferaDB Control
 
 Control plane for InferaDB: user authentication, multi-tenant organization management, vault access control, and token issuance.
 
-**Binary:** `inferadb-management` (REST :3000, gRPC :3001)
+**Binary:** `inferadb-control` (REST :3000, gRPC :3001)
 
 ## Quick Commands
 
@@ -10,12 +10,12 @@ Control plane for InferaDB: user authentication, multi-tenant organization manag
 # Build & Run
 cargo build                                    # Debug build
 cargo build --release                          # Release build
-cargo run --bin inferadb-management            # Run server
-cargo watch -x 'run --bin inferadb-management' # Dev with auto-reload
+cargo run --bin inferadb-control               # Run server
+cargo watch -x 'run --bin inferadb-control'    # Dev with auto-reload
 
 # Testing
 cargo test                                     # All tests
-cargo test --package inferadb-management-core    # Specific crate
+cargo test --package inferadb-control-core     # Specific crate
 cargo test test_create_vault                   # Single test
 cargo test -- --nocapture                      # With output
 
@@ -29,14 +29,14 @@ make check                                     # All checks
 
 ### Workspace Structure
 
-| Crate                               | Purpose                                |
-| ----------------------------------- | -------------------------------------- |
-| `inferadb-management`               | Main binary entry point                |
-| `inferadb-management-api`           | REST/gRPC handlers, middleware, routes |
-| `inferadb-management-core`          | Business logic, entities, repositories |
-| `inferadb-management-storage`       | Storage backends (Memory, FDB planned) |
-| `inferadb-management-grpc`          | Server API gRPC client                 |
-| `inferadb-management-test-fixtures` | Test utilities                         |
+| Crate                             | Purpose                                |
+| --------------------------------- | -------------------------------------- |
+| `inferadb-control`                | Main binary entry point                |
+| `inferadb-control-api`            | REST/gRPC handlers, middleware, routes |
+| `inferadb-control-core`           | Business logic, entities, repositories |
+| `inferadb-control-storage`        | Storage backends (Memory, FDB planned) |
+| `inferadb-control-engine-client`  | Engine API gRPC client                 |
+| `inferadb-control-test-fixtures`  | Test utilities                         |
 
 ### Layered Architecture
 
@@ -148,18 +148,18 @@ pub struct VaultToken {
 
 ## Configuration
 
-**Env prefix:** `INFERADB_MGMT__` (double underscore separator)
+**Env prefix:** `INFERADB_CTRL__` (double underscore separator)
 
 ```bash
 # Required secrets
-export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
+export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 
 # Storage backend (memory is default)
-export INFERADB_MGMT__STORAGE__BACKEND=memory
+export INFERADB_CTRL__STORAGE__BACKEND=memory
 
 # Ports
-export INFERADB_MGMT__SERVER__HTTP_PORT=3000
-export INFERADB_MGMT__SERVER__GRPC_PORT=3001
+export INFERADB_CTRL__SERVER__HTTP_PORT=3000
+export INFERADB_CTRL__SERVER__GRPC_PORT=3001
 ```
 
 **Precedence:** config.yaml < environment variables
@@ -189,9 +189,9 @@ let cookie = extract_session_cookie(response.headers());
 
 ### Test Organization
 
-- Integration tests: `crates/inferadb-management-api/tests/`
+- Integration tests: `crates/inferadb-control-api/tests/`
 - Unit tests: `#[cfg(test)]` modules in source files
-- Fixtures: `crates/inferadb-management-test-fixtures/`
+- Fixtures: `crates/inferadb-control-test-fixtures/`
 
 ## Multi-Instance (FDB Required)
 
