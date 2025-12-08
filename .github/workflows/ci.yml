@@ -220,7 +220,7 @@ jobs:
           sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@493d7f216ecab2af0602481ce809ab2c72836fa1 # v2.62.62
+        uses: taiki-e/install-action@50708e9ba8d7b6587a2cb575ddaa9a62e927bc06 # v2.62.63
         with:
           tool: cargo-nextest
 
@@ -290,7 +290,7 @@ jobs:
           sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
 
       - name: Install cargo-tarpaulin
-        uses: taiki-e/install-action@493d7f216ecab2af0602481ce809ab2c72836fa1 # v2.62.62
+        uses: taiki-e/install-action@50708e9ba8d7b6587a2cb575ddaa9a62e927bc06 # v2.62.63
         with:
           tool: cargo-tarpaulin
 
