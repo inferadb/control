@@ -67,12 +67,12 @@ graph TD
     API --> GRPC[inferadb-control-engine-client]
 ```
 
-| Crate                         | Purpose                  |
-| ----------------------------- | ------------------------ |
-| inferadb-control-api          | REST/gRPC handlers       |
-| inferadb-control-core         | Business logic, entities |
-| inferadb-control-storage      | Memory or FoundationDB   |
-| inferadb-control-engine-client| Engine API client        |
+| Crate                          | Purpose                  |
+| ------------------------------ | ------------------------ |
+| inferadb-control-api           | REST/gRPC handlers       |
+| inferadb-control-core          | Business logic, entities |
+| inferadb-control-storage       | Memory or FoundationDB   |
+| inferadb-control-engine-client | Engine API client        |
 
 ## Configuration
 

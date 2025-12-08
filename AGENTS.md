@@ -29,14 +29,14 @@ make check                                     # All checks
 
 ### Workspace Structure
 
-| Crate                             | Purpose                                |
-| --------------------------------- | -------------------------------------- |
-| `inferadb-control`                | Main binary entry point                |
-| `inferadb-control-api`            | REST/gRPC handlers, middleware, routes |
-| `inferadb-control-core`           | Business logic, entities, repositories |
-| `inferadb-control-storage`        | Storage backends (Memory, FDB planned) |
-| `inferadb-control-engine-client`  | Engine API gRPC client                 |
-| `inferadb-control-test-fixtures`  | Test utilities                         |
+| Crate                            | Purpose                                |
+| -------------------------------- | -------------------------------------- |
+| `inferadb-control`               | Main binary entry point                |
+| `inferadb-control-api`           | REST/gRPC handlers, middleware, routes |
+| `inferadb-control-core`          | Business logic, entities, repositories |
+| `inferadb-control-storage`       | Storage backends (Memory, FDB planned) |
+| `inferadb-control-engine-client` | Engine API gRPC client                 |
+| `inferadb-control-test-fixtures` | Test utilities                         |
 
 ### Layered Architecture
 

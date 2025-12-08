@@ -164,12 +164,12 @@ Resource recommendations per instance:
 
 **Planned FoundationDB Cluster Sizing:**
 
-| Control Load | FDB Nodes | Storage Per Node | Notes                           |
-| ------------------- | --------- | ---------------- | ------------------------------- |
-| Development/Test    | 1         | 50 GB            | Not recommended for production  |
-| Small Production    | 3         | 100 GB           | Standard 3-node cluster         |
-| Medium Production   | 5-7       | 200 GB           | Increased capacity + redundancy |
-| Large Production    | 9+        | 500 GB           | Multi-datacenter recommended    |
+| Control Load      | FDB Nodes | Storage Per Node | Notes                           |
+| ----------------- | --------- | ---------------- | ------------------------------- |
+| Development/Test  | 1         | 50 GB            | Not recommended for production  |
+| Small Production  | 3         | 100 GB           | Standard 3-node cluster         |
+| Medium Production | 5-7       | 200 GB           | Increased capacity + redundancy |
+| Large Production  | 9+        | 500 GB           | Multi-datacenter recommended    |
 
 ## Optimization Guidelines
 
