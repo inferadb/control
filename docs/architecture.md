@@ -15,8 +15,9 @@ graph TB
     end
 
     subgraph "API Layer"
-        REST[REST API<br/>Port 3000]
-        GRPC[gRPC API<br/>Port 3001]
+        REST[Public REST API<br/>Port 9090]
+        GRPC[Public gRPC API<br/>Port 9091]
+        Internal[Internal REST API<br/>Port 9092]
     end
 
     subgraph "Application Layer"
@@ -99,7 +100,7 @@ graph LR
     end
 
     subgraph "Management API"
-        API[inferadb-management<br/>HTTP: 3000<br/>gRPC: 3001<br/>Storage: In-Memory]
+        API[inferadb-management<br/>Public REST: 9090<br/>Public gRPC: 9091<br/>Internal REST: 9092<br/>Storage: In-Memory]
     end
 
     subgraph "Services"

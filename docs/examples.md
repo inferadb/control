@@ -19,7 +19,7 @@ This document provides practical code examples for common workflows using the In
 ### Register a New User
 
 ```bash
-curl -X POST http://localhost:3000/v1/auth/register \
+curl -X POST http://localhost:9090/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "email": "alice@example.com",
@@ -53,7 +53,7 @@ curl -X POST http://localhost:3000/v1/auth/register \
 ### Login
 
 ```bash
-curl -X POST http://localhost:3000/v1/auth/login/password \
+curl -X POST http://localhost:9090/v1/auth/login/password \
   -H "Content-Type: application/json" \
   -c cookies.txt \
   -d '{
@@ -87,7 +87,7 @@ curl -X POST http://localhost:3000/v1/auth/login/password \
 ### Verify Email
 
 ```bash
-curl -X POST http://localhost:3000/v1/auth/verify-email \
+curl -X POST http://localhost:9090/v1/auth/verify-email \
   -H "Content-Type: application/json" \
   -d '{
     "token": "abc123def456"
@@ -99,7 +99,7 @@ curl -X POST http://localhost:3000/v1/auth/verify-email \
 ### Create Additional Organization
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations \
+curl -X POST http://localhost:9090/v1/organizations \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
@@ -125,7 +125,7 @@ curl -X POST http://localhost:3000/v1/organizations \
 ### Invite Member to Organization
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/invitations \
+curl -X POST http://localhost:9090/v1/organizations/111222333/invitations \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
@@ -154,7 +154,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/invitations \
 
 ```bash
 # Bob registers/logs in first
-curl -X POST http://localhost:3000/v1/auth/register \
+curl -X POST http://localhost:9090/v1/auth/register \
   -H "Content-Type: application/json" \
   -c bob_cookies.txt \
   -d '{
@@ -164,7 +164,7 @@ curl -X POST http://localhost:3000/v1/auth/register \
   }'
 
 # Bob accepts invitation
-curl -X POST http://localhost:3000/v1/organizations/invitations/accept \
+curl -X POST http://localhost:9090/v1/organizations/invitations/accept \
   -H "Content-Type: application/json" \
   -b bob_cookies.txt \
   -d '{
@@ -177,7 +177,7 @@ curl -X POST http://localhost:3000/v1/organizations/invitations/accept \
 ### Create a Vault
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/vaults \
+curl -X POST http://localhost:9090/v1/organizations/111222333/vaults \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
@@ -203,7 +203,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/vaults \
 ### Grant User Access to Vault
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/user-grants \
+curl -X POST http://localhost:9090/v1/organizations/111222333/vaults/777888999/user-grants \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
@@ -230,7 +230,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/u
 ### List Vaults
 
 ```bash
-curl -X GET "http://localhost:3000/v1/organizations/111222333/vaults?limit=10&offset=0" \
+curl -X GET "http://localhost:9090/v1/organizations/111222333/vaults?limit=10&offset=0" \
   -H "Content-Type: application/json" \
   -b cookies.txt
 ```
@@ -263,7 +263,7 @@ curl -X GET "http://localhost:3000/v1/organizations/111222333/vaults?limit=10&of
 ### Create a Client (Backend Service)
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/clients \
+curl -X POST http://localhost:9090/v1/organizations/111222333/clients \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
@@ -288,7 +288,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/clients \
 ### Generate Client Certificate
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/clients/123123123/certificates \
+curl -X POST http://localhost:9090/v1/organizations/111222333/clients/123123123/certificates \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
@@ -322,7 +322,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/clients/123123123/
 ### Generate Vault Token (User Session)
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/tokens \
+curl -X POST http://localhost:9090/v1/organizations/111222333/vaults/777888999/tokens \
   -H "Content-Type: application/json" \
   -b cookies.txt
 ```
@@ -342,7 +342,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/t
 ### Refresh Access Token
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/tokens/refresh \
+curl -X POST http://localhost:9090/v1/organizations/111222333/vaults/777888999/tokens/refresh \
   -H "Content-Type: application/json" \
   -d '{
     "refresh_token": "rt_abc123def456"
@@ -364,7 +364,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/t
 ### Use Token with InferaDB Server
 
 ```bash
-curl -X POST http://localhost:4000/v1/evaluate \
+curl -X POST http://localhost:8080/v1/evaluate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImNlcnRfcHJvZF8yMDI1MDExNSJ9..." \
   -d '{
@@ -385,7 +385,7 @@ curl -X POST http://localhost:4000/v1/evaluate \
 ### Create a Team
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/teams \
+curl -X POST http://localhost:9090/v1/organizations/111222333/teams \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
@@ -409,7 +409,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/teams \
 ### Add Member to Team
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/teams/321321321/members \
+curl -X POST http://localhost:9090/v1/organizations/111222333/teams/321321321/members \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
@@ -435,7 +435,7 @@ curl -X POST http://localhost:3000/v1/organizations/111222333/teams/321321321/me
 ### Grant Team Access to Vault
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/111222333/vaults/777888999/team-grants \
+curl -X POST http://localhost:9090/v1/organizations/111222333/vaults/777888999/team-grants \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
@@ -467,7 +467,7 @@ Here's a complete workflow showing user registration through token generation:
 
 ```bash
 # Register Alice
-curl -X POST http://localhost:3000/v1/auth/register \
+curl -X POST http://localhost:9090/v1/auth/register \
   -H "Content-Type: application/json" \
   -c alice_cookies.txt \
   -d '{
@@ -482,7 +482,7 @@ curl -X POST http://localhost:3000/v1/auth/register \
 ### Step 2: Create Production Vault
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/987654321/vaults \
+curl -X POST http://localhost:9090/v1/organizations/987654321/vaults \
   -H "Content-Type: application/json" \
   -b alice_cookies.txt \
   -d '{
@@ -495,7 +495,7 @@ curl -X POST http://localhost:3000/v1/organizations/987654321/vaults \
 ### Step 3: Create Backend Client
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/987654321/clients \
+curl -X POST http://localhost:9090/v1/organizations/987654321/clients \
   -H "Content-Type: application/json" \
   -b alice_cookies.txt \
   -d '{
@@ -508,7 +508,7 @@ curl -X POST http://localhost:3000/v1/organizations/987654321/clients \
 ### Step 4: Generate Client Certificate
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/987654321/clients/666666666/certificates \
+curl -X POST http://localhost:9090/v1/organizations/987654321/clients/666666666/certificates \
   -H "Content-Type: application/json" \
   -b alice_cookies.txt \
   -d '{
@@ -528,7 +528,7 @@ curl -X POST http://localhost:3000/v1/organizations/987654321/clients/666666666/
 The client automatically has access to vaults in its organization. To explicitly grant:
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/987654321/vaults/555555555/team-grants \
+curl -X POST http://localhost:9090/v1/organizations/987654321/vaults/555555555/team-grants \
   -H "Content-Type: application/json" \
   -b alice_cookies.txt \
   -d '{
@@ -540,7 +540,7 @@ curl -X POST http://localhost:3000/v1/organizations/987654321/vaults/555555555/t
 ### Step 6: Generate Vault Token (as Alice)
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/987654321/vaults/555555555/tokens \
+curl -X POST http://localhost:9090/v1/organizations/987654321/vaults/555555555/tokens \
   -H "Content-Type: application/json" \
   -b alice_cookies.txt \
   -o token_response.json
@@ -552,7 +552,7 @@ cat token_response.json | jq -r '.access_token' > access_token.txt
 ### Step 7: Use Token with InferaDB Server
 
 ```bash
-curl -X POST http://localhost:4000/v1/evaluate \
+curl -X POST http://localhost:8080/v1/evaluate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $(cat access_token.txt)" \
   -d '{
@@ -572,8 +572,8 @@ curl -X POST http://localhost:4000/v1/evaluate \
 
 ```bash
 # Save these in .env file
-export MGMT_API_URL="http://localhost:3000"
-export SERVER_API_URL="http://localhost:4000"
+export MGMT_API_URL="http://localhost:9090"      # Management API (public REST)
+export SERVER_API_URL="http://localhost:8080"    # InferaDB Server (public REST)
 export ADMIN_EMAIL="alice@acme.com"
 export ADMIN_PASSWORD="AliceSecure123!"
 export ORG_ID="987654321"
@@ -586,7 +586,7 @@ export VAULT_ID="555555555"
 
 ```bash
 # Attempt login with wrong password
-response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:3000/v1/auth/login/password \
+response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:9090/v1/auth/login/password \
   -H "Content-Type: application/json" \
   -d '{
     "email": "alice@acme.com",
@@ -608,7 +608,7 @@ fi
 
 ```bash
 # Check for rate limit response
-response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:3000/v1/auth/login/password \
+response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:9090/v1/auth/login/password \
   -H "Content-Type: application/json" \
   -d '{"email": "test@test.com", "password": "test"}')
 
@@ -633,7 +633,7 @@ import requests
 from typing import Dict, Optional
 
 class InferaManagementClient:
-    def __init__(self, base_url: str = "http://localhost:3000"):
+    def __init__(self, base_url: str = "http://localhost:9090"):
         self.base_url = base_url
         self.session = requests.Session()
 

@@ -128,7 +128,7 @@ We use the [idgenerator](https://crates.io/crates/idgenerator) crate for Twitter
 
 - **Worker ID**: Derived from server instance (0-1023)
   - For single-instance deployments: 0
-  - For multi-instance deployments: assigned via environment variable `INFERADB_MGMT_WORKER_ID`
+  - For multi-instance deployments: assigned via environment variable `INFERADB_MGMT__ID_GENERATION__WORKER_ID`
   - Worker IDs must be statically assigned and unique across all instances
   - In Kubernetes: Use pod ordinal index from StatefulSet (e.g., `inferadb-management-0` → worker_id=0)
   - In Docker/VM: Assign via environment variable in deployment configuration
@@ -517,7 +517,7 @@ Lives under the `/v1/organizations/:org/clients/:client/certificates` API path.
 
 **Security**:
 
-- Private keys are encrypted at rest using AES-256-GCM with a master key derived from `INFERADB_MGMT_KEY_ENCRYPTION_SECRET`
+- Private keys are encrypted at rest using AES-256-GCM with a master key derived from `INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET`
 - Private keys should be stored securely by client applications (e.g., HashiCorp Vault, AWS Secrets Manager)
 - Client applications use private keys to sign short-lived JWT assertions (max 60 seconds TTL)
 - Management API validates client assertions using the certificate's public_key
@@ -3462,7 +3462,7 @@ server_api:
 
 ```yaml
 management_auth:
-  jwks_url: "http://localhost:3000/.well-known/system-jwks.json"
+  jwks_url: "http://localhost:9092/.well-known/system-jwks.json"
   jwks_cache_ttl: 60 # Shorter cache for faster development iteration
   jti_replay_protection:
     enabled: false # Can be disabled in dev for faster iteration (NOT SAFE for production)
@@ -3860,18 +3860,18 @@ Configuration follows @server patterns using YAML and environment variables.
 
 ```yaml
 server:
-  http_port: 8090 # REST API
-  grpc_port: 8091 # gRPC API
-  host: "0.0.0.0"
+  public_rest: "0.0.0.0:9090"   # Public REST API
+  public_grpc: "0.0.0.0:9091"   # Public gRPC API
+  private_rest: "0.0.0.0:9092"  # Internal REST API (JWKS, webhooks)
 
 storage:
   backend: "memory" # or "foundationdb"
-  foundationdb:
-    cluster_file: "/etc/foundationdb/fdb.cluster"
-    key_prefix: "mgmt/" # Namespace isolation
+  fdb_cluster_file: "/etc/foundationdb/fdb.cluster"
 
-server_api:
-  grpc_endpoint: "http://localhost:8081"
+policy_service:
+  service_url: "http://localhost"
+  grpc_port: 8081
+  internal_port: 8082
   tls_enabled: false # Enable in production
 
 auth:
@@ -3883,11 +3883,11 @@ auth:
   email_verification_token_ttl: 86400 # 24 hours (token expiry for email verification)
   password_min_length: 12 # Minimum password length
   client_rotation_warning_days: 90 # Warn when clients are older than 90 days
-  key_encryption_secret: "${INFERADB_MGMT_KEY_ENCRYPTION_SECRET}" # Required for encrypting Client private keys
+  key_encryption_secret: "${INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET}" # Required for encrypting Client private keys
   webauthn:
     rp_id: "inferadb.com"
     rp_name: "InferaDB"
-    rp_origin: "https://app.inferadb.com"
+    origin: "https://app.inferadb.com"
 
 cors:
   enabled: true
@@ -3916,15 +3916,16 @@ rate_limiting:
   registrations_per_ip_per_day: 5
 
 observability:
-  metrics_port: 9091
+  log_level: "info"
+  metrics_enabled: true
   tracing_enabled: false # Enable in production
   otlp_endpoint: "http://localhost:4317"
 ```
 
 **Environment Variable Overrides**:
 
-- `INFERADB_MGMT_STORAGE_BACKEND=foundationdb`
-- `INFERADB_MGMT_SERVER_API_GRPC_ENDPOINT=https://server.inferadb.com`
+- `INFERADB_MGMT__STORAGE__BACKEND=foundationdb`
+- `INFERADB_MGMT__POLICY_SERVICE__SERVICE_URL=https://server.inferadb.com`
 - `SMTP_PASSWORD=<secret>`
 
 ---
@@ -3951,7 +3952,7 @@ The Management API is designed to run as multiple instances for high availabilit
 
 **Static Assignment (Recommended)**:
 
-- Each instance is assigned a unique worker ID via environment variable `INFERADB_MGMT_WORKER_ID`
+- Each instance is assigned a unique worker ID via environment variable `INFERADB_MGMT__ID_GENERATION__WORKER_ID`
 - Worker IDs are static and must be unique across all running instances
 - Configuration examples:
   - Kubernetes StatefulSet: Use pod ordinal index
@@ -3978,7 +3979,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: INFERADB_MGMT_WORKER_ID
+            - name: INFERADB_MGMT__ID_GENERATION__WORKER_ID
               value: "$(echo $POD_NAME | grep -oE '[0-9]+$')" # Extract ordinal
           # For simple numeric extraction, use init container or entrypoint script:
           # inferadb-management-0 → WORKER_ID=0
@@ -3993,17 +3994,17 @@ services:
   management-0:
     image: inferadb/management:latest
     environment:
-      INFERADB_MGMT_WORKER_ID: 0
+      INFERADB_MGMT__ID_GENERATION__WORKER_ID: 0
 
   management-1:
     image: inferadb/management:latest
     environment:
-      INFERADB_MGMT_WORKER_ID: 1
+      INFERADB_MGMT__ID_GENERATION__WORKER_ID: 1
 
   management-2:
     image: inferadb/management:latest
     environment:
-      INFERADB_MGMT_WORKER_ID: 2
+      INFERADB_MGMT__ID_GENERATION__WORKER_ID: 2
 ```
 
 ### Background Job Coordination

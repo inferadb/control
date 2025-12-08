@@ -14,8 +14,9 @@ This guide provides instructions for deploying the InferaDB Management API in pr
   - Storage: Minimal (logs only, data in RAM)
 
 - **Network**:
-  - HTTP port (default: 3000) - Management REST API
-  - gRPC port (default: 3001) - Internal gRPC server
+  - Public REST port (default: 9090) - Client-facing REST API
+  - Public gRPC port (default: 9091) - Client-facing gRPC server
+  - Internal REST port (default: 9092) - Server-to-server communication (JWKS, etc.)
   - Outbound access to:
     - InferaDB policy engine (gRPC)
     - SMTP server (for email)
@@ -98,30 +99,32 @@ email:
 export SMTP_PASSWORD="your-password"
 ```
 
-#### Server API Endpoint
+#### Policy Service (InferaDB Server) Endpoint
 
 ```yaml
-server_api:
-  grpc_endpoint: "https://policy-engine.example.com:8080"
+policy_service:
+  service_url: "https://policy-engine.example.com"
+  grpc_port: 8081
+  internal_port: 8082
   tls_enabled: true
 ```
 
-**Action**: Point to your InferaDB policy engine gRPC endpoint. Enable TLS in production.
+**Action**: Point to your InferaDB policy engine. The `service_url` is the base URL, and ports specify gRPC (for policy operations) and internal REST (for webhooks). Enable TLS in production.
 
 ### 3. Environment-Specific Overrides
 
 Use environment variables to override sensitive configuration:
 
 ```bash
-# Key encryption secret
-export KEY_ENCRYPTION_SECRET="your-32-byte-secret"
+# Key encryption secret (use INFERADB_MGMT__ prefix for all config overrides)
+export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret"
 
 # SMTP credentials
-export SMTP_USERNAME="smtp-user"
-export SMTP_PASSWORD="smtp-pass"
+export INFERADB_MGMT__EMAIL__SMTP_USERNAME="smtp-user"
+export INFERADB_MGMT__EMAIL__SMTP_PASSWORD="smtp-pass"
 
 # Worker ID (for multi-instance deployments)
-export WORKER_ID="0"
+export INFERADB_MGMT__ID_GENERATION__WORKER_ID="0"
 ```
 
 ## Single-Instance Deployment
@@ -158,7 +161,13 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 3000
+      targetPort: 9090
+    - name: grpc
+      port: 9091
+      targetPort: 9091
+    - name: internal
+      port: 9092
+      targetPort: 9092
   type: LoadBalancer
 
 ---

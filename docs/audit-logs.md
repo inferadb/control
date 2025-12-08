@@ -186,35 +186,35 @@ Query parameters:
 **Get recent audit logs**:
 
 ```bash
-curl -X GET "http://localhost:3000/v1/organizations/{org}/audit-logs?limit=50" \
+curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?limit=50" \
   -H "Cookie: infera_session={session_id}"
 ```
 
 **Filter by event type**:
 
 ```bash
-curl -X GET "http://localhost:3000/v1/organizations/{org}/audit-logs?event_type=vault_access_granted" \
+curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?event_type=vault_access_granted" \
   -H "Cookie: infera_session={session_id}"
 ```
 
 **Filter by user**:
 
 ```bash
-curl -X GET "http://localhost:3000/v1/organizations/{org}/audit-logs?user_id=456" \
+curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?user_id=456" \
   -H "Cookie: infera_session={session_id}"
 ```
 
 **Filter by date range**:
 
 ```bash
-curl -X GET "http://localhost:3000/v1/organizations/{org}/audit-logs?start_date=2025-11-01T00:00:00Z&end_date=2025-11-18T23:59:59Z" \
+curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?start_date=2025-11-01T00:00:00Z&end_date=2025-11-18T23:59:59Z" \
   -H "Cookie: infera_session={session_id}"
 ```
 
 **Combine filters**:
 
 ```bash
-curl -X GET "http://localhost:3000/v1/organizations/{org}/audit-logs?event_type=user_login&start_date=2025-11-01T00:00:00Z&limit=100" \
+curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?event_type=user_login&start_date=2025-11-01T00:00:00Z&limit=100" \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -259,7 +259,7 @@ Investigate suspicious login activity:
 
 ```bash
 # Find all failed login attempts in the last 24 hours
-curl -X GET "http://localhost:3000/v1/organizations/{org}/audit-logs?event_type=user_login&start_date=$(date -u -v-1d +%Y-%m-%dT%H:%M:%SZ)" \
+curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?event_type=user_login&start_date=$(date -u -v-1d +%Y-%m-%dT%H:%M:%SZ)" \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -269,7 +269,7 @@ Review vault access grants:
 
 ```bash
 # List all vault access grants this month
-curl -X GET "http://localhost:3000/v1/organizations/{org}/audit-logs?event_type=vault_access_granted&start_date=2025-11-01T00:00:00Z" \
+curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?event_type=vault_access_granted&start_date=2025-11-01T00:00:00Z" \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -279,7 +279,7 @@ Track a specific user's activity:
 
 ```bash
 # Get all actions by user 456
-curl -X GET "http://localhost:3000/v1/organizations/{org}/audit-logs?user_id=456&limit=100" \
+curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?user_id=456&limit=100" \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -299,7 +299,7 @@ def export_audit_logs(org_id: str, start_date: datetime, end_date: datetime):
 
     while True:
         response = requests.get(
-            f"http://localhost:3000/v1/organizations/{org_id}/audit-logs",
+            f"http://localhost:9090/v1/organizations/{org_id}/audit-logs",
             params={
                 "limit": limit,
                 "offset": offset,
@@ -354,7 +354,7 @@ def monitor_security_events(org_id: str, poll_interval: int = 60):
     while True:
         for event_type in critical_events:
             response = requests.get(
-                f"http://localhost:3000/v1/organizations/{org_id}/audit-logs",
+                f"http://localhost:9090/v1/organizations/{org_id}/audit-logs",
                 params={
                     "event_type": event_type,
                     "start_date": last_check.isoformat(),

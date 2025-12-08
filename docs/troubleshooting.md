@@ -61,23 +61,24 @@ storage:
 ```yaml
 # config.local.yaml
 server:
-  http_port: 8080 # Changed from 3000
-  grpc_port: 8081 # Changed from 3001
+  public_rest: "127.0.0.1:8080"   # Changed from 9090
+  public_grpc: "127.0.0.1:8081"   # Changed from 9091
+  private_rest: "0.0.0.0:8082"    # Changed from 9092
 ```
 
 **Option 2**: Use environment variables
 
 ```bash
-export INFERADB_MGMT__SERVER__HTTP_PORT=8080
-export INFERADB_MGMT__SERVER__GRPC_PORT=8081
-./target/release/inferadb-management-api
+export INFERADB_MGMT__SERVER__PUBLIC_REST="127.0.0.1:8080"
+export INFERADB_MGMT__SERVER__PUBLIC_GRPC="127.0.0.1:8081"
+./target/release/inferadb-management
 ```
 
 **Option 3**: Kill conflicting process
 
 ```bash
 # macOS/Linux: Find process using port
-lsof -i :3000
+lsof -i :9090
 
 # Kill the process
 kill -9 <PID>
@@ -176,7 +177,7 @@ export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 
 ```bash
 # Request password reset
-curl -X POST http://localhost:3000/v1/auth/password-reset/request \
+curl -X POST http://localhost:9090/v1/auth/password-reset/request \
   -H "Content-Type: application/json" \
   -d '{"email": "user@example.com"}'
 
@@ -191,7 +192,7 @@ curl -X POST http://localhost:3000/v1/auth/password-reset/request \
 
 ```bash
 # Resend verification email
-curl -X POST http://localhost:3000/v1/auth/email-verification/resend \
+curl -X POST http://localhost:9090/v1/auth/email-verification/resend \
   -H "Content-Type: application/json" \
   -d '{"email": "user@example.com"}'
 
@@ -224,7 +225,7 @@ curl -H "Cookie: session_id=sess_abc123"    # Wrong cookie name
 ```bash
 # Sessions expire after TTL (default: 30 days for web)
 # Login again to get new session
-curl -X POST http://localhost:3000/v1/auth/login/password \
+curl -X POST http://localhost:9090/v1/auth/login/password \
   -H "Content-Type: application/json" \
   -d '{"email": "user@example.com", "password": "pass"}'
 ```
@@ -247,11 +248,11 @@ auth:
 
 ```bash
 # Revoke old sessions
-curl -X POST http://localhost:3000/v1/auth/sessions/{session_id}/revoke \
+curl -X POST http://localhost:9090/v1/auth/sessions/{session_id}/revoke \
   -H "Cookie: infera_session={current_session_id}"
 
 # Or revoke all sessions
-curl -X POST http://localhost:3000/v1/auth/sessions/revoke-all \
+curl -X POST http://localhost:9090/v1/auth/sessions/revoke-all \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -281,7 +282,7 @@ import requests
 def login_with_retry(email, password, max_retries=5):
     for attempt in range(max_retries):
         response = requests.post(
-            "http://localhost:3000/v1/auth/login/password",
+            "http://localhost:9090/v1/auth/login/password",
             json={"email": email, "password": password}
         )
 
@@ -356,7 +357,7 @@ curl -d '{"email": "user@example.com"}'  # ✅
 
 ```bash
 # List your organizations
-curl -X GET http://localhost:3000/v1/organizations \
+curl -X GET http://localhost:9090/v1/organizations \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -435,7 +436,7 @@ GET /v1/organizations/{org}/vaults?limit=25
 ps aux | grep inferadb-management-api
 
 # Use Prometheus metrics
-curl http://localhost:3000/metrics | grep memory
+curl http://localhost:9090/metrics | grep memory
 ```
 
 **Step 3**: Adjust worker threads
@@ -527,7 +528,7 @@ kubectl get endpoints -n infera inferadb-management-api
 
 ```bash
 kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
-  curl http://inferadb-management-api.infera.svc.cluster.local:3000/health
+  curl http://inferadb-management-api.inferadb.svc.cluster.local:9090/health
 ```
 
 ## Development & Testing

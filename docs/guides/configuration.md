@@ -44,12 +44,10 @@ Create a `config.yaml` or `config.json` file:
 frontend_base_url: "https://app.inferadb.com"
 
 server:
-  host: "127.0.0.1"
-  port: 9090
-  grpc_host: "127.0.0.1"
-  grpc_port: 9091
-  internal_host: "0.0.0.0"
-  internal_port: 9092
+  # Combined address strings (host:port format)
+  public_rest: "127.0.0.1:9090"   # Client-facing REST API
+  public_grpc: "127.0.0.1:9091"   # Client-facing gRPC API
+  private_rest: "0.0.0.0:9092"    # Internal REST API (JWKS, webhooks)
   worker_threads: 4
 
 storage:
@@ -119,13 +117,10 @@ All configuration options can be set via environment variables using the `INFERA
 # Frontend URL
 export INFERADB_MGMT__FRONTEND_BASE_URL="https://app.inferadb.com"
 
-# Server configuration
-export INFERADB_MGMT__SERVER__HOST="127.0.0.1"
-export INFERADB_MGMT__SERVER__PORT=9090
-export INFERADB_MGMT__SERVER__GRPC_HOST="127.0.0.1"
-export INFERADB_MGMT__SERVER__GRPC_PORT=9091
-export INFERADB_MGMT__SERVER__INTERNAL_HOST="0.0.0.0"
-export INFERADB_MGMT__SERVER__INTERNAL_PORT=9092
+# Server configuration (combined address strings)
+export INFERADB_MGMT__SERVER__PUBLIC_REST="127.0.0.1:9090"
+export INFERADB_MGMT__SERVER__PUBLIC_GRPC="127.0.0.1:9091"
+export INFERADB_MGMT__SERVER__PRIVATE_REST="0.0.0.0:9092"
 export INFERADB_MGMT__SERVER__WORKER_THREADS=4
 
 # Storage configuration
@@ -152,11 +147,11 @@ export INFERADB_MGMT__OBSERVABILITY__METRICS_ENABLED=true
 Environment variables override file configuration:
 
 ```bash
-# config.yaml sets port to 9090
-# Environment variable overrides to 3000
-export INFERADB_MGMT__SERVER__PORT=3000
+# config.yaml sets public_rest to "127.0.0.1:9090"
+# Environment variable overrides to bind to all interfaces
+export INFERADB_MGMT__SERVER__PUBLIC_REST="0.0.0.0:9090"
 inferadb-management --config config.yaml
-# Server starts on port 3000
+# Server binds to 0.0.0.0:9090 instead
 ```
 
 ## Server Configuration
@@ -169,15 +164,12 @@ Controls HTTP/gRPC server behavior. The Management API exposes three interfaces:
 
 ### Options
 
-| Option           | Type    | Default       | Description                             |
-| ---------------- | ------- | ------------- | --------------------------------------- |
-| `host`           | string  | `"127.0.0.1"` | Public REST API bind address            |
-| `port`           | integer | `9090`        | Public REST API port                    |
-| `grpc_host`      | string  | `"127.0.0.1"` | Public gRPC API bind address            |
-| `grpc_port`      | integer | `9091`        | Public gRPC API port                    |
-| `internal_host`  | string  | `"0.0.0.0"`   | Internal REST API bind address          |
-| `internal_port`  | integer | `9092`        | Internal REST API port (JWKS, webhooks) |
-| `worker_threads` | integer | `4`           | Number of Tokio worker threads          |
+| Option           | Type    | Default             | Description                                      |
+| ---------------- | ------- | ------------------- | ------------------------------------------------ |
+| `public_rest`    | string  | `"127.0.0.1:9090"`  | Public REST API address (host:port format)       |
+| `public_grpc`    | string  | `"127.0.0.1:9091"`  | Public gRPC API address (host:port format)       |
+| `private_rest`   | string  | `"0.0.0.0:9092"`    | Internal REST API address (JWKS, webhooks)       |
+| `worker_threads` | integer | `4`                 | Number of Tokio worker threads                   |
 
 ### Examples
 
@@ -185,12 +177,9 @@ Controls HTTP/gRPC server behavior. The Management API exposes three interfaces:
 
 ```yaml
 server:
-  host: "127.0.0.1"
-  port: 9090
-  grpc_host: "127.0.0.1"
-  grpc_port: 9091
-  internal_host: "0.0.0.0"
-  internal_port: 9092
+  public_rest: "127.0.0.1:9090"
+  public_grpc: "127.0.0.1:9091"
+  private_rest: "127.0.0.1:9092"
   worker_threads: 2
 ```
 
@@ -198,24 +187,18 @@ server:
 
 ```yaml
 server:
-  host: "0.0.0.0"
-  port: 9090
-  grpc_host: "0.0.0.0"
-  grpc_port: 9091
-  internal_host: "0.0.0.0"
-  internal_port: 9092
+  public_rest: "0.0.0.0:9090"
+  public_grpc: "0.0.0.0:9091"
+  private_rest: "0.0.0.0:9092"
   worker_threads: 8
 ```
 
 ### Environment Variables
 
 ```bash
-export INFERADB_MGMT__SERVER__HOST="0.0.0.0"
-export INFERADB_MGMT__SERVER__PORT=9090
-export INFERADB_MGMT__SERVER__GRPC_HOST="0.0.0.0"
-export INFERADB_MGMT__SERVER__GRPC_PORT=9091
-export INFERADB_MGMT__SERVER__INTERNAL_HOST="0.0.0.0"
-export INFERADB_MGMT__SERVER__INTERNAL_PORT=9092
+export INFERADB_MGMT__SERVER__PUBLIC_REST="0.0.0.0:9090"
+export INFERADB_MGMT__SERVER__PUBLIC_GRPC="0.0.0.0:9091"
+export INFERADB_MGMT__SERVER__PRIVATE_REST="0.0.0.0:9092"
 export INFERADB_MGMT__SERVER__WORKER_THREADS=8
 ```
 
@@ -305,7 +288,7 @@ auth:
   webauthn:
     rp_id: "localhost"
     rp_name: "InferaDB Dev"
-    origin: "http://localhost:3000"
+    origin: "http://localhost:9090"
 ```
 
 **Production**:
@@ -701,7 +684,7 @@ The `frontend_base_url` is a top-level configuration option that sets the base U
 
 | Option              | Type   | Default                   | Description                       |
 | ------------------- | ------ | ------------------------- | --------------------------------- |
-| `frontend_base_url` | string | `"http://localhost:3000"` | Base URL for frontend email links |
+| `frontend_base_url` | string | `"http://localhost:9090"` | Base URL for frontend email links |
 
 ### Example
 
@@ -728,15 +711,12 @@ export INFERADB_MGMT__FRONTEND_BASE_URL="https://app.inferadb.com"
 Optimized for local development:
 
 ```yaml
-frontend_base_url: "http://localhost:3000"
+frontend_base_url: "http://localhost:9090"
 
 server:
-  host: "127.0.0.1"
-  port: 9090
-  grpc_host: "127.0.0.1"
-  grpc_port: 9091
-  internal_host: "0.0.0.0"
-  internal_port: 9092
+  public_rest: "127.0.0.1:9090"
+  public_grpc: "127.0.0.1:9091"
+  private_rest: "127.0.0.1:9092"
   worker_threads: 2
 
 storage:
@@ -748,7 +728,7 @@ auth:
   webauthn:
     rp_id: "localhost"
     rp_name: "InferaDB Dev"
-    origin: "http://localhost:3000"
+    origin: "http://localhost:9090"
 
 email:
   smtp_host: "localhost"
@@ -795,12 +775,9 @@ Optimized for production deployment:
 frontend_base_url: "https://app.inferadb.com"
 
 server:
-  host: "0.0.0.0"
-  port: 9090
-  grpc_host: "0.0.0.0"
-  grpc_port: 9091
-  internal_host: "0.0.0.0"
-  internal_port: 9092
+  public_rest: "0.0.0.0:9090"
+  public_grpc: "0.0.0.0:9091"
+  private_rest: "0.0.0.0:9092"
   worker_threads: 8
 
 storage:
@@ -871,12 +848,9 @@ Optimized for E2E testing:
 frontend_base_url: "http://localhost:9090"
 
 server:
-  host: "0.0.0.0"
-  port: 9090
-  grpc_host: "0.0.0.0"
-  grpc_port: 9091
-  internal_host: "0.0.0.0"
-  internal_port: 9092
+  public_rest: "0.0.0.0:9090"
+  public_grpc: "0.0.0.0:9091"
+  private_rest: "0.0.0.0:9092"
   worker_threads: 2
 
 storage:
@@ -1123,8 +1097,9 @@ services:
       - "9091:9091"
       - "9092:9092"
     environment:
-      INFERADB_MGMT__SERVER__HOST: "0.0.0.0"
-      INFERADB_MGMT__SERVER__PORT: "9090"
+      INFERADB_MGMT__SERVER__PUBLIC_REST: "0.0.0.0:9090"
+      INFERADB_MGMT__SERVER__PUBLIC_GRPC: "0.0.0.0:9091"
+      INFERADB_MGMT__SERVER__PRIVATE_REST: "0.0.0.0:9092"
       INFERADB_MGMT__STORAGE__BACKEND: "foundationdb"
       INFERADB_MGMT__STORAGE__FDB_CLUSTER_FILE: "/etc/foundationdb/fdb.cluster"
       INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET: "${KEY_ENCRYPTION_SECRET}"

@@ -1253,12 +1253,12 @@ Response:
 
 The Management API runs **two separate HTTP servers** for security isolation:
 
-- **Public Server** (port 3000): User-facing API with session authentication and permission checks
-- **Internal Server** (port 9091): Server-to-server API with JWT authentication for privileged operations
+- **Public Server** (port 9090): User-facing API with session authentication and permission checks
+- **Internal Server** (port 9092): Server-to-server API with JWT authentication for privileged operations
 
 This architecture ensures that privileged endpoints are only accessible via the internal network and cannot be reached from the public internet.
 
-#### Public Endpoints (Port 3000)
+#### Public Endpoints (Port 9090)
 
 User-facing endpoints with session authentication and permission enforcement:
 
@@ -1268,9 +1268,9 @@ User-facing endpoints with session authentication and permission enforcement:
 **User Request Example**:
 
 ```bash
-# Request to public server (port 3000)
-curl -X GET http://localhost:3000/v1/organizations/123456789 \
-  -H "Cookie: session_id=987654321"
+# Request to public server (port 9090)
+curl -X GET http://localhost:9090/v1/organizations/123456789 \
+  -H "Cookie: infera_session=sess_abc123..."
 ```
 
 **Authorization**:
@@ -1279,7 +1279,7 @@ curl -X GET http://localhost:3000/v1/organizations/123456789 \
 - User must be a member of the organization
 - User must have appropriate permissions (checked via middleware)
 
-#### Internal Endpoints (Port 9091)
+#### Internal Endpoints (Port 9092)
 
 Privileged server-to-server endpoints with JWT authentication, **no permission checks**:
 
@@ -1289,8 +1289,8 @@ Privileged server-to-server endpoints with JWT authentication, **no permission c
 **Server Request Example**:
 
 ```bash
-# Request to internal server (port 9091)
-curl -X GET http://localhost:9091/internal/organizations/123456789 \
+# Request to internal server (port 9092)
+curl -X GET http://localhost:9092/internal/organizations/123456789 \
   -H "Authorization: Bearer eyJhbGc...(server JWT)"
 ```
 
@@ -1303,7 +1303,7 @@ curl -X GET http://localhost:9091/internal/organizations/123456789 \
 
 #### Key Differences
 
-| Aspect             | Public Server (3000)       | Internal Server (9091)        |
+| Aspect             | Public Server (9090)       | Internal Server (9092)        |
 | ------------------ | -------------------------- | ----------------------------- |
 | **Authentication** | Session cookies            | Server JWTs (EdDSA)           |
 | **Authorization**  | Permission checks required | No permission checks          |

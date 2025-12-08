@@ -37,10 +37,10 @@ Edit `config.local.yaml` to match your environment:
 
 ```yaml
 server:
-  http_host: "127.0.0.1"
-  http_port: 3000
-  grpc_host: "127.0.0.1"
-  grpc_port: 3001
+  # Combined address strings (host:port)
+  public_rest: "127.0.0.1:9090"
+  public_grpc: "127.0.0.1:9091"
+  private_rest: "0.0.0.0:9092"  # Internal API for server-to-server
 
 storage:
   backend: "memory" # Use in-memory backend for development
@@ -65,8 +65,9 @@ You should see output like:
 
 ```text
 2025-11-18T10:00:00.000Z INFO  Starting InferaDB Management API
-2025-11-18T10:00:00.123Z INFO  HTTP server listening on 127.0.0.1:3000
-2025-11-18T10:00:00.456Z INFO  gRPC server listening on 127.0.0.1:3001
+2025-11-18T10:00:00.123Z INFO  Public REST server listening on 127.0.0.1:9090
+2025-11-18T10:00:00.234Z INFO  Public gRPC server listening on 127.0.0.1:9091
+2025-11-18T10:00:00.456Z INFO  Internal REST server listening on 0.0.0.0:9092
 ```
 
 ## Quick Start Tutorial
@@ -76,7 +77,7 @@ You should see output like:
 Create your first user account:
 
 ```bash
-curl -X POST http://localhost:3000/v1/auth/register \
+curl -X POST http://localhost:9090/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "email": "alice@example.com",
@@ -106,7 +107,7 @@ Response:
 Login with your credentials:
 
 ```bash
-curl -X POST http://localhost:3000/v1/auth/login/password \
+curl -X POST http://localhost:9090/v1/auth/login/password \
   -H "Content-Type: application/json" \
   -d '{
     "email": "alice@example.com",
@@ -131,7 +132,7 @@ Response:
 Organizations are the top-level container for all resources:
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations \
+curl -X POST http://localhost:9090/v1/organizations \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -159,7 +160,7 @@ Response:
 Vaults store your authorization policies:
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/9876543210987654321/vaults \
+curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/vaults \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -187,7 +188,7 @@ Response:
 Vault tokens are JWTs used to authorize requests to the InferaDB policy engine:
 
 ```bash
-curl -X POST http://localhost:3000/v1/organizations/9876543210987654321/vaults/1111222233334444555/tokens \
+curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/vaults/1111222233334444555/tokens \
   -H "Cookie: infera_session=sess_xyz789..."
 ```
 
@@ -228,7 +229,7 @@ Teams help you organize users and manage permissions:
 
 ```bash
 # 1. Create a team
-curl -X POST http://localhost:3000/v1/organizations/9876543210987654321/teams \
+curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/teams \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -239,7 +240,7 @@ curl -X POST http://localhost:3000/v1/organizations/9876543210987654321/teams \
 # Response: {"id": 7777888899990000111, ...}
 
 # 2. Invite a team member
-curl -X POST http://localhost:3000/v1/teams/7777888899990000111/members \
+curl -X POST http://localhost:9090/v1/teams/7777888899990000111/members \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -248,7 +249,7 @@ curl -X POST http://localhost:3000/v1/teams/7777888899990000111/members \
   }'
 
 # 3. Grant team access to vault
-curl -X POST http://localhost:3000/v1/organizations/9876543210987654321/vaults/1111222233334444555/team-grants \
+curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/vaults/1111222233334444555/team-grants \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -263,7 +264,7 @@ OAuth clients allow applications to obtain vault tokens:
 
 ```bash
 # 1. Create a client
-curl -X POST http://localhost:3000/v1/organizations/9876543210987654321/clients \
+curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/clients \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -275,7 +276,7 @@ curl -X POST http://localhost:3000/v1/organizations/9876543210987654321/clients 
 # Response: {"client_id": "client_abc123", "client_secret": "secret_xyz789", ...}
 
 # 2. Obtain token using client credentials
-curl -X POST http://localhost:3000/v1/oauth/token \
+curl -X POST http://localhost:9090/v1/oauth/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d 'grant_type=client_credentials&client_id=client_abc123&client_secret=secret_xyz789&scope=vault:1111222233334444555'
 
@@ -288,11 +289,11 @@ Review security events:
 
 ```bash
 # Get recent audit logs
-curl -X GET "http://localhost:3000/v1/organizations/9876543210987654321/audit-logs?limit=25" \
+curl -X GET "http://localhost:9090/v1/organizations/9876543210987654321/audit-logs?limit=25" \
   -H "Cookie: infera_session=sess_xyz789..."
 
 # Filter by event type
-curl -X GET "http://localhost:3000/v1/organizations/9876543210987654321/audit-logs?event_type=vault_token_generated" \
+curl -X GET "http://localhost:9090/v1/organizations/9876543210987654321/audit-logs?event_type=vault_token_generated" \
   -H "Cookie: infera_session=sess_xyz789..."
 ```
 
@@ -303,7 +304,7 @@ curl -X GET "http://localhost:3000/v1/organizations/9876543210987654321/audit-lo
 Override config values with environment variables (use `INFERADB_MGMT__` prefix with double underscores as separators):
 
 ```bash
-export INFERADB_MGMT__SERVER__HTTP_PORT=8080
+export INFERADB_MGMT__SERVER__PUBLIC_REST="127.0.0.1:8080"
 export INFERADB_MGMT__OBSERVABILITY__LOG_LEVEL=debug
 export INFERADB_MGMT__AUTH__KEY_ENCRYPTION_SECRET="your-secret-key"
 
@@ -333,7 +334,7 @@ cargo nextest run
 cargo doc --open
 
 # View OpenAPI spec
-open http://localhost:3000/openapi.yaml
+open http://localhost:9090/openapi.yaml
 ```
 
 ### Debugging
@@ -399,9 +400,9 @@ Now that you have the basics working, explore:
 
 **Solutions**:
 
-1. Change port in config: `http_port: 8080`
-2. Find and stop conflicting process: `lsof -i :3000`
-3. Use environment variable: `export INFERADB_MGMT__HTTP__PORT=8080`
+1. Change port in config: `public_rest: "127.0.0.1:8080"`
+2. Find and stop conflicting process: `lsof -i :9090`
+3. Use environment variable: `export INFERADB_MGMT__SERVER__PUBLIC_REST="127.0.0.1:8080"`
 
 ### Key encryption secret too short
 
@@ -462,7 +463,7 @@ Before deploying to production, review:
 - [ ] Configured audit log retention
 - [ ] Reviewed rate limiting settings
 - [ ] Enabled OpenTelemetry tracing
-- [ ] Backed up FoundationDB cluster file
+- [ ] Documented data persistence strategy (in-memory backend loses data on restart)
 - [ ] Tested disaster recovery procedures
 
 See [Deployment Guide](deployment.md) for complete production deployment guide.
