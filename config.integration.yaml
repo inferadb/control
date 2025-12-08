@@ -56,7 +56,6 @@ policy_service:
   service_url: "http://inferadb-server.inferadb"
   grpc_port: 8081
   internal_port: 8082
-  tls_enabled: false
 
 identity: {}
 

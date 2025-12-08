@@ -117,22 +117,14 @@ id_generation:
 policy_service:
   # Base service URL (without port)
   # For Kubernetes: use the k8s service name (e.g., "http://inferadb-server.inferadb")
-  # For direct connection: use the host (e.g., "https://policy-engine.example.com")
-  service_url: "https://policy-engine.example.com"
+  # For direct connection: use the host (e.g., "http://localhost")
+  service_url: "http://inferadb-server.inferadb"
 
   # gRPC port for policy engine communication
   grpc_port: 8081
 
   # Internal/Private HTTP port for webhooks and JWKS
   internal_port: 8082
-
-  # Enable TLS for policy engine communication
-  tls_enabled: true
-
-  # TLS certificate configuration (optional, if using custom CA)
-  # tls_ca_cert_path: "/path/to/ca-cert.pem"
-  # tls_client_cert_path: "/path/to/client-cert.pem"
-  # tls_client_key_path: "/path/to/client-key.pem"
 
 # CORS configuration (for web dashboard)
 cors:

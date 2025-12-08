@@ -89,7 +89,6 @@ policy_service:
   service_url: "http://localhost"
   grpc_port: 8081
   internal_port: 8082
-  tls_enabled: false
 
 identity: {}
 
@@ -506,7 +505,6 @@ Controls connection to the InferaDB Server (policy engine).
 | `service_url`   | string  | `"http://localhost"` | Server base URL (without port) |
 | `grpc_port`     | integer | `8081`               | Server gRPC port               |
 | `internal_port` | integer | `8082`               | Server internal API port       |
-| `tls_enabled`   | boolean | `true`               | Enable TLS for gRPC            |
 
 ### Examples
 
@@ -517,7 +515,6 @@ policy_service:
   service_url: "http://localhost"
   grpc_port: 8081
   internal_port: 8082
-  tls_enabled: false
 ```
 
 **Kubernetes**:
@@ -527,7 +524,6 @@ policy_service:
   service_url: "http://inferadb-server.inferadb"
   grpc_port: 8081
   internal_port: 8082
-  tls_enabled: false
 ```
 
 ### Computed URLs
@@ -543,7 +539,6 @@ The Management API computes full URLs from these settings:
 export INFERADB_MGMT__POLICY_SERVICE__SERVICE_URL="http://inferadb-server.inferadb"
 export INFERADB_MGMT__POLICY_SERVICE__GRPC_PORT=8081
 export INFERADB_MGMT__POLICY_SERVICE__INTERNAL_PORT=8082
-export INFERADB_MGMT__POLICY_SERVICE__TLS_ENABLED=false
 ```
 
 ## Identity Configuration
@@ -754,7 +749,6 @@ policy_service:
   service_url: "http://localhost"
   grpc_port: 8081
   internal_port: 8082
-  tls_enabled: false
 
 identity: {}
 
@@ -824,7 +818,6 @@ policy_service:
   service_url: "http://inferadb-server.inferadb"
   grpc_port: 8081
   internal_port: 8082
-  tls_enabled: false
 
 identity:
   private_key_pem: "${MANAGEMENT_PRIVATE_KEY}"
@@ -892,7 +885,6 @@ policy_service:
   service_url: "http://inferadb-server.inferadb"
   grpc_port: 8081
   internal_port: 8082
-  tls_enabled: false
 
 identity: {}
 

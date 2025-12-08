@@ -103,13 +103,12 @@ export SMTP_PASSWORD="your-password"
 
 ```yaml
 policy_service:
-  service_url: "https://policy-engine.example.com"
+  service_url: "http://inferadb-server.inferadb"  # K8s service name
   grpc_port: 8081
   internal_port: 8082
-  tls_enabled: true
 ```
 
-**Action**: Point to your InferaDB policy engine. The `service_url` is the base URL, and ports specify gRPC (for policy operations) and internal REST (for webhooks). Enable TLS in production.
+**Action**: Point to your InferaDB policy engine. The `service_url` is the base URL (K8s service name or internal hostname), and ports specify gRPC (for policy operations) and internal REST (for webhooks).
 
 ### 3. Environment-Specific Overrides
 

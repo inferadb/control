@@ -199,7 +199,6 @@ policy_service:
   service_url: "http://localhost"
   grpc_port: 8080
   internal_port: 9090
-  tls_enabled: false
 "#;
 
         let config: ManagementConfig = serde_yaml::from_str(config_str).unwrap();

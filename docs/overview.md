@@ -3421,7 +3421,6 @@ system_api_key:
 
 server_api:
   grpc_endpoint: "https://server.inferadb.com:8081"
-  tls_enabled: true # TLS for transport encryption (not mTLS)
 ```
 
 **Server API Configuration**:
@@ -3455,7 +3454,6 @@ system_api_key:
 
 server_api:
   grpc_endpoint: "http://localhost:8081" # Plain HTTP is acceptable in dev
-  tls_enabled: false
 ```
 
 **Server API (Development)**:
@@ -3872,7 +3870,6 @@ policy_service:
   service_url: "http://localhost"
   grpc_port: 8081
   internal_port: 8082
-  tls_enabled: false # Enable in production
 
 auth:
   session_ttl_web: 2592000 # 30 days in seconds (SessionType::WEB)

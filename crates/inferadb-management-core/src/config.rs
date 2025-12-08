@@ -218,12 +218,12 @@ pub struct IdGenerationConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyServiceConfig {
     /// gRPC port for server communication
-    /// Default: 8080
+    /// Default: 8081
     #[serde(default = "default_policy_grpc_port")]
     pub grpc_port: u16,
 
     /// Internal HTTP port for webhooks/JWKS
-    /// Default: 9090
+    /// Default: 8082
     #[serde(default = "default_policy_internal_port")]
     pub internal_port: u16,
 
@@ -231,10 +231,6 @@ pub struct PolicyServiceConfig {
     /// e.g., "http://inferadb-server.inferadb" for K8s or "http://localhost" for dev
     #[serde(default = "default_policy_service_url")]
     pub service_url: String,
-
-    /// Enable TLS for gRPC communication
-    #[serde(default = "default_grpc_tls_enabled")]
-    pub tls_enabled: bool,
 }
 
 impl Default for PolicyServiceConfig {
@@ -243,7 +239,6 @@ impl Default for PolicyServiceConfig {
             grpc_port: default_policy_grpc_port(),
             internal_port: default_policy_internal_port(),
             service_url: default_policy_service_url(),
-            tls_enabled: default_grpc_tls_enabled(),
         }
     }
 }
@@ -427,10 +422,6 @@ fn default_tracing_enabled() -> bool {
 
 fn default_worker_id() -> u16 {
     0
-}
-
-fn default_grpc_tls_enabled() -> bool {
-    true
 }
 
 fn default_policy_grpc_port() -> u16 {
