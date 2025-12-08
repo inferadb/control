@@ -30,6 +30,9 @@ tokio = { version = "1.41", features = ["full"] }
 anyhow = "1.0"
 thiserror = "2.0"
 
+# System
+num_cpus = "1.16"
+
 # Serialization
 bytes = "1.9"
 serde = { version = "1.0", features = ["derive"] }

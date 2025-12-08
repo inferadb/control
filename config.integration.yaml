@@ -1,70 +1,66 @@
-# InferaDB Management API Configuration - Integration Tests
+# InferaDB Control Configuration - Integration Tests
 # This config is optimized for Docker container E2E testing
+#
+# This file uses the unified configuration format. Both engine and control
+# can share the same config file by reading their respective sections.
 
-frontend_base_url: "http://localhost:9090"
+control:
+  threads: 2  # Reduced for test environment
+  logging: "debug"  # Verbose logging for tests
 
-server:
-  # Public REST API server (combined host:port)
-  public_rest: "0.0.0.0:9090"
+  frontend:
+    url: "http://localhost:9090"
 
-  # Public gRPC API server
-  public_grpc: "0.0.0.0:9091"
+  listen:
+    # Public REST API server (combined host:port)
+    public_rest: "0.0.0.0:9090"
 
-  # Internal/Private REST API server
-  private_rest: "0.0.0.0:9092"
+    # Public gRPC API server
+    public_grpc: "0.0.0.0:9091"
 
-  worker_threads: 2 # Reduced for test environment
+    # Internal/Private REST API server
+    private_rest: "0.0.0.0:9092"
 
-storage:
-  backend: "memory" # In-memory for fast tests
+  storage:
+    backend: "memory"  # In-memory for fast tests
 
-auth:
-  session_ttl_web: 3600 # 1 hour for tests
-  session_ttl_cli: 7200 # 2 hours for tests
-  session_ttl_sdk: 7200 # 2 hours for tests
-  password_min_length: 8 # Relaxed for tests
-  max_sessions_per_user: 5
-  key_encryption_secret: "test-integration-secret-key-32bytes-long!"
-  webauthn:
-    rp_id: "localhost"
-    rp_name: "InferaDB Test"
-    origin: "http://localhost:9090"
+  auth:
+    session_ttl_web: 3600  # 1 hour for tests
+    session_ttl_cli: 7200  # 2 hours for tests
+    session_ttl_sdk: 7200  # 2 hours for tests
+    password_min_length: 8  # Relaxed for tests
+    max_sessions_per_user: 5
+    key_encryption_secret: "test-integration-secret-key-32bytes-long!"
+    webauthn:
+      rp_id: "localhost"
+      rp_name: "InferaDB Test"
+      origin: "http://localhost:9090"
 
-email:
-  smtp_host: "localhost"
-  smtp_port: 1025
-  from_email: "test@inferadb.local"
-  from_name: "InferaDB Test"
+  email:
+    smtp_host: "localhost"
+    smtp_port: 1025
+    from_email: "test@inferadb.local"
+    from_name: "InferaDB Test"
 
-rate_limiting:
-  login_attempts_per_ip_per_hour: 1000 # Relaxed for tests
-  registrations_per_ip_per_day: 100
-  email_verification_tokens_per_hour: 100
-  password_reset_tokens_per_hour: 100
+  limits:
+    login_attempts_per_ip_per_hour: 1000  # Relaxed for tests
+    registrations_per_ip_per_day: 100
+    email_verification_tokens_per_hour: 100
+    password_reset_tokens_per_hour: 100
 
-observability:
-  log_level: "debug" # Verbose logging for tests
-  metrics_enabled: true
-  tracing_enabled: false
+  # Engine configuration for Kubernetes
+  # Discovery mode discovers all engine pod IPs
+  engine:
+    service_url: "http://inferadb-engine.inferadb"
+    grpc_port: 8081
+    internal_port: 8082
 
-id_generation:
-  worker_id: 0
+  cache_invalidation:
+    timeout_ms: 5000
+    retry_attempts: 0
 
-# Policy service (server) configuration for Kubernetes
-# Discovery mode discovers all server pod IPs
-policy_service:
-  service_url: "http://inferadb-engine.inferadb"
-  grpc_port: 8081
-  internal_port: 8082
-
-identity: {}
-
-cache_invalidation:
-  timeout_ms: 5000
-  retry_attempts: 0
-
-# Kubernetes discovery for pod-level cache invalidation
-discovery:
-  mode:
-    type: kubernetes
-  cache_ttl: 30
+  # Kubernetes discovery for pod-level cache invalidation
+  discovery:
+    mode:
+      type: kubernetes
+    cache_ttl: 30

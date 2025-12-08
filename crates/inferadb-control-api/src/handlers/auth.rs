@@ -329,14 +329,13 @@ pub async fn register(
         let user_name = payload.name.clone();
         let token_str = verification_token.token.clone();
         let email_service = Arc::clone(email_service);
-        let frontend_base_url = state.config.frontend_base_url.clone();
+        let frontend_url = state.config.frontend.url.clone();
 
         // Spawn async task to send email
         tokio::spawn(async move {
             use inferadb_control_core::{EmailTemplate, VerificationEmailTemplate};
 
-            let verification_link =
-                format!("{}/verify-email?token={}", frontend_base_url, token_str);
+            let verification_link = format!("{}/verify-email?token={}", frontend_url, token_str);
 
             let template = VerificationEmailTemplate {
                 user_name,
@@ -581,14 +580,13 @@ pub async fn request_password_reset(
         let user_name = user.name.clone();
         let token_for_email = token_string.clone();
         let email_service = Arc::clone(email_service);
-        let frontend_base_url = state.config.frontend_base_url.clone();
+        let frontend_url = state.config.frontend.url.clone();
 
         // Spawn async task to send email
         tokio::spawn(async move {
             use inferadb_control_core::{EmailTemplate, PasswordResetEmailTemplate};
 
-            let reset_link =
-                format!("{}/reset-password?token={}", frontend_base_url, token_for_email);
+            let reset_link = format!("{}/reset-password?token={}", frontend_url, token_for_email);
 
             let template =
                 PasswordResetEmailTemplate { user_name, reset_link, reset_code: token_for_email };

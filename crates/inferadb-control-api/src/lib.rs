@@ -96,8 +96,8 @@ pub async fn serve(
     let internal_router = routes::internal_routes(state.clone());
 
     // Bind listeners (addresses are already validated in config)
-    let public_listener = tokio::net::TcpListener::bind(&config.server.public_rest).await?;
-    let internal_listener = tokio::net::TcpListener::bind(&config.server.private_rest).await?;
+    let public_listener = tokio::net::TcpListener::bind(&config.listen.public_rest).await?;
+    let internal_listener = tokio::net::TcpListener::bind(&config.listen.private_rest).await?;
 
     // Log ready status
     startup::log_ready("Control");

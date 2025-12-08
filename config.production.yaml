@@ -1,185 +1,106 @@
-# InferaDB Management API - Production Configuration Template
+# InferaDB Control Configuration - Production Template
 #
 # This is a template for production deployment. Replace all placeholder values
 # (marked with <...>) with your actual production values.
 #
 # SECURITY: Do not commit this file with real credentials to version control.
 # Use environment variables or a secrets management system in production.
+#
+# This file uses the unified configuration format. Both engine and control
+# can share the same config file by reading their respective sections.
 
-# Server configuration
-server:
-  # Public REST API server (client-facing traffic - web, CLI, SDK)
-  public_rest: "0.0.0.0:9090"
-
-  # Public gRPC API server
-  public_grpc: "0.0.0.0:9091"
-
-  # Internal/Private REST API server (server-to-server communication)
-  private_rest: "0.0.0.0:9092"
-
+control:
   # Worker threads (recommended: number of CPU cores)
-  worker_threads: 8
+  threads: 8
+  logging: "info"
 
-# Storage backend configuration
-storage:
-  # Use FoundationDB for production
-  backend: "foundationdb"
+  listen:
+    # Public REST API server (client-facing traffic - web, CLI, SDK)
+    public_rest: "0.0.0.0:9090"
 
-  # FoundationDB cluster file path
-  # This file contains the connection string for your FDB cluster
-  fdb_cluster_file: "/etc/foundationdb/fdb.cluster"
+    # Public gRPC API server
+    public_grpc: "0.0.0.0:9091"
 
-# Authentication and security
-auth:
-  # Session TTLs (in seconds)
-  session_ttl_web: 2592000 # 30 days
-  session_ttl_cli: 7776000 # 90 days
-  session_ttl_sdk: 7776000 # 90 days
+    # Internal/Private REST API server (server-to-server communication)
+    private_rest: "0.0.0.0:9092"
 
-  # Password requirements
-  password_min_length: 12
+  # Storage backend configuration
+  storage:
+    # Use FoundationDB for production
+    backend: "foundationdb"
 
-  # Maximum concurrent sessions per user
-  max_sessions_per_user: 10
+    # FoundationDB cluster file path
+    # This file contains the connection string for your FDB cluster
+    fdb_cluster_file: "/etc/foundationdb/fdb.cluster"
 
-  # Key encryption secret (REQUIRED: 32+ bytes for AES-256)
-  # SECURITY: Use environment variable in production!
-  # Example: ${KEY_ENCRYPTION_SECRET}
-  key_encryption_secret: "<REPLACE-WITH-32+-BYTE-SECRET>"
+  # Authentication and security
+  auth:
+    # Session TTLs (in seconds)
+    session_ttl_web: 2592000  # 30 days
+    session_ttl_cli: 7776000  # 90 days
+    session_ttl_sdk: 7776000  # 90 days
 
-  # WebAuthn configuration (for passkey authentication)
-  webauthn:
-    # Relying party ID (your domain)
-    rp_id: "example.com"
+    # Password requirements
+    password_min_length: 12
 
-    # Relying party name (displayed to users)
-    rp_name: "InferaDB"
+    # Maximum concurrent sessions per user
+    max_sessions_per_user: 10
 
-    # Origin URL (must match browser origin)
-    origin: "https://example.com"
+    # Key encryption secret (REQUIRED: 32+ bytes for AES-256)
+    # SECURITY: Use environment variable in production!
+    # Example: ${KEY_ENCRYPTION_SECRET}
+    key_encryption_secret: "<REPLACE-WITH-32+-BYTE-SECRET>"
 
-# Email configuration (SMTP)
-email:
-  # SMTP server settings
-  smtp_host: "<SMTP-HOST>"
-  smtp_port: 587
+    # WebAuthn configuration (for passkey authentication)
+    webauthn:
+      # Relying party ID (your domain)
+      rp_id: "example.com"
 
-  # SMTP authentication (optional, uncomment if needed)
-  # smtp_username: "<SMTP-USERNAME>"
-  # smtp_password: "<SMTP-PASSWORD>"
+      # Relying party name (displayed to users)
+      rp_name: "InferaDB"
 
-  # TLS configuration
-  smtp_use_tls: true
-  smtp_use_starttls: true
+      # Origin URL (must match browser origin)
+      origin: "https://example.com"
 
-  # From address
-  from_email: "noreply@example.com"
-  from_name: "InferaDB"
+  # Email configuration (SMTP)
+  email:
+    # SMTP server settings
+    smtp_host: "<SMTP-HOST>"
+    smtp_port: 587
 
-# Rate limiting configuration
-rate_limiting:
-  # Login attempts per IP per hour
-  login_attempts_per_ip_per_hour: 100
+    # SMTP authentication (optional, uncomment if needed)
+    # smtp_username: "<SMTP-USERNAME>"
+    # smtp_password: "<SMTP-PASSWORD>"
 
-  # Registration attempts per IP per day
-  registrations_per_ip_per_day: 5
+    # From address
+    from_email: "noreply@example.com"
+    from_name: "InferaDB"
 
-  # Email verification tokens per email per hour
-  email_verification_tokens_per_hour: 5
+  # Rate limits configuration
+  limits:
+    # Login attempts per IP per hour
+    login_attempts_per_ip_per_hour: 100
 
-  # Password reset tokens per user per hour
-  password_reset_tokens_per_hour: 3
+    # Registration attempts per IP per day
+    registrations_per_ip_per_day: 5
 
-# Observability configuration
-observability:
-  # Log level: trace, debug, info, warn, error
-  log_level: "info"
+    # Email verification tokens per email per hour
+    email_verification_tokens_per_hour: 5
 
-  # Enable Prometheus metrics
-  metrics_enabled: true
+    # Password reset tokens per user per hour
+    password_reset_tokens_per_hour: 3
 
-  # Enable distributed tracing
-  tracing_enabled: true
+  # Engine configuration
+  # All engine instances are discovered from this base URL + ports
+  # In production with Kubernetes/Tailscale discovery, set discovery.mode appropriately
+  engine:
+    # Base service URL (without port)
+    # For Kubernetes: use the k8s service name (e.g., "http://inferadb-engine.inferadb")
+    # For direct connection: use the host (e.g., "http://localhost")
+    service_url: "http://inferadb-engine.inferadb"
 
-  # OTLP endpoint for distributed tracing
-  otlp_endpoint: "http://localhost:4317"
+    # gRPC port for engine communication
+    grpc_port: 8081
 
-# ID generation configuration
-id_generation:
-  # Worker ID (0-1023) - MUST be unique per instance in multi-instance deployments
-  # Recommended: Use environment variable or orchestration-provided ID
-  # Example: ${WORKER_ID}
-  worker_id: 0
-
-# Policy service (server) configuration
-# All server instances are discovered from this base URL + ports
-# In production with Kubernetes/Tailscale discovery, set discovery.mode appropriately
-policy_service:
-  # Base service URL (without port)
-  # For Kubernetes: use the k8s service name (e.g., "http://inferadb-engine.inferadb")
-  # For direct connection: use the host (e.g., "http://localhost")
-  service_url: "http://inferadb-engine.inferadb"
-
-  # gRPC port for policy engine communication
-  grpc_port: 8081
-
-  # Internal/Private HTTP port for webhooks and JWKS
-  internal_port: 8082
-
-# CORS configuration (for web dashboard)
-cors:
-  # Allowed origins (whitelist)
-  allowed_origins:
-    - "https://dashboard.example.com"
-
-  # Allow credentials (cookies, authorization headers)
-  allow_credentials: true
-
-  # Max age for preflight cache (in seconds)
-  max_age: 3600
-
-# Leader election configuration (for multi-instance deployments)
-leader_election:
-  # Enable leader election
-  enabled: true
-
-  # Lease TTL in seconds
-  lease_ttl_seconds: 30
-
-  # Lease renewal interval in seconds
-  renewal_interval_seconds: 10
-
-# Background jobs configuration
-background_jobs:
-  # Enable background jobs
-  enabled: true
-
-  # Session cleanup schedule (cron format or interval)
-  # Daily at 2 AM UTC
-  session_cleanup_schedule: "0 2 * * *"
-
-  # Token cleanup schedule
-  # Daily at 3 AM UTC
-  token_cleanup_schedule: "0 3 * * *"
-
-  # Refresh token cleanup schedule
-  # Daily at 4 AM UTC
-  refresh_token_cleanup_schedule: "0 4 * * *"
-
-  # Authorization code cleanup schedule
-  # Hourly
-  authz_code_cleanup_schedule: "0 * * * *"
-
-# Feature flags (optional)
-features:
-  # Enable passkey authentication
-  enable_passkeys: true
-
-  # Enable client certificate authentication
-  enable_client_certs: true
-
-  # Enable email verification requirement
-  require_email_verification: true
-
-# Environment
-environment: "production"
+    # Internal/Private HTTP port for webhooks and JWKS
+    internal_port: 8082

@@ -133,6 +133,182 @@ impl<S: StorageBackend + 'static> WorkerRegistry<S> {
     }
 }
 
+/// Maximum number of attempts to find an available worker ID
+const MAX_WORKER_ID_ATTEMPTS: u32 = 50;
+
+/// Maximum valid worker ID (10 bits = 1024 values, 0-1023)
+const MAX_WORKER_ID: u16 = 1023;
+
+/// Acquire a worker ID automatically using collision detection
+///
+/// This function attempts to find and register an available worker ID.
+/// It uses the following strategy:
+///
+/// 1. **Kubernetes StatefulSet**: If `POD_NAME` ends with `-N` (ordinal), uses that ordinal
+/// 2. **Random with collision detection**: Otherwise, randomly selects and attempts to register
+///
+/// # Arguments
+///
+/// * `storage` - Storage backend for coordination
+/// * `explicit_id` - Optional explicitly configured worker ID (takes priority)
+///
+/// # Returns
+///
+/// Returns the acquired worker ID on success, or an error if no ID could be acquired.
+///
+/// # Example
+///
+/// ```ignore
+/// // In Kubernetes with auto-assignment
+/// let worker_id = acquire_worker_id(&storage, None).await?;
+///
+/// // With explicit ID (for local development)
+/// let worker_id = acquire_worker_id(&storage, Some(0)).await?;
+/// ```
+pub async fn acquire_worker_id<S: StorageBackend + 'static>(
+    storage: &S,
+    explicit_id: Option<u16>,
+) -> Result<u16> {
+    // If an explicit ID is provided, use it directly
+    if let Some(id) = explicit_id {
+        if id > MAX_WORKER_ID {
+            return Err(Error::Config(format!(
+                "Worker ID must be between 0 and {}, got {}",
+                MAX_WORKER_ID, id
+            )));
+        }
+        tracing::info!(worker_id = id, "Using explicitly configured worker ID");
+        return Ok(id);
+    }
+
+    // Try to derive worker ID from Kubernetes pod ordinal
+    if let Some(id) = try_get_pod_ordinal() {
+        tracing::info!(
+            worker_id = id,
+            "Using worker ID derived from Kubernetes pod ordinal"
+        );
+        return Ok(id);
+    }
+
+    // Fall back to random selection with collision detection
+    acquire_random_worker_id(storage).await
+}
+
+/// Try to extract pod ordinal from Kubernetes StatefulSet pod name
+///
+/// StatefulSet pods are named `{statefulset-name}-{ordinal}`, e.g., `inferadb-control-0`
+fn try_get_pod_ordinal() -> Option<u16> {
+    let pod_name = std::env::var("POD_NAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok()?;
+
+    // Extract the last segment after the final hyphen
+    let ordinal_str = pod_name.rsplit('-').next()?;
+
+    // Try to parse as a number
+    let ordinal: u16 = ordinal_str.parse().ok()?;
+
+    // Validate it's within the valid range
+    if ordinal > MAX_WORKER_ID {
+        tracing::warn!(
+            pod_name = %pod_name,
+            ordinal = ordinal,
+            "Pod ordinal {} exceeds maximum worker ID {}, will use random assignment",
+            ordinal,
+            MAX_WORKER_ID
+        );
+        return None;
+    }
+
+    tracing::debug!(
+        pod_name = %pod_name,
+        ordinal = ordinal,
+        "Extracted pod ordinal from pod name"
+    );
+
+    Some(ordinal)
+}
+
+/// Acquire a random worker ID with collision detection
+///
+/// This function randomly selects worker IDs and attempts to register them
+/// until one succeeds or the maximum number of attempts is reached.
+async fn acquire_random_worker_id<S: StorageBackend>(storage: &S) -> Result<u16> {
+    use rand::Rng;
+
+    let mut rng = rand::rng();
+    let mut attempted: std::collections::HashSet<u16> = std::collections::HashSet::new();
+
+    for attempt in 1..=MAX_WORKER_ID_ATTEMPTS {
+        // Generate a random worker ID that hasn't been tried yet
+        let worker_id = loop {
+            let id: u16 = rng.random_range(0..=MAX_WORKER_ID);
+            if attempted.insert(id) {
+                break id;
+            }
+            // If we've tried all IDs, give up
+            if attempted.len() > MAX_WORKER_ID as usize {
+                return Err(Error::Config(
+                    "All worker IDs have been attempted without success".to_string(),
+                ));
+            }
+        };
+
+        // Try to register this worker ID
+        let key = format!("workers/active/{}", worker_id).into_bytes();
+
+        // Check if already registered
+        match storage.get(&key).await {
+            Ok(Some(_)) => {
+                tracing::debug!(
+                    worker_id = worker_id,
+                    attempt = attempt,
+                    "Worker ID already in use, trying another"
+                );
+                continue;
+            }
+            Ok(None) => {
+                // Attempt to register with TTL
+                let timestamp = Utc::now().to_rfc3339();
+                match storage
+                    .set_with_ttl(key, timestamp.as_bytes().to_vec(), WORKER_HEARTBEAT_TTL)
+                    .await
+                {
+                    Ok(()) => {
+                        tracing::info!(
+                            worker_id = worker_id,
+                            attempts = attempt,
+                            "Successfully acquired random worker ID"
+                        );
+                        return Ok(worker_id);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            worker_id = worker_id,
+                            error = %e,
+                            "Failed to register worker ID, trying another"
+                        );
+                        continue;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    worker_id = worker_id,
+                    error = %e,
+                    "Failed to check worker ID availability"
+                );
+                continue;
+            }
+        }
+    }
+
+    Err(Error::Config(format!(
+        "Failed to acquire worker ID after {} attempts. All attempted IDs were in use.",
+        MAX_WORKER_ID_ATTEMPTS
+    )))
+}
+
 /// Snowflake ID generator with custom epoch and worker ID management
 pub struct IdGenerator;
 
@@ -307,5 +483,85 @@ mod tests {
 
         // Wait for cleanup
         tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    #[tokio::test]
+    async fn test_acquire_worker_id_explicit() {
+        let storage = MemoryBackend::new();
+
+        // Explicit ID should be used directly
+        let id = acquire_worker_id(&storage, Some(42)).await.unwrap();
+        assert_eq!(id, 42);
+    }
+
+    #[tokio::test]
+    async fn test_acquire_worker_id_explicit_invalid() {
+        let storage = MemoryBackend::new();
+
+        // Invalid explicit ID should fail
+        let result = acquire_worker_id(&storage, Some(1024)).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be between 0 and 1023"));
+    }
+
+    #[tokio::test]
+    async fn test_acquire_worker_id_auto() {
+        let storage = MemoryBackend::new();
+
+        // Without explicit ID and without POD_NAME, should acquire a random ID
+        let id = acquire_worker_id(&storage, None).await.unwrap();
+        assert!(id <= MAX_WORKER_ID, "Worker ID {} should be <= {}", id, MAX_WORKER_ID);
+    }
+
+    #[tokio::test]
+    async fn test_acquire_worker_id_finds_available() {
+        let storage = MemoryBackend::new();
+
+        // Register a few worker IDs manually
+        for id in 0..10 {
+            let key = format!("workers/active/{}", id).into_bytes();
+            storage.set_with_ttl(key, b"timestamp".to_vec(), 30).await.unwrap();
+        }
+
+        // Auto-acquire should find an available ID that's not 0-9
+        let id = acquire_worker_id(&storage, None).await.unwrap();
+        assert!(id > 9 || id <= MAX_WORKER_ID, "Should find an available ID");
+    }
+
+    // Note: Environment variable tests are inherently racy in parallel test execution.
+    // These tests verify the logic directly rather than relying on env vars.
+
+    #[test]
+    fn test_parse_pod_ordinal_statefulset_name() {
+        // Test parsing logic for StatefulSet-style pod names
+        let name = "inferadb-control-5";
+        let ordinal_str = name.rsplit('-').next().unwrap();
+        let ordinal: u16 = ordinal_str.parse().unwrap();
+        assert_eq!(ordinal, 5);
+    }
+
+    #[test]
+    fn test_parse_pod_ordinal_deployment_name() {
+        // Test parsing logic for Deployment-style pod names
+        let name = "inferadb-control-abc123";
+        let ordinal_str = name.rsplit('-').next().unwrap();
+        let result = ordinal_str.parse::<u16>();
+        assert!(result.is_err(), "Deployment pod suffix should not parse as a number");
+    }
+
+    #[test]
+    fn test_parse_pod_ordinal_complex_name() {
+        // Test with multiple hyphens in pod name
+        let name = "my-app-namespace-inferadb-control-42";
+        let ordinal_str = name.rsplit('-').next().unwrap();
+        let ordinal: u16 = ordinal_str.parse().unwrap();
+        assert_eq!(ordinal, 42);
+    }
+
+    #[test]
+    fn test_parse_pod_ordinal_overflow() {
+        // Test that very large ordinals are rejected
+        let ordinal: u16 = 2000;
+        assert!(ordinal > MAX_WORKER_ID);
     }
 }

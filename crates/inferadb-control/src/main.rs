@@ -4,7 +4,8 @@ use anyhow::Result;
 use clap::Parser;
 use inferadb_control_api::ManagementIdentity;
 use inferadb_control_core::{
-    ManagementConfig, WebhookClient, config::DiscoveryMode, logging, startup,
+    IdGenerator, ManagementConfig, WebhookClient, WorkerRegistry, acquire_worker_id,
+    config::DiscoveryMode, logging, startup,
 };
 use inferadb_control_engine_client::ServerApiClient;
 use inferadb_control_storage::factory::{StorageConfig, create_storage_backend};
@@ -54,7 +55,7 @@ async fn main() -> Result<()> {
         } else {
             logging::LogFormat::Full // Match server's default output style
         },
-        filter: Some(config.observability.log_level.clone()),
+        filter: Some(config.logging.clone()),
         ..Default::default()
     };
 
@@ -72,7 +73,7 @@ async fn main() -> Result<()> {
     let use_json = args.json_logs || args.environment == "production";
     if !use_json {
         // Create the private key entry based on whether it's configured
-        let private_key_entry = if let Some(ref pem) = config.identity.private_key_pem {
+        let private_key_entry = if let Some(ref pem) = config.pem {
             startup::ConfigEntry::new("Identity", "Private Key", startup::private_key_hint(pem))
         } else {
             startup::ConfigEntry::warning("Identity", "Private Key", "○ Unassigned")
@@ -117,15 +118,14 @@ async fn main() -> Result<()> {
         .entries(vec![
             // General
             startup::ConfigEntry::new("General", "Environment", &args.environment),
-            startup::ConfigEntry::new("General", "Worker ID", config.id_generation.worker_id),
             startup::ConfigEntry::new("General", "Configuration File", &config_path),
             // Storage
             startup::ConfigEntry::new("Storage", "Backend", &config.storage.backend),
-            // Network
-            startup::ConfigEntry::new("Network", "Public API (REST)", &config.server.public_rest),
-            startup::ConfigEntry::new("Network", "Public API (gRPC)", &config.server.public_grpc),
-            startup::ConfigEntry::new("Network", "Private API (REST)", &config.server.private_rest),
-            startup::ConfigEntry::separator("Network"),
+            // Listen
+            startup::ConfigEntry::new("Listen", "Public API (REST)", &config.listen.public_rest),
+            startup::ConfigEntry::new("Listen", "Public API (gRPC)", &config.listen.public_grpc),
+            startup::ConfigEntry::new("Listen", "Private API (REST)", &config.listen.private_rest),
+            startup::ConfigEntry::separator("Listen"),
             policy_entry,
             discovery_entry,
             private_key_entry,
@@ -136,7 +136,6 @@ async fn main() -> Result<()> {
             version = env!("CARGO_PKG_VERSION"),
             environment = %args.environment,
             config_file = %args.config,
-            worker_id = config.id_generation.worker_id,
             "Starting InferaDB Control"
         );
     }
@@ -150,22 +149,39 @@ async fn main() -> Result<()> {
     let storage = Arc::new(create_storage_backend(&storage_config).await?);
     startup::log_initialized(&format!("Storage ({})", config.storage.backend));
 
-    // Server API client (for gRPC communication with policy service)
+    // Acquire worker ID automatically (uses pod ordinal or random with collision detection)
+    let worker_id = acquire_worker_id(storage.as_ref(), None)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to acquire worker ID: {}", e))?;
+
+    // Initialize the ID generator with the acquired worker ID
+    IdGenerator::init(worker_id)
+        .map_err(|e| anyhow::anyhow!("Failed to initialize ID generator: {}", e))?;
+
+    // Start worker registry heartbeat to maintain registration
+    let worker_registry = Arc::new(WorkerRegistry::new(storage.as_ref().clone(), worker_id));
+    worker_registry.register().await.map_err(|e| {
+        anyhow::anyhow!("Failed to register worker ID {}: {}", worker_id, e)
+    })?;
+    worker_registry.clone().start_heartbeat();
+    startup::log_initialized(&format!("Worker ID ({})", worker_id));
+
+    // Server API client (for gRPC communication with engine)
     let server_client = Arc::new(ServerApiClient::new(
-        config.policy_service.service_url.clone(),
-        config.policy_service.grpc_port,
+        config.engine.service_url.clone(),
+        config.engine.grpc_port,
     )?);
     startup::log_initialized("Engine client");
 
     // Identity for webhook authentication
-    let management_identity = if let Some(ref pem) = config.identity.private_key_pem {
+    let management_identity = if let Some(ref pem) = config.pem {
         ManagementIdentity::from_pem(pem)
             .map_err(|e| anyhow::anyhow!("Failed to load Management identity from PEM: {}", e))?
     } else {
         // Generate new identity and display in formatted box
         let identity = ManagementIdentity::generate();
         let pem = identity.to_pem();
-        startup::print_generated_keypair(&pem, "identity.private_key_pem");
+        startup::print_generated_keypair(&pem, "pem");
         identity
     };
 
@@ -179,10 +195,10 @@ async fn main() -> Result<()> {
     startup::log_initialized("Identity");
 
     // Webhook client for cache invalidation
-    // Always enabled - uses discovery mode to find policy service (server) instances automatically
+    // Always enabled - uses discovery mode to find engine instances automatically
     let webhook_client = WebhookClient::new(
-        config.policy_service.service_url.clone(),
-        config.policy_service.internal_port,
+        config.engine.service_url.clone(),
+        config.engine.internal_port,
         Arc::clone(&management_identity),
         config.cache_invalidation.timeout_ms,
         config.discovery.mode.clone(),
@@ -199,7 +215,7 @@ async fn main() -> Result<()> {
         storage.clone(),
         config.clone(),
         server_client.clone(),
-        config.id_generation.worker_id,
+        worker_id,
         inferadb_control_api::ServicesConfig {
             leader: None,        // leader election (optional, for multi-node)
             email_service: None, // email service (optional, can be initialized later)

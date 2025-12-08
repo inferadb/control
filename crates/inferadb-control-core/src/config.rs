@@ -3,12 +3,44 @@ use std::path::Path;
 use inferadb_control_types::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 
-/// Root configuration for the Management API
+/// Root configuration wrapper for unified config file support.
+///
+/// This allows both engine and control to read from the same YAML file,
+/// with each service reading its own section:
+///
+/// ```yaml
+/// engine:
+///   listen:
+///     public_rest: "127.0.0.1:8080"
+///   # ... other engine config (ignored by control)
+///
+/// control:
+///   listen:
+///     public_rest: "127.0.0.1:9090"
+///   # ... control config
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RootConfig {
+    /// Control-specific configuration
+    #[serde(default)]
+    pub control: ManagementConfig,
+    // Note: `engine` section may exist in the file but is ignored by control
+}
+
+/// Configuration for the Control API (formerly Management API)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManagementConfig {
-    /// Server configuration
+    /// Number of worker threads for the async runtime
+    #[serde(default = "default_threads")]
+    pub threads: usize,
+
+    /// Log level (trace, debug, info, warn, error)
+    #[serde(default = "default_logging")]
+    pub logging: String,
+
+    /// Listen address configuration for API servers
     #[serde(default)]
-    pub server: ServerConfig,
+    pub listen: ListenConfig,
 
     /// Storage configuration
     #[serde(default)]
@@ -22,25 +54,18 @@ pub struct ManagementConfig {
     #[serde(default)]
     pub email: EmailConfig,
 
-    /// Rate limiting configuration
+    /// Rate limits configuration
     #[serde(default)]
-    pub rate_limiting: RateLimitingConfig,
+    pub limits: LimitsConfig,
 
-    /// Observability configuration
+    /// Engine service configuration (for policy engine communication)
     #[serde(default)]
-    pub observability: ObservabilityConfig,
+    pub engine: EngineConfig,
 
-    /// ID generation configuration
-    #[serde(default)]
-    pub id_generation: IdGenerationConfig,
-
-    /// Policy service (server) configuration
-    #[serde(default)]
-    pub policy_service: PolicyServiceConfig,
-
-    /// Identity configuration (for webhook authentication)
-    #[serde(default)]
-    pub identity: IdentityConfig,
+    /// Ed25519 private key in PEM format (optional - will auto-generate if not provided)
+    /// If provided, the key is persisted across restarts.
+    /// If not provided, a new keypair is generated on each startup.
+    pub pem: Option<String>,
 
     /// Cache invalidation webhook configuration
     #[serde(default)]
@@ -50,16 +75,14 @@ pub struct ManagementConfig {
     #[serde(default)]
     pub discovery: DiscoveryConfig,
 
-    /// Frontend base URL for email links (verification, password reset)
-    /// Example: "https://app.inferadb.com" or "http://localhost:3000"
-    /// Environment variable: INFERADB_CTRL__FRONTEND_BASE_URL
-    #[serde(default = "default_frontend_base_url")]
-    pub frontend_base_url: String,
+    /// Frontend configuration for web UI links
+    #[serde(default)]
+    pub frontend: FrontendConfig,
 }
 
-/// Server/HTTP configuration
+/// Listen address configuration for API servers
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ServerConfig {
+pub struct ListenConfig {
     /// Public REST API server address (client-facing)
     /// Format: "host:port" (e.g., "127.0.0.1:9090")
     #[serde(default = "default_public_rest")]
@@ -74,10 +97,6 @@ pub struct ServerConfig {
     /// Format: "host:port" (e.g., "0.0.0.0:9092")
     #[serde(default = "default_private_rest")]
     pub private_rest: String,
-
-    /// Worker threads for async runtime
-    #[serde(default = "default_worker_threads")]
-    pub worker_threads: usize,
 }
 
 /// Storage backend configuration
@@ -163,9 +182,9 @@ pub struct EmailConfig {
     pub from_name: String,
 }
 
-/// Rate limiting configuration
+/// Rate limits configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct RateLimitingConfig {
+pub struct LimitsConfig {
     /// Login attempts per IP per hour
     #[serde(default = "default_login_attempts_per_ip_per_hour")]
     pub login_attempts_per_ip_per_hour: u32,
@@ -183,73 +202,52 @@ pub struct RateLimitingConfig {
     pub password_reset_tokens_per_hour: u32,
 }
 
-/// Observability configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ObservabilityConfig {
-    /// Log level
-    #[serde(default = "default_log_level")]
-    pub log_level: String,
-
-    /// Enable Prometheus metrics
-    #[serde(default = "default_metrics_enabled")]
-    pub metrics_enabled: bool,
-
-    /// Enable OpenTelemetry tracing
-    #[serde(default = "default_tracing_enabled")]
-    pub tracing_enabled: bool,
-
-    /// OTLP endpoint for traces (if tracing enabled)
-    pub otlp_endpoint: Option<String>,
+/// Frontend configuration for web UI
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrontendConfig {
+    /// Base URL for email links (verification, password reset)
+    /// Example: "https://app.inferadb.com" or "http://localhost:3000"
+    #[serde(default = "default_frontend_url")]
+    pub url: String,
 }
 
-/// ID generation configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct IdGenerationConfig {
-    /// Worker ID for Snowflake ID generation (0-1023)
-    #[serde(default = "default_worker_id")]
-    pub worker_id: u16,
+impl Default for FrontendConfig {
+    fn default() -> Self {
+        Self { url: default_frontend_url() }
+    }
 }
 
-/// Policy service (server) configuration
+/// Engine service configuration
 ///
-/// This configuration controls how the management service discovers and connects to
-/// policy service (server) instances. Both gRPC and HTTP internal endpoints are
+/// This configuration controls how control discovers and connects to
+/// engine (policy service) instances. Both gRPC and HTTP internal endpoints are
 /// derived from the same base URL with different ports.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PolicyServiceConfig {
-    /// gRPC port for server communication
+pub struct EngineConfig {
+    /// gRPC port for engine communication
     /// Default: 8081
-    #[serde(default = "default_policy_grpc_port")]
+    #[serde(default = "default_engine_grpc_port")]
     pub grpc_port: u16,
 
     /// Internal HTTP port for webhooks/JWKS
     /// Default: 8082
-    #[serde(default = "default_policy_internal_port")]
+    #[serde(default = "default_engine_internal_port")]
     pub internal_port: u16,
 
     /// Service URL (base URL without port, used for discovery or direct connection)
     /// e.g., "http://inferadb-engine.inferadb" for K8s or "http://localhost" for dev
-    #[serde(default = "default_policy_service_url")]
+    #[serde(default = "default_engine_service_url")]
     pub service_url: String,
 }
 
-impl Default for PolicyServiceConfig {
+impl Default for EngineConfig {
     fn default() -> Self {
         Self {
-            grpc_port: default_policy_grpc_port(),
-            internal_port: default_policy_internal_port(),
-            service_url: default_policy_service_url(),
+            grpc_port: default_engine_grpc_port(),
+            internal_port: default_engine_internal_port(),
+            service_url: default_engine_service_url(),
         }
     }
-}
-
-/// Identity configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct IdentityConfig {
-    /// Ed25519 private key in PEM format (optional - will auto-generate if not provided)
-    /// If provided, the key is persisted across restarts.
-    /// If not provided, a new keypair is generated on each startup.
-    pub private_key_pem: Option<String>,
 }
 
 /// Cache invalidation webhook configuration
@@ -284,10 +282,6 @@ pub struct DiscoveryConfig {
     #[serde(default = "default_discovery_cache_ttl")]
     pub cache_ttl: u64,
 
-    /// Whether to enable health checking of endpoints
-    #[serde(default = "default_discovery_health_check")]
-    pub enable_health_check: bool,
-
     /// Health check interval (in seconds)
     #[serde(default = "default_discovery_health_check_interval")]
     pub health_check_interval: u64,
@@ -298,7 +292,6 @@ impl Default for DiscoveryConfig {
         Self {
             mode: DiscoveryMode::None,
             cache_ttl: default_discovery_cache_ttl(),
-            enable_health_check: default_discovery_health_check(),
             health_check_interval: default_discovery_health_check_interval(),
         }
     }
@@ -352,8 +345,12 @@ fn default_private_rest() -> String {
     "0.0.0.0:9092".to_string() // Management internal/private server port
 }
 
-fn default_worker_threads() -> usize {
-    4
+fn default_threads() -> usize {
+    num_cpus::get()
+}
+
+fn default_logging() -> String {
+    "info".to_string()
 }
 
 fn default_storage_backend() -> String {
@@ -408,35 +405,20 @@ fn default_password_reset_tokens_per_hour() -> u32 {
     3
 }
 
-fn default_log_level() -> String {
-    "info".to_string()
+
+fn default_engine_grpc_port() -> u16 {
+    8081 // Engine's public gRPC port
 }
 
-fn default_metrics_enabled() -> bool {
-    true
+fn default_engine_internal_port() -> u16 {
+    8082 // Engine's internal/private API port
 }
 
-fn default_tracing_enabled() -> bool {
-    false
-}
-
-fn default_worker_id() -> u16 {
-    0
-}
-
-fn default_policy_grpc_port() -> u16 {
-    8081 // Server's public gRPC port
-}
-
-fn default_policy_internal_port() -> u16 {
-    8082 // Server's internal/private API port
-}
-
-fn default_policy_service_url() -> String {
+fn default_engine_service_url() -> String {
     "http://localhost".to_string() // Default for development
 }
 
-fn default_frontend_base_url() -> String {
+fn default_frontend_url() -> String {
     "http://localhost:3000".to_string()
 }
 
@@ -452,10 +434,6 @@ fn default_discovery_cache_ttl() -> u64 {
     300 // 5 minutes
 }
 
-fn default_discovery_health_check() -> bool {
-    true // Enabled by default for production reliability
-}
-
 fn default_discovery_health_check_interval() -> u64 {
     30 // 30 seconds
 }
@@ -463,11 +441,12 @@ fn default_discovery_health_check_interval() -> u64 {
 impl Default for ManagementConfig {
     fn default() -> Self {
         Self {
-            server: ServerConfig {
+            threads: default_threads(),
+            logging: default_logging(),
+            listen: ListenConfig {
                 public_rest: default_public_rest(),
                 public_grpc: default_public_grpc(),
                 private_rest: default_private_rest(),
-                worker_threads: default_worker_threads(),
             },
             storage: StorageConfig { backend: default_storage_backend(), fdb_cluster_file: None },
             auth: AuthConfig {
@@ -491,47 +470,40 @@ impl Default for ManagementConfig {
                 from_email: "noreply@inferadb.com".to_string(),
                 from_name: default_from_name(),
             },
-            rate_limiting: RateLimitingConfig {
+            limits: LimitsConfig {
                 login_attempts_per_ip_per_hour: default_login_attempts_per_ip_per_hour(),
                 registrations_per_ip_per_day: default_registrations_per_ip_per_day(),
                 email_verification_tokens_per_hour: default_email_verification_tokens_per_hour(),
                 password_reset_tokens_per_hour: default_password_reset_tokens_per_hour(),
             },
-            observability: ObservabilityConfig {
-                log_level: default_log_level(),
-                metrics_enabled: default_metrics_enabled(),
-                tracing_enabled: default_tracing_enabled(),
-                otlp_endpoint: None,
-            },
-            id_generation: IdGenerationConfig { worker_id: default_worker_id() },
-            policy_service: PolicyServiceConfig::default(),
-            identity: IdentityConfig::default(),
+            engine: EngineConfig::default(),
+            pem: None,
             cache_invalidation: CacheInvalidationConfig::default(),
             discovery: DiscoveryConfig::default(),
-            frontend_base_url: default_frontend_base_url(),
+            frontend: FrontendConfig::default(),
         }
     }
 }
 
 impl ManagementConfig {
-    /// Get the effective gRPC URL for the policy service
+    /// Get the effective gRPC URL for the engine service
     ///
-    /// Combines `policy_service.service_url` with `policy_service.grpc_port`
+    /// Combines `engine.service_url` with `engine.grpc_port`
     /// to produce the full gRPC endpoint URL.
     ///
-    /// Example: "http://localhost" + 8080 → "http://localhost:8080"
+    /// Example: "http://localhost" + 8081 → "http://localhost:8081"
     pub fn effective_grpc_url(&self) -> String {
-        format!("{}:{}", self.policy_service.service_url, self.policy_service.grpc_port)
+        format!("{}:{}", self.engine.service_url, self.engine.grpc_port)
     }
 
-    /// Get the effective internal HTTP URL for the policy service
+    /// Get the effective internal HTTP URL for the engine service
     ///
-    /// Combines `policy_service.service_url` with `policy_service.internal_port`
+    /// Combines `engine.service_url` with `engine.internal_port`
     /// to produce the full internal API endpoint URL.
     ///
-    /// Example: "http://localhost" + 9090 → "http://localhost:9090"
+    /// Example: "http://localhost" + 8082 → "http://localhost:8082"
     pub fn effective_internal_url(&self) -> String {
-        format!("{}:{}", self.policy_service.service_url, self.policy_service.internal_port)
+        format!("{}:{}", self.engine.service_url, self.engine.internal_port)
     }
 
     /// Load configuration with layered precedence: defaults → file → env vars
@@ -543,6 +515,23 @@ impl ManagementConfig {
     ///
     /// Each layer only overrides properties that are explicitly set, preserving
     /// defaults for unspecified values.
+    ///
+    /// ## Unified Configuration Format
+    ///
+    /// This function supports the unified configuration format that allows both
+    /// engine and control to share the same config file:
+    ///
+    /// ```yaml
+    /// control:
+    ///   threads: 4
+    ///   logging: "info"
+    ///   network:
+    ///     public_rest: "127.0.0.1:9090"
+    ///   # ... control config
+    ///
+    /// engine:
+    ///   # ... engine config (ignored by control)
+    /// ```
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         // The config crate will use serde's #[serde(default)] annotations for defaults
         // Layer 1 (defaults) is handled by serde deserialization
@@ -551,16 +540,20 @@ impl ManagementConfig {
             config::Config::builder().add_source(config::File::from(path.as_ref()).required(false));
 
         // Layer 3: Add environment variables (highest precedence)
+        // Use INFERADB__ prefix for the nested format (INFERADB__CONTROL__...)
         let builder = builder.add_source(
-            config::Environment::with_prefix("INFERADB_CTRL").separator("__").try_parsing(true),
+            config::Environment::with_prefix("INFERADB").separator("__").try_parsing(true),
         );
 
         let config =
             builder.build().map_err(|e| Error::Config(format!("Failed to build config: {}", e)))?;
 
-        config
+        // Deserialize as RootConfig and extract the control section
+        let root: RootConfig = config
             .try_deserialize()
-            .map_err(|e| Error::Config(format!("Failed to deserialize config: {}", e)))
+            .map_err(|e| Error::Config(format!("Failed to deserialize config: {}", e)))?;
+
+        Ok(root.control)
     }
 
     /// Load configuration with defaults, never panicking
@@ -603,14 +596,6 @@ impl ManagementConfig {
             ));
         }
 
-        // Validate worker ID range
-        if self.id_generation.worker_id > 1023 {
-            return Err(Error::Config(format!(
-                "Worker ID must be between 0 and 1023, got {}",
-                self.id_generation.worker_id
-            )));
-        }
-
         // Validate key encryption secret is set
         if self.auth.key_encryption_secret.is_none() {
             tracing::warn!(
@@ -618,27 +603,23 @@ impl ManagementConfig {
             );
         }
 
-        // Validate frontend_base_url format
-        if !self.frontend_base_url.starts_with("http://")
-            && !self.frontend_base_url.starts_with("https://")
-        {
+        // Validate frontend.url format
+        if !self.frontend.url.starts_with("http://") && !self.frontend.url.starts_with("https://") {
             return Err(Error::Config(
-                "frontend_base_url must start with http:// or https://".to_string(),
+                "frontend.url must start with http:// or https://".to_string(),
             ));
         }
 
-        if self.frontend_base_url.ends_with('/') {
+        if self.frontend.url.ends_with('/') {
             return Err(Error::Config(
-                "frontend_base_url must not end with trailing slash".to_string(),
+                "frontend.url must not end with trailing slash".to_string(),
             ));
         }
 
         // Warn about localhost in production-like environments
-        if self.frontend_base_url.contains("localhost")
-            || self.frontend_base_url.contains("127.0.0.1")
-        {
+        if self.frontend.url.contains("localhost") || self.frontend.url.contains("127.0.0.1") {
             tracing::warn!(
-                "frontend_base_url contains localhost - this should only be used in development. \
+                "frontend.url contains localhost - this should only be used in development. \
                  Production deployments should use a public domain."
             );
         }
@@ -671,17 +652,17 @@ impl ManagementConfig {
             ));
         }
 
-        // Validate policy_service.service_url format
-        if !self.policy_service.service_url.starts_with("http://")
-            && !self.policy_service.service_url.starts_with("https://")
+        // Validate engine.service_url format
+        if !self.engine.service_url.starts_with("http://")
+            && !self.engine.service_url.starts_with("https://")
         {
             return Err(Error::Config(
-                "policy_service.service_url must start with http:// or https://".to_string(),
+                "engine.service_url must start with http:// or https://".to_string(),
             ));
         }
-        if self.policy_service.service_url.ends_with('/') {
+        if self.engine.service_url.ends_with('/') {
             return Err(Error::Config(
-                "policy_service.service_url must not end with trailing slash".to_string(),
+                "engine.service_url must not end with trailing slash".to_string(),
             ));
         }
 
@@ -712,21 +693,6 @@ mod tests {
     }
 
     #[test]
-    fn test_worker_id_validation() {
-        let mut config = ManagementConfig::default();
-        config.auth.webauthn.rp_id = "localhost".to_string();
-        config.auth.webauthn.origin = "http://localhost:3000".to_string();
-        config.auth.key_encryption_secret = Some("test-secret".to_string());
-
-        // Valid worker ID
-        assert!(config.validate().is_ok());
-
-        // Invalid worker ID
-        config.id_generation.worker_id = 1024;
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
     fn test_storage_backend_validation() {
         let mut config = ManagementConfig::default();
         config.auth.webauthn.rp_id = "localhost".to_string();
@@ -753,9 +719,9 @@ mod tests {
         assert_eq!(config.effective_internal_url(), "http://localhost:8082");
 
         let mut config = ManagementConfig::default();
-        config.policy_service.service_url = "http://inferadb-engine.inferadb".to_string();
-        config.policy_service.grpc_port = 9000;
-        config.policy_service.internal_port = 9191;
+        config.engine.service_url = "http://inferadb-engine.inferadb".to_string();
+        config.engine.grpc_port = 9000;
+        config.engine.internal_port = 9191;
         assert_eq!(config.effective_grpc_url(), "http://inferadb-engine.inferadb:9000");
         assert_eq!(config.effective_internal_url(), "http://inferadb-engine.inferadb:9191");
     }

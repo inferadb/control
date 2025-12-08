@@ -28,6 +28,7 @@ unicode-width = { workspace = true }
 
 # Configuration
 config = { workspace = true }
+num_cpus = { workspace = true }
 
 # Cryptography
 aes-gcm = { workspace = true }

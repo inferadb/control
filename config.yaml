@@ -1,68 +1,64 @@
-# InferaDB Management API Configuration
+# InferaDB Control Configuration - Development Defaults
+# Good defaults for local development and testing
 
-# Frontend base URL for email verification and password reset links
-# Development: http://localhost:9090
-# Production: https://app.inferadb.com
-frontend_base_url: "http://localhost:9090"
+control:
+  threads: 4
+  logging: "info"
 
-server:
-  # Public REST API server (client-facing traffic - web, CLI, SDK)
-  public_rest: "127.0.0.1:9090"
+  # Frontend configuration for email links
+  frontend:
+    # Base URL for email verification and password reset links
+    # Development: http://localhost:9090
+    # Production: https://app.inferadb.com
+    url: "http://localhost:9090"
 
-  # Public gRPC API server
-  public_grpc: "127.0.0.1:9091"
+  listen:
+    # Public REST API server (client-facing traffic - web, CLI, SDK)
+    public_rest: "127.0.0.1:9090"
 
-  # Internal/Private REST API server (server-to-server communication)
-  # Runs a separate HTTP server for internal endpoints (JWKS)
-  private_rest: "0.0.0.0:9092"
+    # Public gRPC API server
+    public_grpc: "127.0.0.1:9091"
 
-  worker_threads: 4
+    # Internal/Private REST API server (server-to-server communication)
+    # Runs a separate HTTP server for internal endpoints (JWKS)
+    private_rest: "0.0.0.0:9092"
 
-storage:
-  backend: "memory"
-  # For production, use FoundationDB:
-  # backend: "foundationdb"
-  # fdb_cluster_file: "/etc/foundationdb/fdb.cluster"
+  storage:
+    backend: "memory"
+    # For production, use FoundationDB:
+    # backend: "foundationdb"
+    # fdb_cluster_file: "/etc/foundationdb/fdb.cluster"
 
-auth:
-  session_ttl_web: 2592000 # 30 days in seconds
-  session_ttl_cli: 7776000 # 90 days in seconds
-  session_ttl_sdk: 7776000 # 90 days in seconds
-  password_min_length: 12
-  max_sessions_per_user: 10
-  webauthn:
-    rp_id: "localhost"
-    rp_name: "InferaDB"
-    origin: "http://localhost:9090"
-  # Set via environment variable: INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET
-  # key_encryption_secret: "your-secret-key-here"
+  auth:
+    session_ttl_web: 2592000  # 30 days in seconds
+    session_ttl_cli: 7776000  # 90 days in seconds
+    session_ttl_sdk: 7776000  # 90 days in seconds
+    password_min_length: 12
+    max_sessions_per_user: 10
+    webauthn:
+      rp_id: "localhost"
+      rp_name: "InferaDB"
+      origin: "http://localhost:9090"
+    # Set via environment variable: INFERADB__CONTROL__AUTH__KEY_ENCRYPTION_SECRET
+    # key_encryption_secret: "your-secret-key-here"
 
-email:
-  smtp_host: "localhost"
-  smtp_port: 1025 # MailHog default port for development
-  # smtp_username: ""
-  # smtp_password: "" # Set via INFERADB_CTRL__EMAIL__SMTP_PASSWORD
-  from_email: "noreply@inferadb.local"
-  from_name: "InferaDB"
+  email:
+    smtp_host: "localhost"
+    smtp_port: 1025  # MailHog default port for development
+    # smtp_username: ""
+    # smtp_password: "" # Set via INFERADB__CONTROL__EMAIL__SMTP_PASSWORD
+    from_email: "noreply@inferadb.local"
+    from_name: "InferaDB"
 
-rate_limiting:
-  login_attempts_per_ip_per_hour: 100
-  registrations_per_ip_per_day: 5
-  email_verification_tokens_per_hour: 5
-  password_reset_tokens_per_hour: 3
+  limits:
+    login_attempts_per_ip_per_hour: 100
+    registrations_per_ip_per_day: 5
+    email_verification_tokens_per_hour: 5
+    password_reset_tokens_per_hour: 3
 
-observability:
-  log_level: "info"
-  metrics_enabled: true
-  tracing_enabled: false
-  # otlp_endpoint: "http://localhost:4317"
-
-id_generation:
-  worker_id: 0
-
-# Policy service (server) configuration
-# All server instances are discovered from this base URL + ports
-policy_service:
-  service_url: "http://localhost"
-  grpc_port: 8081
-  internal_port: 8082
+  # Engine configuration
+  # All engine instances are discovered from this base URL + ports
+  engine:
+    service_url: "http://localhost"
+    grpc_port: 8081
+    internal_port: 8082

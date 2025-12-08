@@ -256,14 +256,15 @@ mod tests {
         let temp_file = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
         let config_path = temp_file.path().to_path_buf();
 
-        // Write initial config with storage backend
+        // Write initial config with storage backend (using nested format)
         fs::write(
             &config_path,
             r#"
-server:
-  http_port: 3001
-storage:
-  storage_type: "memory"
+control:
+  listen:
+    public_rest: "0.0.0.0:3001"
+  storage:
+    backend: "memory"
 "#,
         )
         .unwrap();
@@ -286,20 +287,21 @@ storage:
         let temp_file = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
         let config_path = temp_file.path().to_path_buf();
 
-        // Write initial config with storage backend specified
+        // Write initial config with storage backend specified (using nested format)
         fs::write(
             &config_path,
             r#"
-server:
-  public_rest: "0.0.0.0:3001"
-storage:
-  storage_type: "memory"
-auth:
-  webauthn:
-    rp_id: "localhost"
-    origin: "http://localhost:3000"
-server_api:
-  grpc_endpoint: "http://localhost:8080"
+control:
+  listen:
+    public_rest: "0.0.0.0:3001"
+  storage:
+    backend: "memory"
+  auth:
+    webauthn:
+      rp_id: "localhost"
+      origin: "http://localhost:3000"
+  engine:
+    service_url: "http://localhost"
 "#,
         )
         .unwrap();
@@ -309,22 +311,23 @@ server_api:
         let config = Arc::new(RwLock::new(initial_config));
 
         // Verify initial address
-        assert_eq!(config.read().server.public_rest, "0.0.0.0:3001");
+        assert_eq!(config.read().listen.public_rest, "0.0.0.0:3001");
 
-        // Modify config file with a different address
+        // Modify config file with a different address (using nested format)
         fs::write(
             &config_path,
             r#"
-server:
-  public_rest: "0.0.0.0:3002"
-storage:
-  storage_type: "memory"
-auth:
-  webauthn:
-    rp_id: "localhost"
-    origin: "http://localhost:3000"
-server_api:
-  grpc_endpoint: "http://localhost:8080"
+control:
+  listen:
+    public_rest: "0.0.0.0:3002"
+  storage:
+    backend: "memory"
+  auth:
+    webauthn:
+      rp_id: "localhost"
+      origin: "http://localhost:3000"
+  engine:
+    service_url: "http://localhost"
 "#,
         )
         .unwrap();
@@ -339,7 +342,7 @@ server_api:
         // Verify address was updated
         let current = config.read();
         assert_eq!(
-            current.server.public_rest, "0.0.0.0:3002",
+            current.listen.public_rest, "0.0.0.0:3002",
             "Address should be updated to 0.0.0.0:3002"
         );
     }
@@ -350,14 +353,15 @@ server_api:
         let temp_file = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
         let config_path = temp_file.path().to_path_buf();
 
-        // Write initial valid config
+        // Write initial valid config (using nested format)
         fs::write(
             &config_path,
             r#"
-server:
-  public_rest: "0.0.0.0:3001"
-storage:
-  storage_type: "memory"
+control:
+  listen:
+    public_rest: "0.0.0.0:3001"
+  storage:
+    backend: "memory"
 "#,
         )
         .unwrap();
@@ -367,16 +371,17 @@ storage:
         let config = Arc::new(RwLock::new(initial_config));
 
         // Verify initial values
-        assert_eq!(config.read().server.public_rest, "0.0.0.0:3001");
+        assert_eq!(config.read().listen.public_rest, "0.0.0.0:3001");
 
         // Write invalid config (invalid address format)
         fs::write(
             &config_path,
             r#"
-server:
-  public_rest: "invalid-address"
-storage:
-  storage_type: "memory"
+control:
+  listen:
+    public_rest: "invalid-address"
+  storage:
+    backend: "memory"
 "#,
         )
         .unwrap();
@@ -390,7 +395,7 @@ storage:
 
         // Verify config was not changed (should still be valid)
         let current = config.read();
-        assert_eq!(current.server.public_rest, "0.0.0.0:3001");
+        assert_eq!(current.listen.public_rest, "0.0.0.0:3001");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -399,20 +404,21 @@ storage:
         let temp_file = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
         let config_path = temp_file.path().to_path_buf();
 
-        // Write initial config with storage backend
+        // Write initial config with storage backend (using nested format)
         fs::write(
             &config_path,
             r#"
-server:
-  public_rest: "0.0.0.0:3001"
-storage:
-  storage_type: "memory"
-auth:
-  webauthn:
-    rp_id: "localhost"
-    origin: "http://localhost:3000"
-server_api:
-  grpc_endpoint: "http://localhost:8080"
+control:
+  listen:
+    public_rest: "0.0.0.0:3001"
+  storage:
+    backend: "memory"
+  auth:
+    webauthn:
+      rp_id: "localhost"
+      origin: "http://localhost:3000"
+  engine:
+    service_url: "http://localhost"
 "#,
         )
         .unwrap();
@@ -422,7 +428,7 @@ server_api:
         let config = Arc::new(RwLock::new(initial_config));
 
         // Verify initial address
-        assert_eq!(config.read().server.public_rest, "0.0.0.0:3001");
+        assert_eq!(config.read().listen.public_rest, "0.0.0.0:3001");
 
         // Create and spawn refresher with 1 second interval
         let refresher = Arc::new(ConfigRefresher::new(config.clone(), config_path.clone(), 1));
@@ -434,16 +440,17 @@ server_api:
         fs::write(
             &config_path,
             r#"
-server:
-  public_rest: "0.0.0.0:3002"
-storage:
-  storage_type: "memory"
-auth:
-  webauthn:
-    rp_id: "localhost"
-    origin: "http://localhost:3000"
-server_api:
-  grpc_endpoint: "http://localhost:8080"
+control:
+  listen:
+    public_rest: "0.0.0.0:3002"
+  storage:
+    backend: "memory"
+  auth:
+    webauthn:
+      rp_id: "localhost"
+      origin: "http://localhost:3000"
+  engine:
+    service_url: "http://localhost"
 "#,
         )
         .unwrap();
@@ -454,7 +461,7 @@ server_api:
         // Verify config was updated
         let current = config.read();
         assert_eq!(
-            current.server.public_rest, "0.0.0.0:3002",
+            current.listen.public_rest, "0.0.0.0:3002",
             "Address should be updated to 0.0.0.0:3002"
         );
     }

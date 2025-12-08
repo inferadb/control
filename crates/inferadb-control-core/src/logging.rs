@@ -9,7 +9,6 @@ use tracing_subscriber::{
     EnvFilter, Layer, fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-use crate::config::ObservabilityConfig;
 
 /// Log output format options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,7 +171,7 @@ pub fn init_logging(config: LogConfig) -> Result<(), Box<dyn std::error::Error +
     Ok(())
 }
 
-/// Initialize structured logging based on ObservabilityConfig (backward compatible)
+/// Initialize structured logging with a log level string
 ///
 /// Sets up tracing-subscriber with either JSON or compact formatting based on environment.
 /// In production (when `json` is true), logs are emitted as JSON for structured ingestion.
@@ -180,31 +179,24 @@ pub fn init_logging(config: LogConfig) -> Result<(), Box<dyn std::error::Error +
 ///
 /// # Arguments
 ///
-/// * `config` - Observability configuration containing log level and formatting preferences
+/// * `log_level` - Log level string (trace, debug, info, warn, error)
 /// * `json` - Whether to use JSON formatting (true for production, false for development)
 ///
 /// # Examples
 ///
 /// ```no_run
-/// use inferadb_control_core::{config::ObservabilityConfig, logging};
-///
-/// let config = ObservabilityConfig {
-///     log_level: "info".to_string(),
-///     metrics_enabled: true,
-///     tracing_enabled: false,
-///     otlp_endpoint: None,
-/// };
+/// use inferadb_control_core::logging;
 ///
 /// // Production mode with JSON formatting
-/// logging::init(&config, true);
+/// logging::init("info", true);
 ///
 /// // Development mode with compact formatting
-/// logging::init(&config, false);
+/// logging::init("debug", false);
 /// ```
-pub fn init(config: &ObservabilityConfig, json: bool) {
+pub fn init(log_level: &str, json: bool) {
     let log_config = LogConfig {
         format: if json { LogFormat::Json } else { LogFormat::Full },
-        filter: Some(config.log_level.clone()),
+        filter: Some(log_level.to_string()),
         include_location: false,
         include_target: json, // Include target only in JSON mode for log aggregation
         include_thread_id: json, // Include thread info in JSON mode
@@ -219,12 +211,13 @@ pub fn init(config: &ObservabilityConfig, json: bool) {
 
 /// Initialize logging with OpenTelemetry support
 ///
-/// This sets up both structured logging and OpenTelemetry tracing when enabled.
+/// This sets up both structured logging and OpenTelemetry tracing.
 /// Traces are exported to the configured OTLP endpoint.
 ///
 /// # Arguments
 ///
-/// * `config` - Observability configuration
+/// * `log_level` - Log level string (trace, debug, info, warn, error)
+/// * `otlp_endpoint` - Optional OTLP endpoint for tracing
 /// * `json` - Whether to use JSON formatting
 /// * `service_name` - Name of the service for tracing
 ///
@@ -233,7 +226,8 @@ pub fn init(config: &ObservabilityConfig, json: bool) {
 /// Returns `Ok(())` if initialization succeeds, or an error if OTLP setup fails.
 #[cfg(feature = "opentelemetry")]
 pub fn init_with_tracing(
-    config: &ObservabilityConfig,
+    log_level: &str,
+    otlp_endpoint: Option<&str>,
     json: bool,
     service_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -242,7 +236,7 @@ pub fn init_with_tracing(
     use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler, SdkTracerProvider};
 
     let env_filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(&config.log_level))
+        .or_else(|_| EnvFilter::try_new(log_level))
         .unwrap_or_else(|_| EnvFilter::new("info,inferadb_control=debug"));
 
     // Build the base logging layer
@@ -264,13 +258,11 @@ pub fn init_with_tracing(
 
     let subscriber = tracing_subscriber::registry().with(fmt_layer);
 
-    // Set up OpenTelemetry if tracing is enabled
-    if config.tracing_enabled {
-        let otlp_endpoint = config.otlp_endpoint.as_ref().ok_or("OTLP endpoint not configured")?;
-
+    // Set up OpenTelemetry if endpoint is configured
+    if let Some(endpoint) = otlp_endpoint {
         // Build the OTLP exporter
         let exporter =
-            SpanExporter::builder().with_tonic().with_endpoint(otlp_endpoint.clone()).build()?;
+            SpanExporter::builder().with_tonic().with_endpoint(endpoint.to_string()).build()?;
 
         // Build the resource with service name
         let resource = opentelemetry_sdk::Resource::builder()
@@ -294,7 +286,7 @@ pub fn init_with_tracing(
 
         tracing::info!(
             service = service_name,
-            otlp_endpoint = otlp_endpoint.as_str(),
+            otlp_endpoint = endpoint,
             sample_rate = 0.1,
             "Tracing initialized with OpenTelemetry"
         );
@@ -379,56 +371,8 @@ mod tests {
     }
 
     #[test]
-    fn test_observability_config_creation() {
-        let config = ObservabilityConfig {
-            log_level: "debug".to_string(),
-            metrics_enabled: true,
-            tracing_enabled: false,
-            otlp_endpoint: None,
-        };
-
-        assert_eq!(config.log_level, "debug");
-        assert!(config.metrics_enabled);
-        assert!(!config.tracing_enabled);
-    }
-
-    #[test]
     fn test_init_logging_does_not_panic() {
         init_test_logging();
         // If we get here without panicking, the test passes
-    }
-
-    #[cfg(feature = "opentelemetry")]
-    #[test]
-    fn test_init_with_tracing_disabled() {
-        let config = ObservabilityConfig {
-            log_level: "info".to_string(),
-            metrics_enabled: false,
-            tracing_enabled: false,
-            otlp_endpoint: None,
-        };
-
-        // Should succeed when tracing is disabled (falls back to basic logging)
-        // We can't actually call this due to the global subscriber limitation,
-        // but we can verify the config is valid
-        assert!(!config.tracing_enabled);
-        assert_eq!(config.otlp_endpoint, None);
-    }
-
-    #[cfg(feature = "opentelemetry")]
-    #[test]
-    fn test_init_with_tracing_missing_endpoint() {
-        let config = ObservabilityConfig {
-            log_level: "info".to_string(),
-            metrics_enabled: false,
-            tracing_enabled: true,
-            otlp_endpoint: None,
-        };
-
-        // Should fail when tracing is enabled but endpoint is missing
-        // We verify the config would fail validation
-        assert!(config.tracing_enabled);
-        assert_eq!(config.otlp_endpoint, None);
-        // In actual usage, init_with_tracing would return an error
     }
 }

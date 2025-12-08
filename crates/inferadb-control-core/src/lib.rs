@@ -30,7 +30,7 @@ pub use email::{
     PasswordResetEmailTemplate, RoleChangeEmailTemplate, SmtpEmailService,
     VerificationEmailTemplate,
 };
-pub use id::{IdGenerator, WorkerRegistry};
+pub use id::{IdGenerator, WorkerRegistry, acquire_worker_id};
 pub use jobs::BackgroundJobs;
 pub use jwt::{JwtSigner, REQUIRED_AUDIENCE, REQUIRED_ISSUER, VaultTokenClaims};
 pub use leader::LeaderElection;
