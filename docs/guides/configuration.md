@@ -6,17 +6,16 @@ Complete guide for configuring InferaDB Control using configuration files and en
 
 - [Overview](#overview)
 - [Configuration Methods](#configuration-methods)
-- [Server Configuration](#server-configuration)
+- [Listen Configuration](#listen-configuration)
 - [Storage Configuration](#storage-configuration)
 - [Authentication Configuration](#authentication-configuration)
 - [Email Configuration](#email-configuration)
-- [Rate Limiting Configuration](#rate-limiting-configuration)
-- [Observability Configuration](#observability-configuration)
-- [ID Generation Configuration](#id-generation-configuration)
-- [Policy Service Configuration](#policy-service-configuration)
-- [Identity Configuration](#identity-configuration)
-- [Cache Invalidation Configuration](#cache-invalidation-configuration)
+- [Rate Limits Configuration](#rate-limits-configuration)
+- [Mesh Configuration](#mesh-configuration)
+- [Webhook Configuration](#webhook-configuration)
 - [Discovery Configuration](#discovery-configuration)
+- [Frontend Configuration](#frontend-configuration)
+- [Identity Configuration](#identity-configuration)
 - [Configuration Profiles](#configuration-profiles)
 - [Secrets Management](#secrets-management)
 - [Validation](#validation)
@@ -30,76 +29,82 @@ Control supports configuration through multiple sources with the following prece
 2. **Configuration file**
 3. **Default values** (lowest priority)
 
-Configuration files use **YAML or JSON** format, and environment variables use the `INFERADB_CTRL__` prefix with double underscores (`__`) as separators.
+Configuration files use **YAML** format. The configuration supports a unified format where both engine and control can share the same config file, with each service reading its own section.
+
+Environment variables use the `INFERADB__` prefix with double underscores (`__`) as separators. For the control section, use `INFERADB__CONTROL__`.
 
 ## Configuration Methods
 
 ### Method 1: Configuration File
 
-Create a `config.yaml` or `config.json` file:
+Create a `config.yaml` file with the `control` section:
 
 **YAML format** (recommended):
 
 ```yaml
-frontend_base_url: "https://app.inferadb.com"
+control:
+  threads: 4
+  logging: "info"
 
-server:
-  # Combined address strings (host:port format)
-  public_rest: "127.0.0.1:9090" # Client-facing REST API
-  public_grpc: "127.0.0.1:9091" # Client-facing gRPC API
-  private_rest: "0.0.0.0:9092" # Internal REST API (JWKS, webhooks)
-  worker_threads: 4
+  # Listen addresses (host:port format)
+  listen:
+    http: "127.0.0.1:9090" # Client-facing REST API
+    grpc: "127.0.0.1:9091" # Client-facing gRPC API
+    mesh: "0.0.0.0:9092" # Engine-to-control communication (JWKS, webhooks)
 
-storage:
-  backend: "memory"
-  fdb_cluster_file: null
+  storage: "memory"
 
-auth:
-  session_ttl_web: 2592000
-  session_ttl_cli: 7776000
-  session_ttl_sdk: 7776000
-  password_min_length: 12
-  max_sessions_per_user: 10
+  # FoundationDB configuration (only used when storage = "foundationdb")
+  foundationdb:
+    cluster_file: "/etc/foundationdb/fdb.cluster"
+
+  # WebAuthn configuration
   webauthn:
-    rp_id: "inferadb.com"
-    rp_name: "InferaDB"
+    party: "inferadb.com"
     origin: "https://app.inferadb.com"
 
-email:
-  smtp_host: "smtp.sendgrid.net"
-  smtp_port: 587
-  from_email: "noreply@inferadb.com"
-  from_name: "InferaDB"
+  # Email configuration
+  email:
+    host: "smtp.sendgrid.net"
+    port: 587
+    username: "apikey"
+    password: "${SENDGRID_API_KEY}"
+    address: "noreply@inferadb.com"
+    name: "InferaDB"
 
-rate_limiting:
-  login_attempts_per_ip_per_hour: 100
-  registrations_per_ip_per_day: 5
-  email_verification_tokens_per_hour: 5
-  password_reset_tokens_per_hour: 3
+  # Rate limits
+  limits:
+    login_attempts_per_ip_per_hour: 100
+    registrations_per_ip_per_day: 5
+    email_verification_tokens_per_hour: 5
+    password_reset_tokens_per_hour: 3
 
-observability:
-  log_level: "info"
-  metrics_enabled: true
-  tracing_enabled: false
+  # Engine mesh configuration
+  mesh:
+    url: "http://localhost"
+    grpc: 8081
+    port: 8082
 
-id_generation:
-  worker_id: 0
+  # Webhook configuration for cache invalidation
+  webhook:
+    timeout: 5000
+    retries: 0
 
-policy_service:
-  service_url: "http://localhost"
-  grpc_port: 8081
-  internal_port: 8082
+  # Service discovery
+  discovery:
+    mode:
+      type: none
+    cache_ttl: 300
 
-identity: {}
+  # Frontend configuration
+  frontend:
+    url: "http://localhost:3000"
 
-cache_invalidation:
-  timeout_ms: 5000
-  retry_attempts: 0
+  # Ed25519 private key in PEM format (optional - auto-generated if not provided)
+  # pem: "-----BEGIN PRIVATE KEY-----\n..."
 
-discovery:
-  mode:
-    type: none
-  cache_ttl: 300
+  # Path to master key file for encrypting private keys at rest
+  # key_file: "./data/master.key"
 ```
 
 **Load configuration file**:
@@ -110,35 +115,40 @@ inferadb-control --config config.yaml
 
 ### Method 2: Environment Variables
 
-All configuration options can be set via environment variables using the `INFERADB_CTRL__` prefix:
+All configuration options can be set via environment variables using the `INFERADB__CONTROL__` prefix:
 
 ```bash
-# Frontend URL
-export INFERADB_CTRL__FRONTEND_BASE_URL="https://app.inferadb.com"
+# Listen configuration
+export INFERADB__CONTROL__LISTEN__HTTP="127.0.0.1:9090"
+export INFERADB__CONTROL__LISTEN__GRPC="127.0.0.1:9091"
+export INFERADB__CONTROL__LISTEN__MESH="0.0.0.0:9092"
 
-# Server configuration (combined address strings)
-export INFERADB_CTRL__SERVER__PUBLIC_REST="127.0.0.1:9090"
-export INFERADB_CTRL__SERVER__PUBLIC_GRPC="127.0.0.1:9091"
-export INFERADB_CTRL__SERVER__PRIVATE_REST="0.0.0.0:9092"
-export INFERADB_CTRL__SERVER__WORKER_THREADS=4
+# Threads and logging
+export INFERADB__CONTROL__THREADS=4
+export INFERADB__CONTROL__LOGGING="info"
 
 # Storage configuration
-export INFERADB_CTRL__STORAGE__BACKEND="memory"
-export INFERADB_CTRL__STORAGE__FDB_CLUSTER_FILE="/etc/foundationdb/fdb.cluster"
+export INFERADB__CONTROL__STORAGE="memory"
+export INFERADB__CONTROL__FOUNDATIONDB__CLUSTER_FILE="/etc/foundationdb/fdb.cluster"
 
-# Authentication
-export INFERADB_CTRL__AUTH__SESSION_TTL_WEB=2592000
-export INFERADB_CTRL__AUTH__PASSWORD_MIN_LENGTH=12
-export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret-key-here!!!"
+# WebAuthn
+export INFERADB__CONTROL__WEBAUTHN__PARTY="inferadb.com"
+export INFERADB__CONTROL__WEBAUTHN__ORIGIN="https://app.inferadb.com"
 
 # Email
-export INFERADB_CTRL__EMAIL__SMTP_HOST="smtp.sendgrid.net"
-export INFERADB_CTRL__EMAIL__SMTP_PORT=587
-export INFERADB_CTRL__EMAIL__SMTP_PASSWORD="your-smtp-password"
+export INFERADB__CONTROL__EMAIL__HOST="smtp.sendgrid.net"
+export INFERADB__CONTROL__EMAIL__PORT=587
+export INFERADB__CONTROL__EMAIL__PASSWORD="your-smtp-password"
+export INFERADB__CONTROL__EMAIL__ADDRESS="noreply@inferadb.com"
+export INFERADB__CONTROL__EMAIL__NAME="InferaDB"
 
-# Observability
-export INFERADB_CTRL__OBSERVABILITY__LOG_LEVEL="info"
-export INFERADB_CTRL__OBSERVABILITY__METRICS_ENABLED=true
+# Mesh (Engine connection)
+export INFERADB__CONTROL__MESH__URL="http://localhost"
+export INFERADB__CONTROL__MESH__GRPC=8081
+export INFERADB__CONTROL__MESH__PORT=8082
+
+# Frontend
+export INFERADB__CONTROL__FRONTEND__URL="https://app.inferadb.com"
 ```
 
 ### Method 3: Combined (File + Environment)
@@ -146,59 +156,57 @@ export INFERADB_CTRL__OBSERVABILITY__METRICS_ENABLED=true
 Environment variables override file configuration:
 
 ```bash
-# config.yaml sets public_rest to "127.0.0.1:9090"
+# config.yaml sets listen.http to "127.0.0.1:9090"
 # Environment variable overrides to bind to all interfaces
-export INFERADB_CTRL__SERVER__PUBLIC_REST="0.0.0.0:9090"
+export INFERADB__CONTROL__LISTEN__HTTP="0.0.0.0:9090"
 inferadb-control --config config.yaml
 # Server binds to 0.0.0.0:9090 instead
 ```
 
-## Server Configuration
+## Listen Configuration
 
-Controls HTTP/gRPC server behavior. Control exposes three interfaces:
+Controls HTTP/gRPC server listen addresses. Control exposes three interfaces:
 
-- **Public REST API** (port 9090): Client-facing HTTP API
-- **Public gRPC API** (port 9091): Client-facing gRPC API
-- **Internal REST API** (port 9092): Engine-to-control communication (JWKS endpoint)
+- **HTTP** (port 9090): Client-facing REST API
+- **gRPC** (port 9091): Client-facing gRPC API
+- **Mesh** (port 9092): Engine-to-control communication (JWKS endpoint, webhooks)
 
 ### Options
 
-| Option           | Type    | Default            | Description                                |
-| ---------------- | ------- | ------------------ | ------------------------------------------ |
-| `public_rest`    | string  | `"127.0.0.1:9090"` | Public REST API address (host:port format)              |
-| `public_grpc`    | string  | `"127.0.0.1:9091"` | Public gRPC API address (host:port format)              |
-| `private_rest`   | string  | `"0.0.0.0:9092"`   | Internal REST API address for Engine (JWKS, webhooks)   |
-| `worker_threads` | integer | `4`                | Number of Tokio worker threads                          |
+| Option | Type   | Default            | Description                                     |
+| ------ | ------ | ------------------ | ----------------------------------------------- |
+| `http` | string | `"127.0.0.1:9090"` | Client-facing HTTP/REST API address (host:port) |
+| `grpc` | string | `"127.0.0.1:9091"` | Client-facing gRPC API address (host:port)      |
+| `mesh` | string | `"0.0.0.0:9092"`   | Engine-to-control mesh address (JWKS, webhooks) |
 
 ### Examples
 
 **Development** (localhost only):
 
 ```yaml
-server:
-  public_rest: "127.0.0.1:9090"
-  public_grpc: "127.0.0.1:9091"
-  private_rest: "127.0.0.1:9092"
-  worker_threads: 2
+control:
+  listen:
+    http: "127.0.0.1:9090"
+    grpc: "127.0.0.1:9091"
+    mesh: "127.0.0.1:9092"
 ```
 
 **Production** (all interfaces):
 
 ```yaml
-server:
-  public_rest: "0.0.0.0:9090"
-  public_grpc: "0.0.0.0:9091"
-  private_rest: "0.0.0.0:9092"
-  worker_threads: 8
+control:
+  listen:
+    http: "0.0.0.0:9090"
+    grpc: "0.0.0.0:9091"
+    mesh: "0.0.0.0:9092"
 ```
 
 ### Environment Variables
 
 ```bash
-export INFERADB_CTRL__SERVER__PUBLIC_REST="0.0.0.0:9090"
-export INFERADB_CTRL__SERVER__PUBLIC_GRPC="0.0.0.0:9091"
-export INFERADB_CTRL__SERVER__PRIVATE_REST="0.0.0.0:9092"
-export INFERADB_CTRL__SERVER__WORKER_THREADS=8
+export INFERADB__CONTROL__LISTEN__HTTP="0.0.0.0:9090"
+export INFERADB__CONTROL__LISTEN__GRPC="0.0.0.0:9091"
+export INFERADB__CONTROL__LISTEN__MESH="0.0.0.0:9092"
 ```
 
 ## Storage Configuration
@@ -207,10 +215,10 @@ Controls the data storage backend.
 
 ### Options
 
-| Option             | Type              | Default    | Description                                     |
-| ------------------ | ----------------- | ---------- | ----------------------------------------------- |
-| `backend`          | string            | `"memory"` | Storage backend: `"memory"` or `"foundationdb"` |
-| `fdb_cluster_file` | string (optional) | `null`     | Path to FoundationDB cluster file               |
+| Option                      | Type              | Default    | Description                                     |
+| --------------------------- | ----------------- | ---------- | ----------------------------------------------- |
+| `storage`                   | string            | `"memory"` | Storage backend: `"memory"` or `"foundationdb"` |
+| `foundationdb.cluster_file` | string (optional) | `null`     | Path to FoundationDB cluster file               |
 
 ### Backend Options
 
@@ -222,8 +230,8 @@ Controls the data storage backend.
 - **Configuration**: No cluster file needed
 
 ```yaml
-storage:
-  backend: "memory"
+control:
+  storage: "memory"
 ```
 
 #### FoundationDB Backend (Production)
@@ -234,99 +242,61 @@ storage:
 - **Configuration**: Requires FDB cluster file path
 
 ```yaml
-storage:
-  backend: "foundationdb"
-  fdb_cluster_file: "/etc/foundationdb/fdb.cluster"
+control:
+  storage: "foundationdb"
+  foundationdb:
+    cluster_file: "/etc/foundationdb/fdb.cluster"
 ```
 
 ### Environment Variables
 
 ```bash
-export INFERADB_CTRL__STORAGE__BACKEND="foundationdb"
-export INFERADB_CTRL__STORAGE__FDB_CLUSTER_FILE="/etc/foundationdb/fdb.cluster"
+export INFERADB__CONTROL__STORAGE="foundationdb"
+export INFERADB__CONTROL__FOUNDATIONDB__CLUSTER_FILE="/etc/foundationdb/fdb.cluster"
 ```
 
 ## Authentication Configuration
 
-Controls user authentication, sessions, and security.
+Controls WebAuthn passkey authentication.
 
-### Options
+### WebAuthn Options
 
-| Option                  | Type              | Default             | Description                                |
-| ----------------------- | ----------------- | ------------------- | ------------------------------------------ |
-| `session_ttl_web`       | integer           | `2592000` (30 days) | Web session TTL in seconds                 |
-| `session_ttl_cli`       | integer           | `7776000` (90 days) | CLI session TTL in seconds                 |
-| `session_ttl_sdk`       | integer           | `7776000` (90 days) | SDK session TTL in seconds                 |
-| `password_min_length`   | integer           | `12`                | Minimum password length                    |
-| `max_sessions_per_user` | integer           | `10`                | Maximum concurrent sessions per user       |
-| `key_encryption_secret` | string (optional) | `null`              | Secret for encrypting private keys at rest |
-
-> **Note**: The JWT issuer and audience are hardcoded to `https://api.inferadb.com` per RFC 8725 best practices.
-> Since we own the entire experience end-to-end, these values are not configurable and ensure
-> consistency between Control and Engine.
-
-### WebAuthn Configuration
-
-| Option    | Type   | Default       | Description                |
-| --------- | ------ | ------------- | -------------------------- |
-| `rp_id`   | string | `"localhost"` | Relying Party ID (domain)  |
-| `rp_name` | string | `"InferaDB"`  | Relying Party display name |
-| `origin`  | string | (required)    | Origin URL for WebAuthn    |
+| Option   | Type   | Default                   | Description               |
+| -------- | ------ | ------------------------- | ------------------------- |
+| `party`  | string | `"localhost"`             | Relying Party ID (domain) |
+| `origin` | string | `"http://localhost:3000"` | Origin URL for WebAuthn   |
 
 ### Examples
 
 **Development**:
 
 ```yaml
-auth:
-  session_ttl_web: 86400 # 1 day
-  session_ttl_cli: 604800 # 7 days
-  session_ttl_sdk: 604800 # 7 days
-  password_min_length: 8 # Relaxed for testing
-  max_sessions_per_user: 5
+control:
   webauthn:
-    rp_id: "localhost"
-    rp_name: "InferaDB Dev"
-    origin: "http://localhost:9090"
+    party: "localhost"
+    origin: "http://localhost:3000"
 ```
 
 **Production**:
 
 ```yaml
-auth:
-  session_ttl_web: 2592000 # 30 days
-  session_ttl_cli: 7776000 # 90 days
-  session_ttl_sdk: 7776000 # 90 days
-  password_min_length: 12
-  max_sessions_per_user: 10
-  key_encryption_secret: "${KEY_ENCRYPTION_SECRET}"
-  # Note: jwt_issuer and jwt_audience are hardcoded to https://api.inferadb.com (not configurable)
+control:
   webauthn:
-    rp_id: "inferadb.com"
-    rp_name: "InferaDB"
+    party: "inferadb.com"
     origin: "https://app.inferadb.com"
 ```
 
 ### Environment Variables
 
 ```bash
-export INFERADB_CTRL__AUTH__SESSION_TTL_WEB=2592000
-export INFERADB_CTRL__AUTH__SESSION_TTL_CLI=7776000
-export INFERADB_CTRL__AUTH__SESSION_TTL_SDK=7776000
-export INFERADB_CTRL__AUTH__PASSWORD_MIN_LENGTH=12
-export INFERADB_CTRL__AUTH__MAX_SESSIONS_PER_USER=10
-export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret-key-here!!!"
-export INFERADB_CTRL__AUTH__JWT_ISSUER="https://api.inferadb.com"
-export INFERADB_CTRL__AUTH__JWT_AUDIENCE="https://api.inferadb.com/evaluate"
-export INFERADB_CTRL__AUTH__WEBAUTHN__RP_ID="inferadb.com"
-export INFERADB_CTRL__AUTH__WEBAUTHN__RP_NAME="InferaDB"
-export INFERADB_CTRL__AUTH__WEBAUTHN__ORIGIN="https://app.inferadb.com"
+export INFERADB__CONTROL__WEBAUTHN__PARTY="inferadb.com"
+export INFERADB__CONTROL__WEBAUTHN__ORIGIN="https://app.inferadb.com"
 ```
 
 ### Security Notes
 
-- **key_encryption_secret**: Required for encrypting client private keys at rest. Must be at least 32 bytes. If not set, a warning is logged and keys are stored unencrypted.
-- **password_min_length**: Recommended minimum of 12 characters for production.
+- **key_file**: Path to master key file for encrypting client private keys at rest. The key file contains 32 bytes of cryptographically secure random data. If the file doesn't exist, it will be generated automatically.
+- **pem**: Ed25519 private key in PEM format for Control identity. If not provided, a new keypair is generated on each startup.
 
 ## Email Configuration
 
@@ -334,51 +304,53 @@ Controls email sending for verification and password reset.
 
 ### Options
 
-| Option          | Type              | Default         | Description                  |
-| --------------- | ----------------- | --------------- | ---------------------------- |
-| `smtp_host`     | string            | `"localhost"`   | SMTP server hostname         |
-| `smtp_port`     | integer           | `587`           | SMTP server port             |
-| `smtp_username` | string (optional) | `null`          | SMTP authentication username |
-| `smtp_password` | string (optional) | `null`          | SMTP authentication password |
-| `from_email`    | string            | `"noreply@..."` | From email address           |
-| `from_name`     | string            | `"InferaDB"`    | From display name            |
+| Option     | Type              | Default                  | Description                  |
+| ---------- | ----------------- | ------------------------ | ---------------------------- |
+| `host`     | string            | `"localhost"`            | SMTP server hostname         |
+| `port`     | integer           | `587`                    | SMTP server port             |
+| `username` | string (optional) | `null`                   | SMTP authentication username |
+| `password` | string (optional) | `null`                   | SMTP authentication password |
+| `address`  | string            | `"noreply@inferadb.com"` | From email address           |
+| `name`     | string            | `"InferaDB"`             | From display name            |
 
 ### Examples
 
 **Development** (local mailhog):
 
 ```yaml
-email:
-  smtp_host: "localhost"
-  smtp_port: 1025
-  from_email: "test@inferadb.local"
-  from_name: "InferaDB Test"
+control:
+  email:
+    host: "localhost"
+    port: 1025
+    address: "test@inferadb.local"
+    name: "InferaDB Test"
 ```
 
 **Production** (SendGrid):
 
 ```yaml
-email:
-  smtp_host: "smtp.sendgrid.net"
-  smtp_port: 587
-  smtp_username: "apikey"
-  smtp_password: "${SENDGRID_API_KEY}"
-  from_email: "noreply@inferadb.com"
-  from_name: "InferaDB"
+control:
+  email:
+    host: "smtp.sendgrid.net"
+    port: 587
+    username: "apikey"
+    password: "${SENDGRID_API_KEY}"
+    address: "noreply@inferadb.com"
+    name: "InferaDB"
 ```
 
 ### Environment Variables
 
 ```bash
-export INFERADB_CTRL__EMAIL__SMTP_HOST="smtp.sendgrid.net"
-export INFERADB_CTRL__EMAIL__SMTP_PORT=587
-export INFERADB_CTRL__EMAIL__SMTP_USERNAME="apikey"
-export INFERADB_CTRL__EMAIL__SMTP_PASSWORD="your-api-key"
-export INFERADB_CTRL__EMAIL__FROM_EMAIL="noreply@inferadb.com"
-export INFERADB_CTRL__EMAIL__FROM_NAME="InferaDB"
+export INFERADB__CONTROL__EMAIL__HOST="smtp.sendgrid.net"
+export INFERADB__CONTROL__EMAIL__PORT=587
+export INFERADB__CONTROL__EMAIL__USERNAME="apikey"
+export INFERADB__CONTROL__EMAIL__PASSWORD="your-api-key"
+export INFERADB__CONTROL__EMAIL__ADDRESS="noreply@inferadb.com"
+export INFERADB__CONTROL__EMAIL__NAME="InferaDB"
 ```
 
-## Rate Limiting Configuration
+## Rate Limits Configuration
 
 Controls rate limiting for security-sensitive operations.
 
@@ -396,218 +368,115 @@ Controls rate limiting for security-sensitive operations.
 **Development** (relaxed):
 
 ```yaml
-rate_limiting:
-  login_attempts_per_ip_per_hour: 1000
-  registrations_per_ip_per_day: 100
-  email_verification_tokens_per_hour: 100
-  password_reset_tokens_per_hour: 100
+control:
+  limits:
+    login_attempts_per_ip_per_hour: 1000
+    registrations_per_ip_per_day: 100
+    email_verification_tokens_per_hour: 100
+    password_reset_tokens_per_hour: 100
 ```
 
 **Production** (strict):
 
 ```yaml
-rate_limiting:
-  login_attempts_per_ip_per_hour: 50
-  registrations_per_ip_per_day: 3
-  email_verification_tokens_per_hour: 3
-  password_reset_tokens_per_hour: 2
+control:
+  limits:
+    login_attempts_per_ip_per_hour: 50
+    registrations_per_ip_per_day: 3
+    email_verification_tokens_per_hour: 3
+    password_reset_tokens_per_hour: 2
 ```
 
 ### Environment Variables
 
 ```bash
-export INFERADB_CTRL__RATE_LIMITING__LOGIN_ATTEMPTS_PER_IP_PER_HOUR=50
-export INFERADB_CTRL__RATE_LIMITING__REGISTRATIONS_PER_IP_PER_DAY=3
-export INFERADB_CTRL__RATE_LIMITING__EMAIL_VERIFICATION_TOKENS_PER_HOUR=3
-export INFERADB_CTRL__RATE_LIMITING__PASSWORD_RESET_TOKENS_PER_HOUR=2
+export INFERADB__CONTROL__LIMITS__LOGIN_ATTEMPTS_PER_IP_PER_HOUR=50
+export INFERADB__CONTROL__LIMITS__REGISTRATIONS_PER_IP_PER_DAY=3
+export INFERADB__CONTROL__LIMITS__EMAIL_VERIFICATION_TOKENS_PER_HOUR=3
+export INFERADB__CONTROL__LIMITS__PASSWORD_RESET_TOKENS_PER_HOUR=2
 ```
 
-## Observability Configuration
+## Mesh Configuration
 
-Controls logging, metrics, and tracing.
+Controls connection to the InferaDB Engine.
 
 ### Options
 
-| Option            | Type              | Default  | Description                                                    |
-| ----------------- | ----------------- | -------- | -------------------------------------------------------------- |
-| `log_level`       | string            | `"info"` | Log level: `"trace"`, `"debug"`, `"info"`, `"warn"`, `"error"` |
-| `metrics_enabled` | boolean           | `true`   | Enable Prometheus metrics at `/metrics`                        |
-| `tracing_enabled` | boolean           | `false`  | Enable OpenTelemetry distributed tracing                       |
-| `otlp_endpoint`   | string (optional) | `null`   | OTLP endpoint for traces                                       |
+| Option | Type    | Default              | Description                                       |
+| ------ | ------- | -------------------- | ------------------------------------------------- |
+| `url`  | string  | `"http://localhost"` | Engine base URL (without port)                    |
+| `grpc` | integer | `8081`               | Engine gRPC port                                  |
+| `port` | integer | `8082`               | Engine mesh/internal API port (for webhooks/JWKS) |
 
 ### Examples
 
 **Development**:
 
 ```yaml
-observability:
-  log_level: "debug"
-  metrics_enabled: true
-  tracing_enabled: false
-```
-
-**Production**:
-
-```yaml
-observability:
-  log_level: "info"
-  metrics_enabled: true
-  tracing_enabled: true
-  otlp_endpoint: "http://jaeger:4317"
-```
-
-### Environment Variables
-
-```bash
-export INFERADB_CTRL__OBSERVABILITY__LOG_LEVEL="info"
-export INFERADB_CTRL__OBSERVABILITY__METRICS_ENABLED=true
-export INFERADB_CTRL__OBSERVABILITY__TRACING_ENABLED=true
-export INFERADB_CTRL__OBSERVABILITY__OTLP_ENDPOINT="http://jaeger:4317"
-```
-
-## ID Generation Configuration
-
-Controls Snowflake ID generation for distributed deployments.
-
-### Options
-
-| Option      | Type    | Default | Description                          |
-| ----------- | ------- | ------- | ------------------------------------ |
-| `worker_id` | integer | `0`     | Worker ID for Snowflake IDs (0-1023) |
-
-### Example
-
-```yaml
-id_generation:
-  worker_id: 0
-```
-
-### Environment Variables
-
-```bash
-export INFERADB_CTRL__ID_GENERATION__WORKER_ID=0
-```
-
-### Notes
-
-- Each Control instance must have a unique `worker_id` (0-1023)
-- In Kubernetes, derive from pod ordinal or use a distributed lock
-- Duplicate worker IDs can cause ID collisions
-
-## Policy Service Configuration
-
-Controls connection to the InferaDB Engine (policy engine).
-
-### Options
-
-| Option          | Type    | Default              | Description                    |
-| --------------- | ------- | -------------------- | ------------------------------ |
-| `service_url`   | string  | `"http://localhost"` | Engine base URL (without port) |
-| `grpc_port`     | integer | `8081`               | Engine gRPC port               |
-| `internal_port` | integer | `8082`               | Engine internal API port       |
-
-### Examples
-
-**Development**:
-
-```yaml
-policy_service:
-  service_url: "http://localhost"
-  grpc_port: 8081
-  internal_port: 8082
+control:
+  mesh:
+    url: "http://localhost"
+    grpc: 8081
+    port: 8082
 ```
 
 **Kubernetes**:
 
 ```yaml
-policy_service:
-  service_url: "http://inferadb-engine.inferadb"
-  grpc_port: 8081
-  internal_port: 8082
+control:
+  mesh:
+    url: "http://inferadb-engine.inferadb"
+    grpc: 8081
+    port: 8082
 ```
 
 ### Computed URLs
 
 Control computes full URLs from these settings:
 
-- **gRPC URL**: `{service_url}:{grpc_port}` → `http://localhost:8081`
-- **Internal URL**: `{service_url}:{internal_port}` → `http://localhost:8082`
+- **gRPC URL**: `{url}:{grpc}` → `http://localhost:8081`
+- **Mesh URL**: `{url}:{port}` → `http://localhost:8082`
 
 ### Environment Variables
 
 ```bash
-export INFERADB_CTRL__POLICY_SERVICE__SERVICE_URL="http://inferadb-engine.inferadb"
-export INFERADB_CTRL__POLICY_SERVICE__GRPC_PORT=8081
-export INFERADB_CTRL__POLICY_SERVICE__INTERNAL_PORT=8082
+export INFERADB__CONTROL__MESH__URL="http://inferadb-engine.inferadb"
+export INFERADB__CONTROL__MESH__GRPC=8081
+export INFERADB__CONTROL__MESH__PORT=8082
 ```
 
-## Identity Configuration
-
-Controls Control identity for service-to-service authentication.
-
-### Options
-
-| Option            | Type              | Default | Description                                                   |
-| ----------------- | ----------------- | ------- | ------------------------------------------------------------- |
-| `private_key_pem` | string (optional) | `null`  | Ed25519 private key in PEM format (auto-generated if not set) |
-
-### Example
-
-```yaml
-identity:
-  private_key_pem: "${MANAGEMENT_PRIVATE_KEY}"
-```
-
-Or with no configuration (all values auto-generated):
-
-```yaml
-identity: {}
-```
-
-### Environment Variables
-
-```bash
-export INFERADB_CTRL__IDENTITY__PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n..."
-```
-
-### Recommendations
-
-- In production, always provide `private_key_pem` rather than relying on auto-generation
-- Use Kubernetes secrets or a secret manager for the private key
-- The `kid` is deterministically derived from the public key (RFC 7638), so it remains consistent when using the same private key
-- The `control_id` is auto-generated from the hostname (Kubernetes pod name or hostname + random suffix)
-
-## Cache Invalidation Configuration
+## Webhook Configuration
 
 Controls webhook-based cache invalidation to Engine instances.
 
 ### Options
 
-| Option           | Type    | Default | Description                         |
-| ---------------- | ------- | ------- | ----------------------------------- |
-| `timeout_ms`     | integer | `5000`  | Webhook request timeout (ms)        |
-| `retry_attempts` | integer | `0`     | Number of retry attempts on failure |
+| Option    | Type    | Default | Description                         |
+| --------- | ------- | ------- | ----------------------------------- |
+| `timeout` | integer | `5000`  | Webhook request timeout (ms)        |
+| `retries` | integer | `0`     | Number of retry attempts on failure |
 
 ### Example
 
 ```yaml
-cache_invalidation:
-  timeout_ms: 5000
-  retry_attempts: 0
+control:
+  webhook:
+    timeout: 5000
+    retries: 0
 ```
 
 ### Environment Variables
 
 ```bash
-export INFERADB_CTRL__CACHE_INVALIDATION__TIMEOUT_MS=5000
-export INFERADB_CTRL__CACHE_INVALIDATION__RETRY_ATTEMPTS=0
+export INFERADB__CONTROL__WEBHOOK__TIMEOUT=5000
+export INFERADB__CONTROL__WEBHOOK__RETRIES=0
 ```
 
 ### Notes
 
 - Default is fire-and-forget (0 retries) for performance
-- Increase `retry_attempts` if cache consistency is critical
-- The Engine's internal port receives these webhooks
+- Increase `retries` if cache consistency is critical
+- The Engine's mesh port receives these webhooks
 
 ## Discovery Configuration
 
@@ -619,7 +488,6 @@ Controls service discovery for multi-node deployments.
 | ----------------------- | ------- | ------- | ---------------------------------- |
 | `mode`                  | object  | `none`  | Discovery mode configuration       |
 | `cache_ttl`             | integer | `300`   | Cache TTL for discovered endpoints |
-| `enable_health_check`   | boolean | `false` | Enable health checking             |
 | `health_check_interval` | integer | `30`    | Health check interval (seconds)    |
 
 ### Discovery Modes
@@ -629,9 +497,10 @@ Controls service discovery for multi-node deployments.
 Direct connection to a single service URL:
 
 ```yaml
-discovery:
-  mode:
-    type: none
+control:
+  discovery:
+    mode:
+      type: none
 ```
 
 #### Kubernetes
@@ -639,12 +508,12 @@ discovery:
 Discover pod IPs via Kubernetes service:
 
 ```yaml
-discovery:
-  mode:
-    type: kubernetes
-  cache_ttl: 30
-  enable_health_check: true
-  health_check_interval: 10
+control:
+  discovery:
+    mode:
+      type: kubernetes
+    cache_ttl: 30
+    health_check_interval: 10
 ```
 
 #### Tailscale
@@ -652,45 +521,47 @@ discovery:
 Multi-region discovery via Tailscale mesh:
 
 ```yaml
-discovery:
-  mode:
-    type: tailscale
-    local_cluster: "us-west-1"
-    remote_clusters:
-      - name: "eu-west-1"
-        tailscale_domain: "eu-west-1.ts.net"
-        service_name: "inferadb-control"
-        port: 9092
+control:
+  discovery:
+    mode:
+      type: tailscale
+      local_cluster: "us-west-1"
+      remote_clusters:
+        - name: "eu-west-1"
+          tailscale_domain: "eu-west-1.ts.net"
+          service_name: "inferadb-engine"
+          port: 8082
 ```
 
 ### Environment Variables
 
 ```bash
-export INFERADB_CTRL__DISCOVERY__CACHE_TTL_SECONDS=30
-export INFERADB_CTRL__DISCOVERY__ENABLE_HEALTH_CHECK=true
-export INFERADB_CTRL__DISCOVERY__HEALTH_CHECK_INTERVAL_SECONDS=10
+export INFERADB__CONTROL__DISCOVERY__CACHE_TTL=30
+export INFERADB__CONTROL__DISCOVERY__HEALTH_CHECK_INTERVAL=10
 ```
 
-## Frontend Base URL
+## Frontend Configuration
 
-The `frontend_base_url` is a top-level configuration option that sets the base URL for email links (verification, password reset).
+Controls the frontend URL for email links (verification, password reset).
 
 ### Options
 
-| Option              | Type   | Default                   | Description                       |
-| ------------------- | ------ | ------------------------- | --------------------------------- |
-| `frontend_base_url` | string | `"http://localhost:9090"` | Base URL for frontend email links |
+| Option | Type   | Default                   | Description                       |
+| ------ | ------ | ------------------------- | --------------------------------- |
+| `url`  | string | `"http://localhost:3000"` | Base URL for frontend email links |
 
 ### Example
 
 ```yaml
-frontend_base_url: "https://app.inferadb.com"
+control:
+  frontend:
+    url: "https://app.inferadb.com"
 ```
 
 ### Environment Variables
 
 ```bash
-export INFERADB_CTRL__FRONTEND_BASE_URL="https://app.inferadb.com"
+export INFERADB__CONTROL__FRONTEND__URL="https://app.inferadb.com"
 ```
 
 ### Notes
@@ -699,6 +570,46 @@ export INFERADB_CTRL__FRONTEND_BASE_URL="https://app.inferadb.com"
 - Must not end with trailing slash
 - A warning is logged if localhost is used in non-development environments
 
+## Identity Configuration
+
+Controls Control identity for service-to-service authentication with Engine.
+
+### Options
+
+| Option     | Type              | Default               | Description                                                   |
+| ---------- | ----------------- | --------------------- | ------------------------------------------------------------- |
+| `pem`      | string (optional) | `null`                | Ed25519 private key in PEM format (auto-generated if not set) |
+| `key_file` | string (optional) | `"./data/master.key"` | Path to master key file for encrypting client private keys    |
+
+### Example
+
+```yaml
+control:
+  pem: "${CONTROL_PRIVATE_KEY}"
+  key_file: "/secrets/master.key"
+```
+
+Or with no configuration (all values auto-generated):
+
+```yaml
+control:
+  # pem and key_file will be auto-generated
+```
+
+### Environment Variables
+
+```bash
+export INFERADB__CONTROL__PEM="-----BEGIN PRIVATE KEY-----\n..."
+export INFERADB__CONTROL__KEY_FILE="/secrets/master.key"
+```
+
+### Recommendations
+
+- In production, always provide `pem` rather than relying on auto-generation
+- Use Kubernetes secrets or a secret manager for the private key
+- The `kid` is deterministically derived from the public key (RFC 7638), so it remains consistent when using the same private key
+- The `management_id` is auto-generated from the hostname (Kubernetes pod name or hostname + random suffix)
+
 ## Configuration Profiles
 
 ### Development Profile
@@ -706,59 +617,48 @@ export INFERADB_CTRL__FRONTEND_BASE_URL="https://app.inferadb.com"
 Optimized for local development:
 
 ```yaml
-frontend_base_url: "http://localhost:9090"
+control:
+  threads: 2
+  logging: "debug"
 
-server:
-  public_rest: "127.0.0.1:9090"
-  public_grpc: "127.0.0.1:9091"
-  private_rest: "127.0.0.1:9092"
-  worker_threads: 2
+  listen:
+    http: "127.0.0.1:9090"
+    grpc: "127.0.0.1:9091"
+    mesh: "127.0.0.1:9092"
 
-storage:
-  backend: "memory"
+  storage: "memory"
 
-auth:
-  session_ttl_web: 86400
-  password_min_length: 8
   webauthn:
-    rp_id: "localhost"
-    rp_name: "InferaDB Dev"
-    origin: "http://localhost:9090"
+    party: "localhost"
+    origin: "http://localhost:3000"
 
-email:
-  smtp_host: "localhost"
-  smtp_port: 1025
-  from_email: "test@inferadb.local"
-  from_name: "InferaDB Test"
+  email:
+    host: "localhost"
+    port: 1025
+    address: "test@inferadb.local"
+    name: "InferaDB Test"
 
-rate_limiting:
-  login_attempts_per_ip_per_hour: 1000
-  registrations_per_ip_per_day: 100
-  email_verification_tokens_per_hour: 100
-  password_reset_tokens_per_hour: 100
+  limits:
+    login_attempts_per_ip_per_hour: 1000
+    registrations_per_ip_per_day: 100
+    email_verification_tokens_per_hour: 100
+    password_reset_tokens_per_hour: 100
 
-observability:
-  log_level: "debug"
-  metrics_enabled: true
-  tracing_enabled: false
+  mesh:
+    url: "http://localhost"
+    grpc: 8081
+    port: 8082
 
-id_generation:
-  worker_id: 0
+  webhook:
+    timeout: 5000
+    retries: 0
 
-policy_service:
-  service_url: "http://localhost"
-  grpc_port: 8081
-  internal_port: 8082
+  discovery:
+    mode:
+      type: none
 
-identity: {}
-
-cache_invalidation:
-  timeout_ms: 5000
-  retry_attempts: 0
-
-discovery:
-  mode:
-    type: none
+  frontend:
+    url: "http://localhost:3000"
 ```
 
 ### Production Profile
@@ -766,71 +666,57 @@ discovery:
 Optimized for production deployment:
 
 ```yaml
-frontend_base_url: "https://app.inferadb.com"
+control:
+  threads: 8
+  logging: "info"
 
-server:
-  public_rest: "0.0.0.0:9090"
-  public_grpc: "0.0.0.0:9091"
-  private_rest: "0.0.0.0:9092"
-  worker_threads: 8
+  listen:
+    http: "0.0.0.0:9090"
+    grpc: "0.0.0.0:9091"
+    mesh: "0.0.0.0:9092"
 
-storage:
-  backend: "foundationdb"
-  fdb_cluster_file: "/etc/foundationdb/fdb.cluster"
+  storage: "foundationdb"
+  foundationdb:
+    cluster_file: "/etc/foundationdb/fdb.cluster"
 
-auth:
-  session_ttl_web: 2592000
-  session_ttl_cli: 7776000
-  session_ttl_sdk: 7776000
-  password_min_length: 12
-  max_sessions_per_user: 10
-  key_encryption_secret: "${KEY_ENCRYPTION_SECRET}"
-  # Note: jwt_issuer and jwt_audience are hardcoded to https://api.inferadb.com (not configurable)
+  pem: "${CONTROL_PRIVATE_KEY}"
+  key_file: "/secrets/master.key"
+
   webauthn:
-    rp_id: "inferadb.com"
-    rp_name: "InferaDB"
+    party: "inferadb.com"
     origin: "https://app.inferadb.com"
 
-email:
-  smtp_host: "smtp.sendgrid.net"
-  smtp_port: 587
-  smtp_username: "apikey"
-  smtp_password: "${SENDGRID_API_KEY}"
-  from_email: "noreply@inferadb.com"
-  from_name: "InferaDB"
+  email:
+    host: "smtp.sendgrid.net"
+    port: 587
+    username: "apikey"
+    password: "${SENDGRID_API_KEY}"
+    address: "noreply@inferadb.com"
+    name: "InferaDB"
 
-rate_limiting:
-  login_attempts_per_ip_per_hour: 50
-  registrations_per_ip_per_day: 3
-  email_verification_tokens_per_hour: 3
-  password_reset_tokens_per_hour: 2
+  limits:
+    login_attempts_per_ip_per_hour: 50
+    registrations_per_ip_per_day: 3
+    email_verification_tokens_per_hour: 3
+    password_reset_tokens_per_hour: 2
 
-observability:
-  log_level: "info"
-  metrics_enabled: true
-  tracing_enabled: true
-  otlp_endpoint: "http://jaeger:4317"
+  mesh:
+    url: "http://inferadb-engine.inferadb"
+    grpc: 8081
+    port: 8082
 
-id_generation:
-  worker_id: 0
+  webhook:
+    timeout: 5000
+    retries: 1
 
-policy_service:
-  service_url: "http://inferadb-engine.inferadb"
-  grpc_port: 8081
-  internal_port: 8082
+  discovery:
+    mode:
+      type: kubernetes
+    cache_ttl: 30
+    health_check_interval: 10
 
-identity:
-  private_key_pem: "${MANAGEMENT_PRIVATE_KEY}"
-
-cache_invalidation:
-  timeout_ms: 5000
-  retry_attempts: 1
-
-discovery:
-  mode:
-    type: kubernetes
-  cache_ttl: 30
-  enable_health_check: true
+  frontend:
+    url: "https://app.inferadb.com"
 ```
 
 ### Integration Testing Profile
@@ -838,64 +724,49 @@ discovery:
 Optimized for E2E testing:
 
 ```yaml
-frontend_base_url: "http://localhost:9090"
+control:
+  threads: 2
+  logging: "debug"
 
-server:
-  public_rest: "0.0.0.0:9090"
-  public_grpc: "0.0.0.0:9091"
-  private_rest: "0.0.0.0:9092"
-  worker_threads: 2
+  listen:
+    http: "0.0.0.0:9090"
+    grpc: "0.0.0.0:9091"
+    mesh: "0.0.0.0:9092"
 
-storage:
-  backend: "memory"
+  storage: "memory"
 
-auth:
-  session_ttl_web: 3600
-  session_ttl_cli: 7200
-  session_ttl_sdk: 7200
-  password_min_length: 8
-  max_sessions_per_user: 5
-  key_encryption_secret: "test-integration-secret-key-32bytes-long!"
   webauthn:
-    rp_id: "localhost"
-    rp_name: "InferaDB Test"
-    origin: "http://localhost:9090"
+    party: "localhost"
+    origin: "http://localhost:3000"
 
-email:
-  smtp_host: "localhost"
-  smtp_port: 1025
-  from_email: "test@inferadb.local"
-  from_name: "InferaDB Test"
+  email:
+    host: "localhost"
+    port: 1025
+    address: "test@inferadb.local"
+    name: "InferaDB Test"
 
-rate_limiting:
-  login_attempts_per_ip_per_hour: 1000
-  registrations_per_ip_per_day: 100
-  email_verification_tokens_per_hour: 100
-  password_reset_tokens_per_hour: 100
+  limits:
+    login_attempts_per_ip_per_hour: 1000
+    registrations_per_ip_per_day: 100
+    email_verification_tokens_per_hour: 100
+    password_reset_tokens_per_hour: 100
 
-observability:
-  log_level: "debug"
-  metrics_enabled: true
-  tracing_enabled: false
+  mesh:
+    url: "http://inferadb-engine.inferadb"
+    grpc: 8081
+    port: 8082
 
-id_generation:
-  worker_id: 0
+  webhook:
+    timeout: 5000
+    retries: 0
 
-policy_service:
-  service_url: "http://inferadb-engine.inferadb"
-  grpc_port: 8081
-  internal_port: 8082
+  discovery:
+    mode:
+      type: kubernetes
+    cache_ttl: 30
 
-identity: {}
-
-cache_invalidation:
-  timeout_ms: 5000
-  retry_attempts: 0
-
-discovery:
-  mode:
-    type: kubernetes
-  cache_ttl: 30
+  frontend:
+    url: "http://localhost:3000"
 ```
 
 ## Secrets Management
@@ -904,18 +775,18 @@ discovery:
 
 ### Required Secrets
 
-| Secret                  | Purpose                              |
-| ----------------------- | ------------------------------------ |
-| `key_encryption_secret` | Encrypts client private keys at rest |
-| `smtp_password`         | SMTP authentication                  |
-| `private_key_pem`       | Service identity for webhooks        |
+| Secret           | Purpose                                        |
+| ---------------- | ---------------------------------------------- |
+| `key_file`       | Path to master key for encrypting private keys |
+| `email.password` | SMTP authentication                            |
+| `pem`            | Ed25519 private key for Control identity       |
 
 ### Environment Variables (Recommended)
 
 ```bash
-export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret-key-here!!!"
-export INFERADB_CTRL__EMAIL__SMTP_PASSWORD="your-smtp-password"
-export INFERADB_CTRL__IDENTITY__PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n..."
+export INFERADB__CONTROL__KEY_FILE="/secrets/master.key"
+export INFERADB__CONTROL__EMAIL__PASSWORD="your-smtp-password"
+export INFERADB__CONTROL__PEM="-----BEGIN PRIVATE KEY-----\n..."
 ```
 
 ### Kubernetes Secrets
@@ -927,32 +798,39 @@ metadata:
   name: inferadb-control-secrets
 type: Opaque
 stringData:
-  key-encryption-secret: "your-32-byte-secret-key-here!!!"
   smtp-password: "your-smtp-password"
   private-key: |
     -----BEGIN PRIVATE KEY-----
     ...
     -----END PRIVATE KEY-----
+data:
+  master-key: <base64-encoded-32-byte-key>
 ```
 
 ```yaml
 # In deployment
 env:
-  - name: INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET
-    valueFrom:
-      secretKeyRef:
-        name: inferadb-control-secrets
-        key: key-encryption-secret
-  - name: INFERADB_CTRL__EMAIL__SMTP_PASSWORD
+  - name: INFERADB__CONTROL__EMAIL__PASSWORD
     valueFrom:
       secretKeyRef:
         name: inferadb-control-secrets
         key: smtp-password
-  - name: INFERADB_CTRL__IDENTITY__PRIVATE_KEY_PEM
+  - name: INFERADB__CONTROL__PEM
     valueFrom:
       secretKeyRef:
         name: inferadb-control-secrets
         key: private-key
+volumeMounts:
+  - name: secrets
+    mountPath: /secrets
+    readOnly: true
+volumes:
+  - name: secrets
+    secret:
+      secretName: inferadb-control-secrets
+      items:
+        - key: master-key
+          path: master.key
 ```
 
 ## Validation
@@ -961,104 +839,97 @@ Control validates configuration at startup with clear error messages.
 
 ### Validation Rules
 
+**Listen Addresses**:
+
+- `listen.http`, `listen.grpc`, `listen.mesh` must be valid socket addresses
+
 **Storage**:
 
-- `backend` must be `"memory"` or `"foundationdb"`
-- `fdb_cluster_file` required when `backend = "foundationdb"`
+- `storage` must be `"memory"` or `"foundationdb"`
+- `foundationdb.cluster_file` required when `storage = "foundationdb"`
 
-**ID Generation**:
+**WebAuthn**:
 
-- `worker_id` must be between 0 and 1023
-
-**Authentication**:
-
-- `webauthn.rp_id` cannot be empty
+- `webauthn.party` cannot be empty
 - `webauthn.origin` cannot be empty and must start with `http://` or `https://`
-- `password_min_length < 8` generates warning
 
 **Frontend**:
 
-- `frontend_base_url` must start with `http://` or `https://`
-- `frontend_base_url` must not end with trailing slash
+- `frontend.url` must start with `http://` or `https://`
+- `frontend.url` must not end with trailing slash
 
-**Policy Service**:
+**Mesh**:
 
-- `service_url` must start with `http://` or `https://`
-- `service_url` must not end with trailing slash
+- `mesh.url` must start with `http://` or `https://`
+- `mesh.url` must not end with trailing slash
 
 **Identity**:
 
-- `private_key_pem` is optional (auto-generated if not set)
+- `pem` is optional (auto-generated if not set)
 
-**Cache Invalidation**:
+**Webhook**:
 
-- `timeout_ms` must be > 0
-- `timeout_ms > 60000` generates warning
+- `webhook.timeout` must be > 0
+- `webhook.timeout > 60000` generates warning
 
 ### Example Validation Errors
 
 ```text
-Error: Invalid storage backend: postgres. Must be 'memory' or 'foundationdb'
+Error: Invalid storage: postgres. Must be 'memory' or 'foundationdb'
 ```
 
 ```text
-Error: Worker ID must be between 0 and 1023, got 2000
+Error: listen.http '127.0.0.1' is not valid: invalid socket address
 ```
 
 ```text
-Error: auth.webauthn.rp_id cannot be empty
+Error: webauthn.party cannot be empty
 ```
 
 ```text
-Error: frontend_base_url must start with http:// or https://
+Error: frontend.url must start with http:// or https://
 ```
 
 ## Best Practices
 
 ### Security
 
-1. **Always set key_encryption_secret in production**
+1. **Provide persistent identity in production**
 
    ```bash
-   export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="secure-random-32-byte-string!"
+   export INFERADB__CONTROL__PEM="-----BEGIN PRIVATE KEY-----\n..."
+   export INFERADB__CONTROL__KEY_FILE="/secrets/master.key"
    ```
 
-2. **Use strong password requirements**
+2. **Configure strict rate limiting**
 
    ```yaml
-   auth:
-     password_min_length: 12
+   control:
+     limits:
+       login_attempts_per_ip_per_hour: 50
+       registrations_per_ip_per_day: 3
    ```
 
-3. **Configure strict rate limiting**
-
-   ```yaml
-   rate_limiting:
-     login_attempts_per_ip_per_hour: 50
-     registrations_per_ip_per_day: 3
-   ```
-
-4. **Never commit secrets**
+3. **Never commit secrets**
    - Use environment variables
    - Use Kubernetes secrets
    - Use secret managers
 
 ### Operations
 
-1. **Unique worker IDs for each instance**
-   - Critical for distributed deployments
-   - Prevents Snowflake ID collisions
+1. **Worker IDs are auto-managed**
+   - Control automatically acquires unique worker IDs
+   - Uses pod ordinal in Kubernetes or collision detection otherwise
 
 2. **Configure health checks in Kubernetes**
-   - Use `/health` endpoint for liveness
-   - Use `/ready` endpoint for readiness
+   - Use `/healthz` endpoint for liveness
+   - Use `/readyz` endpoint for readiness
 
-3. **Enable observability**
+3. **Enable logging**
 
    ```yaml
-   observability:
-     metrics_enabled: true
-     tracing_enabled: true
+   control:
+     logging: "info" # or "debug" for troubleshooting
    ```
 
 ### Performance
@@ -1067,9 +938,9 @@ Error: frontend_base_url must start with http:// or https://
    - Memory backend doesn't persist
    - FoundationDB provides ACID + replication
 
-2. **Tune worker threads**
-   - Start with 4-8 for most workloads
-   - Benchmark and adjust
+2. **Tune threads**
+   - Defaults to number of CPU cores
+   - Adjust based on workload
 
 3. **Use Kubernetes discovery**
    - Enables direct pod-to-pod communication
@@ -1089,16 +960,16 @@ services:
       - "9091:9091"
       - "9092:9092"
     environment:
-      INFERADB_CTRL__SERVER__PUBLIC_REST: "0.0.0.0:9090"
-      INFERADB_CTRL__SERVER__PUBLIC_GRPC: "0.0.0.0:9091"
-      INFERADB_CTRL__SERVER__PRIVATE_REST: "0.0.0.0:9092"
-      INFERADB_CTRL__STORAGE__BACKEND: "foundationdb"
-      INFERADB_CTRL__STORAGE__FDB_CLUSTER_FILE: "/etc/foundationdb/fdb.cluster"
-      INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET: "${KEY_ENCRYPTION_SECRET}"
-      INFERADB_CTRL__POLICY_SERVICE__SERVICE_URL: "http://inferadb-engine"
-      INFERADB_CTRL__FRONTEND_BASE_URL: "https://app.inferadb.com"
+      INFERADB__CONTROL__LISTEN__HTTP: "0.0.0.0:9090"
+      INFERADB__CONTROL__LISTEN__GRPC: "0.0.0.0:9091"
+      INFERADB__CONTROL__LISTEN__MESH: "0.0.0.0:9092"
+      INFERADB__CONTROL__STORAGE: "foundationdb"
+      INFERADB__CONTROL__FOUNDATIONDB__CLUSTER_FILE: "/etc/foundationdb/fdb.cluster"
+      INFERADB__CONTROL__MESH__URL: "http://inferadb-engine"
+      INFERADB__CONTROL__FRONTEND__URL: "https://app.inferadb.com"
     volumes:
       - /etc/foundationdb:/etc/foundationdb:ro
+      - ./secrets:/secrets:ro
 ```
 
 ### Kubernetes
@@ -1118,25 +989,25 @@ inferadb-control --config config.yaml 2>&1 | grep ERROR
 ### Email Not Sending
 
 1. Check SMTP credentials
-2. Verify `smtp_host` and `smtp_port`
+2. Verify `email.host` and `email.port`
 3. Check firewall rules
 4. Test with local mailhog first
 
 ### Cache Invalidation Failing
 
-1. Verify `policy_service.service_url` is correct
-2. Check network connectivity to Engine internal port
-3. Increase `timeout_ms` if Engine instances are slow
-4. Enable `retry_attempts` for reliability
+1. Verify `mesh.url` is correct
+2. Check network connectivity to Engine mesh port
+3. Increase `webhook.timeout` if Engine instances are slow
+4. Enable `webhook.retries` for reliability
 
-### Snowflake ID Collisions
+### Worker ID Collisions
 
-1. Ensure unique `worker_id` per instance
-2. Check for duplicate pod ordinals
-3. Verify ID generation configuration
+1. Worker IDs are auto-managed in Control
+2. Check logs for collision warnings
+3. Verify pod ordinals are unique in Kubernetes
 
 ## See Also
 
-- [Engine Configuration](../../engine/docs/guides/configuration.md) - Engine (policy engine) configuration
-- [Authentication Guide](../security/authentication.md) - Detailed authentication setup
-- [Deployment Guide](deployment.md) - Production deployment
+- [Engine Configuration](../../engine/docs/guides/configuration.md) - Engine configuration
+- [Authentication Guide](../authentication.md) - Authentication details
+- [Deployment Guide](../deployment.md) - Production deployment

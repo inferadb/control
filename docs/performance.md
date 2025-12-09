@@ -273,20 +273,13 @@ See [`loadtests/README.md`](loadtests/README.md) for detailed load testing docum
 Key configuration settings for performance (in `config.yaml`):
 
 ```yaml
-server:
-  worker_threads: 4 # Tokio worker threads (= CPU cores)
+control:
+  threads: 4 # Tokio worker threads (= CPU cores)
+  logging: "info"
 
-auth:
-  max_sessions_per_user: 10 # Limit concurrent sessions
-  session_ttl_web: 2592000 # 30 days (reduce for tighter security)
-
-rate_limiting:
-  login_attempts_per_ip_per_hour: 100
-  registrations_per_ip_per_day: 5
-
-observability:
-  metrics_enabled: true
-  tracing_enabled: false # Disable in production for performance
+  limits:
+    login_attempts_per_ip_per_hour: 100
+    registrations_per_ip_per_day: 5
 ```
 
 ### Argon2 Tuning

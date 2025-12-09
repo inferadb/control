@@ -39,7 +39,6 @@ The **Control** acts as the central authentication orchestrator for the entire I
 InferaDB uses a **two-token system** to maintain clean separation of concerns:
 
 1. **Session Tokens** - Used for Control operations
-
    - Identity and account management
    - Organization and vault administration
    - User profile and settings
@@ -869,7 +868,6 @@ InferaDB follows security-first principles with short-lived tokens as the defaul
 **Recommended Configuration** (Security-First):
 
 - **Session Tokens**: Varies by session type
-
   - **Web Sessions**: 24 hours (86,400 seconds)
   - **CLI Sessions**: 7 days (604,800 seconds)
   - **SDK Sessions**: 30 days (2,592,000 seconds)
@@ -878,14 +876,12 @@ InferaDB follows security-first principles with short-lived tokens as the defaul
   - Forces regular re-authentication for enhanced security
 
 - **Vault Access Tokens (JWT)**: 5 minutes (300 seconds)
-
   - Used for Engine policy evaluation
   - Very short lifetime minimizes impact of token compromise
   - Automatically refreshed by clients before expiration
   - Limits attack window to 5 minutes maximum
 
 - **Vault Refresh Tokens**: Varies by auth method
-
   - **User Session Refresh Tokens**: 1 hour (3,600 seconds)
     - For interactive user sessions
     - Allows ~12 refreshes before requiring new vault token request
@@ -985,13 +981,11 @@ Authorization: Bearer {admin_session_token}
 **Revocation Strategies**:
 
 1. **Revoke Parent Session** (Recommended)
-
    - Revokes the session that issued the vault tokens
    - Prevents new tokens from being issued
    - Existing JWTs expire after 5 minutes maximum
 
 2. **Remove Vault Membership**
-
    - Remove user from vault member list
    - Future token requests will fail with `access_denied`
    - Existing JWTs continue working until expiration

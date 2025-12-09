@@ -39,13 +39,16 @@ cargo build --release
 
 **Solution**:
 
-```bash
+```yaml
 # Ensure config.yaml uses memory backend
-storage:
-  backend: "memory"
+control:
+  storage: "memory"
 
-# FoundationDB backend is not yet implemented
-# If you see FoundationDB-related errors, change to memory backend
+# Or for FoundationDB:
+control:
+  storage: "foundationdb"
+  foundationdb:
+    cluster_file: "/etc/foundationdb/fdb.cluster"
 ```
 
 ### Port Conflicts
@@ -59,18 +62,19 @@ storage:
 **Option 1**: Change ports in configuration
 
 ```yaml
-# config.local.yaml
-server:
-  public_rest: "127.0.0.1:8080" # Changed from 9090
-  public_grpc: "127.0.0.1:8081" # Changed from 9091
-  private_rest: "0.0.0.0:8082" # Changed from 9092
+# config.yaml
+control:
+  listen:
+    http: "127.0.0.1:8080" # Changed from 9090
+    grpc: "127.0.0.1:8081" # Changed from 9091
+    mesh: "0.0.0.0:8082" # Changed from 9092
 ```
 
 **Option 2**: Use environment variables
 
 ```bash
-export INFERADB_CTRL__SERVER__PUBLIC_REST="127.0.0.1:8080"
-export INFERADB_CTRL__SERVER__PUBLIC_GRPC="127.0.0.1:8081"
+export INFERADB__CONTROL__LISTEN__HTTP="127.0.0.1:8080"
+export INFERADB__CONTROL__LISTEN__GRPC="127.0.0.1:8081"
 ./target/release/inferadb-control
 ```
 
@@ -94,28 +98,22 @@ kill -9 <PID>
 
 ```bash
 # Specify config file explicitly
-./target/release/inferadb-control-api --config /path/to/config.yaml
-
-# Or use environment variable
-export INFERADB_CTRL_CONFIG_PATH=/path/to/config.yaml
+./target/release/inferadb-control --config /path/to/config.yaml
 ```
 
-#### Issue: Key encryption secret too short
+#### Issue: Master key file not found
 
-**Error**: `Key encryption secret must be at least 32 bytes`
+**Error**: `Failed to load master key from file`
 
 **Solution**:
 
 ```bash
-# Generate proper 32-byte secret
-openssl rand -base64 32
+# Let Control auto-generate the key file
+# Or specify a path in config.yaml:
+control:
+  key_file: "./data/master.key"
 
-# Add to config.yaml
-auth:
-  key_encryption_secret: "generated-secret-here"
-
-# Or use environment variable
-export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
+# The key file will be auto-generated if it doesn't exist
 ```
 
 ## Database & Storage
@@ -230,15 +228,9 @@ curl -X POST http://localhost:9090/v1/auth/login/password \
   -d '{"email": "user@example.com", "password": "pass"}'
 ```
 
-**Step 3**: Verify session type matches usage
+**Step 3**: Sessions have default TTLs
 
-```yaml
-# config.yaml - Check TTL settings
-auth:
-  session_ttl_web: 2592000 # 30 days
-  session_ttl_cli: 7776000 # 90 days
-  session_ttl_sdk: 7776000 # 90 days
-```
+Sessions expire based on their type (Web, CLI, SDK). Check server logs for session expiration details.
 
 #### Issue: Too many sessions
 
@@ -267,10 +259,11 @@ curl -X POST http://localhost:9090/v1/auth/sessions/revoke-all \
 **For development**: Adjust rate limits in config
 
 ```yaml
-# config.local.yaml
-rate_limiting:
-  login_attempts_per_ip_per_hour: 1000 # Increase for testing
-  registrations_per_ip_per_day: 100
+# config.yaml
+control:
+  limits:
+    login_attempts_per_ip_per_hour: 1000 # Increase for testing
+    registrations_per_ip_per_day: 100
 ```
 
 **For production**: Implement exponential backoff
@@ -383,8 +376,8 @@ tail -f /var/log/inferadb-control-api.log
 
 ```yaml
 # config.yaml
-observability:
-  log_level: "debug" # or "trace"
+control:
+  logging: "debug" # or "trace"
 ```
 
 **Step 3**: Report the issue with logs
@@ -439,12 +432,12 @@ ps aux | grep inferadb-control-api
 curl http://localhost:9090/metrics | grep memory
 ```
 
-**Step 3**: Adjust worker threads
+**Step 3**: Adjust threads
 
 ```yaml
 # config.yaml
-server:
-  worker_threads: 4 # Reduce from default
+control:
+  threads: 4 # Reduce from default (number of CPU cores)
 ```
 
 ## Deployment Issues
@@ -621,13 +614,15 @@ docker-compose logs mailhog
 **For production**: Verify SMTP config
 
 ```yaml
-# config.production.yaml
-email:
-  smtp_host: "smtp.gmail.com"
-  smtp_port: 587
-  smtp_use_tls: true
-  smtp_username: "your-email@gmail.com"
-  smtp_password: "your-app-password" # Not your real password!
+# config.yaml
+control:
+  email:
+    host: "smtp.gmail.com"
+    port: 587
+    username: "your-email@gmail.com"
+    password: "your-app-password" # Use app password, not real password!
+    address: "noreply@yourdomain.com"
+    name: "Your App"
 ```
 
 **Test SMTP connection**:
@@ -655,8 +650,8 @@ If these solutions don't resolve your issue:
 2. **Enable debug logging**:
 
    ```yaml
-   observability:
-     log_level: "trace"
+   control:
+     logging: "trace"
    ```
 
 3. **Collect diagnostic information**:
