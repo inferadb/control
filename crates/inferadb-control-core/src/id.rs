@@ -183,10 +183,7 @@ pub async fn acquire_worker_id<S: StorageBackend + 'static>(
 
     // Try to derive worker ID from Kubernetes pod ordinal
     if let Some(id) = try_get_pod_ordinal() {
-        tracing::info!(
-            worker_id = id,
-            "Using worker ID derived from Kubernetes pod ordinal"
-        );
+        tracing::info!(worker_id = id, "Using worker ID derived from Kubernetes pod ordinal");
         return Ok(id);
     }
 
@@ -198,9 +195,7 @@ pub async fn acquire_worker_id<S: StorageBackend + 'static>(
 ///
 /// StatefulSet pods are named `{statefulset-name}-{ordinal}`, e.g., `inferadb-control-0`
 fn try_get_pod_ordinal() -> Option<u16> {
-    let pod_name = std::env::var("POD_NAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .ok()?;
+    let pod_name = std::env::var("POD_NAME").or_else(|_| std::env::var("HOSTNAME")).ok()?;
 
     // Extract the last segment after the final hyphen
     let ordinal_str = pod_name.rsplit('-').next()?;
@@ -266,7 +261,7 @@ async fn acquire_random_worker_id<S: StorageBackend>(storage: &S) -> Result<u16>
                     "Worker ID already in use, trying another"
                 );
                 continue;
-            }
+            },
             Ok(None) => {
                 // Attempt to register with TTL
                 let timestamp = Utc::now().to_rfc3339();
@@ -281,7 +276,7 @@ async fn acquire_random_worker_id<S: StorageBackend>(storage: &S) -> Result<u16>
                             "Successfully acquired random worker ID"
                         );
                         return Ok(worker_id);
-                    }
+                    },
                     Err(e) => {
                         tracing::warn!(
                             worker_id = worker_id,
@@ -289,9 +284,9 @@ async fn acquire_random_worker_id<S: StorageBackend>(storage: &S) -> Result<u16>
                             "Failed to register worker ID, trying another"
                         );
                         continue;
-                    }
+                    },
                 }
-            }
+            },
             Err(e) => {
                 tracing::warn!(
                     worker_id = worker_id,
@@ -299,7 +294,7 @@ async fn acquire_random_worker_id<S: StorageBackend>(storage: &S) -> Result<u16>
                     "Failed to check worker ID availability"
                 );
                 continue;
-            }
+            },
         }
     }
 

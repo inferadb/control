@@ -5,7 +5,7 @@ use axum::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use inferadb_control_core::{
-    Error as CoreError, IdGenerator, PrivateKeyEncryptor, RepositoryContext, keypair,
+    Error as CoreError, IdGenerator, MasterKey, PrivateKeyEncryptor, RepositoryContext, keypair,
 };
 use inferadb_control_types::{
     dto::{
@@ -293,16 +293,9 @@ pub async fn create_certificate(
     let (public_key_base64, private_key_bytes) = keypair::generate();
 
     // Encrypt private key for storage
-    tracing::debug!("Retrieving secret from config");
-    let master_secret = state
-        .config
-        .secret
-        .as_ref()
-        .ok_or_else(|| CoreError::Internal("secret not configured".to_string()))?
-        .as_bytes();
-
-    tracing::debug!(secret_len = master_secret.len(), "Creating encryptor");
-    let encryptor = PrivateKeyEncryptor::new(master_secret)?;
+    tracing::debug!("Loading master key for encryption");
+    let master_key = MasterKey::load_or_generate(state.config.key_file.as_deref())?;
+    let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
 
     tracing::debug!("Encrypting private key");
     let private_key_encrypted = encryptor.encrypt(&private_key_bytes)?;

@@ -23,7 +23,7 @@ pub use auth::{PasswordHasher, hash_password, verify_password};
 pub use clock::{ClockStatus, ClockValidator};
 pub use config::ManagementConfig;
 pub use config_refresh::ConfigRefresher;
-pub use crypto::{PrivateKeyEncryptor, keypair};
+pub use crypto::{MasterKey, PrivateKeyEncryptor, keypair};
 pub use email::{
     EmailSender, EmailService, EmailTemplate, InvitationAcceptedEmailTemplate,
     InvitationEmailTemplate, MockEmailSender, OrganizationDeletionWarningEmailTemplate,

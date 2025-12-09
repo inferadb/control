@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
 };
 use inferadb_control_core::{
-    IdGenerator, JwtSigner, PrivateKeyEncryptor, RepositoryContext, VaultTokenClaims,
+    IdGenerator, JwtSigner, MasterKey, PrivateKeyEncryptor, RepositoryContext, VaultTokenClaims,
     error::Error as CoreError,
 };
 use inferadb_control_types::{
@@ -130,12 +130,8 @@ pub async fn generate_vault_token(
         })?;
 
     // Create JWT signer
-    let key_secret = state
-        .config
-        .secret
-        .as_ref()
-        .ok_or_else(|| CoreError::Config("secret not configured".to_string()))?;
-    let encryptor = PrivateKeyEncryptor::new(key_secret.as_bytes())?;
+    let master_key = MasterKey::load_or_generate(state.config.key_file.as_deref())?;
+    let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
     let signer = JwtSigner::new(encryptor);
 
     // Create access token claims
@@ -268,12 +264,8 @@ pub async fn refresh_vault_token(
         .ok_or_else(|| CoreError::Authz("No active certificates available".to_string()))?;
 
     // Create JWT signer
-    let key_secret = state
-        .config
-        .secret
-        .as_ref()
-        .ok_or_else(|| CoreError::Config("secret not configured".to_string()))?;
-    let encryptor = PrivateKeyEncryptor::new(key_secret.as_bytes())?;
+    let master_key = MasterKey::load_or_generate(state.config.key_file.as_deref())?;
+    let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
     let signer = JwtSigner::new(encryptor);
 
     // Create new access token
@@ -540,12 +532,8 @@ pub async fn client_assertion_authenticate(
     }
 
     // Create JWT signer
-    let key_secret = state
-        .config
-        .secret
-        .as_ref()
-        .ok_or_else(|| CoreError::Config("secret not configured".to_string()))?;
-    let encryptor = PrivateKeyEncryptor::new(key_secret.as_bytes())?;
+    let master_key = MasterKey::load_or_generate(state.config.key_file.as_deref())?;
+    let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
     let signer = JwtSigner::new(encryptor);
 
     // Generate vault-scoped JWT (5 minutes default per spec)

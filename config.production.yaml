@@ -1,90 +1,42 @@
 # InferaDB Control Configuration - Production Template
-#
-# This is a template for production deployment. Replace all placeholder values
-# (marked with <...>) with your actual production values.
-#
-# SECURITY: Do not commit this file with real credentials to version control.
-# Use environment variables or a secrets management system in production.
-#
-# This file uses the unified configuration format. Both engine and control
-# can share the same config file by reading their respective sections.
 
 control:
-  # Worker threads (recommended: number of CPU cores)
-  threads: 8
-  logging: "info"
-
   listen:
-    # Client-facing HTTP/REST API server (web, CLI, SDK)
     http: "0.0.0.0:9090"
-
-    # Client-facing gRPC API server
     grpc: "0.0.0.0:9091"
-
-    # Service mesh / inter-service communication
     mesh: "0.0.0.0:9092"
 
-  # Storage backend: "memory" or "foundationdb"
   storage: "foundationdb"
 
-  # FoundationDB configuration (only used when storage = "foundationdb")
   foundationdb:
-    # FoundationDB cluster file path
-    # This file contains the connection string for your FDB cluster
     cluster_file: "/etc/foundationdb/fdb.cluster"
 
-  # WebAuthn configuration (for passkey authentication)
   webauthn:
-    # Relying party ID (your domain)
     party: "example.com"
-
-    # Origin URL (must match browser origin)
     origin: "https://example.com"
 
-  # Master secret for encrypting private keys (REQUIRED: 32+ bytes for AES-256)
-  # SECURITY: Use environment variable in production!
-  # Set via: INFERADB__CONTROL__SECRET
-  secret: "<REPLACE-WITH-32+-BYTE-SECRET>"
+  key_file: "/var/lib/inferadb/master.key"
 
-  # Email configuration (SMTP)
   email:
-    # SMTP server settings
     host: "<SMTP-HOST>"
     port: 587
-
-    # SMTP authentication (optional, uncomment if needed)
     # username: "<SMTP-USERNAME>"
     # password: "<SMTP-PASSWORD>"
-
-    # From address
     address: "noreply@example.com"
     name: "InferaDB"
 
-  # Rate limits configuration
   limits:
-    # Login attempts per IP per hour
     login_attempts_per_ip_per_hour: 100
-
-    # Registration attempts per IP per day
     registrations_per_ip_per_day: 5
-
-    # Email verification tokens per email per hour
     email_verification_tokens_per_hour: 5
-
-    # Password reset tokens per user per hour
     password_reset_tokens_per_hour: 3
 
-  # Mesh configuration for engine communication
-  # All engine instances are discovered from this base URL + ports
-  # In production with Kubernetes/Tailscale discovery, set discovery.mode appropriately
   mesh:
-    # Base service URL (without port)
-    # For Kubernetes: use the k8s service name (e.g., "http://inferadb-engine.inferadb")
-    # For direct connection: use the host (e.g., "http://localhost")
     url: "http://inferadb-engine.inferadb"
-
-    # gRPC port for engine communication
     grpc: 8081
-
-    # Mesh port for webhooks and JWKS
     port: 8082
+
+  discovery:
+    mode:
+      type: kubernetes
+    cache_ttl: 30

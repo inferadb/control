@@ -9,7 +9,6 @@ use tracing_subscriber::{
     EnvFilter, Layer, fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-
 /// Log output format options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogFormat {

@@ -1,33 +1,24 @@
 # InferaDB Control Configuration - Integration Tests
-# This config is optimized for Docker container E2E testing
-#
-# This file uses the unified configuration format. Both engine and control
-# can share the same config file by reading their respective sections.
 
 control:
-  threads: 2  # Reduced for test environment
-  logging: "debug"  # Verbose logging for tests
-
   frontend:
     url: "http://localhost:9090"
 
   listen:
-    # Client-facing HTTP/REST API server
     http: "0.0.0.0:9090"
-
-    # Client-facing gRPC API server
     grpc: "0.0.0.0:9091"
-
-    # Service mesh / inter-service communication
     mesh: "0.0.0.0:9092"
 
-  storage: "memory"  # In-memory for fast tests
+  storage: "foundationdb"
+
+  foundationdb:
+    cluster_file: "/var/fdb/fdb.cluster"
 
   webauthn:
     party: "localhost"
     origin: "http://localhost:9090"
 
-  secret: "test-integration-secret-key-32bytes-long!"
+  key_file: "/tmp/integration-master.key"
 
   email:
     host: "localhost"
@@ -36,13 +27,11 @@ control:
     name: "InferaDB Test"
 
   limits:
-    login_attempts_per_ip_per_hour: 1000  # Relaxed for tests
+    login_attempts_per_ip_per_hour: 1000
     registrations_per_ip_per_day: 100
     email_verification_tokens_per_hour: 100
     password_reset_tokens_per_hour: 100
 
-  # Mesh configuration for engine communication
-  # Discovery mode discovers all engine pod IPs
   mesh:
     url: "http://inferadb-engine.inferadb"
     grpc: 8081
@@ -52,7 +41,6 @@ control:
     timeout: 5000
     retries: 0
 
-  # Kubernetes discovery for pod-level cache invalidation
   discovery:
     mode:
       type: kubernetes

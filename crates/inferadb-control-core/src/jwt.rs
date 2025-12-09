@@ -282,8 +282,8 @@ mod tests {
     use crate::crypto::keypair;
 
     fn create_test_encryptor() -> PrivateKeyEncryptor {
-        let master_secret = b"test_master_secret_at_least_32_bytes_long!";
-        PrivateKeyEncryptor::new(master_secret).unwrap()
+        let master_key: [u8; 32] = [0x42; 32]; // Test key with fixed bytes
+        PrivateKeyEncryptor::new(&master_key).unwrap()
     }
 
     fn create_test_certificate(encryptor: &PrivateKeyEncryptor) -> ClientCertificate {

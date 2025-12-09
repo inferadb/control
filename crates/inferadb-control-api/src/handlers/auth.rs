@@ -144,12 +144,14 @@ impl AppState {
 
     /// Create AppState for testing with default configuration
     /// This is used by both unit tests and integration tests
+    #[allow(clippy::field_reassign_with_default)]
     pub fn new_test(storage: Arc<Backend>) -> Self {
         use inferadb_control_core::ManagementConfig;
 
         // Create a minimal test config using default and overriding necessary fields
         let mut config = ManagementConfig::default();
-        config.secret = Some("test-secret-key-at-least-32-bytes-long!".to_string());
+        // Use a temporary key file for tests - MasterKey will auto-generate it
+        config.key_file = Some("/tmp/test-master.key".to_string());
         config.webauthn.party = "localhost".to_string();
         config.webauthn.origin = "http://localhost:3000".to_string();
         let server_client = ServerApiClient::new("http://localhost".to_string(), 8080).unwrap();

@@ -38,19 +38,27 @@ pub struct ManagementConfig {
     #[serde(default = "default_logging")]
     pub logging: String,
 
-    /// Ed25519 private key in PEM format (optional - will auto-generate if not provided for control API.
-    /// If provided, the key is persisted across restarts.
+    /// Ed25519 private key in PEM format (optional - will auto-generate if not provided for
+    /// control API. If provided, the key is persisted across restarts.
     /// If not provided, a new keypair is generated on each startup.
     pub pem: Option<String>,
 
-    /// Master secret for encrypting private keys at rest.
-    /// Should be set via environment variable INFERADB__CONTROL__SECRET
+    /// Path to the master key file for encrypting private keys at rest.
     ///
-    /// SECURITY: This secret should be:
-    /// - At least 32 bytes (256 bits) of random data
-    /// - Stored securely (e.g., in a secrets manager)
-    /// - Rotated periodically with proper key re-encryption
-    pub secret: Option<String>,
+    /// The key file contains 32 bytes of cryptographically secure random data
+    /// used as the AES-256-GCM encryption key for client certificate private keys.
+    ///
+    /// Behavior:
+    /// - If set and file exists: load the key from file
+    /// - If set but file missing: generate a new key and save to file
+    /// - If not set: generate a new key in the default location (./data/master.key)
+    ///
+    /// SECURITY:
+    /// - The key file is created with restrictive permissions (0600)
+    /// - Back up this file securely - losing it means losing access to encrypted keys
+    /// - In production, mount from a Kubernetes secret or secrets manager
+    #[serde(default = "default_key_file")]
+    pub key_file: Option<String>,
 
     #[serde(default = "default_storage")]
     pub storage: String,
@@ -213,11 +221,7 @@ pub struct MeshConfig {
 
 impl Default for MeshConfig {
     fn default() -> Self {
-        Self {
-            grpc: default_mesh_grpc(),
-            port: default_mesh_port(),
-            url: default_mesh_url(),
-        }
+        Self { grpc: default_mesh_grpc(), port: default_mesh_port(), url: default_mesh_url() }
     }
 }
 
@@ -235,10 +239,7 @@ pub struct WebhookConfig {
 
 impl Default for WebhookConfig {
     fn default() -> Self {
-        Self {
-            timeout: default_webhook_timeout(),
-            retries: default_webhook_retries(),
-        }
+        Self { timeout: default_webhook_timeout(), retries: default_webhook_retries() }
     }
 }
 
@@ -352,7 +353,6 @@ fn default_password_reset_tokens_per_hour() -> u32 {
     3
 }
 
-
 fn default_mesh_grpc() -> u16 {
     8081 // Engine's public gRPC port
 }
@@ -385,6 +385,10 @@ fn default_discovery_health_check_interval() -> u64 {
     30 // 30 seconds
 }
 
+fn default_key_file() -> Option<String> {
+    Some("./data/master.key".to_string())
+}
+
 impl Default for ManagementConfig {
     fn default() -> Self {
         Self {
@@ -398,7 +402,7 @@ impl Default for ManagementConfig {
             },
             foundationdb: FoundationDbConfig::default(),
             webauthn: WebAuthnConfig::default(),
-            secret: None,
+            key_file: default_key_file(),
             email: EmailConfig {
                 host: "localhost".to_string(),
                 port: default_email_port(),
@@ -519,18 +523,15 @@ impl ManagementConfig {
     /// Validate configuration
     pub fn validate(&self) -> Result<()> {
         // Validate listen addresses are parseable
-        self.listen
-            .http
-            .parse::<std::net::SocketAddr>()
-            .map_err(|e| Error::Config(format!("listen.http '{}' is not valid: {}", self.listen.http, e)))?;
-        self.listen
-            .grpc
-            .parse::<std::net::SocketAddr>()
-            .map_err(|e| Error::Config(format!("listen.grpc '{}' is not valid: {}", self.listen.grpc, e)))?;
-        self.listen
-            .mesh
-            .parse::<std::net::SocketAddr>()
-            .map_err(|e| Error::Config(format!("listen.mesh '{}' is not valid: {}", self.listen.mesh, e)))?;
+        self.listen.http.parse::<std::net::SocketAddr>().map_err(|e| {
+            Error::Config(format!("listen.http '{}' is not valid: {}", self.listen.http, e))
+        })?;
+        self.listen.grpc.parse::<std::net::SocketAddr>().map_err(|e| {
+            Error::Config(format!("listen.grpc '{}' is not valid: {}", self.listen.grpc, e))
+        })?;
+        self.listen.mesh.parse::<std::net::SocketAddr>().map_err(|e| {
+            Error::Config(format!("listen.mesh '{}' is not valid: {}", self.listen.mesh, e))
+        })?;
 
         // Validate storage backend
         if self.storage != "memory" && self.storage != "foundationdb" {
@@ -547,12 +548,8 @@ impl ManagementConfig {
             ));
         }
 
-        // Validate secret is set
-        if self.secret.is_none() {
-            tracing::warn!(
-                "secret not set - private keys will not be encrypted at rest!"
-            );
-        }
+        // Note: key_file validation is handled at runtime when loading the key
+        // The MasterKey::load_or_generate() function will create the key file if needed
 
         // Validate frontend.url format
         if !self.frontend.url.starts_with("http://") && !self.frontend.url.starts_with("https://") {
@@ -562,9 +559,7 @@ impl ManagementConfig {
         }
 
         if self.frontend.url.ends_with('/') {
-            return Err(Error::Config(
-                "frontend.url must not end with trailing slash".to_string(),
-            ));
+            return Err(Error::Config("frontend.url must not end with trailing slash".to_string()));
         }
 
         // Warn about localhost in production-like environments
@@ -577,9 +572,7 @@ impl ManagementConfig {
 
         // Validate webhook.timeout is reasonable
         if self.webhook.timeout == 0 {
-            return Err(Error::Config(
-                "webhook.timeout must be greater than 0".to_string(),
-            ));
+            return Err(Error::Config("webhook.timeout must be greater than 0".to_string()));
         }
         if self.webhook.timeout > 60000 {
             tracing::warn!(
@@ -604,17 +597,11 @@ impl ManagementConfig {
         }
 
         // Validate mesh.url format
-        if !self.mesh.url.starts_with("http://")
-            && !self.mesh.url.starts_with("https://")
-        {
-            return Err(Error::Config(
-                "mesh.url must start with http:// or https://".to_string(),
-            ));
+        if !self.mesh.url.starts_with("http://") && !self.mesh.url.starts_with("https://") {
+            return Err(Error::Config("mesh.url must start with http:// or https://".to_string()));
         }
         if self.mesh.url.ends_with('/') {
-            return Err(Error::Config(
-                "mesh.url must not end with trailing slash".to_string(),
-            ));
+            return Err(Error::Config("mesh.url must not end with trailing slash".to_string()));
         }
 
         Ok(())
@@ -640,7 +627,6 @@ mod tests {
         let mut config = ManagementConfig::default();
         config.webauthn.party = "localhost".to_string();
         config.webauthn.origin = "http://localhost:3000".to_string();
-        config.secret = Some("test-secret".to_string());
         config.storage = "invalid".to_string();
 
         // Invalid storage

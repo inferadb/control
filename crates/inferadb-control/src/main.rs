@@ -159,18 +159,14 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to initialize ID generator: {}", e))?;
 
     // Start worker registry heartbeat to maintain registration
+    // Note: acquire_worker_id already registers the ID with TTL, so we only need to start the
+    // heartbeat
     let worker_registry = Arc::new(WorkerRegistry::new(storage.as_ref().clone(), worker_id));
-    worker_registry.register().await.map_err(|e| {
-        anyhow::anyhow!("Failed to register worker ID {}: {}", worker_id, e)
-    })?;
     worker_registry.clone().start_heartbeat();
     startup::log_initialized(&format!("Worker ID ({})", worker_id));
 
     // Server API client (for gRPC communication with engine)
-    let server_client = Arc::new(ServerApiClient::new(
-        config.mesh.url.clone(),
-        config.mesh.grpc,
-    )?);
+    let server_client = Arc::new(ServerApiClient::new(config.mesh.url.clone(), config.mesh.grpc)?);
     startup::log_initialized("Engine client");
 
     // Identity for webhook authentication

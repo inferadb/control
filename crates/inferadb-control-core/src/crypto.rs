@@ -1,38 +1,144 @@
+use std::{fs, path::Path};
+
 use aes_gcm::{
     Aes256Gcm, Nonce,
     aead::{Aead, AeadCore, KeyInit, OsRng},
 };
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use inferadb_control_types::error::{Error, Result};
-use sha2::{Digest, Sha256};
+
+/// Master encryption key (256-bit / 32 bytes)
+///
+/// This key is used to encrypt client certificate private keys at rest.
+/// It is loaded from a file or auto-generated on first startup.
+#[derive(Clone)]
+pub struct MasterKey([u8; 32]);
+
+impl MasterKey {
+    /// Load the master key from a file, or generate a new one if it doesn't exist.
+    ///
+    /// # Arguments
+    /// * `key_file` - Optional path to the key file. If None, uses default path.
+    ///
+    /// # Behavior
+    /// - If file exists: load and validate the 32-byte key
+    /// - If file doesn't exist: generate a new key and save it
+    /// - Creates parent directories if needed
+    /// - Sets file permissions to 0600 (owner read/write only) on Unix
+    pub fn load_or_generate(key_file: Option<&str>) -> Result<Self> {
+        let default_path = "./data/master.key".to_string();
+        let path_str = key_file.unwrap_or(&default_path);
+        let path = Path::new(path_str);
+
+        if path.exists() {
+            Self::load_from_file(path)
+        } else {
+            tracing::info!(path = %path.display(), "Master key file not found, generating new key");
+            let key = Self::generate()?;
+            key.save_to_file(path)?;
+            Ok(key)
+        }
+    }
+
+    /// Generate a new random 256-bit master key
+    fn generate() -> Result<Self> {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        let key: [u8; 32] = rng.random();
+        Ok(Self(key))
+    }
+
+    /// Load the master key from a file
+    fn load_from_file(path: &Path) -> Result<Self> {
+        let bytes = fs::read(path).map_err(|e| {
+            Error::Config(format!("Failed to read master key file '{}': {}", path.display(), e))
+        })?;
+
+        if bytes.len() != 32 {
+            return Err(Error::Config(format!(
+                "Master key file '{}' has invalid length: {} bytes (expected 32)",
+                path.display(),
+                bytes.len()
+            )));
+        }
+
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&bytes);
+
+        tracing::info!(path = %path.display(), "Loaded master key from file");
+        Ok(Self(key))
+    }
+
+    /// Save the master key to a file
+    fn save_to_file(&self, path: &Path) -> Result<()> {
+        // Create parent directories if needed
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent).map_err(|e| {
+                    Error::Config(format!(
+                        "Failed to create directory '{}': {}",
+                        parent.display(),
+                        e
+                    ))
+                })?;
+            }
+        }
+
+        // Write the key file
+        fs::write(path, self.0).map_err(|e| {
+            Error::Config(format!("Failed to write master key file '{}': {}", path.display(), e))
+        })?;
+
+        // Set restrictive permissions on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = fs::Permissions::from_mode(0o600);
+            fs::set_permissions(path, perms).map_err(|e| {
+                Error::Config(format!("Failed to set permissions on '{}': {}", path.display(), e))
+            })?;
+        }
+
+        tracing::info!(path = %path.display(), "Generated and saved new master key");
+        Ok(())
+    }
+
+    /// Get the key bytes for use with PrivateKeyEncryptor
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl Drop for MasterKey {
+    fn drop(&mut self) {
+        // Zero out the key when dropped for security
+        self.0.fill(0);
+    }
+}
 
 /// Private key encryption service using AES-256-GCM
 ///
 /// This service encrypts Ed25519 private keys for secure storage in the database.
-/// The encryption key is derived from a master secret using SHA-256.
+/// Uses a 256-bit master key directly (no key derivation needed).
 pub struct PrivateKeyEncryptor {
     cipher: Aes256Gcm,
 }
 
 impl PrivateKeyEncryptor {
-    /// Create a new encryptor from a master secret
+    /// Create a new encryptor from a master key
     ///
-    /// The master secret should be at least 32 bytes and come from the
-    /// INFERADB_CTRL_KEY_ENCRYPTION_SECRET environment variable.
-    pub fn new(master_secret: &[u8]) -> Result<Self> {
-        if master_secret.len() < 32 {
-            return Err(Error::Validation("Master secret must be at least 32 bytes".to_string()));
-        }
-
-        // Derive a 256-bit key from the master secret using SHA-256
-        let mut hasher = Sha256::new();
-        hasher.update(master_secret);
-        let key_bytes = hasher.finalize();
-
-        let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+    /// The master key should be exactly 32 bytes (256 bits) of cryptographically
+    /// secure random data, typically loaded via `MasterKey::load_or_generate()`.
+    pub fn new(master_key: &[u8; 32]) -> Result<Self> {
+        let cipher = Aes256Gcm::new_from_slice(master_key)
             .map_err(|e| Error::Internal(format!("Failed to initialize cipher: {}", e)))?;
 
         Ok(Self { cipher })
+    }
+
+    /// Create a new encryptor from a MasterKey
+    pub fn from_master_key(master_key: &MasterKey) -> Result<Self> {
+        Self::new(master_key.as_bytes())
     }
 
     /// Encrypt a private key (32 bytes for Ed25519)
@@ -121,20 +227,92 @@ pub mod keypair {
 
 #[cfg(test)]
 mod tests {
+    use tempfile::TempDir;
+
     use super::*;
 
+    fn create_test_key() -> [u8; 32] {
+        // Fixed test key for reproducible tests
+        [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c,
+            0x1d, 0x1e, 0x1f, 0x20,
+        ]
+    }
+
     fn create_test_encryptor() -> PrivateKeyEncryptor {
-        let master_secret = b"test_master_secret_at_least_32_bytes_long!";
-        PrivateKeyEncryptor::new(master_secret).unwrap()
+        let key = create_test_key();
+        PrivateKeyEncryptor::new(&key).unwrap()
     }
 
     #[test]
     fn test_encryptor_creation() {
-        let master_secret = b"test_master_secret_at_least_32_bytes_long!";
-        assert!(PrivateKeyEncryptor::new(master_secret).is_ok());
+        let key = create_test_key();
+        assert!(PrivateKeyEncryptor::new(&key).is_ok());
+    }
 
-        let short_secret = b"too_short";
-        assert!(PrivateKeyEncryptor::new(short_secret).is_err());
+    #[test]
+    fn test_master_key_generate_and_load() {
+        let temp_dir = TempDir::new().unwrap();
+        let key_path = temp_dir.path().join("test.key");
+        let key_path_str = key_path.to_str().unwrap();
+
+        // First call should generate a new key
+        let key1 = MasterKey::load_or_generate(Some(key_path_str)).unwrap();
+
+        // File should exist now
+        assert!(key_path.exists());
+
+        // Second call should load the same key
+        let key2 = MasterKey::load_or_generate(Some(key_path_str)).unwrap();
+
+        // Keys should be identical
+        assert_eq!(key1.as_bytes(), key2.as_bytes());
+    }
+
+    #[test]
+    fn test_master_key_invalid_length() {
+        let temp_dir = TempDir::new().unwrap();
+        let key_path = temp_dir.path().join("invalid.key");
+
+        // Write a file with wrong length
+        fs::write(&key_path, b"too_short").unwrap();
+
+        // Loading should fail
+        let result = MasterKey::load_or_generate(Some(key_path.to_str().unwrap()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_master_key_creates_parent_dirs() {
+        let temp_dir = TempDir::new().unwrap();
+        let key_path = temp_dir.path().join("nested").join("dir").join("test.key");
+        let key_path_str = key_path.to_str().unwrap();
+
+        // Parent directories don't exist yet
+        assert!(!key_path.parent().unwrap().exists());
+
+        // Should create parent dirs and generate key
+        let _key = MasterKey::load_or_generate(Some(key_path_str)).unwrap();
+
+        // File and parents should exist now
+        assert!(key_path.exists());
+    }
+
+    #[test]
+    fn test_encryptor_from_master_key() {
+        let temp_dir = TempDir::new().unwrap();
+        let key_path = temp_dir.path().join("test.key");
+        let key_path_str = key_path.to_str().unwrap();
+
+        let master_key = MasterKey::load_or_generate(Some(key_path_str)).unwrap();
+        let encryptor = PrivateKeyEncryptor::from_master_key(&master_key).unwrap();
+
+        // Should work for encryption/decryption
+        let private_key = [42u8; 32];
+        let encrypted = encryptor.encrypt(&private_key).unwrap();
+        let decrypted = encryptor.decrypt(&encrypted).unwrap();
+        assert_eq!(decrypted.as_slice(), &private_key);
     }
 
     #[test]
