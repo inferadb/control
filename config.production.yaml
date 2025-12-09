@@ -24,57 +24,41 @@ control:
     # Service mesh / inter-service communication
     mesh: "0.0.0.0:9092"
 
-  # Storage backend configuration
-  storage:
-    # Use FoundationDB for production
-    backend: "foundationdb"
+  # Storage backend: "memory" or "foundationdb"
+  storage: "foundationdb"
 
+  # FoundationDB configuration (only used when storage = "foundationdb")
+  foundationdb:
     # FoundationDB cluster file path
     # This file contains the connection string for your FDB cluster
-    fdb_cluster_file: "/etc/foundationdb/fdb.cluster"
+    cluster_file: "/etc/foundationdb/fdb.cluster"
 
-  # Authentication and security
-  authentication:
-    # Session TTLs (in seconds)
-    session_ttl_web: 2592000  # 30 days
-    session_ttl_cli: 7776000  # 90 days
-    session_ttl_sdk: 7776000  # 90 days
+  # WebAuthn configuration (for passkey authentication)
+  webauthn:
+    # Relying party ID (your domain)
+    party: "example.com"
 
-    # Password requirements
-    password_min_length: 12
+    # Origin URL (must match browser origin)
+    origin: "https://example.com"
 
-    # Maximum concurrent sessions per user
-    max_sessions_per_user: 10
-
-    # Key encryption secret (REQUIRED: 32+ bytes for AES-256)
-    # SECURITY: Use environment variable in production!
-    # Example: ${KEY_ENCRYPTION_SECRET}
-    key_encryption_secret: "<REPLACE-WITH-32+-BYTE-SECRET>"
-
-    # WebAuthn configuration (for passkey authentication)
-    webauthn:
-      # Relying party ID (your domain)
-      rp_id: "example.com"
-
-      # Relying party name (displayed to users)
-      rp_name: "InferaDB"
-
-      # Origin URL (must match browser origin)
-      origin: "https://example.com"
+  # Master secret for encrypting private keys (REQUIRED: 32+ bytes for AES-256)
+  # SECURITY: Use environment variable in production!
+  # Set via: INFERADB__CONTROL__SECRET
+  secret: "<REPLACE-WITH-32+-BYTE-SECRET>"
 
   # Email configuration (SMTP)
   email:
     # SMTP server settings
-    smtp_host: "<SMTP-HOST>"
-    smtp_port: 587
+    host: "<SMTP-HOST>"
+    port: 587
 
     # SMTP authentication (optional, uncomment if needed)
-    # smtp_username: "<SMTP-USERNAME>"
-    # smtp_password: "<SMTP-PASSWORD>"
+    # username: "<SMTP-USERNAME>"
+    # password: "<SMTP-PASSWORD>"
 
     # From address
-    from_email: "noreply@example.com"
-    from_name: "InferaDB"
+    address: "noreply@example.com"
+    name: "InferaDB"
 
   # Rate limits configuration
   limits:
@@ -90,17 +74,17 @@ control:
     # Password reset tokens per user per hour
     password_reset_tokens_per_hour: 3
 
-  # Engine configuration
+  # Mesh configuration for engine communication
   # All engine instances are discovered from this base URL + ports
   # In production with Kubernetes/Tailscale discovery, set discovery.mode appropriately
-  engine:
+  mesh:
     # Base service URL (without port)
     # For Kubernetes: use the k8s service name (e.g., "http://inferadb-engine.inferadb")
     # For direct connection: use the host (e.g., "http://localhost")
-    service_url: "http://inferadb-engine.inferadb"
+    url: "http://inferadb-engine.inferadb"
 
     # gRPC port for engine communication
-    grpc_port: 8081
+    grpc: 8081
 
-    # Internal/Private HTTP port for webhooks and JWKS
-    internal_port: 8082
+    # Mesh port for webhooks and JWKS
+    port: 8082

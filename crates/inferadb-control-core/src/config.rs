@@ -43,18 +43,29 @@ pub struct ManagementConfig {
     /// If not provided, a new keypair is generated on each startup.
     pub pem: Option<String>,
 
+    /// Master secret for encrypting private keys at rest.
+    /// Should be set via environment variable INFERADB__CONTROL__SECRET
+    ///
+    /// SECURITY: This secret should be:
+    /// - At least 32 bytes (256 bits) of random data
+    /// - Stored securely (e.g., in a secrets manager)
+    /// - Rotated periodically with proper key re-encryption
+    pub secret: Option<String>,
+
+    #[serde(default = "default_storage")]
+    pub storage: String,
     #[serde(default)]
     pub listen: ListenConfig,
     #[serde(default)]
-    pub storage: StorageConfig,
+    pub foundationdb: FoundationDbConfig,
     #[serde(default)]
-    pub authentication: AuthenticationConfig,
+    pub webauthn: WebAuthnConfig,
     #[serde(default)]
     pub email: EmailConfig,
     #[serde(default)]
     pub limits: LimitsConfig,
     #[serde(default)]
-    pub engine: EngineConfig,
+    pub mesh: MeshConfig,
     #[serde(default)]
     pub webhook: WebhookConfig,
     #[serde(default)]
@@ -82,84 +93,64 @@ pub struct ListenConfig {
     pub mesh: String,
 }
 
-/// Storage backend configuration
+/// FoundationDB configuration (only used when storage = "foundationdb")
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct StorageConfig {
-    /// Storage backend type: "memory" or "foundationdb"
-    #[serde(default = "default_storage_backend")]
-    pub backend: String,
-
-    /// FoundationDB cluster file path (only used when backend = "foundationdb")
-    pub fdb_cluster_file: Option<String>,
+pub struct FoundationDbConfig {
+    /// FoundationDB cluster file path
+    /// e.g., "/etc/foundationdb/fdb.cluster"
+    pub cluster_file: Option<String>,
 }
 
-/// Authentication configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AuthenticationConfig {
-    /// Session TTL for WEB sessions (seconds)
-    #[serde(default = "default_session_ttl_web")]
-    pub session_ttl_web: u64,
-
-    /// Session TTL for CLI sessions (seconds)
-    #[serde(default = "default_session_ttl_cli")]
-    pub session_ttl_cli: u64,
-
-    /// Session TTL for SDK sessions (seconds)
-    #[serde(default = "default_session_ttl_sdk")]
-    pub session_ttl_sdk: u64,
-
-    /// Minimum password length
-    #[serde(default = "default_password_min_length")]
-    pub password_min_length: usize,
-
-    /// Maximum concurrent sessions per user
-    #[serde(default = "default_max_sessions_per_user")]
-    pub max_sessions_per_user: usize,
-
-    /// WebAuthn configuration
-    pub webauthn: WebAuthnConfig,
-
-    /// Key encryption secret for encrypting private keys at rest
-    /// Should be set via environment variable INFERADB_CTRL_KEY_ENCRYPTION_SECRET
-    pub key_encryption_secret: Option<String>,
-}
-
-/// WebAuthn configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// WebAuthn configuration for passkey authentication
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebAuthnConfig {
     /// Relying Party ID (domain)
-    pub rp_id: String,
-
-    /// Relying Party name
-    #[serde(default = "default_rp_name")]
-    pub rp_name: String,
+    /// e.g., "inferadb.com" for production or "localhost" for development
+    #[serde(default = "default_webauthn_party")]
+    pub party: String,
 
     /// Origin URL for WebAuthn
+    /// e.g., "https://app.inferadb.com" or "http://localhost:3000"
+    #[serde(default = "default_webauthn_origin")]
     pub origin: String,
+}
+
+impl Default for WebAuthnConfig {
+    fn default() -> Self {
+        Self { party: default_webauthn_party(), origin: default_webauthn_origin() }
+    }
+}
+
+fn default_webauthn_party() -> String {
+    "localhost".to_string()
+}
+
+fn default_webauthn_origin() -> String {
+    "http://localhost:3000".to_string()
 }
 
 /// Email configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EmailConfig {
     /// SMTP host
-    pub smtp_host: String,
+    pub host: String,
 
     /// SMTP port
-    #[serde(default = "default_smtp_port")]
-    pub smtp_port: u16,
+    #[serde(default = "default_email_port")]
+    pub port: u16,
 
     /// SMTP username
-    pub smtp_username: Option<String>,
+    pub username: Option<String>,
 
     /// SMTP password (should be set via environment variable)
-    pub smtp_password: Option<String>,
+    pub password: Option<String>,
 
     /// From email address
-    pub from_email: String,
+    pub address: String,
 
-    /// From name
-    #[serde(default = "default_from_name")]
-    pub from_name: String,
+    /// From display name
+    #[serde(default = "default_email_name")]
+    pub name: String,
 }
 
 /// Rate limits configuration
@@ -197,35 +188,35 @@ impl Default for FrontendConfig {
     }
 }
 
-/// Engine service configuration
+/// Service mesh configuration for engine communication
 ///
 /// This configuration controls how control discovers and connects to
 /// engine (policy service) instances. Both gRPC and HTTP internal endpoints are
 /// derived from the same base URL with different ports.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EngineConfig {
+pub struct MeshConfig {
     /// gRPC port for engine communication
     /// Default: 8081
-    #[serde(default = "default_engine_grpc_port")]
-    pub grpc_port: u16,
+    #[serde(default = "default_mesh_grpc")]
+    pub grpc: u16,
 
-    /// Internal HTTP port for webhooks/JWKS
+    /// Mesh port for internal communication (webhooks/JWKS)
     /// Default: 8082
-    #[serde(default = "default_engine_internal_port")]
-    pub internal_port: u16,
+    #[serde(default = "default_mesh_port")]
+    pub port: u16,
 
-    /// Service URL (base URL without port, used for discovery or direct connection)
+    /// Base URL (without port, used for discovery or direct connection)
     /// e.g., "http://inferadb-engine.inferadb" for K8s or "http://localhost" for dev
-    #[serde(default = "default_engine_service_url")]
-    pub service_url: String,
+    #[serde(default = "default_mesh_url")]
+    pub url: String,
 }
 
-impl Default for EngineConfig {
+impl Default for MeshConfig {
     fn default() -> Self {
         Self {
-            grpc_port: default_engine_grpc_port(),
-            internal_port: default_engine_internal_port(),
-            service_url: default_engine_service_url(),
+            grpc: default_mesh_grpc(),
+            port: default_mesh_port(),
+            url: default_mesh_url(),
         }
     }
 }
@@ -234,19 +225,19 @@ impl Default for EngineConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookConfig {
     /// Webhook request timeout in milliseconds
-    #[serde(default = "default_webhook_timeout_ms")]
-    pub timeout_ms: u64,
+    #[serde(default = "default_webhook_timeout")]
+    pub timeout: u64,
 
     /// Number of retry attempts on webhook failure
-    #[serde(default = "default_webhook_retry_attempts")]
-    pub retry_attempts: u8,
+    #[serde(default = "default_webhook_retries")]
+    pub retries: u8,
 }
 
 impl Default for WebhookConfig {
     fn default() -> Self {
         Self {
-            timeout_ms: default_webhook_timeout_ms(),
-            retry_attempts: default_webhook_retry_attempts(),
+            timeout: default_webhook_timeout(),
+            retries: default_webhook_retries(),
         }
     }
 }
@@ -333,39 +324,15 @@ fn default_logging() -> String {
     "info".to_string()
 }
 
-fn default_storage_backend() -> String {
+fn default_storage() -> String {
     "memory".to_string()
 }
 
-fn default_session_ttl_web() -> u64 {
-    30 * 24 * 60 * 60 // 30 days
-}
-
-fn default_session_ttl_cli() -> u64 {
-    90 * 24 * 60 * 60 // 90 days
-}
-
-fn default_session_ttl_sdk() -> u64 {
-    90 * 24 * 60 * 60 // 90 days
-}
-
-fn default_password_min_length() -> usize {
-    12
-}
-
-fn default_max_sessions_per_user() -> usize {
-    10
-}
-
-fn default_rp_name() -> String {
-    "InferaDB".to_string()
-}
-
-fn default_smtp_port() -> u16 {
+fn default_email_port() -> u16 {
     587
 }
 
-fn default_from_name() -> String {
+fn default_email_name() -> String {
     "InferaDB".to_string()
 }
 
@@ -386,15 +353,15 @@ fn default_password_reset_tokens_per_hour() -> u32 {
 }
 
 
-fn default_engine_grpc_port() -> u16 {
+fn default_mesh_grpc() -> u16 {
     8081 // Engine's public gRPC port
 }
 
-fn default_engine_internal_port() -> u16 {
-    8082 // Engine's internal/private API port
+fn default_mesh_port() -> u16 {
+    8082 // Engine's mesh/internal API port
 }
 
-fn default_engine_service_url() -> String {
+fn default_mesh_url() -> String {
     "http://localhost".to_string() // Default for development
 }
 
@@ -402,11 +369,11 @@ fn default_frontend_url() -> String {
     "http://localhost:3000".to_string()
 }
 
-fn default_webhook_timeout_ms() -> u64 {
-    5000 // 5 seconds
+fn default_webhook_timeout() -> u64 {
+    5000 // 5 seconds (in milliseconds)
 }
 
-fn default_webhook_retry_attempts() -> u8 {
+fn default_webhook_retries() -> u8 {
     0 // Fire-and-forget
 }
 
@@ -423,32 +390,22 @@ impl Default for ManagementConfig {
         Self {
             threads: default_threads(),
             logging: default_logging(),
+            storage: default_storage(),
             listen: ListenConfig {
                 http: default_http(),
                 grpc: default_grpc(),
                 mesh: default_mesh(),
             },
-            storage: StorageConfig { backend: default_storage_backend(), fdb_cluster_file: None },
-            authentication: AuthenticationConfig {
-                session_ttl_web: default_session_ttl_web(),
-                session_ttl_cli: default_session_ttl_cli(),
-                session_ttl_sdk: default_session_ttl_sdk(),
-                password_min_length: default_password_min_length(),
-                max_sessions_per_user: default_max_sessions_per_user(),
-                webauthn: WebAuthnConfig {
-                    rp_id: "localhost".to_string(),
-                    rp_name: default_rp_name(),
-                    origin: "http://localhost:3000".to_string(),
-                },
-                key_encryption_secret: None,
-            },
+            foundationdb: FoundationDbConfig::default(),
+            webauthn: WebAuthnConfig::default(),
+            secret: None,
             email: EmailConfig {
-                smtp_host: "localhost".to_string(),
-                smtp_port: default_smtp_port(),
-                smtp_username: None,
-                smtp_password: None,
-                from_email: "noreply@inferadb.com".to_string(),
-                from_name: default_from_name(),
+                host: "localhost".to_string(),
+                port: default_email_port(),
+                username: None,
+                password: None,
+                address: "noreply@inferadb.com".to_string(),
+                name: default_email_name(),
             },
             limits: LimitsConfig {
                 login_attempts_per_ip_per_hour: default_login_attempts_per_ip_per_hour(),
@@ -456,7 +413,7 @@ impl Default for ManagementConfig {
                 email_verification_tokens_per_hour: default_email_verification_tokens_per_hour(),
                 password_reset_tokens_per_hour: default_password_reset_tokens_per_hour(),
             },
-            engine: EngineConfig::default(),
+            mesh: MeshConfig::default(),
             pem: None,
             webhook: WebhookConfig::default(),
             discovery: DiscoveryConfig::default(),
@@ -468,22 +425,22 @@ impl Default for ManagementConfig {
 impl ManagementConfig {
     /// Get the effective gRPC URL for the engine service
     ///
-    /// Combines `engine.service_url` with `engine.grpc_port`
+    /// Combines `mesh.url` with `mesh.grpc`
     /// to produce the full gRPC endpoint URL.
     ///
     /// Example: "http://localhost" + 8081 → "http://localhost:8081"
     pub fn effective_grpc_url(&self) -> String {
-        format!("{}:{}", self.engine.service_url, self.engine.grpc_port)
+        format!("{}:{}", self.mesh.url, self.mesh.grpc)
     }
 
-    /// Get the effective internal HTTP URL for the engine service
+    /// Get the effective mesh URL for the engine service
     ///
-    /// Combines `engine.service_url` with `engine.internal_port`
-    /// to produce the full internal API endpoint URL.
+    /// Combines `mesh.url` with `mesh.port`
+    /// to produce the full mesh/internal API endpoint URL.
     ///
     /// Example: "http://localhost" + 8082 → "http://localhost:8082"
-    pub fn effective_internal_url(&self) -> String {
-        format!("{}:{}", self.engine.service_url, self.engine.internal_port)
+    pub fn effective_mesh_url(&self) -> String {
+        format!("{}:{}", self.mesh.url, self.mesh.port)
     }
 
     /// Load configuration with layered precedence: defaults → file → env vars
@@ -561,25 +518,39 @@ impl ManagementConfig {
 
     /// Validate configuration
     pub fn validate(&self) -> Result<()> {
+        // Validate listen addresses are parseable
+        self.listen
+            .http
+            .parse::<std::net::SocketAddr>()
+            .map_err(|e| Error::Config(format!("listen.http '{}' is not valid: {}", self.listen.http, e)))?;
+        self.listen
+            .grpc
+            .parse::<std::net::SocketAddr>()
+            .map_err(|e| Error::Config(format!("listen.grpc '{}' is not valid: {}", self.listen.grpc, e)))?;
+        self.listen
+            .mesh
+            .parse::<std::net::SocketAddr>()
+            .map_err(|e| Error::Config(format!("listen.mesh '{}' is not valid: {}", self.listen.mesh, e)))?;
+
         // Validate storage backend
-        if self.storage.backend != "memory" && self.storage.backend != "foundationdb" {
+        if self.storage != "memory" && self.storage != "foundationdb" {
             return Err(Error::Config(format!(
-                "Invalid storage backend: {}. Must be 'memory' or 'foundationdb'",
-                self.storage.backend
+                "Invalid storage: {}. Must be 'memory' or 'foundationdb'",
+                self.storage
             )));
         }
 
         // Validate FoundationDB config
-        if self.storage.backend == "foundationdb" && self.storage.fdb_cluster_file.is_none() {
+        if self.storage == "foundationdb" && self.foundationdb.cluster_file.is_none() {
             return Err(Error::Config(
-                "fdb_cluster_file is required when using FoundationDB backend".to_string(),
+                "foundationdb.cluster_file is required when storage = 'foundationdb'".to_string(),
             ));
         }
 
-        // Validate key encryption secret is set
-        if self.authentication.key_encryption_secret.is_none() {
+        // Validate secret is set
+        if self.secret.is_none() {
             tracing::warn!(
-                "KEY_ENCRYPTION_SECRET not set - private keys will not be encrypted at rest!"
+                "secret not set - private keys will not be encrypted at rest!"
             );
         }
 
@@ -604,54 +575,46 @@ impl ManagementConfig {
             );
         }
 
-        // Validate webhook.timeout_ms is reasonable
-        if self.webhook.timeout_ms == 0 {
+        // Validate webhook.timeout is reasonable
+        if self.webhook.timeout == 0 {
             return Err(Error::Config(
-                "webhook.timeout_ms must be greater than 0".to_string(),
+                "webhook.timeout must be greater than 0".to_string(),
             ));
         }
-        if self.webhook.timeout_ms > 60000 {
+        if self.webhook.timeout > 60000 {
             tracing::warn!(
-                timeout_ms = self.webhook.timeout_ms,
-                "webhook.timeout_ms is very high (>60s). Consider using a lower timeout."
+                timeout = self.webhook.timeout,
+                "webhook.timeout is very high (>60s). Consider using a lower timeout."
             );
         }
 
         // Validate WebAuthn configuration
-        if self.authentication.webauthn.rp_id.is_empty() {
-            return Err(Error::Config("authentication.webauthn.rp_id cannot be empty".to_string()));
+        if self.webauthn.party.is_empty() {
+            return Err(Error::Config("webauthn.party cannot be empty".to_string()));
         }
-        if self.authentication.webauthn.origin.is_empty() {
-            return Err(Error::Config("authentication.webauthn.origin cannot be empty".to_string()));
+        if self.webauthn.origin.is_empty() {
+            return Err(Error::Config("webauthn.origin cannot be empty".to_string()));
         }
-        if !self.authentication.webauthn.origin.starts_with("http://")
-            && !self.authentication.webauthn.origin.starts_with("https://")
+        if !self.webauthn.origin.starts_with("http://")
+            && !self.webauthn.origin.starts_with("https://")
         {
             return Err(Error::Config(
-                "authentication.webauthn.origin must start with http:// or https://".to_string(),
+                "webauthn.origin must start with http:// or https://".to_string(),
             ));
         }
 
-        // Validate engine.service_url format
-        if !self.engine.service_url.starts_with("http://")
-            && !self.engine.service_url.starts_with("https://")
+        // Validate mesh.url format
+        if !self.mesh.url.starts_with("http://")
+            && !self.mesh.url.starts_with("https://")
         {
             return Err(Error::Config(
-                "engine.service_url must start with http:// or https://".to_string(),
+                "mesh.url must start with http:// or https://".to_string(),
             ));
         }
-        if self.engine.service_url.ends_with('/') {
+        if self.mesh.url.ends_with('/') {
             return Err(Error::Config(
-                "engine.service_url must not end with trailing slash".to_string(),
+                "mesh.url must not end with trailing slash".to_string(),
             ));
-        }
-
-        // Validate password minimum length is reasonable
-        if self.authentication.password_min_length < 8 {
-            tracing::warn!(
-                min_length = self.authentication.password_min_length,
-                "authentication.password_min_length is less than 8. Consider using at least 8 characters for security."
-            );
         }
 
         Ok(())
@@ -667,28 +630,28 @@ mod tests {
         assert_eq!(default_http(), "127.0.0.1:9090");
         assert_eq!(default_grpc(), "127.0.0.1:9091");
         assert_eq!(default_mesh(), "0.0.0.0:9092");
-        assert_eq!(default_storage_backend(), "memory");
-        assert_eq!(default_password_min_length(), 12);
-        assert_eq!(default_max_sessions_per_user(), 10);
+        assert_eq!(default_storage(), "memory");
+        assert_eq!(default_webauthn_party(), "localhost");
+        assert_eq!(default_webauthn_origin(), "http://localhost:3000");
     }
 
     #[test]
-    fn test_storage_backend_validation() {
+    fn test_storage_validation() {
         let mut config = ManagementConfig::default();
-        config.authentication.webauthn.rp_id = "localhost".to_string();
-        config.authentication.webauthn.origin = "http://localhost:3000".to_string();
-        config.authentication.key_encryption_secret = Some("test-secret".to_string());
-        config.storage.backend = "invalid".to_string();
+        config.webauthn.party = "localhost".to_string();
+        config.webauthn.origin = "http://localhost:3000".to_string();
+        config.secret = Some("test-secret".to_string());
+        config.storage = "invalid".to_string();
 
-        // Invalid storage backend
+        // Invalid storage
         assert!(config.validate().is_err());
 
-        // Valid backends
-        config.storage.backend = "memory".to_string();
+        // Valid storage backends
+        config.storage = "memory".to_string();
         assert!(config.validate().is_ok());
 
-        config.storage.backend = "foundationdb".to_string();
-        config.storage.fdb_cluster_file = Some("/path/to/fdb.cluster".to_string());
+        config.storage = "foundationdb".to_string();
+        config.foundationdb.cluster_file = Some("/path/to/fdb.cluster".to_string());
         assert!(config.validate().is_ok());
     }
 
@@ -696,13 +659,13 @@ mod tests {
     fn test_effective_urls() {
         let config = ManagementConfig::default();
         assert_eq!(config.effective_grpc_url(), "http://localhost:8081");
-        assert_eq!(config.effective_internal_url(), "http://localhost:8082");
+        assert_eq!(config.effective_mesh_url(), "http://localhost:8082");
 
         let mut config = ManagementConfig::default();
-        config.engine.service_url = "http://inferadb-engine.inferadb".to_string();
-        config.engine.grpc_port = 9000;
-        config.engine.internal_port = 9191;
+        config.mesh.url = "http://inferadb-engine.inferadb".to_string();
+        config.mesh.grpc = 9000;
+        config.mesh.port = 9191;
         assert_eq!(config.effective_grpc_url(), "http://inferadb-engine.inferadb:9000");
-        assert_eq!(config.effective_internal_url(), "http://inferadb-engine.inferadb:9191");
+        assert_eq!(config.effective_mesh_url(), "http://inferadb-engine.inferadb:9191");
     }
 }

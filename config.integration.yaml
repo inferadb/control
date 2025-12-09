@@ -21,26 +21,19 @@ control:
     # Service mesh / inter-service communication
     mesh: "0.0.0.0:9092"
 
-  storage:
-    backend: "memory"  # In-memory for fast tests
+  storage: "memory"  # In-memory for fast tests
 
-  authentication:
-    session_ttl_web: 3600  # 1 hour for tests
-    session_ttl_cli: 7200  # 2 hours for tests
-    session_ttl_sdk: 7200  # 2 hours for tests
-    password_min_length: 8  # Relaxed for tests
-    max_sessions_per_user: 5
-    key_encryption_secret: "test-integration-secret-key-32bytes-long!"
-    webauthn:
-      rp_id: "localhost"
-      rp_name: "InferaDB Test"
-      origin: "http://localhost:9090"
+  webauthn:
+    party: "localhost"
+    origin: "http://localhost:9090"
+
+  secret: "test-integration-secret-key-32bytes-long!"
 
   email:
-    smtp_host: "localhost"
-    smtp_port: 1025
-    from_email: "test@inferadb.local"
-    from_name: "InferaDB Test"
+    host: "localhost"
+    port: 1025
+    address: "test@inferadb.local"
+    name: "InferaDB Test"
 
   limits:
     login_attempts_per_ip_per_hour: 1000  # Relaxed for tests
@@ -48,16 +41,16 @@ control:
     email_verification_tokens_per_hour: 100
     password_reset_tokens_per_hour: 100
 
-  # Engine configuration for Kubernetes
+  # Mesh configuration for engine communication
   # Discovery mode discovers all engine pod IPs
-  engine:
-    service_url: "http://inferadb-engine.inferadb"
-    grpc_port: 8081
-    internal_port: 8082
+  mesh:
+    url: "http://inferadb-engine.inferadb"
+    grpc: 8081
+    port: 8082
 
   webhook:
-    timeout_ms: 5000
-    retry_attempts: 0
+    timeout: 5000
+    retries: 0
 
   # Kubernetes discovery for pod-level cache invalidation
   discovery:

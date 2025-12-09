@@ -147,58 +147,11 @@ impl AppState {
     pub fn new_test(storage: Arc<Backend>) -> Self {
         use inferadb_control_core::ManagementConfig;
 
-        // Create a minimal test config
-        let config_str = r#"
-server:
-  http_host: "127.0.0.1"
-  http_port: 3000
-  grpc_host: "127.0.0.1"
-  grpc_port: 3001
-  worker_threads: 4
-
-storage:
-  backend: "memory"
-
-auth:
-  session_ttl_web: 2592000
-  session_ttl_cli: 7776000
-  session_ttl_sdk: 7776000
-  password_min_length: 12
-  max_sessions_per_user: 10
-  key_encryption_secret: "test-secret-key-at-least-32-bytes-long!"
-  webauthn:
-    rp_id: "localhost"
-    rp_name: "InferaDB"
-    origin: "http://localhost:3000"
-
-email:
-  smtp_host: "localhost"
-  smtp_port: 587
-  from_email: "test@example.com"
-  from_name: "InferaDB Test"
-
-rate_limiting:
-  login_attempts_per_ip_per_hour: 100
-  registrations_per_ip_per_day: 5
-  email_verification_tokens_per_hour: 5
-  password_reset_tokens_per_hour: 3
-
-observability:
-  log_level: "info"
-  metrics_enabled: true
-  tracing_enabled: false
-
-id_generation:
-  worker_id: 0
-  max_clock_skew_ms: 1000
-
-policy_service:
-  service_url: "http://localhost"
-  grpc_port: 8080
-  internal_port: 9090
-"#;
-
-        let config: ManagementConfig = serde_yaml::from_str(config_str).unwrap();
+        // Create a minimal test config using default and overriding necessary fields
+        let mut config = ManagementConfig::default();
+        config.secret = Some("test-secret-key-at-least-32-bytes-long!".to_string());
+        config.webauthn.party = "localhost".to_string();
+        config.webauthn.origin = "http://localhost:3000".to_string();
         let server_client = ServerApiClient::new("http://localhost".to_string(), 8080).unwrap();
 
         // Create mock email service for testing

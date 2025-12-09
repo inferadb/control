@@ -256,15 +256,14 @@ mod tests {
         let temp_file = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
         let config_path = temp_file.path().to_path_buf();
 
-        // Write initial config with storage backend (using nested format)
+        // Write initial config with storage (using nested format)
         fs::write(
             &config_path,
             r#"
 control:
   listen:
-    public_rest: "0.0.0.0:3001"
-  storage:
-    backend: "memory"
+    http: "0.0.0.0:3001"
+  storage: "memory"
 "#,
         )
         .unwrap();
@@ -294,12 +293,10 @@ control:
 control:
   listen:
     http: "0.0.0.0:3001"
-  storage:
-    backend: "memory"
-  auth:
-    webauthn:
-      rp_id: "localhost"
-      origin: "http://localhost:3000"
+  storage: "memory"
+  webauthn:
+    party: "localhost"
+    origin: "http://localhost:3000"
   engine:
     service_url: "http://localhost"
 "#,
@@ -320,12 +317,10 @@ control:
 control:
   listen:
     http: "0.0.0.0:3002"
-  storage:
-    backend: "memory"
-  auth:
-    webauthn:
-      rp_id: "localhost"
-      origin: "http://localhost:3000"
+  storage: "memory"
+  webauthn:
+    party: "localhost"
+    origin: "http://localhost:3000"
   engine:
     service_url: "http://localhost"
 "#,
@@ -360,8 +355,7 @@ control:
 control:
   listen:
     http: "0.0.0.0:3001"
-  storage:
-    backend: "memory"
+  storage: "memory"
 "#,
         )
         .unwrap();
@@ -380,8 +374,7 @@ control:
 control:
   listen:
     http: "invalid-address"
-  storage:
-    backend: "memory"
+  storage: "memory"
 "#,
         )
         .unwrap();
@@ -411,12 +404,10 @@ control:
 control:
   listen:
     http: "0.0.0.0:3001"
-  storage:
-    backend: "memory"
-  auth:
-    webauthn:
-      rp_id: "localhost"
-      origin: "http://localhost:3000"
+  storage: "memory"
+  webauthn:
+    party: "localhost"
+    origin: "http://localhost:3000"
   engine:
     service_url: "http://localhost"
 "#,
@@ -443,12 +434,10 @@ control:
 control:
   listen:
     http: "0.0.0.0:3002"
-  storage:
-    backend: "memory"
-  auth:
-    webauthn:
-      rp_id: "localhost"
-      origin: "http://localhost:3000"
+  storage: "memory"
+  webauthn:
+    party: "localhost"
+    origin: "http://localhost:3000"
   engine:
     service_url: "http://localhost"
 "#,

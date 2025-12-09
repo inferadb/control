@@ -132,10 +132,9 @@ pub async fn generate_vault_token(
     // Create JWT signer
     let key_secret = state
         .config
-        .authentication
-        .key_encryption_secret
+        .secret
         .as_ref()
-        .ok_or_else(|| CoreError::Config("key_encryption_secret not configured".to_string()))?;
+        .ok_or_else(|| CoreError::Config("secret not configured".to_string()))?;
     let encryptor = PrivateKeyEncryptor::new(key_secret.as_bytes())?;
     let signer = JwtSigner::new(encryptor);
 
@@ -271,10 +270,9 @@ pub async fn refresh_vault_token(
     // Create JWT signer
     let key_secret = state
         .config
-        .authentication
-        .key_encryption_secret
+        .secret
         .as_ref()
-        .ok_or_else(|| CoreError::Config("key_encryption_secret not configured".to_string()))?;
+        .ok_or_else(|| CoreError::Config("secret not configured".to_string()))?;
     let encryptor = PrivateKeyEncryptor::new(key_secret.as_bytes())?;
     let signer = JwtSigner::new(encryptor);
 
@@ -544,10 +542,9 @@ pub async fn client_assertion_authenticate(
     // Create JWT signer
     let key_secret = state
         .config
-        .authentication
-        .key_encryption_secret
+        .secret
         .as_ref()
-        .ok_or_else(|| CoreError::Config("key_encryption_secret not configured".to_string()))?;
+        .ok_or_else(|| CoreError::Config("secret not configured".to_string()))?;
     let encryptor = PrivateKeyEncryptor::new(key_secret.as_bytes())?;
     let signer = JwtSigner::new(encryptor);
 

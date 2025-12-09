@@ -42,9 +42,9 @@ pub struct SmtpConfig {
     /// SMTP password
     pub password: String,
     /// From email address
-    pub from_email: String,
-    /// From name
-    pub from_name: String,
+    pub address: String,
+    /// From display name
+    pub name: String,
 }
 
 /// SMTP-based email service implementation
@@ -69,7 +69,7 @@ impl SmtpEmailService {
 
     /// Get the from mailbox
     fn get_from_mailbox(&self) -> Result<Mailbox> {
-        format!("{} <{}>", self.config.from_name, self.config.from_email)
+        format!("{} <{}>", self.config.name, self.config.address)
             .parse()
             .map_err(|e| Error::Internal(format!("Invalid from address: {}", e)))
     }
@@ -231,8 +231,8 @@ mod tests {
             port: 587,
             username: "user".to_string(),
             password: "pass".to_string(),
-            from_email: "noreply@example.com".to_string(),
-            from_name: "Example App".to_string(),
+            address: "noreply@example.com".to_string(),
+            name: "Example App".to_string(),
         };
 
         assert_eq!(config.host, "smtp.example.com");

@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
         };
 
         // Create policy service entry with discovery context
-        let policy_url = config.effective_internal_url();
+        let policy_url = config.effective_mesh_url();
         let policy_entry = match &config.discovery.mode {
             DiscoveryMode::None => startup::ConfigEntry::new(
                 "Network",
@@ -120,7 +120,7 @@ async fn main() -> Result<()> {
             startup::ConfigEntry::new("General", "Environment", &args.environment),
             startup::ConfigEntry::new("General", "Configuration File", &config_path),
             // Storage
-            startup::ConfigEntry::new("Storage", "Backend", &config.storage.backend),
+            startup::ConfigEntry::new("Storage", "Backend", &config.storage),
             // Listen
             startup::ConfigEntry::new("Listen", "HTTP", &config.listen.http),
             startup::ConfigEntry::new("Listen", "gRPC", &config.listen.grpc),
@@ -141,13 +141,13 @@ async fn main() -> Result<()> {
     }
 
     // Storage backend
-    let storage_config = match config.storage.backend.as_str() {
+    let storage_config = match config.storage.as_str() {
         "memory" => StorageConfig::memory(),
-        "foundationdb" => StorageConfig::foundationdb(config.storage.fdb_cluster_file.clone()),
-        _ => anyhow::bail!("Invalid storage backend: {}", config.storage.backend),
+        "foundationdb" => StorageConfig::foundationdb(config.foundationdb.cluster_file.clone()),
+        _ => anyhow::bail!("Invalid storage: {}", config.storage),
     };
     let storage = Arc::new(create_storage_backend(&storage_config).await?);
-    startup::log_initialized(&format!("Storage ({})", config.storage.backend));
+    startup::log_initialized(&format!("Storage ({})", config.storage));
 
     // Acquire worker ID automatically (uses pod ordinal or random with collision detection)
     let worker_id = acquire_worker_id(storage.as_ref(), None)
@@ -168,8 +168,8 @@ async fn main() -> Result<()> {
 
     // Server API client (for gRPC communication with engine)
     let server_client = Arc::new(ServerApiClient::new(
-        config.engine.service_url.clone(),
-        config.engine.grpc_port,
+        config.mesh.url.clone(),
+        config.mesh.grpc,
     )?);
     startup::log_initialized("Engine client");
 
@@ -197,10 +197,10 @@ async fn main() -> Result<()> {
     // Webhook client for cache invalidation
     // Always enabled - uses discovery mode to find engine instances automatically
     let webhook_client = WebhookClient::new(
-        config.engine.service_url.clone(),
-        config.engine.internal_port,
+        config.mesh.url.clone(),
+        config.mesh.port,
         Arc::clone(&management_identity),
-        config.webhook.timeout_ms,
+        config.webhook.timeout,
         config.discovery.mode.clone(),
         config.discovery.cache_ttl,
     )

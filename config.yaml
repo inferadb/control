@@ -13,27 +13,21 @@ control:
     grpc: "127.0.0.1:9091"
     mesh: "0.0.0.0:9092"
 
-  storage:
-    backend: "memory"
+  storage: "memory"
 
-  authentication:
-    session_ttl_web: 2592000
-    session_ttl_cli: 7776000
-    session_ttl_sdk: 7776000
-    password_min_length: 12
-    max_sessions_per_user: 10
-    webauthn:
-      rp_id: "localhost"
-      rp_name: "InferaDB"
-      origin: "http://localhost:9090"
+  webauthn:
+    party: "localhost"
+    origin: "http://localhost:9090"
+
+  # secret: "" # Set via INFERADB__CONTROL__SECRET
 
   email:
-    smtp_host: "localhost"
-    smtp_port: 1025  # MailHog default port for development
-    # smtp_username: ""
-    # smtp_password: "" # Set via INFERADB__CONTROL__EMAIL__SMTP_PASSWORD
-    from_email: "noreply@inferadb.local"
-    from_name: "InferaDB"
+    host: "localhost"
+    port: 1025  # MailHog default port for development
+    # username: ""
+    # password: "" # Set via INFERADB__CONTROL__EMAIL__PASSWORD
+    address: "noreply@inferadb.local"
+    name: "InferaDB"
 
   limits:
     login_attempts_per_ip_per_hour: 100
@@ -41,7 +35,7 @@ control:
     email_verification_tokens_per_hour: 5
     password_reset_tokens_per_hour: 3
 
-  engine:
-    service_url: "http://localhost"
-    grpc_port: 8081
-    internal_port: 8082
+  mesh:
+    url: "http://localhost"
+    grpc: 8081
+    port: 8082

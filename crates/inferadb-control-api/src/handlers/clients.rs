@@ -293,13 +293,12 @@ pub async fn create_certificate(
     let (public_key_base64, private_key_bytes) = keypair::generate();
 
     // Encrypt private key for storage
-    tracing::debug!("Retrieving key encryption secret from config");
+    tracing::debug!("Retrieving secret from config");
     let master_secret = state
         .config
-        .authentication
-        .key_encryption_secret
+        .secret
         .as_ref()
-        .ok_or_else(|| CoreError::Internal("Key encryption secret not configured".to_string()))?
+        .ok_or_else(|| CoreError::Internal("secret not configured".to_string()))?
         .as_bytes();
 
     tracing::debug!(secret_len = master_secret.len(), "Creating encryptor");
