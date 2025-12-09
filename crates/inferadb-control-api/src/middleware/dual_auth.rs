@@ -4,10 +4,11 @@ use axum::{
     response::Response,
 };
 use axum_extra::extract::cookie::CookieJar;
+use inferadb_control_const::auth::SESSION_COOKIE_NAME;
 use inferadb_control_core::error::Error as CoreError;
 
 use super::{EngineContext, SessionContext, require_engine_jwt, require_session};
-use crate::handlers::auth::{ApiError, AppState, SESSION_COOKIE_NAME};
+use crate::handlers::auth::{ApiError, AppState};
 
 /// Dual authentication middleware
 ///

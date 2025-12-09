@@ -117,6 +117,7 @@ mod tests {
         middleware,
         routing::{delete, get, post},
     };
+    use inferadb_control_const::auth::SESSION_COOKIE_NAME;
     use inferadb_control_core::{
         IdGenerator,
         entities::{SessionType, UserSession},
@@ -125,7 +126,7 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
-    use crate::{handlers::auth::SESSION_COOKIE_NAME, middleware::require_session};
+    use crate::middleware::require_session;
 
     fn create_test_app(storage: Arc<Backend>) -> axum::Router {
         // Initialize ID generator

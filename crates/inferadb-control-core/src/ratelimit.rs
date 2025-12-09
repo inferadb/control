@@ -232,18 +232,10 @@ impl<S: StorageBackend> RateLimiter<S> {
 }
 
 /// Common rate limit categories
+///
+/// Re-exported from `inferadb-control-const` for convenience.
 pub mod categories {
-    /// Login attempts by IP address
-    pub const LOGIN_IP: &str = "login_ip";
-
-    /// Registration attempts by IP address
-    pub const REGISTRATION_IP: &str = "registration_ip";
-
-    /// Email verification token requests by email
-    pub const EMAIL_VERIFICATION: &str = "email_verification";
-
-    /// Password reset token requests by user ID
-    pub const PASSWORD_RESET: &str = "password_reset";
+    pub use inferadb_control_const::ratelimit::*;
 }
 
 /// Standard rate limits for the management API

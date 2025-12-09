@@ -1,4 +1,5 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use inferadb_control_const::limits::MAX_PASSKEYS_PER_USER;
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
     entities::PasskeyCredential,
@@ -37,16 +38,13 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
         format!("passkey:cred_id:{}", cred_id_base64).into_bytes()
     }
 
-    /// Maximum passkeys per user
-    pub const MAX_PASSKEYS_PER_USER: usize = 20;
-
     /// Create a new passkey credential
     pub async fn create(&self, credential: PasskeyCredential) -> Result<()> {
         // Check current credential count
         let current_credentials = self.get_user_credentials(credential.user_id).await?;
 
-        if current_credentials.len() >= Self::MAX_PASSKEYS_PER_USER {
-            return Err(Error::TooManyPasskeys { max: Self::MAX_PASSKEYS_PER_USER });
+        if current_credentials.len() >= MAX_PASSKEYS_PER_USER {
+            return Err(Error::TooManyPasskeys { max: MAX_PASSKEYS_PER_USER });
         }
 
         // Serialize credential
@@ -229,7 +227,7 @@ mod tests {
     async fn test_max_passkeys_limit() {
         // Note: Creating real Passkey objects requires the full WebAuthn flow
         // This test just verifies the constant exists
-        assert_eq!(PasskeyCredentialRepository::<MemoryBackend>::MAX_PASSKEYS_PER_USER, 20);
+        assert_eq!(MAX_PASSKEYS_PER_USER, 20);
     }
 
     #[tokio::test]

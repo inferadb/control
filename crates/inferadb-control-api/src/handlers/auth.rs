@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
+use inferadb_control_const::auth::{SESSION_COOKIE_MAX_AGE, SESSION_COOKIE_NAME};
 use inferadb_control_core::{
     IdGenerator, RepositoryContext, UserPasswordResetToken, error::Error as CoreError,
     hash_password, verify_password,
@@ -168,7 +169,7 @@ impl AppState {
             start_time: std::time::SystemTime::now(),
             leader: None,
             email_service: Some(Arc::new(email_service)),
-            webhook_client: None,      // No webhook client in tests
+            webhook_client: None,   // No webhook client in tests
             control_identity: None, // No control identity in tests
         }
     }
@@ -217,12 +218,6 @@ impl IntoResponse for ApiError {
 }
 
 pub type Result<T> = std::result::Result<T, ApiError>;
-
-/// Session cookie name
-pub const SESSION_COOKIE_NAME: &str = "infera_session";
-
-/// Session cookie max age (24 hours for web sessions)
-pub const SESSION_COOKIE_MAX_AGE: i64 = 24 * 60 * 60;
 
 /// Register a new user
 ///

@@ -18,7 +18,7 @@ use parking_lot::RwLock;
 use tokio::{sync::mpsc, time::interval};
 use tracing::{debug, error, info, warn};
 
-use crate::config::ControlConfig;
+use crate::ControlConfig;
 
 /// Configuration refresher that watches files and polls environment variables
 pub struct ConfigRefresher {

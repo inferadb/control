@@ -33,19 +33,24 @@ make check                                     # All checks
 | -------------------------------- | -------------------------------------- |
 | `inferadb-control`               | Main binary entry point                |
 | `inferadb-control-api`           | REST/gRPC handlers, middleware, routes |
+| `inferadb-control-config`        | Configuration loading and refresh      |
+| `inferadb-control-const`         | Shared constants (zero dependencies)   |
 | `inferadb-control-core`          | Business logic, entities, repositories |
 | `inferadb-control-storage`       | Storage backends (Memory, FDB planned) |
 | `inferadb-control-engine-client` | Engine API gRPC client                 |
+| `inferadb-control-types`         | Shared type definitions                |
 | `inferadb-control-test-fixtures` | Test utilities                         |
 
 ### Layered Architecture
 
 ```text
-API Layer (handlers, middleware, routes)
-    ↓
-Core Layer (entities, repositories, services)
-    ↓
-Storage Layer (MemoryBackend, FdbBackend planned)
+Layer 0 (Foundation): inferadb-control-types, inferadb-control-const
+Layer 1 (Config):     inferadb-control-config
+Layer 2 (Core):       inferadb-control-core
+Layer 3 (Storage):    inferadb-control-storage
+Layer 4 (External):   inferadb-control-engine-client
+Layer 5 (API):        inferadb-control-api
+Layer 6 (Binary):     inferadb-control
 ```
 
 ### Storage Backends

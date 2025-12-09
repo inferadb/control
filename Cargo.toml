@@ -2,6 +2,8 @@
 members = [
   "crates/inferadb-control",
   "crates/inferadb-control-api",
+  "crates/inferadb-control-config",
+  "crates/inferadb-control-const",
   "crates/inferadb-control-core",
   "crates/inferadb-control-engine-client",
   "crates/inferadb-control-storage",

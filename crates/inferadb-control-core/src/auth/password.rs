@@ -4,6 +4,7 @@ use argon2::{
         PasswordHash, PasswordHasher as _, PasswordVerifier, SaltString, rand_core::OsRng,
     },
 };
+use inferadb_control_const::limits::MIN_PASSWORD_LENGTH;
 use inferadb_control_types::error::{Error, Result};
 
 /// Password hasher with Argon2id configuration
@@ -77,8 +78,6 @@ impl PasswordHasher {
     /// - No maximum length (up to reasonable limits)
     /// - No complexity requirements (letters, numbers, symbols not required)
     pub fn validate_password(password: &str) -> Result<()> {
-        const MIN_PASSWORD_LENGTH: usize = 12;
-
         if password.len() < MIN_PASSWORD_LENGTH {
             return Err(Error::Validation(format!(
                 "Password must be at least {} characters long",

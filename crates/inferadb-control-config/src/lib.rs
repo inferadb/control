@@ -1,6 +1,37 @@
+//! # InferaDB Control Configuration
+//!
+//! Handles configuration loading from files, environment variables, and CLI args.
+//!
+//! ## Unified Configuration Format
+//!
+//! This crate supports a unified configuration format that allows both engine and control
+//! services to share the same configuration file:
+//!
+//! ```yaml
+//! engine:
+//!   threads: 4
+//!   logging: "info"
+//!   listen:
+//!     http: "127.0.0.1:8080"
+//!   # ... other engine config (ignored by control)
+//!
+//! control:
+//!   threads: 4
+//!   logging: "info"
+//!   listen:
+//!     http: "127.0.0.1:9090"
+//!   # ... control config
+//! ```
+//!
+//! The control service reads its configuration from the `control:` section. Any `engine:` section
+//! is ignored by control (and vice versa when engine reads the same file).
+
+pub mod refresh;
+
 use std::path::Path;
 
 use inferadb_control_types::error::{Error, Result};
+pub use refresh::ConfigRefresher;
 use serde::{Deserialize, Serialize};
 
 /// Root configuration wrapper for unified config file support.

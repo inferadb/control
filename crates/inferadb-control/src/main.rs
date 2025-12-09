@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::Parser;
 use inferadb_control_api::ControlIdentity;
 use inferadb_control_core::{
-    IdGenerator, ControlConfig, WebhookClient, WorkerRegistry, acquire_worker_id,
+    ControlConfig, IdGenerator, WebhookClient, WorkerRegistry, acquire_worker_id,
     config::DiscoveryMode, logging, startup,
 };
 use inferadb_control_engine_client::EngineClient;
@@ -239,9 +239,10 @@ async fn main() -> Result<()> {
         engine_client.clone(),
         worker_id,
         inferadb_control_api::ServicesConfig {
-            leader: None,        // leader election (optional, for multi-node)
-            email_service: None, // email service (optional, can be initialized later)
-            webhook_client,      // cache invalidation webhooks
+            leader: None, // leader election (optional, for multi-node)
+            email_service: None, /* email service (optional, can be
+                           * initialized later) */
+            webhook_client,                           // cache invalidation webhooks
             control_identity: Some(control_identity), // control identity for JWKS endpoint
         },
     )

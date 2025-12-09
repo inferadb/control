@@ -1,5 +1,6 @@
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, Duration, Utc};
+use inferadb_control_const::auth::{REQUIRED_AUDIENCE, REQUIRED_ISSUER};
 use inferadb_control_types::{
     entities::{ClientCertificate, VaultRole},
     error::{Error, Result},
@@ -8,29 +9,6 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::PrivateKeyEncryptor;
-
-/// Required JWT issuer for vault tokens
-///
-/// Per RFC 8725 (JWT Best Current Practices), the issuer claim identifies
-/// the entity that issued the token - in this case, the InferaDB Control API.
-///
-/// This value is hardcoded since we own the entire experience end-to-end.
-/// The Engine uses this issuer to identify tokens issued by Control.
-pub const REQUIRED_ISSUER: &str = "https://api.inferadb.com";
-
-/// Required JWT audience for InferaDB Engine
-///
-/// Per RFC 8725 (JWT Best Current Practices), the audience claim identifies
-/// the intended recipient of the token - in this case, the InferaDB Engine.
-///
-/// This is intentionally NOT an endpoint path (like `/evaluate`) because:
-/// - The `aud` claim identifies the SERVICE, not a specific endpoint
-/// - A single token should be valid for all Engine endpoints
-/// - Endpoint-specific authorization is handled by scopes, not audience
-///
-/// This value MUST match the engine's REQUIRED_AUDIENCE constant in:
-/// `inferadb_auth::validation::REQUIRED_AUDIENCE`
-pub const REQUIRED_AUDIENCE: &str = "https://api.inferadb.com";
 
 /// JWT claims for vault-scoped access tokens
 ///

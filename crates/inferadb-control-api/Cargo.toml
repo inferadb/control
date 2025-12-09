@@ -11,6 +11,7 @@ version.workspace = true
 
 [dependencies]
 # Workspace crates
+inferadb-control-const = { path = "../inferadb-control-const" }
 inferadb-control-core = { path = "../inferadb-control-core" }
 inferadb-control-engine-client = { path = "../inferadb-control-engine-client" }
 inferadb-control-storage = { path = "../inferadb-control-storage" }

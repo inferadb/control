@@ -285,6 +285,7 @@ mod tests {
         middleware,
         routing::{delete, get, patch, post},
     };
+    use inferadb_control_const::auth::SESSION_COOKIE_NAME;
     use inferadb_control_core::{
         UserRepository, UserSessionRepository,
         entities::{SessionType, User, UserSession},
@@ -293,7 +294,7 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
-    use crate::{handlers::auth::SESSION_COOKIE_NAME, middleware::require_session};
+    use crate::middleware::require_session;
 
     fn create_test_app(storage: Arc<Backend>) -> axum::Router {
         let _ = IdGenerator::init(1);

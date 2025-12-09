@@ -63,7 +63,9 @@ curl -X POST http://localhost:9090/v1/auth/login/password \
 ```mermaid
 graph TD
     Bin[inferadb-control] --> API[inferadb-control-api]
+    Bin --> Config[inferadb-control-config]
     API --> Core[inferadb-control-core]
+    Core --> Config
     Core --> Storage[inferadb-control-storage]
     Storage --> FDB[(FoundationDB)]
     Core --> Engine[inferadb-control-engine-client]
@@ -73,6 +75,8 @@ graph TD
 | ------------------------------ | ------------------------ |
 | inferadb-control               | Binary entrypoint        |
 | inferadb-control-api           | REST/gRPC handlers       |
+| inferadb-control-config        | Configuration loading    |
+| inferadb-control-const         | Shared constants         |
 | inferadb-control-core          | Business logic, entities |
 | inferadb-control-storage       | Memory or FoundationDB   |
 | inferadb-control-types         | Shared type definitions  |

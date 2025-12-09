@@ -1,3 +1,4 @@
+use inferadb_control_const::limits::MAX_CONCURRENT_SESSIONS;
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
     entities::UserSession,
@@ -35,9 +36,6 @@ impl<S: StorageBackend> UserSessionRepository<S> {
         format!("session:active:{}", id).into_bytes()
     }
 
-    /// Maximum concurrent sessions per user
-    pub const MAX_CONCURRENT_SESSIONS: usize = 10;
-
     /// Create a new session
     ///
     /// Sessions are automatically stored with TTL based on their expiry time
@@ -46,7 +44,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
         // Check current session count and enforce limit
         let mut current_sessions = self.get_user_sessions(session.user_id).await?;
 
-        if current_sessions.len() >= Self::MAX_CONCURRENT_SESSIONS {
+        if current_sessions.len() >= MAX_CONCURRENT_SESSIONS {
             // Evict oldest session (by last_activity_at)
             current_sessions.sort_by(|a, b| a.last_activity_at.cmp(&b.last_activity_at));
             let oldest_session = &current_sessions[0];

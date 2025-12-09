@@ -2,6 +2,7 @@ use axum::{
     Extension, Json,
     extract::{Path, State},
 };
+use inferadb_control_const::limits::{GLOBAL_ORGANIZATION_LIMIT, PER_USER_ORGANIZATION_LIMIT};
 use inferadb_control_core::{IdGenerator, RepositoryContext, error::Error as CoreError};
 use inferadb_control_types::{
     dto::{
@@ -25,12 +26,6 @@ use crate::{
     handlers::auth::{AppState, Result},
     middleware::{OrganizationContext, SessionContext, engine_auth::EngineContext},
 };
-
-/// Global limit on total organizations
-const GLOBAL_ORGANIZATION_LIMIT: i64 = 100_000;
-
-/// Per-user limit on organizations
-const PER_USER_ORGANIZATION_LIMIT: i64 = 10;
 
 /// Create a new organization
 ///

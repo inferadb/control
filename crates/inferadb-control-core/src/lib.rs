@@ -1,10 +1,11 @@
 // Re-export types from inferadb-control-types
+// Re-export configuration from dedicated config crate
+pub use inferadb_control_config as config;
+pub use inferadb_control_config::{ConfigRefresher, ControlConfig};
 pub use inferadb_control_types::{entities::*, error::*, *};
 
 pub mod auth;
 pub mod clock;
-pub mod config;
-pub mod config_refresh;
 pub mod crypto;
 pub mod email;
 pub mod id;
@@ -21,8 +22,6 @@ pub mod webhook_client;
 
 pub use auth::{PasswordHasher, hash_password, verify_password};
 pub use clock::{ClockStatus, ClockValidator};
-pub use config::ControlConfig;
-pub use config_refresh::ConfigRefresher;
 pub use crypto::{MasterKey, PrivateKeyEncryptor, keypair};
 pub use email::{
     EmailSender, EmailService, EmailTemplate, InvitationAcceptedEmailTemplate,
@@ -32,7 +31,7 @@ pub use email::{
 };
 pub use id::{IdGenerator, WorkerRegistry, acquire_worker_id};
 pub use jobs::BackgroundJobs;
-pub use jwt::{JwtSigner, REQUIRED_AUDIENCE, REQUIRED_ISSUER, VaultTokenClaims};
+pub use jwt::{JwtSigner, VaultTokenClaims};
 pub use leader::LeaderElection;
 pub use ratelimit::{RateLimit, RateLimitResult, RateLimiter, categories, limits};
 pub use repository::{
