@@ -40,6 +40,7 @@ pub struct RepositoryContext<S: StorageBackend> {
     pub vault_user_grant: VaultUserGrantRepository<S>,
     pub vault_team_grant: VaultTeamGrantRepository<S>,
     pub vault_refresh_token: VaultRefreshTokenRepository<S>,
+    pub vault_schema: VaultSchemaRepository<S>,
 
     // Client management
     pub client: ClientRepository<S>,
@@ -89,6 +90,7 @@ impl<S: StorageBackend + Clone> RepositoryContext<S> {
             vault_user_grant: VaultUserGrantRepository::new(storage.clone()),
             vault_team_grant: VaultTeamGrantRepository::new(storage.clone()),
             vault_refresh_token: VaultRefreshTokenRepository::new(storage.clone()),
+            vault_schema: VaultSchemaRepository::new(storage.clone()),
 
             // Client management
             client: ClientRepository::new(storage.clone()),

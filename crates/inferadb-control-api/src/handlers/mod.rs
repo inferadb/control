@@ -7,6 +7,7 @@ pub mod health;
 pub mod jwks;
 pub mod metrics;
 pub mod organizations;
+pub mod schemas;
 pub mod sessions;
 pub mod teams;
 pub mod tokens;

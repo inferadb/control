@@ -14,6 +14,7 @@ pub mod user_password_reset_token;
 pub mod user_session;
 pub mod vault;
 pub mod vault_refresh_token;
+pub mod vault_schema;
 
 pub use audit_log::{AuditLogFilters, AuditLogRepository};
 pub use authorization_code::AuthorizationCodeRepository;
@@ -34,3 +35,4 @@ pub use user_password_reset_token::UserPasswordResetTokenRepository;
 pub use user_session::UserSessionRepository;
 pub use vault::{VaultRepository, VaultTeamGrantRepository, VaultUserGrantRepository};
 pub use vault_refresh_token::VaultRefreshTokenRepository;
+pub use vault_schema::VaultSchemaRepository;

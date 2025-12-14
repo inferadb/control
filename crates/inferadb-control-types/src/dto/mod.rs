@@ -6,6 +6,7 @@ pub mod cli_auth;
 pub mod clients;
 pub mod emails;
 pub mod organizations;
+pub mod schemas;
 pub mod sessions;
 pub mod teams;
 pub mod tokens;
@@ -45,6 +46,12 @@ pub use organizations::{
     SuspendOrganizationResponse, TransferOwnershipRequest, TransferOwnershipResponse,
     UpdateMemberRoleRequest, UpdateMemberRoleResponse, UpdateOrganizationRequest,
     UpdateOrganizationResponse,
+};
+pub use schemas::{
+    ActivateSchemaRequest, ActivateSchemaResponse, DeploySchemaRequest, DeploySchemaResponse,
+    DiffChangeType, GetSchemaResponse, ListSchemasQuery, ListSchemasResponse,
+    RollbackSchemaRequest, RollbackSchemaResponse, SchemaDiffChange, SchemaDiffQuery,
+    SchemaDiffResponse, SchemaDiffSummary, SchemaDetail, SchemaInfo,
 };
 pub use sessions::{ListSessionsResponse, RevokeSessionResponse, SessionInfo};
 pub use teams::{

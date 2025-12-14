@@ -6,7 +6,7 @@ use axum::{
 use crate::{
     handlers::{
         AppState, audit_logs, auth, cli_auth, clients, emails, health, jwks,
-        metrics as metrics_handler, organizations, sessions, teams, tokens, users, vaults,
+        metrics as metrics_handler, organizations, schemas, sessions, teams, tokens, users, vaults,
     },
     middleware::{
         logging_middleware, require_engine_jwt, require_organization_member, require_session,
@@ -107,6 +107,31 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route(
             "/v1/organizations/{org}/vaults/{vault}/team-grants/{grant}",
             delete(vaults::delete_team_grant),
+        )
+        // Schema management routes
+        .route(
+            "/v1/organizations/{org}/vaults/{vault}/schemas",
+            post(schemas::deploy_schema).get(schemas::list_schemas),
+        )
+        .route(
+            "/v1/organizations/{org}/vaults/{vault}/schemas/current",
+            get(schemas::get_current_schema),
+        )
+        .route(
+            "/v1/organizations/{org}/vaults/{vault}/schemas/diff",
+            get(schemas::diff_schemas),
+        )
+        .route(
+            "/v1/organizations/{org}/vaults/{vault}/schemas/rollback",
+            post(schemas::rollback_schema),
+        )
+        .route(
+            "/v1/organizations/{org}/vaults/{vault}/schemas/{version}",
+            get(schemas::get_schema),
+        )
+        .route(
+            "/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate",
+            post(schemas::activate_schema),
         )
         // Vault token generation route
         .route("/v1/organizations/{org}/vaults/{vault}/tokens", post(tokens::generate_vault_token))

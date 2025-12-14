@@ -12,6 +12,7 @@ pub mod user_password_reset_token;
 pub mod user_session;
 pub mod vault;
 pub mod vault_refresh_token;
+pub mod vault_schema;
 
 pub use audit_log::{AuditEventType, AuditLog, AuditResourceType};
 pub use authorization_code::AuthorizationCode;
@@ -29,3 +30,4 @@ pub use user_password_reset_token::UserPasswordResetToken;
 pub use user_session::{SessionType, UserSession};
 pub use vault::{Vault, VaultRole, VaultSyncStatus, VaultTeamGrant, VaultUserGrant};
 pub use vault_refresh_token::VaultRefreshToken;
+pub use vault_schema::{SchemaDeploymentStatus, SchemaVersion, VaultSchema};
