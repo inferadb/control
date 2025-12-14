@@ -254,10 +254,10 @@ async fn main() -> Result<()> {
         engine_client.clone(),
         worker_id,
         inferadb_control_api::ServicesConfig {
-            leader: None,                             // leader election (optional, for multi-node)
-            email_service,                            // email service for verification emails
-            fdb_invalidation,                         /* FDB-based cache invalidation (replaces
-                                                       * HTTP webhooks) */
+            leader: None,  // leader election (optional, for multi-node)
+            email_service, // email service for verification emails
+            fdb_invalidation, /* FDB-based cache invalidation (replaces
+                            * HTTP webhooks) */
             control_identity: Some(control_identity), // control identity for JWKS endpoint
         },
     )
