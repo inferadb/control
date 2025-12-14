@@ -6,8 +6,9 @@ fn deserialize_optional_string_or_number<'de, D>(deserializer: D) -> Result<Opti
 where
     D: Deserializer<'de>,
 {
-    use serde::de::{self, Visitor};
     use std::fmt;
+
+    use serde::de::{self, Visitor};
 
     struct OptionalStringOrNumber;
 

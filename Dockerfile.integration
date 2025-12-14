@@ -38,7 +38,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 
 # Build dependencies first (cached layer) with FDB feature
-RUN cargo build --release --bin inferadb-control --features inferadb-control-storage/fdb
+RUN cargo build --release --bin inferadb-control --features fdb
 
 # Final stage - minimal runtime image
 FROM debian:bookworm-slim

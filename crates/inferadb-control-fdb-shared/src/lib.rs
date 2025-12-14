@@ -71,11 +71,7 @@ pub enum InvalidationEvent {
     /// Invalidate all caches for an organization
     Organization { org_id: i64 },
     /// Invalidate a specific certificate
-    Certificate {
-        org_id: i64,
-        client_id: i64,
-        cert_id: i64,
-    },
+    Certificate { org_id: i64, client_id: i64, cert_id: i64 },
     /// Invalidate all caches (nuclear option)
     All,
 }
@@ -134,10 +130,7 @@ mod tests {
     #[test]
     fn test_jwks_key() {
         let key = jwks_key("ctrl-inferadb-control-0");
-        assert_eq!(
-            key,
-            b"inferadb/control-jwks/ctrl-inferadb-control-0".to_vec()
-        );
+        assert_eq!(key, b"inferadb/control-jwks/ctrl-inferadb-control-0".to_vec());
     }
 
     #[test]

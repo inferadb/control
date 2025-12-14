@@ -52,8 +52,8 @@ impl FdbJwksWriter {
         };
 
         let key = jwks_key(control_id);
-        let value =
-            serde_json::to_vec(&stored_jwks).map_err(|e| format!("Failed to serialize JWKS: {e}"))?;
+        let value = serde_json::to_vec(&stored_jwks)
+            .map_err(|e| format!("Failed to serialize JWKS: {e}"))?;
 
         let db = Arc::clone(&self.db);
         db.run({

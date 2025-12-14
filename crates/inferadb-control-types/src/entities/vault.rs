@@ -184,7 +184,9 @@ mod tests {
 
     #[test]
     fn test_create_vault() {
-        let vault = Vault::new(1, 100, "Test Vault".to_string(), Some("Test description".to_string()), 999).unwrap();
+        let vault =
+            Vault::new(1, 100, "Test Vault".to_string(), Some("Test description".to_string()), 999)
+                .unwrap();
         assert_eq!(vault.id, 1);
         assert_eq!(vault.organization_id, 100);
         assert_eq!(vault.name, "Test Vault");

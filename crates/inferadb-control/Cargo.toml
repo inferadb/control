@@ -33,3 +33,7 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 inferadb-control-test-fixtures = { path = "../inferadb-control-test-fixtures" }
+
+[features]
+default = []
+fdb = ["inferadb-control-api/fdb", "inferadb-control-core/fdb"]

@@ -3,9 +3,11 @@ use std::sync::Arc;
 use anyhow::Result;
 use clap::Parser;
 use inferadb_control_api::ControlIdentity;
+#[cfg(feature = "fdb")]
+use inferadb_control_core::FdbInvalidationWriter;
 use inferadb_control_core::{
-    ControlConfig, EmailService, IdGenerator, SmtpConfig, SmtpEmailService, WebhookClient,
-    WorkerRegistry, acquire_worker_id, logging, startup,
+    ControlConfig, EmailService, IdGenerator, SmtpConfig, SmtpEmailService, WorkerRegistry,
+    acquire_worker_id, logging, startup,
 };
 use inferadb_control_discovery::DiscoveryMode;
 use inferadb_control_engine_client::EngineClient;
@@ -194,19 +196,22 @@ async fn main() -> Result<()> {
     )?);
     startup::log_initialized("Engine client");
 
-    // Webhook client for cache invalidation
-    // Always enabled - uses discovery mode to find engine instances automatically
-    let webhook_client = WebhookClient::new(
-        config.mesh.url.clone(),
-        config.mesh.port,
-        Arc::clone(&control_identity),
-        config.webhook.timeout,
-        config.discovery.mode.clone(),
-        config.discovery.cache_ttl,
-    )
-    .map_err(|e| anyhow::anyhow!("Failed to create webhook client: {}", e))?;
-    startup::log_initialized("Webhook client");
-    let webhook_client = Some(Arc::new(webhook_client));
+    // FDB-based cache invalidation (replaces HTTP webhooks)
+    // Only enabled when using FoundationDB storage and compiled with fdb feature
+    #[cfg(feature = "fdb")]
+    let fdb_invalidation = if let Some(fdb_db) = storage.fdb_database() {
+        let writer =
+            Arc::new(FdbInvalidationWriter::new(fdb_db, control_identity.control_id.clone()));
+        // Start background cleanup task for old invalidation events
+        writer.clone().start_cleanup_task();
+        startup::log_initialized("FDB invalidation writer");
+        Some(writer)
+    } else {
+        tracing::info!("FDB invalidation disabled (not using FoundationDB storage)");
+        None
+    };
+    #[cfg(not(feature = "fdb"))]
+    let fdb_invalidation = None;
 
     // Initialize email service (if configured)
     let email_service = if !config.email.host.is_empty() {
@@ -229,11 +234,11 @@ async fn main() -> Result<()> {
                     if config.email.insecure { " [insecure]" } else { "" }
                 ));
                 Some(Arc::new(EmailService::new(Box::new(smtp_service))))
-            }
+            },
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to initialize email service - emails will be disabled");
                 None
-            }
+            },
         }
     } else {
         tracing::info!("Email service not configured - verification emails disabled");
@@ -249,9 +254,10 @@ async fn main() -> Result<()> {
         engine_client.clone(),
         worker_id,
         inferadb_control_api::ServicesConfig {
-            leader: None,       // leader election (optional, for multi-node)
-            email_service,      // email service for verification emails
-            webhook_client,     // cache invalidation webhooks
+            leader: None,                             // leader election (optional, for multi-node)
+            email_service,                            // email service for verification emails
+            fdb_invalidation,                         /* FDB-based cache invalidation (replaces
+                                                       * HTTP webhooks) */
             control_identity: Some(control_identity), // control identity for JWKS endpoint
         },
     )

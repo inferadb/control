@@ -129,7 +129,12 @@ pub struct OrganizationTeamPermission {
 
 impl OrganizationTeam {
     /// Create a new organization team
-    pub fn new(id: i64, organization_id: i64, name: String, description: Option<String>) -> Result<Self> {
+    pub fn new(
+        id: i64,
+        organization_id: i64,
+        name: String,
+        description: Option<String>,
+    ) -> Result<Self> {
         Self::validate_name(&name)?;
 
         Ok(Self {

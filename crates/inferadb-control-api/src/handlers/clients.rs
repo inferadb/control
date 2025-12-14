@@ -209,9 +209,7 @@ pub async fn update_client(
     // Save changes
     repos.client.update(client.clone()).await?;
 
-    Ok(Json(UpdateClientResponse {
-        client: client_to_detail(client),
-    }))
+    Ok(Json(UpdateClientResponse { client: client_to_detail(client) }))
 }
 
 /// Delete a client (soft delete)
@@ -238,17 +236,16 @@ pub async fn delete_client(
         return Err(CoreError::NotFound("Client not found".to_string()).into());
     }
 
-    // Get all certificates for this client to invalidate their caches
-    let certs = repos.client_certificate.list_by_client(client_id).await?;
-
     // Soft delete
     client.mark_deleted();
     repos.client.update(client).await?;
 
     // Invalidate certificate cache for all certificates of this client
-    if let Some(ref webhook_client) = state.webhook_client {
+    #[cfg(feature = "fdb")]
+    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
+        let certs = repos.client_certificate.list_by_client(client_id).await?;
         for cert in certs {
-            webhook_client
+            let _ = fdb_invalidation
                 .invalidate_certificate(org_ctx.organization_id, client_id, cert.id)
                 .await;
         }
@@ -484,8 +481,11 @@ pub async fn revoke_certificate(
     repos.client_certificate.update(cert).await?;
 
     // Invalidate certificate cache on all servers
-    if let Some(ref webhook_client) = state.webhook_client {
-        webhook_client.invalidate_certificate(org_ctx.organization_id, client_id, cert_id).await;
+    #[cfg(feature = "fdb")]
+    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
+        let _ = fdb_invalidation
+            .invalidate_certificate(org_ctx.organization_id, client_id, cert_id)
+            .await;
     }
 
     Ok(Json(RevokeCertificateResponse { message: "Certificate revoked successfully".to_string() }))
@@ -531,8 +531,11 @@ pub async fn delete_certificate(
     repos.client_certificate.delete(cert_id).await?;
 
     // Invalidate certificate cache on all servers
-    if let Some(ref webhook_client) = state.webhook_client {
-        webhook_client.invalidate_certificate(org_ctx.organization_id, client_id, cert_id).await;
+    #[cfg(feature = "fdb")]
+    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
+        let _ = fdb_invalidation
+            .invalidate_certificate(org_ctx.organization_id, client_id, cert_id)
+            .await;
     }
 
     Ok(Json(DeleteCertificateResponse { message: "Certificate deleted successfully".to_string() }))

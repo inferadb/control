@@ -42,3 +42,7 @@ uuid = { version = "1.11", features = ["serde", "v4"] }
 
 [dev-dependencies]
 inferadb-control-test-fixtures = { path = "../inferadb-control-test-fixtures" }
+
+[features]
+default = []
+fdb = ["inferadb-control-core/fdb"]

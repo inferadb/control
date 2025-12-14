@@ -149,10 +149,7 @@ impl FdbInvalidationWriter {
             .await
             .map_err(|e| format!("Failed to cleanup old invalidation events: {e}"))?;
 
-        debug!(
-            cutoff_ms = cutoff_ms,
-            "Cleaned up old invalidation events"
-        );
+        debug!(cutoff_ms = cutoff_ms, "Cleaned up old invalidation events");
 
         Ok(deleted_count)
     }

@@ -8,7 +8,9 @@ pub mod auth;
 pub mod clock;
 pub mod crypto;
 pub mod email;
+#[cfg(feature = "fdb")]
 pub mod fdb_invalidation;
+#[cfg(feature = "fdb")]
 pub mod fdb_jwks;
 pub mod id;
 pub mod jobs;
@@ -20,7 +22,6 @@ pub mod ratelimit;
 pub mod repository;
 pub mod repository_context;
 pub mod startup;
-pub mod webhook_client;
 
 pub use auth::{PasswordHasher, hash_password, verify_password};
 pub use clock::{ClockStatus, ClockValidator};
@@ -31,6 +32,10 @@ pub use email::{
     PasswordResetEmailTemplate, RoleChangeEmailTemplate, SmtpConfig, SmtpEmailService,
     VerificationEmailTemplate,
 };
+#[cfg(feature = "fdb")]
+pub use fdb_invalidation::FdbInvalidationWriter;
+#[cfg(feature = "fdb")]
+pub use fdb_jwks::FdbJwksWriter;
 pub use id::{IdGenerator, WorkerRegistry, acquire_worker_id};
 pub use jobs::BackgroundJobs;
 pub use jwt::{JwtSigner, VaultTokenClaims};
@@ -46,6 +51,3 @@ pub use repository::{
     VaultTeamGrantRepository, VaultUserGrantRepository,
 };
 pub use repository_context::RepositoryContext;
-pub use webhook_client::WebhookClient;
-pub use fdb_invalidation::FdbInvalidationWriter;
-pub use fdb_jwks::FdbJwksWriter;

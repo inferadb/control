@@ -382,8 +382,9 @@ pub async fn delete_organization(
     repos.org.delete(org_ctx.organization_id).await?;
 
     // Invalidate caches on all servers
-    if let Some(ref webhook_client) = state.webhook_client {
-        webhook_client.invalidate_organization(org_ctx.organization_id).await;
+    #[cfg(feature = "fdb")]
+    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
+        let _ = fdb_invalidation.invalidate_organization(org_ctx.organization_id).await;
     }
 
     Ok(Json(DeleteOrganizationResponse {
@@ -428,8 +429,9 @@ pub async fn suspend_organization(
     repos.org.update(org).await?;
 
     // Invalidate caches on all servers
-    if let Some(ref webhook_client) = state.webhook_client {
-        webhook_client.invalidate_organization(org_ctx.organization_id).await;
+    #[cfg(feature = "fdb")]
+    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
+        let _ = fdb_invalidation.invalidate_organization(org_ctx.organization_id).await;
     }
 
     Ok(Json(SuspendOrganizationResponse {
@@ -474,8 +476,9 @@ pub async fn resume_organization(
     repos.org.update(org).await?;
 
     // Invalidate caches on all servers
-    if let Some(ref webhook_client) = state.webhook_client {
-        webhook_client.invalidate_organization(org_ctx.organization_id).await;
+    #[cfg(feature = "fdb")]
+    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
+        let _ = fdb_invalidation.invalidate_organization(org_ctx.organization_id).await;
     }
 
     Ok(Json(ResumeOrganizationResponse {

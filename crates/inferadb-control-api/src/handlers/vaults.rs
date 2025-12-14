@@ -104,8 +104,13 @@ pub async fn create_vault(
     let vault_id = IdGenerator::next_id();
 
     // Create vault entity (starts with PENDING sync status)
-    let mut vault =
-        Vault::new(vault_id, org_ctx.organization_id, payload.name, payload.description.clone(), org_ctx.member.user_id)?;
+    let mut vault = Vault::new(
+        vault_id,
+        org_ctx.organization_id,
+        payload.name,
+        payload.description.clone(),
+        org_ctx.member.user_id,
+    )?;
 
     // Save to repository
     repos.vault.create(vault.clone()).await?;
@@ -310,8 +315,9 @@ pub async fn update_vault(
     repos.vault.update(vault.clone()).await?;
 
     // Invalidate caches on all engine instances (vault metadata changed)
-    if let Some(ref webhook_client) = state.webhook_client {
-        webhook_client.invalidate_vault(vault_id).await;
+    #[cfg(feature = "fdb")]
+    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
+        let _ = fdb_invalidation.invalidate_vault(vault_id).await;
     }
 
     Ok(Json(UpdateVaultResponse {
@@ -389,8 +395,9 @@ pub async fn delete_vault(
     repos.vault.update(vault).await?;
 
     // Invalidate caches on all engine instances
-    if let Some(ref webhook_client) = state.webhook_client {
-        webhook_client.invalidate_vault(vault_id).await;
+    #[cfg(feature = "fdb")]
+    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
+        let _ = fdb_invalidation.invalidate_vault(vault_id).await;
     }
 
     Ok(StatusCode::NO_CONTENT)
