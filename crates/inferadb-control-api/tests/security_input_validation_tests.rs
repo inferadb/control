@@ -70,7 +70,7 @@ async fn test_xss_in_organization_name_rejected() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/organizations")
+                    .uri("/control/v1/organizations")
                     .header("cookie", format!("infera_session={}", session.id))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -106,7 +106,7 @@ async fn test_xss_in_vault_name_rejected() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org.id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org.id))
                 .header("cookie", format!("infera_session={}", session.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -136,7 +136,7 @@ async fn test_xss_in_team_name_rejected() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/teams", org.id))
+                .uri(format!("/control/v1/organizations/{}/teams", org.id))
                 .header("cookie", format!("infera_session={}", session.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -167,7 +167,7 @@ async fn test_xss_in_client_name_handled_safely() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients", org.id))
+                .uri(format!("/control/v1/organizations/{}/clients", org.id))
                 .header("cookie", format!("infera_session={}", session.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -225,7 +225,7 @@ async fn test_path_traversal_in_organization_name_rejected() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/organizations")
+                    .uri("/control/v1/organizations")
                     .header("cookie", format!("infera_session={}", session.id))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -261,7 +261,7 @@ async fn test_null_byte_injection_rejected() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -295,7 +295,7 @@ async fn test_empty_organization_name_rejected() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -329,7 +329,7 @@ async fn test_whitespace_only_name_rejected() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/organizations")
+                    .uri("/control/v1/organizations")
                     .header("cookie", format!("infera_session={}", session.id))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -368,7 +368,7 @@ async fn test_excessively_long_name_rejected() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -409,7 +409,7 @@ async fn test_unicode_edge_cases_handled() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/organizations")
+                    .uri("/control/v1/organizations")
                     .header("cookie", format!("infera_session={}", session.id))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -456,7 +456,7 @@ async fn test_sql_injection_patterns_rejected() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/organizations")
+                    .uri("/control/v1/organizations")
                     .header("cookie", format!("infera_session={}", session.id))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -502,7 +502,7 @@ async fn test_control_characters_rejected() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/organizations")
+                    .uri("/control/v1/organizations")
                     .header("cookie", format!("infera_session={}", session.id))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -540,7 +540,7 @@ async fn test_negative_pagination_values_rejected() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/vaults?limit=-10", org.id))
+                .uri(format!("/control/v1/organizations/{}/vaults?limit=-10", org.id))
                 .header("cookie", format!("infera_session={}", session.id))
                 .body(Body::empty())
                 .unwrap(),
@@ -556,7 +556,7 @@ async fn test_negative_pagination_values_rejected() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/vaults?offset=-5", org.id))
+                .uri(format!("/control/v1/organizations/{}/vaults?offset=-5", org.id))
                 .header("cookie", format!("infera_session={}", session.id))
                 .body(Body::empty())
                 .unwrap(),
@@ -581,7 +581,7 @@ async fn test_excessive_pagination_limit_clamped() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/vaults?limit=1000", org.id))
+                .uri(format!("/control/v1/organizations/{}/vaults?limit=1000", org.id))
                 .header("cookie", format!("infera_session={}", session.id))
                 .body(Body::empty())
                 .unwrap(),

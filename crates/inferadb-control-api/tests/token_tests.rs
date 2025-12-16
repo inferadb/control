@@ -15,7 +15,7 @@ async fn create_client_with_cert(app: &axum::Router, session: &str, org_id: i64)
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients", org_id))
+                .uri(format!("/control/v1/organizations/{}/clients", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -40,7 +40,10 @@ async fn create_client_with_cert(app: &axum::Router, session: &str, org_id: i64)
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients/{}/certificates", org_id, client_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/clients/{}/certificates",
+                    org_id, client_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(json!({"name": "test-cert"}).to_string()))
@@ -77,7 +80,7 @@ async fn test_generate_vault_token() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -95,7 +98,7 @@ async fn test_generate_vault_token() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -120,7 +123,7 @@ async fn test_generate_vault_token() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients", org_id))
+                .uri(format!("/control/v1/organizations/{}/clients", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -145,7 +148,10 @@ async fn test_generate_vault_token() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients/{}/certificates", org_id, client_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/clients/{}/certificates",
+                    org_id, client_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -185,7 +191,7 @@ async fn test_refresh_token_flow() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/auth/me")
+                .uri("/control/v1/auth/me")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -203,7 +209,7 @@ async fn test_refresh_token_flow() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -221,7 +227,7 @@ async fn test_refresh_token_flow() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -249,7 +255,7 @@ async fn test_refresh_token_flow() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults/{}/tokens", org_id, vault_id))
+                .uri(format!("/control/v1/organizations/{}/vaults/{}/tokens", org_id, vault_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -285,7 +291,7 @@ async fn test_refresh_token_flow() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tokens/refresh")
+                .uri("/control/v1/tokens/refresh")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -328,7 +334,7 @@ async fn test_refresh_token_replay_protection() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/auth/me")
+                .uri("/control/v1/auth/me")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -345,7 +351,7 @@ async fn test_refresh_token_replay_protection() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -363,7 +369,7 @@ async fn test_refresh_token_replay_protection() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -391,7 +397,7 @@ async fn test_refresh_token_replay_protection() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults/{}/tokens", org_id, vault_id))
+                .uri(format!("/control/v1/organizations/{}/vaults/{}/tokens", org_id, vault_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -414,7 +420,7 @@ async fn test_refresh_token_replay_protection() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tokens/refresh")
+                .uri("/control/v1/tokens/refresh")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -435,7 +441,7 @@ async fn test_refresh_token_replay_protection() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tokens/refresh")
+                .uri("/control/v1/tokens/refresh")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -469,7 +475,7 @@ async fn test_revoke_refresh_tokens() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/auth/me")
+                .uri("/control/v1/auth/me")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -486,7 +492,7 @@ async fn test_revoke_refresh_tokens() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -504,7 +510,7 @@ async fn test_revoke_refresh_tokens() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -532,7 +538,7 @@ async fn test_revoke_refresh_tokens() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults/{}/tokens", org_id, vault_id))
+                .uri(format!("/control/v1/organizations/{}/vaults/{}/tokens", org_id, vault_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -556,7 +562,7 @@ async fn test_revoke_refresh_tokens() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/tokens/revoke/vault/{}", vault_id))
+                .uri(format!("/control/v1/tokens/revoke/vault/{}", vault_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -572,7 +578,7 @@ async fn test_revoke_refresh_tokens() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tokens/refresh")
+                .uri("/control/v1/tokens/refresh")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({

@@ -57,12 +57,17 @@ pub async fn require_organization_member(
     next: Next,
 ) -> Result<Response, ApiError> {
     // Extract org_id from the URI path manually
-    // Routes are of the form /v1/organizations/{org}/... where {org} is always the 3rd segment
+    // Routes are of the form /control/v1/organizations/{org}/... where {org} is always the 5th
+    // segment
     let uri_path = request.uri().path();
     let segments: Vec<&str> = uri_path.split('/').collect();
 
-    let org_id = if segments.len() >= 4 && segments[1] == "v1" && segments[2] == "organizations" {
-        segments[3]
+    let org_id = if segments.len() >= 5
+        && segments[1] == "control"
+        && segments[2] == "v1"
+        && segments[3] == "organizations"
+    {
+        segments[4]
             .parse::<i64>()
             .map_err(|_| CoreError::Validation("Invalid organization ID in path".to_string()))?
     } else {

@@ -19,7 +19,7 @@ async fn test_create_and_list_invitations() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -61,7 +61,7 @@ async fn test_create_and_list_invitations() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::from(
@@ -85,7 +85,7 @@ async fn test_create_and_list_invitations() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/invitations", org_id))
+                .uri(format!("/control/v1/organizations/{}/invitations", org_id))
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::from(
@@ -113,7 +113,7 @@ async fn test_create_and_list_invitations() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/invitations", org_id))
+                .uri(format!("/control/v1/organizations/{}/invitations", org_id))
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::empty())
                 .unwrap(),
@@ -142,7 +142,7 @@ async fn test_delete_invitation() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -183,7 +183,7 @@ async fn test_delete_invitation() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::from(
@@ -207,7 +207,7 @@ async fn test_delete_invitation() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/invitations", org_id))
+                .uri(format!("/control/v1/organizations/{}/invitations", org_id))
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::from(
@@ -232,7 +232,7 @@ async fn test_delete_invitation() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}/invitations/{}", org_id, invitation_id))
+                .uri(format!("/control/v1/organizations/{}/invitations/{}", org_id, invitation_id))
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::empty())
                 .unwrap(),
@@ -248,7 +248,7 @@ async fn test_delete_invitation() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/invitations", org_id))
+                .uri(format!("/control/v1/organizations/{}/invitations", org_id))
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::empty())
                 .unwrap(),

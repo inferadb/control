@@ -22,7 +22,7 @@ async fn test_create_vault() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -40,7 +40,7 @@ async fn test_create_vault() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -86,7 +86,7 @@ async fn test_list_vaults() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -108,7 +108,7 @@ async fn test_list_vaults() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/v1/organizations/{}/vaults", org_id))
+                    .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                     .header("cookie", format!("infera_session={}", session))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -130,7 +130,7 @@ async fn test_list_vaults() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -161,7 +161,7 @@ async fn test_update_vault() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -179,7 +179,7 @@ async fn test_update_vault() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -204,7 +204,7 @@ async fn test_update_vault() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/organizations/{}/vaults/{}", org_id, vault_id))
+                .uri(format!("/control/v1/organizations/{}/vaults/{}", org_id, vault_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -242,7 +242,7 @@ async fn test_delete_vault() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -260,7 +260,7 @@ async fn test_delete_vault() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -285,7 +285,7 @@ async fn test_delete_vault() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}/vaults/{}", org_id, vault_id))
+                .uri(format!("/control/v1/organizations/{}/vaults/{}", org_id, vault_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -300,7 +300,7 @@ async fn test_delete_vault() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/vaults/{}", org_id, vault_id))
+                .uri(format!("/control/v1/organizations/{}/vaults/{}", org_id, vault_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -329,7 +329,7 @@ async fn test_grant_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -347,7 +347,7 @@ async fn test_grant_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/auth/me")
+                .uri("/control/v1/auth/me")
                 .header("cookie", format!("infera_session={}", member_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -364,7 +364,7 @@ async fn test_grant_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/members", org_id))
+                .uri(format!("/control/v1/organizations/{}/members", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -385,7 +385,7 @@ async fn test_grant_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -410,7 +410,10 @@ async fn test_grant_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults/{}/user-grants", org_id, vault_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/vaults/{}/user-grants",
+                    org_id, vault_id
+                ))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -450,7 +453,7 @@ async fn test_revoke_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -467,7 +470,7 @@ async fn test_revoke_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/auth/me")
+                .uri("/control/v1/auth/me")
                 .header("cookie", format!("infera_session={}", member_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -484,7 +487,7 @@ async fn test_revoke_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/members", org_id))
+                .uri(format!("/control/v1/organizations/{}/members", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -505,7 +508,7 @@ async fn test_revoke_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -529,7 +532,10 @@ async fn test_revoke_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults/{}/user-grants", org_id, vault_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/vaults/{}/user-grants",
+                    org_id, vault_id
+                ))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -550,7 +556,7 @@ async fn test_revoke_user_vault_access() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/v1/organizations/{}/vaults/{}/user-grants/{}",
+                    "/control/v1/organizations/{}/vaults/{}/user-grants/{}",
                     org_id, vault_id, member_user_id
                 ))
                 .header("cookie", format!("infera_session={}", owner_session))

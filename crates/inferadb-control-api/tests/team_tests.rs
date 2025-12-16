@@ -21,7 +21,7 @@ async fn test_create_team() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -39,7 +39,7 @@ async fn test_create_team() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/teams", org_id))
+                .uri(format!("/control/v1/organizations/{}/teams", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -78,7 +78,7 @@ async fn test_list_teams() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -98,7 +98,7 @@ async fn test_list_teams() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/v1/organizations/{}/teams", org_id))
+                    .uri(format!("/control/v1/organizations/{}/teams", org_id))
                     .header("cookie", format!("infera_session={}", session))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -120,7 +120,7 @@ async fn test_list_teams() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/teams", org_id))
+                .uri(format!("/control/v1/organizations/{}/teams", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -154,7 +154,7 @@ async fn test_add_team_member() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -172,7 +172,7 @@ async fn test_add_team_member() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/auth/me")
+                .uri("/control/v1/auth/me")
                 .header("cookie", format!("infera_session={}", member_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -190,7 +190,7 @@ async fn test_add_team_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/invitations", org_id))
+                .uri(format!("/control/v1/organizations/{}/invitations", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -214,7 +214,7 @@ async fn test_add_team_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations/invitations/accept")
+                .uri("/control/v1/organizations/invitations/accept")
                 .header("cookie", format!("infera_session={}", member_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -234,7 +234,7 @@ async fn test_add_team_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/teams", org_id))
+                .uri(format!("/control/v1/organizations/{}/teams", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -259,7 +259,7 @@ async fn test_add_team_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/teams/{}/members", org_id, team_id))
+                .uri(format!("/control/v1/organizations/{}/teams/{}/members", org_id, team_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -304,7 +304,7 @@ async fn test_grant_team_permission() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -322,7 +322,7 @@ async fn test_grant_team_permission() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/teams", org_id))
+                .uri(format!("/control/v1/organizations/{}/teams", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -347,7 +347,7 @@ async fn test_grant_team_permission() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/teams/{}/permissions", org_id, team_id))
+                .uri(format!("/control/v1/organizations/{}/teams/{}/permissions", org_id, team_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -384,7 +384,7 @@ async fn test_grant_team_vault_access() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -402,7 +402,7 @@ async fn test_grant_team_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/teams", org_id))
+                .uri(format!("/control/v1/organizations/{}/teams", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -427,7 +427,7 @@ async fn test_grant_team_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -452,7 +452,10 @@ async fn test_grant_team_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults/{}/team-grants", org_id, vault_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/vaults/{}/team-grants",
+                    org_id, vault_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(

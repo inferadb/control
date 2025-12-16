@@ -161,7 +161,7 @@ pub async fn register_user(app: &axum::Router, name: &str, email: &str, password
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({

@@ -73,7 +73,7 @@ async fn test_cross_organization_vault_access_denied() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/vaults/{}", org_b.id, vault_b.id))
+                .uri(format!("/control/v1/organizations/{}/vaults/{}", org_b.id, vault_b.id))
                 .header("cookie", format!("infera_session={}", session_a.id))
                 .body(Body::empty())
                 .unwrap(),
@@ -110,7 +110,7 @@ async fn test_cross_organization_client_access_denied() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/clients/{}", org_b.id, client_b.id))
+                .uri(format!("/control/v1/organizations/{}/clients/{}", org_b.id, client_b.id))
                 .header("cookie", format!("infera_session={}", session_a.id))
                 .body(Body::empty())
                 .unwrap(),
@@ -145,7 +145,7 @@ async fn test_cross_organization_team_access_denied() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/teams/{}", org_b.id, team_b.id))
+                .uri(format!("/control/v1/organizations/{}/teams/{}", org_b.id, team_b.id))
                 .header("cookie", format!("infera_session={}", session_a.id))
                 .body(Body::empty())
                 .unwrap(),
@@ -180,7 +180,7 @@ async fn test_cannot_modify_other_organization_resources() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/organizations/{}/vaults/{}", org_b.id, vault_b.id))
+                .uri(format!("/control/v1/organizations/{}/vaults/{}", org_b.id, vault_b.id))
                 .header("cookie", format!("infera_session={}", session_a.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -221,7 +221,7 @@ async fn test_cannot_delete_other_organization_resources() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}/clients/{}", org_b.id, client_b.id))
+                .uri(format!("/control/v1/organizations/{}/clients/{}", org_b.id, client_b.id))
                 .header("cookie", format!("infera_session={}", session_a.id))
                 .body(Body::empty())
                 .unwrap(),
@@ -256,7 +256,7 @@ async fn test_organization_member_list_isolation() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/members", org_b.id))
+                .uri(format!("/control/v1/organizations/{}/members", org_b.id))
                 .header("cookie", format!("infera_session={}", session_a.id))
                 .body(Body::empty())
                 .unwrap(),

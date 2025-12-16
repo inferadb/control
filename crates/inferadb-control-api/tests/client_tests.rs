@@ -22,7 +22,7 @@ async fn test_create_client() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -40,7 +40,7 @@ async fn test_create_client() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients", org_id))
+                .uri(format!("/control/v1/organizations/{}/clients", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -80,7 +80,7 @@ async fn test_list_clients() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -102,7 +102,7 @@ async fn test_list_clients() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/v1/organizations/{}/clients", org_id))
+                    .uri(format!("/control/v1/organizations/{}/clients", org_id))
                     .header("cookie", format!("infera_session={}", session))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -124,7 +124,7 @@ async fn test_list_clients() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/clients", org_id))
+                .uri(format!("/control/v1/organizations/{}/clients", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -155,7 +155,7 @@ async fn test_create_certificate() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -172,7 +172,7 @@ async fn test_create_certificate() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients", org_id))
+                .uri(format!("/control/v1/organizations/{}/clients", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -197,7 +197,10 @@ async fn test_create_certificate() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients/{}/certificates", org_id, client_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/clients/{}/certificates",
+                    org_id, client_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -242,7 +245,7 @@ async fn test_revoke_certificate() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -259,7 +262,7 @@ async fn test_revoke_certificate() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients", org_id))
+                .uri(format!("/control/v1/organizations/{}/clients", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -284,7 +287,10 @@ async fn test_revoke_certificate() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients/{}/certificates", org_id, client_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/clients/{}/certificates",
+                    org_id, client_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -309,7 +315,7 @@ async fn test_revoke_certificate() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/v1/organizations/{}/clients/{}/certificates/{}",
+                    "/control/v1/organizations/{}/clients/{}/certificates/{}",
                     org_id, client_id, cert_id
                 ))
                 .header("cookie", format!("infera_session={}", session))
@@ -327,7 +333,7 @@ async fn test_revoke_certificate() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/v1/organizations/{}/clients/{}/certificates/{}",
+                    "/control/v1/organizations/{}/clients/{}/certificates/{}",
                     org_id, client_id, cert_id
                 ))
                 .header("cookie", format!("infera_session={}", session))
@@ -357,7 +363,7 @@ async fn test_jwks_endpoint() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -374,7 +380,7 @@ async fn test_jwks_endpoint() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients", org_id))
+                .uri(format!("/control/v1/organizations/{}/clients", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -398,7 +404,10 @@ async fn test_jwks_endpoint() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients/{}/certificates", org_id, client_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/clients/{}/certificates",
+                    org_id, client_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -418,7 +427,7 @@ async fn test_jwks_endpoint() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/.well-known/jwks.json", org_id))
+                .uri(format!("/control/v1/organizations/{}/.well-known/jwks.json", org_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -450,8 +459,7 @@ async fn test_delete_client() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
 
-    let session =
-        register_user(&app, "deleter", "delete@example.com", "securepassword123").await;
+    let session = register_user(&app, "deleter", "delete@example.com", "securepassword123").await;
 
     // Get organization and create client
     let response = app
@@ -459,7 +467,7 @@ async fn test_delete_client() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -476,7 +484,7 @@ async fn test_delete_client() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients", org_id))
+                .uri(format!("/control/v1/organizations/{}/clients", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -501,7 +509,7 @@ async fn test_delete_client() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}/clients/{}", org_id, client_id))
+                .uri(format!("/control/v1/organizations/{}/clients/{}", org_id, client_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -516,7 +524,7 @@ async fn test_delete_client() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/clients/{}", org_id, client_id))
+                .uri(format!("/control/v1/organizations/{}/clients/{}", org_id, client_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),

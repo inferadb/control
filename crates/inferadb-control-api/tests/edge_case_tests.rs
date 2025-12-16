@@ -14,7 +14,7 @@ async fn create_client_with_cert(app: &axum::Router, session: &str, org_id: i64)
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients", org_id))
+                .uri(format!("/control/v1/organizations/{}/clients", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -38,7 +38,10 @@ async fn create_client_with_cert(app: &axum::Router, session: &str, org_id: i64)
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients/{}/certificates", org_id, client_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/clients/{}/certificates",
+                    org_id, client_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -75,7 +78,7 @@ async fn test_concurrent_vault_access_from_multiple_teams() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -93,7 +96,7 @@ async fn test_concurrent_vault_access_from_multiple_teams() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -118,7 +121,7 @@ async fn test_concurrent_vault_access_from_multiple_teams() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/teams", org_id))
+                .uri(format!("/control/v1/organizations/{}/teams", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -142,7 +145,7 @@ async fn test_concurrent_vault_access_from_multiple_teams() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/teams", org_id))
+                .uri(format!("/control/v1/organizations/{}/teams", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -167,7 +170,10 @@ async fn test_concurrent_vault_access_from_multiple_teams() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults/{}/team-grants", org_id, vault_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/vaults/{}/team-grants",
+                    org_id, vault_id
+                ))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -189,7 +195,10 @@ async fn test_concurrent_vault_access_from_multiple_teams() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults/{}/team-grants", org_id, vault_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/vaults/{}/team-grants",
+                    org_id, vault_id
+                ))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -212,7 +221,10 @@ async fn test_concurrent_vault_access_from_multiple_teams() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/vaults/{}/team-grants", org_id, vault_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/vaults/{}/team-grants",
+                    org_id, vault_id
+                ))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -248,7 +260,7 @@ async fn test_token_refresh_with_expired_access_token() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -266,7 +278,7 @@ async fn test_token_refresh_with_expired_access_token() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org_id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -294,7 +306,7 @@ async fn test_token_refresh_with_expired_access_token() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults/{}/tokens", org_id, vault_id))
+                .uri(format!("/control/v1/organizations/{}/vaults/{}/tokens", org_id, vault_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -331,7 +343,7 @@ async fn test_token_refresh_with_expired_access_token() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tokens/refresh")
+                .uri("/control/v1/tokens/refresh")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -373,7 +385,7 @@ async fn test_certificate_rotation_scenario() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -391,7 +403,7 @@ async fn test_certificate_rotation_scenario() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients", org_id))
+                .uri(format!("/control/v1/organizations/{}/clients", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -416,7 +428,10 @@ async fn test_certificate_rotation_scenario() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients/{}/certificates", org_id, client_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/clients/{}/certificates",
+                    org_id, client_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -443,7 +458,10 @@ async fn test_certificate_rotation_scenario() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/clients/{}/certificates", org_id, client_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/clients/{}/certificates",
+                    org_id, client_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -474,7 +492,10 @@ async fn test_certificate_rotation_scenario() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/clients/{}/certificates", org_id, client_id))
+                .uri(format!(
+                    "/control/v1/organizations/{}/clients/{}/certificates",
+                    org_id, client_id
+                ))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -497,7 +518,7 @@ async fn test_certificate_rotation_scenario() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/v1/organizations/{}/clients/{}/certificates/{}",
+                    "/control/v1/organizations/{}/clients/{}/certificates/{}",
                     org_id, client_id, cert1_id
                 ))
                 .header("cookie", format!("infera_session={}", session))
@@ -516,7 +537,7 @@ async fn test_certificate_rotation_scenario() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/v1/organizations/{}/clients/{}/certificates/{}",
+                    "/control/v1/organizations/{}/clients/{}/certificates/{}",
                     org_id, client_id, cert1_id
                 ))
                 .header("cookie", format!("infera_session={}", session))
@@ -541,7 +562,7 @@ async fn test_certificate_rotation_scenario() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/v1/organizations/{}/clients/{}/certificates/{}",
+                    "/control/v1/organizations/{}/clients/{}/certificates/{}",
                     org_id, client_id, cert2_id
                 ))
                 .header("cookie", format!("infera_session={}", session))

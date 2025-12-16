@@ -37,7 +37,7 @@ async fn test_registration_creates_default_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -63,7 +63,7 @@ async fn test_registration_creates_default_organization() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::empty())
                 .unwrap(),
@@ -96,7 +96,7 @@ async fn test_create_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -123,7 +123,7 @@ async fn test_create_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::from(
@@ -158,7 +158,7 @@ async fn test_list_organizations() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -185,7 +185,7 @@ async fn test_list_organizations() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::from(
@@ -204,7 +204,7 @@ async fn test_list_organizations() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::empty())
                 .unwrap(),
@@ -233,7 +233,7 @@ async fn test_get_organization_details() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -260,7 +260,7 @@ async fn test_get_organization_details() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::from(
@@ -283,7 +283,7 @@ async fn test_get_organization_details() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}", org_id))
+                .uri(format!("/control/v1/organizations/{}", org_id))
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::empty())
                 .unwrap(),
@@ -312,7 +312,7 @@ async fn test_update_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -339,7 +339,7 @@ async fn test_update_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::from(
@@ -362,7 +362,7 @@ async fn test_update_organization() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/organizations/{}", org_id))
+                .uri(format!("/control/v1/organizations/{}", org_id))
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::from(
@@ -396,7 +396,7 @@ async fn test_delete_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -423,7 +423,7 @@ async fn test_delete_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::from(
@@ -446,7 +446,7 @@ async fn test_delete_organization() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}", org_id))
+                .uri(format!("/control/v1/organizations/{}", org_id))
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::empty())
                 .unwrap(),
@@ -469,7 +469,7 @@ async fn test_non_member_cannot_access_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -496,7 +496,7 @@ async fn test_non_member_cannot_access_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session1))
                 .body(Body::from(
@@ -520,7 +520,7 @@ async fn test_non_member_cannot_access_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -543,7 +543,7 @@ async fn test_non_member_cannot_access_organization() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}", org_id))
+                .uri(format!("/control/v1/organizations/{}", org_id))
                 .header("cookie", format!("infera_session={}", session2))
                 .body(Body::empty())
                 .unwrap(),

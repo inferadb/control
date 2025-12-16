@@ -37,7 +37,7 @@ async fn test_list_organization_members() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -64,7 +64,7 @@ async fn test_list_organization_members() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::from(
@@ -88,7 +88,7 @@ async fn test_list_organization_members() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/members", org_id))
+                .uri(format!("/control/v1/organizations/{}/members", org_id))
                 .header("cookie", format!("infera_session={}", session_cookie))
                 .body(Body::empty())
                 .unwrap(),
@@ -118,7 +118,7 @@ async fn test_update_member_role() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -145,7 +145,7 @@ async fn test_update_member_role() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/users/me")
+                .uri("/control/v1/users/me")
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -163,7 +163,7 @@ async fn test_update_member_role() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::from(
@@ -187,7 +187,7 @@ async fn test_update_member_role() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -211,7 +211,7 @@ async fn test_update_member_role() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/users/me")
+                .uri("/control/v1/users/me")
                 .header("cookie", format!("infera_session={}", member_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -239,7 +239,7 @@ async fn test_update_member_role() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/members", org_id))
+                .uri(format!("/control/v1/organizations/{}/members", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -260,7 +260,7 @@ async fn test_update_member_role() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/organizations/{}/members/{}", org_id, member_id))
+                .uri(format!("/control/v1/organizations/{}/members/{}", org_id, member_id))
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::from(
@@ -294,7 +294,7 @@ async fn test_cannot_demote_last_owner() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -320,7 +320,7 @@ async fn test_cannot_demote_last_owner() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::from(
@@ -344,7 +344,7 @@ async fn test_cannot_demote_last_owner() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/members", org_id))
+                .uri(format!("/control/v1/organizations/{}/members", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -364,7 +364,7 @@ async fn test_cannot_demote_last_owner() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/organizations/{}/members/{}", org_id, member_id))
+                .uri(format!("/control/v1/organizations/{}/members/{}", org_id, member_id))
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::from(
@@ -393,7 +393,7 @@ async fn test_remove_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -420,7 +420,7 @@ async fn test_remove_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::from(
@@ -444,7 +444,7 @@ async fn test_remove_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -468,7 +468,7 @@ async fn test_remove_member() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/users/me")
+                .uri("/control/v1/users/me")
                 .header("cookie", format!("infera_session={}", member_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -496,7 +496,7 @@ async fn test_remove_member() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/members", org_id))
+                .uri(format!("/control/v1/organizations/{}/members", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -517,7 +517,7 @@ async fn test_remove_member() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}/members/{}", org_id, member_id))
+                .uri(format!("/control/v1/organizations/{}/members/{}", org_id, member_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -533,7 +533,7 @@ async fn test_remove_member() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/members", org_id))
+                .uri(format!("/control/v1/organizations/{}/members", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -560,7 +560,7 @@ async fn test_cannot_remove_last_owner() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -586,7 +586,7 @@ async fn test_cannot_remove_last_owner() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::from(
@@ -610,7 +610,7 @@ async fn test_cannot_remove_last_owner() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/members", org_id))
+                .uri(format!("/control/v1/organizations/{}/members", org_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -630,7 +630,7 @@ async fn test_cannot_remove_last_owner() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}/members/{}", org_id, member_id))
+                .uri(format!("/control/v1/organizations/{}/members/{}", org_id, member_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -653,7 +653,7 @@ async fn test_leave_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -680,7 +680,7 @@ async fn test_leave_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::from(
@@ -704,7 +704,7 @@ async fn test_leave_organization() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -728,7 +728,7 @@ async fn test_leave_organization() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/users/me")
+                .uri("/control/v1/users/me")
                 .header("cookie", format!("infera_session={}", member_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -756,7 +756,7 @@ async fn test_leave_organization() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}/members/self", org_id))
+                .uri(format!("/control/v1/organizations/{}/members/self", org_id))
                 .header("cookie", format!("infera_session={}", member_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -776,7 +776,7 @@ async fn test_leave_organization() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/organizations/{}/members", org_id))
+                .uri(format!("/control/v1/organizations/{}/members", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),
@@ -803,7 +803,7 @@ async fn test_last_owner_cannot_leave() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/register")
+                .uri("/control/v1/auth/register")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -830,7 +830,7 @@ async fn test_last_owner_cannot_leave() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/organizations")
+                .uri("/control/v1/organizations")
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::from(
@@ -854,7 +854,7 @@ async fn test_last_owner_cannot_leave() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}/members/self", org_id))
+                .uri(format!("/control/v1/organizations/{}/members/self", org_id))
                 .header("cookie", format!("infera_session={}", owner_session))
                 .body(Body::empty())
                 .unwrap(),

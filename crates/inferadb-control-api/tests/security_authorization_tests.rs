@@ -90,7 +90,7 @@ async fn test_member_cannot_escalate_to_admin() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/organizations/{}/members/{}", org.id, member.id))
+                .uri(format!("/control/v1/organizations/{}/members/{}", org.id, member.id))
                 .header("cookie", format!("infera_session={}", session_member.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -138,7 +138,7 @@ async fn test_admin_cannot_escalate_to_owner() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/organizations/{}/members/{}", org.id, admin_member.id))
+                .uri(format!("/control/v1/organizations/{}/members/{}", org.id, admin_member.id))
                 .header("cookie", format!("infera_session={}", session_admin.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -191,7 +191,7 @@ async fn test_member_cannot_create_vault() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/vaults", org.id))
+                .uri(format!("/control/v1/organizations/{}/vaults", org.id))
                 .header("cookie", format!("infera_session={}", session_member.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -239,7 +239,7 @@ async fn test_member_cannot_delete_organization() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}", org.id))
+                .uri(format!("/control/v1/organizations/{}", org.id))
                 .header("cookie", format!("infera_session={}", session_member.id))
                 .body(Body::empty())
                 .unwrap(),
@@ -286,7 +286,7 @@ async fn test_admin_cannot_delete_organization() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}", org.id))
+                .uri(format!("/control/v1/organizations/{}", org.id))
                 .header("cookie", format!("infera_session={}", session_admin.id))
                 .body(Body::empty())
                 .unwrap(),
@@ -341,7 +341,7 @@ async fn test_member_cannot_remove_other_members() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}/members/{}", org.id, member2.id))
+                .uri(format!("/control/v1/organizations/{}/members/{}", org.id, member2.id))
                 .header("cookie", format!("infera_session={}", session_member1.id))
                 .body(Body::empty())
                 .unwrap(),
@@ -386,7 +386,7 @@ async fn test_cannot_use_other_users_session() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/users/me")
+                .uri("/control/v1/users/me")
                 .header("cookie", format!("infera_session={}", session_a.id))
                 .body(Body::empty())
                 .unwrap(),
@@ -435,7 +435,7 @@ async fn test_member_cannot_update_organization_settings() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/v1/organizations/{}", org.id))
+                .uri(format!("/control/v1/organizations/{}", org.id))
                 .header("cookie", format!("infera_session={}", session_member.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -483,7 +483,7 @@ async fn test_member_cannot_create_team() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1/organizations/{}/teams", org.id))
+                .uri(format!("/control/v1/organizations/{}/teams", org.id))
                 .header("cookie", format!("infera_session={}", session_member.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -536,7 +536,7 @@ async fn test_member_cannot_delete_vault() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/v1/organizations/{}/vaults/{}", org.id, vault.id))
+                .uri(format!("/control/v1/organizations/{}/vaults/{}", org.id, vault.id))
                 .header("cookie", format!("infera_session={}", session_member.id))
                 .body(Body::empty())
                 .unwrap(),

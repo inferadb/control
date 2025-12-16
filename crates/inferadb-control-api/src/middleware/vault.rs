@@ -68,17 +68,18 @@ pub async fn require_vault_access(
     })?;
 
     // Extract vault_id from the URI path manually
-    // Routes are of the form /v1/organizations/{org}/vaults/{vault}/... where {vault} is the 4th
-    // segment
+    // Routes are of the form /control/v1/organizations/{org}/vaults/{vault}/... where {vault} is
+    // the 7th segment
     let uri_path = request.uri().path();
     let segments: Vec<&str> = uri_path.split('/').collect();
 
-    let vault_id = if segments.len() >= 5
-        && segments[1] == "v1"
-        && segments[2] == "organizations"
-        && segments[4] == "vaults"
+    let vault_id = if segments.len() >= 7
+        && segments[1] == "control"
+        && segments[2] == "v1"
+        && segments[3] == "organizations"
+        && segments[5] == "vaults"
     {
-        segments[5]
+        segments[6]
             .parse::<i64>()
             .map_err(|_| CoreError::Validation("Invalid vault ID in path".to_string()))?
     } else {
