@@ -285,6 +285,62 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
         let certs = self.list_active_by_client(client_id).await?;
         Ok(certs.len())
     }
+
+    /// Delete revoked certificates that were revoked before the given cutoff date.
+    ///
+    /// This is used by the background cleanup job to remove old revoked certificates
+    /// after the retention period (e.g., 90 days).
+    ///
+    /// Returns the number of certificates deleted.
+    pub async fn delete_revoked_older_than(
+        &self,
+        cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<usize> {
+        // Get all certificates by scanning the cert: prefix
+        let prefix = "cert:".to_string();
+        let start = prefix.clone().into_bytes();
+        let end = "cert~".to_string().into_bytes();
+
+        let kvs = self
+            .storage
+            .get_range(start..end)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to scan certificates: {}", e)))?;
+
+        let mut deleted_count = 0;
+
+        for kv in kvs {
+            // Only process actual certificate records, not indexes
+            let key_str = String::from_utf8_lossy(&kv.key);
+            if key_str.starts_with("cert:kid:") || key_str.starts_with("cert:client:") {
+                continue;
+            }
+
+            // Try to deserialize the certificate
+            let cert: ClientCertificate = match serde_json::from_slice(&kv.value) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            // Check if certificate is revoked and older than cutoff
+            if let Some(revoked_at) = cert.revoked_at {
+                if revoked_at < cutoff {
+                    // Delete the certificate and its indexes
+                    if let Err(e) = self.delete(cert.id).await {
+                        tracing::warn!(
+                            cert_id = cert.id,
+                            error = %e,
+                            "Failed to delete old revoked certificate"
+                        );
+                        continue;
+                    }
+                    deleted_count += 1;
+                }
+            }
+        }
+
+        Ok(deleted_count)
+    }
 }
 
 #[cfg(test)]
@@ -466,5 +522,57 @@ mod tests {
 
         assert_eq!(repo.count_by_client(100).await.unwrap(), 3);
         assert_eq!(repo.count_active_by_client(100).await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_delete_revoked_older_than() {
+        let repo = create_test_repo();
+        let cert1 = create_test_cert(1, 100, 200, "Cert 1").unwrap();
+        let mut cert2 = create_test_cert(2, 100, 200, "Cert 2").unwrap();
+        let cert3 = create_test_cert(3, 100, 200, "Cert 3").unwrap();
+
+        repo.create(cert1).await.unwrap();
+        repo.create(cert2.clone()).await.unwrap();
+        repo.create(cert3).await.unwrap();
+
+        // Revoke cert2
+        cert2.mark_revoked(888);
+        repo.update(cert2).await.unwrap();
+
+        // Delete revoked certs older than now (should delete cert2)
+        let cutoff = chrono::Utc::now() + chrono::Duration::seconds(1);
+        let deleted = repo.delete_revoked_older_than(cutoff).await.unwrap();
+        assert_eq!(deleted, 1);
+
+        // cert2 should be gone
+        assert!(repo.get(2).await.unwrap().is_none());
+
+        // cert1 and cert3 should still exist
+        assert!(repo.get(1).await.unwrap().is_some());
+        assert!(repo.get(3).await.unwrap().is_some());
+
+        // Running again should delete nothing
+        let deleted = repo.delete_revoked_older_than(cutoff).await.unwrap();
+        assert_eq!(deleted, 0);
+    }
+
+    #[tokio::test]
+    async fn test_delete_revoked_older_than_respects_cutoff() {
+        let repo = create_test_repo();
+        let mut cert = create_test_cert(1, 100, 200, "Cert 1").unwrap();
+
+        repo.create(cert.clone()).await.unwrap();
+
+        // Revoke the cert
+        cert.mark_revoked(888);
+        repo.update(cert).await.unwrap();
+
+        // Use a cutoff in the past (should not delete the cert since it was just revoked)
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(1);
+        let deleted = repo.delete_revoked_older_than(cutoff).await.unwrap();
+        assert_eq!(deleted, 0);
+
+        // Cert should still exist
+        assert!(repo.get(1).await.unwrap().is_some());
     }
 }

@@ -2,8 +2,8 @@
 //!
 //! This module provides performance optimizations on top of the base storage backend:
 //!
-//! - **Batch Writes**: Accumulate multiple writes and flush in batches with automatic
-//!   splitting to respect FDB's 10MB transaction limit
+//! - **Batch Writes**: Accumulate multiple writes and flush in batches with automatic splitting to
+//!   respect FDB's 10MB transaction limit
 //! - **Read Caching**: LRU cache for frequently accessed keys
 //! - **Size Estimation**: Accurate tracking of batch sizes to prevent transaction failures
 //!
@@ -348,11 +348,7 @@ impl<B: StorageBackend + Clone> BatchWriter<B> {
 
     /// Flush if the batch has reached size limits, otherwise do nothing
     pub async fn flush_if_needed(&mut self) -> StorageResult<Option<BatchFlushStats>> {
-        if self.should_flush() {
-            Ok(Some(self.flush().await?))
-        } else {
-            Ok(None)
-        }
+        if self.should_flush() { Ok(Some(self.flush().await?)) } else { Ok(None) }
     }
 
     /// Clear all pending operations without flushing
@@ -969,8 +965,7 @@ mod tests {
     #[tokio::test]
     async fn test_batch_operation_size() {
         let small_op = BatchOperation::Set { key: b"key".to_vec(), value: b"val".to_vec() };
-        let large_op =
-            BatchOperation::Set { key: vec![0u8; 100], value: vec![0u8; 1000] };
+        let large_op = BatchOperation::Set { key: vec![0u8; 100], value: vec![0u8; 1000] };
         let delete_op = BatchOperation::Delete { key: b"key".to_vec() };
 
         // Set operations should be larger than delete operations with same key

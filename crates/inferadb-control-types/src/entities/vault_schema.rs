@@ -1,8 +1,7 @@
+use std::{cmp::Ordering, fmt, str::FromStr};
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
-use std::fmt;
-use std::str::FromStr;
 
 use crate::error::{Error, Result};
 
@@ -64,15 +63,15 @@ impl FromStr for SchemaVersion {
             ));
         }
 
-        let major = parts[0].parse::<u32>().map_err(|_| {
-            Error::Validation("Invalid major version number".to_string())
-        })?;
-        let minor = parts[1].parse::<u32>().map_err(|_| {
-            Error::Validation("Invalid minor version number".to_string())
-        })?;
-        let patch = parts[2].parse::<u32>().map_err(|_| {
-            Error::Validation("Invalid patch version number".to_string())
-        })?;
+        let major = parts[0]
+            .parse::<u32>()
+            .map_err(|_| Error::Validation("Invalid major version number".to_string()))?;
+        let minor = parts[1]
+            .parse::<u32>()
+            .map_err(|_| Error::Validation("Invalid minor version number".to_string()))?;
+        let patch = parts[2]
+            .parse::<u32>()
+            .map_err(|_| Error::Validation("Invalid patch version number".to_string()))?;
 
         Ok(Self::new(major, minor, patch))
     }
@@ -181,9 +180,7 @@ impl VaultSchema {
 
         // Basic size limit (1MB)
         if definition.len() > 1_048_576 {
-            return Err(Error::Validation(
-                "Schema definition cannot exceed 1MB".to_string(),
-            ));
+            return Err(Error::Validation("Schema definition cannot exceed 1MB".to_string()));
         }
 
         Ok(())
@@ -239,16 +236,15 @@ impl VaultSchema {
     pub fn can_activate(&self) -> bool {
         matches!(
             self.status,
-            SchemaDeploymentStatus::Deployed | SchemaDeploymentStatus::Superseded | SchemaDeploymentStatus::RolledBack
+            SchemaDeploymentStatus::Deployed
+                | SchemaDeploymentStatus::Superseded
+                | SchemaDeploymentStatus::RolledBack
         )
     }
 
     /// Check if this schema is in a terminal state
     pub fn is_terminal(&self) -> bool {
-        matches!(
-            self.status,
-            SchemaDeploymentStatus::Failed
-        )
+        matches!(self.status, SchemaDeploymentStatus::Failed)
     }
 }
 
@@ -413,10 +409,7 @@ mod tests {
 
         schema.mark_failed("Syntax error on line 5".to_string());
         assert_eq!(schema.status, SchemaDeploymentStatus::Failed);
-        assert_eq!(
-            schema.error_message,
-            Some("Syntax error on line 5".to_string())
-        );
+        assert_eq!(schema.error_message, Some("Syntax error on line 5".to_string()));
         assert!(schema.is_terminal());
     }
 

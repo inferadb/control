@@ -490,14 +490,14 @@ async fn test_certificate_rotation_scenario() {
 
     assert_eq!(certs.len(), 2);
 
-    // Revoke the first certificate
+    // Revoke the first certificate (DELETE method)
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
+                .method("DELETE")
                 .uri(format!(
-                    "/v1/organizations/{}/clients/{}/certificates/{}/revoke",
+                    "/v1/organizations/{}/clients/{}/certificates/{}",
                     org_id, client_id, cert1_id
                 ))
                 .header("cookie", format!("infera_session={}", session))

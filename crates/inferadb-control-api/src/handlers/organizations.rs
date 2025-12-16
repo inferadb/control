@@ -12,9 +12,8 @@ use inferadb_control_types::{
         InvitationResponse, ListInvitationsResponse, ListMembersResponse,
         ListOrganizationsResponse, OrganizationMemberResponse, OrganizationResponse,
         OrganizationServerResponse, OrganizationStatus, RemoveMemberResponse,
-        ResumeOrganizationResponse, SuspendOrganizationResponse, TransferOwnershipRequest,
-        TransferOwnershipResponse, UpdateMemberRoleRequest, UpdateMemberRoleResponse,
-        UpdateOrganizationRequest, UpdateOrganizationResponse,
+        ResumeOrganizationResponse, SuspendOrganizationResponse, UpdateMemberRoleRequest,
+        UpdateMemberRoleResponse, UpdateOrganizationRequest, UpdateOrganizationResponse,
     },
     entities::{
         Organization, OrganizationInvitation, OrganizationMember, OrganizationRole,
@@ -560,13 +559,19 @@ pub async fn update_member_role(
         },
     };
 
+    // Only owners can promote someone to OWNER
+    if new_role == OrganizationRole::Owner && org_ctx.member.role != OrganizationRole::Owner {
+        return Err(
+            CoreError::Authz("Only owners can promote members to OWNER role".to_string()).into()
+        );
+    }
+
     // If demoting from owner, check if there are other owners
     if target_member.role == OrganizationRole::Owner && new_role != OrganizationRole::Owner {
         let owner_count = repos.org_member.count_owners(org_ctx.organization_id).await?;
         if owner_count <= 1 {
             return Err(CoreError::Validation(
-                "Cannot demote the last owner. Transfer ownership first or promote another member."
-                    .to_string(),
+                "Cannot demote the last owner. Promote another member to OWNER first.".to_string(),
             )
             .into());
         }
@@ -878,64 +883,4 @@ pub async fn accept_invitation(
     };
 
     Ok(Json(AcceptInvitationResponse { organization: org_response }))
-}
-
-// ============================================================================
-// Ownership Transfer
-// ============================================================================
-
-/// Transfer organization ownership
-///
-/// POST /v1/organizations/:org/transfer-ownership
-///
-/// Transfer ownership of an organization to another member. Requires OWNER role.
-/// The new owner must already be a member of the organization.
-pub async fn transfer_ownership(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Json(payload): Json<TransferOwnershipRequest>,
-) -> Result<Json<TransferOwnershipResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
-
-    // Require owner
-    crate::middleware::require_owner(&org_ctx)?;
-
-    // Cannot transfer to self
-    if payload.new_owner_user_id == org_ctx.member.user_id {
-        return Err(
-            CoreError::Validation("Cannot transfer ownership to yourself".to_string()).into()
-        );
-    }
-
-    // Check if new owner is a member
-    let new_owner_member = repos
-        .org_member
-        .get_by_org_and_user(org_ctx.organization_id, payload.new_owner_user_id)
-        .await?
-        .ok_or_else(|| {
-            CoreError::NotFound(
-                "The specified user is not a member of this organization".to_string(),
-            )
-        })?;
-
-    // Get current owner's member record
-    let current_owner_member = repos
-        .org_member
-        .get(org_ctx.member.id)
-        .await?
-        .ok_or_else(|| CoreError::Internal("Current owner member not found".to_string()))?;
-
-    // Update new owner to OWNER role
-    let mut updated_new_owner = new_owner_member;
-    updated_new_owner.role = OrganizationRole::Owner;
-    repos.org_member.update(updated_new_owner).await?;
-
-    // Demote current owner to ADMIN
-    let mut updated_current_owner = current_owner_member;
-    updated_current_owner.role = OrganizationRole::Admin;
-    repos.org_member.update(updated_current_owner).await?;
-
-    Ok(Json(TransferOwnershipResponse {
-        message: "Ownership transferred successfully".to_string(),
-    }))
 }

@@ -103,7 +103,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
                 let schema: VaultSchema = serde_json::from_slice(&bytes)
                     .map_err(|e| Error::Internal(format!("Failed to deserialize schema: {}", e)))?;
                 Ok(Some(schema))
-            }
+            },
             None => Ok(None),
         }
     }
@@ -128,7 +128,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
                 }
                 let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
                 self.get(id).await
-            }
+            },
             None => Ok(None),
         }
     }
@@ -149,7 +149,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
                 }
                 let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
                 self.get(id).await
-            }
+            },
             None => Ok(None),
         }
     }
@@ -243,10 +243,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         txn.set(Self::schema_key(schema.id), schema_data);
 
         // Update active schema index
-        txn.set(
-            Self::vault_active_schema_key(schema.vault_id),
-            schema.id.to_le_bytes().to_vec(),
-        );
+        txn.set(Self::vault_active_schema_key(schema.vault_id), schema.id.to_le_bytes().to_vec());
 
         // Commit transaction
         txn.commit()
@@ -271,7 +268,9 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .ok_or_else(|| Error::Validation("No active schema to rollback from".to_string()))?;
 
         if current_active.id == schema_id {
-            return Err(Error::Validation("Cannot rollback to the currently active schema".to_string()));
+            return Err(Error::Validation(
+                "Cannot rollback to the currently active schema".to_string(),
+            ));
         }
 
         // Use transaction for atomicity
@@ -650,16 +649,12 @@ mod tests {
         repo.create(schema2).await.unwrap();
         repo.create(schema3).await.unwrap();
 
-        let deployed = repo
-            .list_by_vault_and_status(100, SchemaDeploymentStatus::Deployed)
-            .await
-            .unwrap();
+        let deployed =
+            repo.list_by_vault_and_status(100, SchemaDeploymentStatus::Deployed).await.unwrap();
         assert_eq!(deployed.len(), 2);
 
-        let failed = repo
-            .list_by_vault_and_status(100, SchemaDeploymentStatus::Failed)
-            .await
-            .unwrap();
+        let failed =
+            repo.list_by_vault_and_status(100, SchemaDeploymentStatus::Failed).await.unwrap();
         assert_eq!(failed.len(), 1);
     }
 }

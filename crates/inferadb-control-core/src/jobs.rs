@@ -6,7 +6,10 @@ use tokio::{task::JoinHandle, time};
 
 use crate::{
     leader::LeaderElection,
-    repository::{AuditLogRepository, UserSessionRepository, VaultRefreshTokenRepository},
+    repository::{
+        AuditLogRepository, ClientCertificateRepository, UserSessionRepository,
+        VaultRefreshTokenRepository,
+    },
 };
 
 /// Background job scheduler
@@ -21,6 +24,7 @@ use crate::{
 /// - **Expired refresh token cleanup** (daily): Remove old used/expired refresh tokens
 /// - **Expired authorization code cleanup** (hourly): Clean up old authorization codes
 /// - **Audit log retention** (daily): Remove audit logs older than 90 days
+/// - **Revoked certificate cleanup** (daily): Remove revoked certificates older than 90 days
 ///
 /// # Usage
 ///
@@ -95,6 +99,11 @@ impl<S: StorageBackend + Clone + Send + Sync + 'static> BackgroundJobs<S> {
         // Audit log retention cleanup (daily at 5 AM)
         handles.push(self.spawn_daily_job("audit_log_cleanup", 5, 0, |storage, _leader| {
             Box::pin(async move { Self::cleanup_old_audit_logs(storage).await })
+        }));
+
+        // Revoked certificate cleanup (daily at 6 AM)
+        handles.push(self.spawn_daily_job("revoked_cert_cleanup", 6, 0, |storage, _leader| {
+            Box::pin(async move { Self::cleanup_revoked_certificates(storage).await })
         }));
 
         tracing::info!("Background jobs started");
@@ -283,6 +292,32 @@ impl<S: StorageBackend + Clone + Send + Sync + 'static> BackgroundJobs<S> {
 
         Ok(())
     }
+
+    /// Cleanup revoked certificates (90-day retention)
+    ///
+    /// Deletes revoked certificates that were revoked more than 90 days ago.
+    /// This provides a grace period for audit purposes while ensuring old
+    /// revoked certificates are eventually cleaned up.
+    async fn cleanup_revoked_certificates(storage: S) -> Result<()> {
+        let repo = ClientCertificateRepository::new(storage);
+
+        // Calculate cutoff date (90 days ago)
+        let cutoff_date = chrono::Utc::now() - chrono::Duration::days(90);
+
+        let deleted = repo.delete_revoked_older_than(cutoff_date).await?;
+
+        if deleted > 0 {
+            tracing::info!(
+                count = deleted,
+                cutoff_date = %cutoff_date.format("%Y-%m-%d"),
+                "Cleaned up old revoked certificates"
+            );
+        } else {
+            tracing::debug!("No old revoked certificates to clean up");
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -337,6 +372,14 @@ mod tests {
 
         let result =
             BackgroundJobs::<MemoryBackend>::cleanup_expired_authorization_codes(storage).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_revoked_certificate_cleanup() {
+        let storage = MemoryBackend::new();
+
+        let result = BackgroundJobs::<MemoryBackend>::cleanup_revoked_certificates(storage).await;
         assert!(result.is_ok());
     }
 }

@@ -10,10 +10,9 @@ use inferadb_control_core::{
 use inferadb_control_types::{
     dto::{
         CertificateDetail, CertificateInfo, ClientDetail, ClientInfo, CreateCertificateRequest,
-        CreateCertificateResponse, CreateClientRequest, CreateClientResponse,
-        DeleteCertificateResponse, DeleteClientResponse, GetCertificateResponse, GetClientResponse,
-        ListCertificatesResponse, ListClientsResponse, RevokeCertificateResponse,
-        UpdateClientRequest, UpdateClientResponse,
+        CreateCertificateResponse, CreateClientRequest, CreateClientResponse, DeleteClientResponse,
+        GetCertificateResponse, GetClientResponse, ListCertificatesResponse, ListClientsResponse,
+        RevokeCertificateResponse, UpdateClientRequest, UpdateClientResponse,
     },
     entities::{Client, ClientCertificate},
 };
@@ -254,19 +253,6 @@ pub async fn delete_client(
     Ok(Json(DeleteClientResponse { message: "Client deleted successfully".to_string() }))
 }
 
-/// Deactivate a client (soft delete)
-///
-/// POST /v1/organizations/:org/clients/:client/deactivate
-/// Required role: ADMIN or OWNER
-pub async fn deactivate_client(
-    state: State<AppState>,
-    org_ctx: Extension<OrganizationContext>,
-    path: Path<(i64, i64)>,
-) -> Result<Json<DeleteClientResponse>> {
-    // Just call delete_client (which does soft delete)
-    delete_client(state, org_ctx, path).await
-}
-
 // ============================================================================
 // Certificate Management Endpoints
 // ============================================================================
@@ -438,8 +424,12 @@ pub async fn get_certificate(
 
 /// Revoke a certificate
 ///
-/// POST /v1/organizations/:org/clients/:client/certificates/:cert/revoke
+/// DELETE /v1/organizations/:org/clients/:client/certificates/:cert
 /// Required role: ADMIN or OWNER
+///
+/// Revokes the certificate, preventing it from being used for authentication.
+/// The certificate record is retained for audit purposes and will be automatically
+/// cleaned up after 90 days by a background job.
 pub async fn revoke_certificate(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
@@ -489,54 +479,4 @@ pub async fn revoke_certificate(
     }
 
     Ok(Json(RevokeCertificateResponse { message: "Certificate revoked successfully".to_string() }))
-}
-
-/// Delete a certificate
-///
-/// DELETE /v1/organizations/:org/clients/:client/certificates/:cert
-/// Required role: ADMIN or OWNER
-pub async fn delete_certificate(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, client_id, cert_id)): Path<(i64, i64, i64)>,
-) -> Result<Json<DeleteCertificateResponse>> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
-
-    // Verify client exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
-    let client = repos
-        .client
-        .get(client_id)
-        .await?
-        .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
-
-    if client.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Client not found".to_string()).into());
-    }
-
-    // Get certificate
-    let cert = repos
-        .client_certificate
-        .get(cert_id)
-        .await?
-        .ok_or_else(|| CoreError::NotFound("Certificate not found".to_string()))?;
-
-    // Verify certificate belongs to this client
-    if cert.client_id != client_id {
-        return Err(CoreError::NotFound("Certificate not found".to_string()).into());
-    }
-
-    // Delete the certificate
-    repos.client_certificate.delete(cert_id).await?;
-
-    // Invalidate certificate cache on all servers
-    #[cfg(feature = "fdb")]
-    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
-        let _ = fdb_invalidation
-            .invalidate_certificate(org_ctx.organization_id, client_id, cert_id)
-            .await;
-    }
-
-    Ok(Json(DeleteCertificateResponse { message: "Certificate deleted successfully".to_string() }))
 }

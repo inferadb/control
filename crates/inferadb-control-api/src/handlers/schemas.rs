@@ -6,10 +6,9 @@ use axum::{
 use inferadb_control_core::{Error as CoreError, IdGenerator, RepositoryContext};
 use inferadb_control_types::{
     dto::{
-        ActivateSchemaResponse, DeploySchemaRequest, DeploySchemaResponse,
-        GetSchemaResponse, ListSchemasQuery, ListSchemasResponse,
-        RollbackSchemaRequest, RollbackSchemaResponse, SchemaDetail, SchemaInfo,
-        SchemaDiffQuery, SchemaDiffResponse, SchemaDiffSummary,
+        ActivateSchemaResponse, DeploySchemaRequest, DeploySchemaResponse, GetSchemaResponse,
+        ListSchemasQuery, ListSchemasResponse, RollbackSchemaRequest, RollbackSchemaResponse,
+        SchemaDetail, SchemaDiffQuery, SchemaDiffResponse, SchemaDiffSummary, SchemaInfo,
     },
     entities::{SchemaDeploymentStatus, SchemaVersion, VaultSchema},
 };
@@ -76,11 +75,7 @@ pub async fn deploy_schema(
     }
 
     // Get parent version ID (current active schema if any)
-    let parent_version_id = repos
-        .vault_schema
-        .get_active(vault_id)
-        .await?
-        .map(|s| s.id);
+    let parent_version_id = repos.vault_schema.get_active(vault_id).await?.map(|s| s.id);
 
     // Generate ID for the schema
     let schema_id = IdGenerator::next_id();
@@ -103,12 +98,7 @@ pub async fn deploy_schema(
     // Save to repository
     repos.vault_schema.create(schema.clone()).await?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(DeploySchemaResponse {
-            schema: SchemaInfo::from(&schema),
-        }),
-    ))
+    Ok((StatusCode::CREATED, Json(DeploySchemaResponse { schema: SchemaInfo::from(&schema) })))
 }
 
 /// List all schema versions for a vault
@@ -152,12 +142,8 @@ pub async fn list_schemas(
 
     schemas = schemas.into_iter().skip(offset).take(limit).collect();
 
-    let pagination_meta = inferadb_control_types::PaginationMeta::from_total(
-        total,
-        offset,
-        limit,
-        schemas.len(),
-    );
+    let pagination_meta =
+        inferadb_control_types::PaginationMeta::from_total(total, offset, limit, schemas.len());
 
     Ok(Json(ListSchemasResponse {
         schemas: schemas.iter().map(SchemaInfo::from).collect(),
@@ -198,9 +184,7 @@ pub async fn get_schema(
         .await?
         .ok_or_else(|| CoreError::NotFound(format!("Schema version {} not found", version)))?;
 
-    Ok(Json(GetSchemaResponse {
-        schema: SchemaDetail::from(&schema),
-    }))
+    Ok(Json(GetSchemaResponse { schema: SchemaDetail::from(&schema) }))
 }
 
 /// Get the currently active schema
@@ -234,9 +218,7 @@ pub async fn get_current_schema(
         .await?
         .ok_or_else(|| CoreError::NotFound("No active schema found".to_string()))?;
 
-    Ok(Json(GetSchemaResponse {
-        schema: SchemaDetail::from(&schema),
-    }))
+    Ok(Json(GetSchemaResponse { schema: SchemaDetail::from(&schema) }))
 }
 
 /// Activate a specific schema version
@@ -310,20 +292,19 @@ pub async fn rollback_schema(
     }
 
     // Get current active schema
-    let current_active = repos
-        .vault_schema
-        .get_active(vault_id)
-        .await?
-        .ok_or_else(|| CoreError::Validation("No active schema to rollback from".to_string()))?;
+    let current_active =
+        repos.vault_schema.get_active(vault_id).await?.ok_or_else(|| {
+            CoreError::Validation("No active schema to rollback from".to_string())
+        })?;
 
     // Parse and find the target schema version
     let target_version: SchemaVersion = payload.target_version.parse()?;
-    let target_schema = repos
-        .vault_schema
-        .get_by_version(vault_id, &target_version)
-        .await?
-        .ok_or_else(|| {
-            CoreError::NotFound(format!("Target schema version {} not found", payload.target_version))
+    let target_schema =
+        repos.vault_schema.get_by_version(vault_id, &target_version).await?.ok_or_else(|| {
+            CoreError::NotFound(format!(
+                "Target schema version {} not found",
+                payload.target_version
+            ))
         })?;
 
     if target_schema.id == current_active.id {
@@ -381,11 +362,10 @@ pub async fn diff_schemas(
     let from_version: SchemaVersion = query.from.parse()?;
     let to_version: SchemaVersion = query.to.parse()?;
 
-    let _from_schema = repos
-        .vault_schema
-        .get_by_version(vault_id, &from_version)
-        .await?
-        .ok_or_else(|| CoreError::NotFound(format!("Schema version {} not found", query.from)))?;
+    let _from_schema =
+        repos.vault_schema.get_by_version(vault_id, &from_version).await?.ok_or_else(|| {
+            CoreError::NotFound(format!("Schema version {} not found", query.from))
+        })?;
 
     let _to_schema = repos
         .vault_schema

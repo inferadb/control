@@ -171,7 +171,7 @@ pub struct SchemaDiffResponse {
 }
 
 /// Summary of schema diff changes
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct SchemaDiffSummary {
     pub entities_added: usize,
     pub entities_removed: usize,
@@ -231,22 +231,6 @@ impl From<&crate::entities::VaultSchema> for SchemaDetail {
 impl From<crate::entities::VaultSchema> for SchemaDetail {
     fn from(schema: crate::entities::VaultSchema) -> Self {
         Self::from(&schema)
-    }
-}
-
-impl Default for SchemaDiffSummary {
-    fn default() -> Self {
-        Self {
-            entities_added: 0,
-            entities_removed: 0,
-            entities_modified: 0,
-            relations_added: 0,
-            relations_removed: 0,
-            relations_modified: 0,
-            permissions_added: 0,
-            permissions_removed: 0,
-            permissions_modified: 0,
-        }
     }
 }
 

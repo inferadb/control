@@ -50,8 +50,8 @@ pub use organizations::{
 pub use schemas::{
     ActivateSchemaRequest, ActivateSchemaResponse, DeploySchemaRequest, DeploySchemaResponse,
     DiffChangeType, GetSchemaResponse, ListSchemasQuery, ListSchemasResponse,
-    RollbackSchemaRequest, RollbackSchemaResponse, SchemaDiffChange, SchemaDiffQuery,
-    SchemaDiffResponse, SchemaDiffSummary, SchemaDetail, SchemaInfo,
+    RollbackSchemaRequest, RollbackSchemaResponse, SchemaDetail, SchemaDiffChange, SchemaDiffQuery,
+    SchemaDiffResponse, SchemaDiffSummary, SchemaInfo,
 };
 pub use sessions::{ListSessionsResponse, RevokeSessionResponse, SessionInfo};
 pub use teams::{

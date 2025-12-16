@@ -302,14 +302,14 @@ async fn test_revoke_certificate() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let cert_id = json["certificate"]["id"].as_i64().unwrap();
 
-    // Revoke certificate
+    // Revoke certificate (DELETE method)
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
+                .method("DELETE")
                 .uri(format!(
-                    "/v1/organizations/{}/clients/{}/certificates/{}/revoke",
+                    "/v1/organizations/{}/clients/{}/certificates/{}",
                     org_id, client_id, cert_id
                 ))
                 .header("cookie", format!("infera_session={}", session))
@@ -445,13 +445,13 @@ async fn test_jwks_endpoint() {
 }
 
 #[tokio::test]
-async fn test_deactivate_client() {
+async fn test_delete_client() {
     let _ = IdGenerator::init(35);
     let state = create_test_state();
     let app = create_test_app(state.clone());
 
     let session =
-        register_user(&app, "deactivator", "deactivate@example.com", "securepassword123").await;
+        register_user(&app, "deleter", "delete@example.com", "securepassword123").await;
 
     // Get organization and create client
     let response = app
@@ -481,8 +481,8 @@ async fn test_deactivate_client() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "name": "deactivate-test",
-                        "description": "Client to deactivate"
+                        "name": "delete-test",
+                        "description": "Client to delete"
                     })
                     .to_string(),
                 ))
@@ -495,13 +495,13 @@ async fn test_deactivate_client() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let client_id = json["client"]["id"].as_i64().unwrap();
 
-    // Deactivate client
+    // Delete client
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri(format!("/v1/organizations/{}/clients/{}/deactivate", org_id, client_id))
+                .method("DELETE")
+                .uri(format!("/v1/organizations/{}/clients/{}", org_id, client_id))
                 .header("cookie", format!("infera_session={}", session))
                 .body(Body::empty())
                 .unwrap(),
@@ -511,7 +511,7 @@ async fn test_deactivate_client() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Get client to verify it's deactivated
+    // Verify client is marked as deleted (soft delete)
     let response = app
         .oneshot(
             Request::builder()
@@ -524,8 +524,11 @@ async fn test_deactivate_client() {
         .await
         .unwrap();
 
+    assert_eq!(response.status(), StatusCode::OK);
+
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
+    // Client should be soft deleted (is_active becomes false after soft delete)
     assert_eq!(json["client"]["is_active"], false);
 }

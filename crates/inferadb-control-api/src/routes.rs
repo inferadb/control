@@ -38,11 +38,6 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/v1/organizations/{org}/invitations/{invitation}",
             delete(organizations::delete_invitation),
         )
-        // Ownership transfer route
-        .route(
-            "/v1/organizations/{org}/transfer-ownership",
-            post(organizations::transfer_ownership),
-        )
         // Organization suspension routes
         .route("/v1/organizations/{org}/suspend", post(organizations::suspend_organization))
         .route("/v1/organizations/{org}/resume", post(organizations::resume_organization))
@@ -52,26 +47,14 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/v1/organizations/{org}/clients/{client}", get(clients::get_client))
         .route("/v1/organizations/{org}/clients/{client}", patch(clients::update_client))
         .route("/v1/organizations/{org}/clients/{client}", delete(clients::delete_client))
-        .route(
-            "/v1/organizations/{org}/clients/{client}/deactivate",
-            post(clients::deactivate_client),
-        )
         // Certificate management routes
         .route(
             "/v1/organizations/{org}/clients/{client}/certificates",
-            post(clients::create_certificate),
-        )
-        .route(
-            "/v1/organizations/{org}/clients/{client}/certificates",
-            get(clients::list_certificates),
-        )
-        .route(
-            "/v1/organizations/{org}/clients/{client}/certificates/{cert}/revoke",
-            post(clients::revoke_certificate),
+            post(clients::create_certificate).get(clients::list_certificates),
         )
         .route(
             "/v1/organizations/{org}/clients/{client}/certificates/{cert}",
-            get(clients::get_certificate).delete(clients::delete_certificate),
+            get(clients::get_certificate).delete(clients::revoke_certificate),
         )
         // Vault management routes
         .route("/v1/organizations/{org}/vaults", post(vaults::create_vault))
@@ -117,18 +100,12 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/v1/organizations/{org}/vaults/{vault}/schemas/current",
             get(schemas::get_current_schema),
         )
-        .route(
-            "/v1/organizations/{org}/vaults/{vault}/schemas/diff",
-            get(schemas::diff_schemas),
-        )
+        .route("/v1/organizations/{org}/vaults/{vault}/schemas/diff", get(schemas::diff_schemas))
         .route(
             "/v1/organizations/{org}/vaults/{vault}/schemas/rollback",
             post(schemas::rollback_schema),
         )
-        .route(
-            "/v1/organizations/{org}/vaults/{vault}/schemas/{version}",
-            get(schemas::get_schema),
-        )
+        .route("/v1/organizations/{org}/vaults/{vault}/schemas/{version}", get(schemas::get_schema))
         .route(
             "/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate",
             post(schemas::activate_schema),
