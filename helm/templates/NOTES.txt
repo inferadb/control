@@ -1,0 +1,51 @@
+InferaDB Control has been deployed!
+
+{{- if .Values.ingress.enabled }}
+Access the Control API via Ingress:
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else }}
+
+Access the Control API via port-forward:
+
+  # REST API
+  kubectl port-forward svc/{{ include "inferadb-control.fullname" . }} 9090:{{ .Values.service.httpPort }} -n {{ .Release.Namespace }}
+  curl http://localhost:9090/healthz
+
+  # gRPC API
+  kubectl port-forward svc/{{ include "inferadb-control.fullname" . }} 9091:{{ .Values.service.grpcPort }} -n {{ .Release.Namespace }}
+
+  # Mesh API (for Engine communication)
+  kubectl port-forward svc/{{ include "inferadb-control.fullname" . }} 9092:{{ .Values.service.meshPort }} -n {{ .Release.Namespace }}
+{{- end }}
+
+API Endpoints:
+  - REST API:  http://{{ include "inferadb-control.fullname" . }}:{{ .Values.service.httpPort }}
+  - gRPC API:  {{ include "inferadb-control.fullname" . }}:{{ .Values.service.grpcPort }}
+  - Mesh API:  http://{{ include "inferadb-control.fullname" . }}:{{ .Values.service.meshPort }}
+  - Health:    http://{{ include "inferadb-control.fullname" . }}:{{ .Values.service.httpPort }}/healthz
+  - Metrics:   http://{{ include "inferadb-control.fullname" . }}:{{ .Values.service.httpPort }}/metrics
+
+{{- if eq .Values.config.storage "memory" }}
+
+WARNING: Using in-memory storage. Data will be lost on pod restart.
+         Set config.storage=foundationdb for production use.
+{{- end }}
+
+{{- if not .Values.config.webauthn.party }}
+
+WARNING: WebAuthn is not configured. Passkey authentication will not work.
+         Set config.webauthn.party and config.webauthn.origin for passkey support.
+{{- end }}
+
+{{- if not .Values.secrets.masterKey }}
+
+WARNING: No master encryption key provided. A random key will be generated.
+         This means encrypted data will be unrecoverable after pod restart.
+         Set secrets.masterKey for production use.
+{{- end }}
+
+For more information, visit: https://inferadb.com/docs

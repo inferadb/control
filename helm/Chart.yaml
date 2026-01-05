@@ -1,0 +1,18 @@
+apiVersion: v2
+name: inferadb-control
+description: InferaDB Control Plane - Multi-tenant administration APIs with WebAuthn authentication
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - inferadb
+  - authorization
+  - control-plane
+  - multi-tenant
+  - webauthn
+home: https://inferadb.com
+sources:
+  - https://github.com/inferadb/control
+maintainers:
+  - name: InferaDB Team
+    url: https://github.com/inferadb

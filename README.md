@@ -112,12 +112,24 @@ cargo build --release         # Release build
 
 ## Deployment
 
+### Docker
+
 ```bash
 docker run -p 9090:9090 inferadb/control:latest
-kubectl apply -k k8s/
 ```
 
-See [docs/deployment.md](docs/deployment.md) for Kubernetes.
+### Kubernetes (Helm)
+
+```bash
+helm install inferadb-control ./helm \
+  --namespace inferadb \
+  --create-namespace \
+  --set config.storage=foundationdb \
+  --set config.webauthn.party=example.com \
+  --set config.webauthn.origin=https://app.example.com
+```
+
+See [helm/README.md](helm/README.md) for full configuration options.
 
 ## Documentation
 

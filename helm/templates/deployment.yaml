@@ -1,0 +1,194 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "inferadb-control.fullname" . }}
+  labels:
+    {{- include "inferadb-control.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "inferadb-control.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "inferadb-control.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "inferadb-control.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --config
+            - /etc/inferadb/config.yaml
+          ports:
+            - name: http
+              containerPort: 9090
+              protocol: TCP
+            - name: grpc
+              containerPort: 9091
+              protocol: TCP
+            - name: mesh
+              containerPort: 9092
+              protocol: TCP
+          env:
+            - name: RUST_LOG
+              value: {{ .Values.config.logging | quote }}
+            {{- if .Values.secrets.masterKey }}
+            - name: INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "inferadb-control.secretName" . }}
+                  key: masterKey
+            {{- end }}
+            {{- if and .Values.config.email.enabled .Values.secrets.email.password }}
+            - name: INFERADB_CTRL__EMAIL__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "inferadb-control.secretName" . }}
+                  key: emailPassword
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.healthCheck.liveness | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.healthCheck.readiness | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.healthCheck.startup | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/inferadb
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- if eq .Values.config.storage "foundationdb" }}
+            - name: fdb-cluster-file
+              mountPath: /etc/foundationdb
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- if eq (include "inferadb-control.tailscaleEnabled" .) "true" }}
+        # Tailscale sidecar for multi-region mesh networking
+        - name: tailscale
+          image: "{{ .Values.discovery.tailscale.image.repository }}:{{ .Values.discovery.tailscale.image.tag }}"
+          imagePullPolicy: {{ .Values.discovery.tailscale.image.pullPolicy }}
+          env:
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.discovery.tailscale.authKey.existingSecret }}
+                  key: {{ .Values.discovery.tailscale.authKey.key }}
+            - name: TS_KUBE_SECRET
+              value: "tailscale-state-control"
+            - name: TS_USERSPACE
+              value: "true"
+            - name: TS_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: TS_ACCEPT_DNS
+              value: {{ .Values.discovery.tailscale.acceptDNS | quote }}
+            - name: TS_EXTRA_ARGS
+              value: {{ .Values.discovery.tailscale.extraArgs | quote }}
+            - name: TS_STATE_DIR
+              value: "/var/lib/tailscale"
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          resources:
+            {{- toYaml .Values.discovery.tailscale.resources | nindent 12 }}
+          volumeMounts:
+            - name: tailscale-state
+              mountPath: /var/lib/tailscale
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - tailscale status
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - tailscale status --json | grep -q '"BackendState":"Running"'
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+        {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "inferadb-control.configMapName" . }}
+        - name: tmp
+          emptyDir: {}
+        {{- if eq .Values.config.storage "foundationdb" }}
+        - name: fdb-cluster-file
+          {{- if .Values.secrets.fdbClusterFile }}
+          secret:
+            secretName: {{ include "inferadb-control.secretName" . }}
+            items:
+              - key: fdbClusterFile
+                path: fdb.cluster
+          {{- else }}
+          configMap:
+            name: foundationdb-cluster-file
+          {{- end }}
+        {{- end }}
+        {{- if eq (include "inferadb-control.tailscaleEnabled" .) "true" }}
+        - name: tailscale-state
+          emptyDir: {}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,355 @@
+# Default values for InferaDB Control Helm chart
+
+# Image configuration
+image:
+  repository: inferadb-control
+  pullPolicy: IfNotPresent
+  tag: "" # Overrides the image tag (default is Chart appVersion)
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Replica configuration
+replicaCount: 2
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+  automount: false
+
+# Pod annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+  prometheus.io/path: "/metrics"
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+
+# Service configuration
+service:
+  type: ClusterIP
+  httpPort: 9090   # REST API
+  grpcPort: 9091   # gRPC API
+  meshPort: 9092   # Internal mesh API for Engine communication
+  annotations: {}
+  sessionAffinity: None
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: control.inferadb.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: inferadb-control-tls
+  #    hosts:
+  #      - control.inferadb.local
+
+# Resource limits
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# Horizontal Pod Autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - inferadb-control
+          topologyKey: kubernetes.io/hostname
+
+# Topology spread constraints
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: inferadb-control
+
+# =============================================================================
+# InferaDB Control Configuration
+# =============================================================================
+
+config:
+  # Logging level: trace, debug, info, warn, error
+  logging: "info"
+
+  # Listen addresses
+  listen:
+    http: "0.0.0.0:9090"
+    grpc: "0.0.0.0:9091"
+    mesh: "0.0.0.0:9092"
+
+  # Frontend URL (for email links, CORS, etc.)
+  frontendUrl: ""  # e.g., "https://app.inferadb.com"
+
+  # Storage backend: "memory" or "foundationdb"
+  storage: "memory"
+
+  # FoundationDB configuration (only used when storage = "foundationdb")
+  foundationdb:
+    clusterFile: "/etc/foundationdb/fdb.cluster"
+
+  # WebAuthn (Passkey) configuration
+  # Required for passkey authentication
+  webauthn:
+    # Relying Party ID - typically your domain without protocol
+    party: ""  # e.g., "inferadb.com"
+    # Origin URL - must match the URL users access
+    origin: "" # e.g., "https://app.inferadb.com"
+
+  # Email configuration for verification, password reset, etc.
+  email:
+    enabled: false
+    host: ""
+    port: 587
+    username: ""
+    # password: set via secrets.email.password or externalSecrets
+    address: "noreply@example.com"
+    name: "InferaDB"
+    # TLS mode: "none", "starttls", "tls"
+    tls: "starttls"
+
+  # Rate limiting
+  limits:
+    loginAttemptsPerIpPerHour: 100
+    registrationsPerIpPerDay: 5
+    emailVerificationTokensPerHour: 5
+    passwordResetTokensPerHour: 3
+
+  # Engine mesh configuration
+  mesh:
+    # Static URL (when discovery is disabled)
+    url: ""  # e.g., "http://inferadb-engine:8082"
+    grpcPort: 8081
+    httpPort: 8082
+    timeout: 5000  # Timeout in milliseconds
+
+  # Cache invalidation configuration
+  cacheInvalidation:
+    timeout: 5000      # Timeout in milliseconds
+    retryAttempts: 2
+
+  # Optional: provide full config file as YAML string
+  configFile: ""
+
+# =============================================================================
+# Service Discovery Configuration
+# =============================================================================
+
+discovery:
+  # Discovery mode: "none", "kubernetes", "tailscale"
+  mode: "kubernetes"
+
+  # Cache TTL for discovered endpoints (in seconds)
+  cacheTtl: 30
+
+  # Engine service discovery (for cache invalidation webhooks)
+  engine:
+    # Kubernetes service name (when mode = kubernetes)
+    serviceName: "inferadb-engine"
+    namespace: "inferadb"
+    port: 8080  # Engine HTTP port for webhooks
+    # Label selector for pod discovery
+    labelSelector: "app.kubernetes.io/name=inferadb-engine"
+
+  # Tailscale multi-region configuration (when mode = tailscale)
+  tailscale:
+    enabled: false
+    localCluster: "primary"
+    remoteClusters: []
+    # - name: "eu-west-1"
+    #   tailscaleDomain: "eu-west-1.ts.net"
+    #   serviceName: "inferadb-engine"
+    #   port: 8080
+
+    authKey:
+      existingSecret: "tailscale-auth"
+      key: "authkey"
+      value: ""
+
+    image:
+      repository: tailscale/tailscale
+      tag: "v1.56.1"
+      pullPolicy: IfNotPresent
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+    extraArgs: "--accept-routes"
+    acceptDNS: false
+
+# =============================================================================
+# Secrets Configuration
+# =============================================================================
+
+secrets:
+  # Master encryption key for sensitive data (e.g., OAuth tokens)
+  # If not provided, will be generated on startup (not recommended for production)
+  # Generate with: openssl rand -base64 32
+  masterKey: ""
+
+  # Email password (for SMTP authentication)
+  email:
+    password: ""
+
+  # FoundationDB cluster file content
+  fdbClusterFile: ""
+
+  # Additional custom secrets
+  additional: {}
+
+# External Secrets Operator integration
+externalSecrets:
+  enabled: false
+  secretStoreRef:
+    name: ""
+    kind: SecretStore # or ClusterSecretStore
+  refreshInterval: 1h
+  data: []
+    # - secretKey: INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET
+    #   remoteRef:
+    #     key: inferadb/prod/control
+    #     property: masterKey
+    # - secretKey: INFERADB_CTRL__EMAIL__PASSWORD
+    #   remoteRef:
+    #     key: inferadb/prod/control
+    #     property: emailPassword
+
+# =============================================================================
+# Health Checks
+# =============================================================================
+
+healthCheck:
+  liveness:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 3
+
+  readiness:
+    httpGet:
+      path: /readyz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    successThreshold: 1
+    failureThreshold: 3
+
+  startup:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 3
+    successThreshold: 1
+    failureThreshold: 30
+
+# Graceful shutdown
+terminationGracePeriodSeconds: 30
+
+# Init containers (e.g., wait for FoundationDB)
+initContainers: []
+  # - name: wait-for-fdb
+  #   image: busybox:1.36
+  #   command:
+  #   - sh
+  #   - -c
+  #   - |
+  #     until nc -z -v -w30 foundationdb-cluster 4500; do
+  #       sleep 5
+  #     done
+
+# Extra environment variables
+extraEnv: []
+  # - name: CUSTOM_VAR
+  #   value: "custom-value"
+
+# Extra volume mounts
+extraVolumeMounts: []
+
+# Extra volumes
+extraVolumes: []
+
+# ServiceMonitor for Prometheus Operator
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  honorLabels: true
+  relabelings: []
+  metricRelabelings: []
+
+# External dependencies
+foundationdb:
+  enabled: false
+  clusterName: "inferadb-fdb"
+  version: "7.3.x"

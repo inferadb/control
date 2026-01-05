@@ -1,3 +1,7 @@
+# Labeler configuration
+# See: https://github.com/actions/labeler
+# Labels must match those defined in repos.json
+
 # Documentation
 area/docs:
   - changed-files:
@@ -10,15 +14,6 @@ area/ci:
   - changed-files:
       - any-glob-to-any-file:
           - ".github/**/*"
-
-# Docker
-area/docker:
-  - changed-files:
-      - any-glob-to-any-file:
-          - "**/Dockerfile*"
-          - "**/.dockerignore"
-          - "**/docker-compose*.yml"
-          - "**/docker-compose*.yaml"
 
 # Configuration
 area/config:
@@ -65,8 +60,6 @@ area/session:
   - changed-files:
       - any-glob-to-any-file:
           - "**/session/**/*"
-          - "**/auth/**/*"
-          - "**/authentication/**/*"
 
 # Passkey/WebAuthn
 area/passkey:
@@ -87,38 +80,18 @@ area/team:
       - any-glob-to-any-file:
           - "**/team/**/*"
 
-# RBAC/Permissions
-area/rbac:
+# API
+area/api:
   - changed-files:
       - any-glob-to-any-file:
-          - "**/rbac/**/*"
-          - "**/permissions/**/*"
-          - "**/roles/**/*"
+          - "**/api/**/*"
+          - "**/grpc/**/*"
+          - "**/rest/**/*"
 
-# Audit Logging
-area/audit:
+# Authentication
+area/auth:
   - changed-files:
       - any-glob-to-any-file:
-          - "**/audit/**/*"
-
-# Token Management
-area/token:
-  - changed-files:
-      - any-glob-to-any-file:
-          - "**/token/**/*"
-          - "**/jwt/**/*"
-
-# Observability
-area/observability:
-  - changed-files:
-      - any-glob-to-any-file:
-          - "**/telemetry/**/*"
-          - "**/metrics/**/*"
-          - "**/tracing/**/*"
-          - "**/logging/**/*"
-
-# Repository label
-repo/management:
-  - changed-files:
-      - any-glob-to-any-file:
-          - "**/*"
+          - "**/auth/**/*"
+          - "**/authentication/**/*"
+          - "**/authorization/**/*"

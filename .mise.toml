@@ -16,14 +16,7 @@ node = "24"
 # Development tools (installed automatically with `mise install`)
 "cargo:cargo-watch" = "latest"    # Auto-rebuild on file changes
 "cargo:cargo-nextest" = "latest"  # Next-generation test runner
-"cargo:cargo-audit" = "latest"    # Security vulnerability scanning
-"cargo:cargo-deny" = "latest"     # Lint dependencies
 "cargo:cargo-llvm-cov" = "latest" # Code coverage
-
-# Code formatting
-"cargo:taplo-cli" = "latest"      # TOML formatter and linter
-"npm:prettier" = "latest"         # Format Markdown, YAML, JSON, Rust
-"npm:markdownlint-cli2" = "latest" # Markdown linter
 
 # Protobuf compiler for gRPC
 protobuf = "latest"
