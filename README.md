@@ -1,6 +1,8 @@
-# InferaDB Control Plane
-
-Multi-tenant administration headless APIs, Kubernetes-native deployment, and WebAuthn authentication.
+<div align="center">
+    <p><a href="https://inferadb.com"><img src=".github/inferadb.png" width="100" alt="InferaDB Logo" /></a></p>
+    <h1>InferaDB Control Plane</h1>
+    <p>Multi-tenant administration headless APIs, Kubernetes-native deployment, and WebAuthn authentication</p>
+</div>
 
 > [!IMPORTANT]
 > Under active development. Not production-ready.
