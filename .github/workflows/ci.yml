@@ -237,7 +237,7 @@ jobs:
         run: cargo test --workspace --doc
 
       - name: Publish test results
-        uses: step-security/publish-unit-test-result-action@914f0f642c242f38335a491805adfc9bd64b1cbb # v2.21.1
+        uses: EnricoMi/publish-unit-test-result-action@27d65e188ec43221b20d26de30f4892fad91df2f # v2.22.0
         if: always()
         with:
           files: target/nextest/ci/junit.xml
