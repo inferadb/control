@@ -1,8 +1,13 @@
-# yaml-language-server: $schema=https://www.schemastore.org/dependabot-2.0.json
+# yaml-language-server: $schema=https://json.schemastore.org/dependabot-2.0.json
+#
+# Dependabot configuration for inferadb/control
+# Managed by github/tools/repos.sh - manual edits will be overwritten
+#
+# To customize: update repos.json and run ./repos.sh --dependabot
 
 version: 2
 updates:
-  # Cargo dependencies (Rust crates)
+
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
@@ -12,36 +17,30 @@ updates:
       timezone: "Etc/UTC"
     open-pull-requests-limit: 5
     labels:
-      - "dependencies"
       - "area/deps"
     commit-message:
       prefix: "deps"
       include: "scope"
-    groups:
-      # Group ALL patch updates into a single PR
-      patch-updates:
-        patterns:
-          - "*"
+    ignore:
+      - dependency-name: "foundationdb"
         update-types:
-          - "patch"
-      # Group ALL minor updates into a single PR
-      minor-updates:
+          - "version-update:semver-major"
+      - dependency-name: "tonic"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "prost"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      rust-minor-patch:
         patterns:
           - "*"
         update-types:
           - "minor"
-    # Ignore major version bumps for stability (review manually)
-    ignore:
-      - dependency-name: "foundationdb"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "tonic"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "prost"
-        update-types: ["version-update:semver-major"]
+          - "patch"
 
-  # GitHub Actions workflow dependencies
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directory: "/.github/workflows"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -49,19 +48,16 @@ updates:
       timezone: "Etc/UTC"
     open-pull-requests-limit: 5
     labels:
-      - "dependencies"
-      - "github-actions"
+      - "area/deps"
       - "area/ci"
     commit-message:
       prefix: "ci"
       include: "scope"
     groups:
-      # Group all GitHub Actions updates together
-      actions:
+      github-actions:
         patterns:
           - "*"
 
-  # Docker base images
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -71,20 +67,26 @@ updates:
       timezone: "Etc/UTC"
     open-pull-requests-limit: 3
     labels:
-      - "dependencies"
+      - "area/deps"
       - "area/docker"
     commit-message:
       prefix: "docker"
+      include: "scope"
     groups:
       docker-images:
         patterns:
           - "*"
 
-  - package-ecosystem: docker
-    directory: /docker/fdb-integration-tests
+  - package-ecosystem: "docker"
+    directory: "/docker/fdb-integration-tests"
     schedule:
-      interval: daily
+      interval: "daily"
+      time: "09:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
     labels:
-      - "dependencies"
+      - "area/deps"
       - "area/docker"
-      - "area/testing"
+    commit-message:
+      prefix: "docker"
+      include: "scope"
