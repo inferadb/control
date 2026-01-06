@@ -1,0 +1,80 @@
+# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
+#
+# Dependabot Auto-Merge Workflow
+# Automatically approves and enables auto-merge for low-risk Dependabot PRs.
+#
+# Safety guarantees:
+# - Only runs for PRs created by dependabot[bot]
+# - Only auto-merges patch and minor updates (major updates require manual review)
+# - Waits for ALL required status checks to pass before merging
+# - If any check fails, the PR remains open for manual review
+#
+# Security note: Uses pull_request_target to access secrets for dependabot PRs.
+# This is safe because we only run trusted actions (no checkout of PR code).
+
+name: Dependabot Auto-Merge
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Auto-Merge
+    runs-on: ubuntu-latest
+    # Only run for Dependabot PRs
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7 # v2.4.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto-approve and enable auto-merge for patch/minor updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+        run: |
+          echo "## Dependabot Auto-Merge"
+          echo ""
+          echo "**Update type:** $UPDATE_TYPE"
+          echo "**Dependencies:** $DEPENDENCY_NAMES"
+          echo ""
+
+          # Approve the PR
+          echo "Approving PR..."
+          gh pr review --approve "$PR_URL" --body "Auto-approved: $UPDATE_TYPE update for safe dependencies."
+
+          # Enable auto-merge (GitHub will wait for required checks to pass)
+          echo "Enabling auto-merge..."
+          gh pr merge --auto --squash "$PR_URL"
+
+          echo ""
+          echo "✅ Auto-merge enabled. PR will merge automatically once all status checks pass."
+
+      - name: Skip major updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+        run: |
+          echo "## Dependabot Auto-Merge - Skipped"
+          echo ""
+          echo "**Update type:** $UPDATE_TYPE"
+          echo "**Dependencies:** $DEPENDENCY_NAMES"
+          echo ""
+          echo "⚠️ Major version updates require manual review."
+          echo "Please review the changelog and test for breaking changes before merging."
