@@ -22,6 +22,7 @@ If you prefer email or cannot use GitHub's reporting:
 - **Subject:** `[SECURITY] <brief description>`
 
 Please include:
+
 - Description of the vulnerability
 - Steps to reproduce
 - Potential impact
@@ -29,11 +30,11 @@ Please include:
 
 ### What to Expect
 
-| Timeline | Action |
-|----------|--------|
-| 48 hours | Acknowledgment of your report |
-| 7 days | Initial assessment and severity determination |
-| 90 days | Target resolution for most issues |
+| Timeline | Action                                        |
+| -------- | --------------------------------------------- |
+| 48 hours | Acknowledgment of your report                 |
+| 7 days   | Initial assessment and severity determination |
+| 90 days  | Target resolution for most issues             |
 
 We follow [coordinated vulnerability disclosure](https://en.wikipedia.org/wiki/Coordinated_vulnerability_disclosure). We'll work with you to understand the issue, develop a fix, and coordinate public disclosure.
 
@@ -59,6 +60,7 @@ Security issues we're interested in include:
 ## Security Updates
 
 Security fixes are released as patch versions and announced via:
+
 - GitHub Security Advisories
 - Release notes
 
