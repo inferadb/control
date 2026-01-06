@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
+
+name: Security
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "**/Cargo.toml"
+      - ".github/workflows/security.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@df199fb7be9f65074067a9eb93f12bb4c5547cf2 # v2.13.3
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@3c4e3dcb1aa7874d2c16be7d79418e9b7efd6261 # v4.8.2
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: always
+
+  # Security scan summary - aggregates all security job results
+  security-summary:
+    name: Security Summary
+    needs: [dependency-review]
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      contents: read
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@df199fb7be9f65074067a9eb93f12bb4c5547cf2 # v2.13.3
+        with:
+          egress-policy: audit
+
+      - name: Check security scan results
+        env:
+          DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
+        run: |
+          echo "## Security Scan Results"
+          echo ""
+          echo "| Scanner | Status |"
+          echo "|---------|--------|"
+          echo "| Dependency Review | $DEPENDENCY_REVIEW_RESULT |"
+          echo ""
+
+          # Fail if any security job failed
+          if [[ "$DEPENDENCY_REVIEW_RESULT" != "success" && "$DEPENDENCY_REVIEW_RESULT" != "skipped" ]]; then
+            echo "❌ Security checks failed"
+            exit 1
+          fi
+
+          echo "✅ All security checks passed!"
