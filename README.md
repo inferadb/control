@@ -1,6 +1,10 @@
 <div align="center">
     <p><a href="https://inferadb.com"><img src=".github/inferadb.png" width="100" alt="InferaDB Logo" /></a></p>
     <h1>InferaDB Control Plane</h1>
+    <p>
+        <a href="https://discord.gg/inferadb"><img src="https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
+        <a href="#license"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg" alt="License" /></a>
+    </p>
     <p>Multi-tenant administration headless APIs, Kubernetes-native deployment, and WebAuthn authentication</p>
 </div>
 
@@ -141,6 +145,10 @@ See [helm/README.md](helm/README.md) for full configuration options.
 | Authentication  | [docs/authentication.md](docs/authentication.md)   |
 | Architecture    | [docs/architecture.md](docs/architecture.md)       |
 | API Reference   | [openapi.yaml](openapi.yaml)                       |
+
+## Community
+
+Join us on [Discord](https://discord.gg/inferadb) to discuss InferaDB, get help with your projects, and connect with other developers. Whether you have questions, want to share what you're building, or are interested in contributing, we'd love to have you!
 
 ## License
 
