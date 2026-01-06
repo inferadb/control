@@ -42,20 +42,14 @@ We follow [coordinated vulnerability disclosure](https://en.wikipedia.org/wiki/C
 
 Security issues we're interested in include:
 
-- Authentication/authorization bypasses
-- Data exposure or leakage
-- Injection vulnerabilities (SQL, command, etc.)
-- Cryptographic weaknesses
-- Denial of service (when practical to exploit)
-- Supply chain vulnerabilities
-- CI/CD security issues
+- Test fixtures that could expose security vulnerabilities
+- Insecure test patterns that might be copied
+- Credential exposure in test configurations
 
 ## Out of Scope
 
-- Vulnerabilities in dependencies (report to the upstream project)
-- Social engineering attacks
-- Physical security issues
-- Issues requiring unlikely user interaction
+- Vulnerabilities in test dependencies
+- Issues that only affect test environments
 
 ## Security Updates
 
