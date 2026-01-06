@@ -1,37 +1,61 @@
-# Codecov Configuration
-# https://docs.codecov.com/docs/codecov-yaml
+# Codecov configuration
+# https://docs.codecov.com/docs/codecovyml-reference
 
 coverage:
+  # Coverage precision (number of decimal places)
   precision: 2
+
+  # Round coverage values
   round: down
-  range: "60...100"
+
+  # Range of coverage colors (red to green)
+  range: "70...100"
 
   status:
+    # Project-level coverage requirements
     project:
       default:
-        # Coverage is informational only - don't block PRs
-        informational: true
         target: auto
         threshold: 5%
+        # Informational only - never block PRs
+        informational: true
+
+    # Patch coverage (for new code in PRs)
     patch:
       default:
-        # Coverage is informational only - don't block PRs
-        informational: true
         target: auto
         threshold: 5%
+        # Informational only - never block PRs
+        informational: true
 
-comment:
-  layout: "condensed_header, condensed_files, condensed_footer"
-  behavior: default
-  require_changes: true
-
+# Ignore generated and non-essential files
 ignore:
-  - "target/**"
-  - "tests/**"
-  - "**/tests/**"
+  - "target/**/*"
+  - "tests/**/*"
+  - "**/tests/**/*"
   - "**/*_test.rs"
   - "**/test_*.rs"
-  - "**/benches/**"
+  - "benches/**/*"
+  - "examples/**/*"
   - "**/*.generated.rs"
-  - "proto/**"
-  - "loadtests/**"
+  - "proto/**/*"
+  - "loadtests/**/*"
+
+# Comment configuration for PRs
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: true
+  require_base: false
+  require_head: true
+
+# Flag management for different test types
+flags:
+  unit:
+    paths:
+      - crates/
+    carryforward: true
+
+# GitHub integration settings
+github_checks:
+  annotations: true
