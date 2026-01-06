@@ -144,4 +144,9 @@ See [helm/README.md](helm/README.md) for full configuration options.
 
 ## License
 
-[InferaDB Non‑Commercial Source License](LICENSE.md)
+Licensed under either of:
+
+- [Apache License, Version 2.0](LICENSE-APACHE)
+- [MIT License](LICENSE-MIT)
+
+at your option.
