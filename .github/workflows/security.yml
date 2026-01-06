@@ -5,21 +5,46 @@ name: Security
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "**/Cargo.toml"
-      - ".github/workflows/security.yml"
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
+  # Detect if security-relevant files changed
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      cargo: ${{ steps.filter.outputs.cargo }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Check for dependency changes
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            cargo:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '**/Cargo.toml'
+              - '.github/workflows/security.yml'
+
   dependency-review:
     name: Dependency Review
+    needs: [detect-changes]
     runs-on: ubuntu-latest
-    if: github.actor != 'dependabot[bot]'
+    # Only run if Cargo files changed AND not triggered by dependabot
+    if: needs.detect-changes.outputs.cargo == 'true' && github.actor != 'dependabot[bot]'
     permissions:
       contents: read
       pull-requests: write
@@ -39,9 +64,10 @@ jobs:
           comment-summary-in-pr: always
 
   # Security scan summary - aggregates all security job results
+  # This job ALWAYS runs to satisfy required status checks
   security-summary:
     name: Security Summary
-    needs: [dependency-review]
+    needs: [detect-changes, dependency-review]
     runs-on: ubuntu-latest
     if: always()
     permissions:
@@ -54,10 +80,20 @@ jobs:
 
       - name: Check security scan results
         env:
+          CARGO_CHANGES: ${{ needs.detect-changes.outputs.cargo }}
           DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
         run: |
           echo "## Security Scan Results"
           echo ""
+
+          # If no security-relevant files changed, report success immediately
+          if [[ "$CARGO_CHANGES" != "true" ]]; then
+            echo "No Cargo dependency changes detected - security scan not required."
+            echo ""
+            echo "✅ Security checks passed (no relevant changes)"
+            exit 0
+          fi
+
           echo "| Scanner | Status |"
           echo "|---------|--------|"
           echo "| Dependency Review | $DEPENDENCY_REVIEW_RESULT |"
