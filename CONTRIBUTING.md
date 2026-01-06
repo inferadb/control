@@ -1,6 +1,6 @@
 # Contributing to InferaDB
 
-Thank you for your interest in contributing to InferaDB! We welcome contributions from the community and are grateful for any help you can provide.
+Thank you for your interest in contributing to [InferaDB](https://inferadb.com)! We welcome contributions from the community and are grateful for any help you can provide.
 
 ## Code of Conduct
 
@@ -17,26 +17,15 @@ This project and everyone participating in it is governed by the [Contributor Co
 ### Pull Requests
 
 1. **Fork the repository** and create your branch from `main`
-2. **Follow the development workflow** documented in the repository's README
-3. **Write clear commit messages** following [Conventional Commits](https://www.conventionalcommits.org/):
-   - `feat:` New features
-   - `fix:` Bug fixes
-   - `docs:` Documentation changes
-   - `test:` Test additions or improvements
-   - `refactor:` Code refactoring
-   - `chore:` Maintenance tasks
+2. **Follow the development workflow** documented in the repository's [README.md](README.md)
+3. **Write clear commit messages** following [Conventional Commits](https://www.conventionalcommits.org/)
 4. **Ensure all tests pass** before submitting
 5. **Update documentation** if your changes affect public APIs or user-facing behavior
 6. **Submit a pull request** with a clear description of your changes
 
 ### Development Setup
 
-Each repository has its own development setup and workflow. Please refer to:
-
-- **[DEVELOPMENT.md](./DEVELOPMENT.md)** for repository-specific development and contribution guidance
-- **README.md** for general project information and quick start instructions
-
-These documents cover prerequisites, dependencies, build commands, code style guidelines, and repository-specific requirements.
+Each repository has its own development setup and workflow. See the repository's [README.md](README.md) for prerequisites, build commands, and development workflow.
 
 ## Review Process
 
@@ -47,13 +36,16 @@ These documents cover prerequisites, dependencies, build commands, code style gu
 
 ## License
 
-By contributing to InferaDB, you agree that your contributions will be licensed under the same license as the repository you are contributing to. See the LICENSE file in each repository for details.
+By contributing to [InferaDB](https://github.com/inferadb), you agree that your contributions will be dual-licensed under:
+
+- [Apache License, Version 2.0](LICENSE-APACHE)
+- [MIT License](LICENSE-MIT)
 
 ## Questions?
 
 If you have questions or need help:
 
-- Open a [Discussion](https://github.com/inferadb/inferadb/discussions) on GitHub
+- Join our [Discord server](https://discord.gg/inferadb) to chat with the community
 - Email us at [open@inferadb.com](mailto:open@inferadb.com)
 
 Thank you for helping make InferaDB better!
