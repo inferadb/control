@@ -352,7 +352,8 @@ impl EngineClient {
             let vault_name = format!("vault-{}", vault_id);
 
             async move {
-                let url = format!("{}/access/v1/organizations/{}/vaults", endpoint, organization_id);
+                let url =
+                    format!("{}/access/v1/organizations/{}/vaults", endpoint, organization_id);
 
                 // Sign JWT for authentication
                 let jwt = match &self.control_identity {
