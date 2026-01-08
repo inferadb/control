@@ -9,6 +9,6 @@
 #   $1 - flag (1 = squash merge, 0 = normal merge)
 
 echo "Updating submodules..."
-git submodule update --init --recursive
+git submodule update --init --recursive --remote
 
 exit 0
