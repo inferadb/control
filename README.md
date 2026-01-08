@@ -17,7 +17,8 @@
 git clone https://github.com/inferadb/control && cd control
 docker-compose up -d
 export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
-make setup && make dev
+mise trust && mise install
+cargo run --bin inferadb-control
 ```
 
 Register and login:
@@ -109,11 +110,21 @@ See [config.yaml](config.yaml) for all options.
 ## Development
 
 ```bash
-make setup                    # One-time setup
-make dev                      # Dev server with auto-reload
-make test                     # Run tests
-make check                    # Format, lint, audit
-cargo build --release         # Release build
+# Setup (one-time)
+mise trust && mise install
+
+# Run the control plane
+cargo run --bin inferadb-control
+
+# Run tests
+cargo test --all-targets
+
+# Format and lint
+cargo +nightly fmt --all
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+# Build release
+cargo build --release
 ```
 
 ## Deployment

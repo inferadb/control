@@ -6,23 +6,23 @@ When completing a task, run through this checklist:
 
 ### 1. Code Quality Checks
 ```bash
-make format                   # Format code with rustfmt
-make lint                     # Run clippy, fix all warnings
+cargo +nightly fmt --all                                             # Format code
+cargo clippy --workspace --all-targets --all-features -- -D warnings # Lint
 ```
 
 ### 2. Testing
 ```bash
-make test                     # Run all tests, ensure they pass
+cargo test --all-targets      # Run all tests, ensure they pass
 ```
 
 ### 3. Security (if dependencies changed)
 ```bash
-make audit                    # Run cargo audit
-make deny                     # Run cargo deny
+cargo audit                   # Run cargo audit
+cargo deny check              # Run cargo deny
 ```
 
 ## Pull Request Checklist
-- [ ] Code follows Rust style guidelines (`cargo fmt`)
+- [ ] Code follows Rust style guidelines (`cargo +nightly fmt --all`)
 - [ ] All clippy warnings are addressed (`cargo clippy -- -D warnings`)
 - [ ] All tests pass (`cargo test`)
 - [ ] New functionality has tests
@@ -32,7 +32,10 @@ make deny                     # Run cargo deny
 
 ## Full CI Check
 ```bash
-make ci                       # Runs: format, lint, test, audit
+cargo +nightly fmt --all
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --all-targets
+cargo audit
 ```
 
 ## Notes

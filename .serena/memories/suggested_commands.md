@@ -2,61 +2,51 @@
 
 ## One-Time Setup
 ```bash
-make setup                    # Install tools, fetch dependencies
+mise trust && mise install    # Install tools via mise
 docker-compose up -d          # Start FoundationDB (optional)
 export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 ```
 
 ## Daily Development
 ```bash
-make dev                      # Dev server with auto-reload (cargo-watch)
-make run                      # Run server (debug mode)
-cargo build                   # Build debug binary
-cargo build --release         # Build release binary
+cargo run --bin inferadb-control              # Run server (debug mode)
+cargo watch -x 'run --bin inferadb-control'   # Dev server with auto-reload
+cargo build                                   # Build debug binary
+cargo build --release                         # Build release binary
 ```
 
 ## Testing
 ```bash
-make test                     # Run all tests
-cargo test                    # Standard test runner
-cargo test --package inferadb-control-core  # Test specific crate
-cargo test test_name          # Run specific test
-cargo test -- --nocapture     # Show test output
-make test-integration         # Integration tests only
-make test-fdb                 # FoundationDB integration tests (requires Docker)
+cargo test --all-targets                      # Run all tests
+cargo test --package inferadb-control-core    # Test specific crate
+cargo test test_name                          # Run specific test
+cargo test -- --nocapture                     # Show test output
+cargo test --test '*' --workspace             # Integration tests only
 ```
 
 ## Code Quality
 ```bash
-make check                    # Format + lint + audit
-make format                   # cargo +nightly fmt --all
-make lint                     # cargo clippy --workspace --all-targets --all-features -- -D warnings
-make audit                    # cargo audit (security)
-make deny                     # cargo deny check (dependencies)
-make fix                      # Auto-fix clippy warnings
+cargo +nightly fmt --all                                            # Format code
+cargo clippy --workspace --all-targets --all-features -- -D warnings # Lint
+cargo audit                                                         # Security audit
+cargo deny check                                                    # Dependency checks
+cargo clippy --fix --allow-dirty --allow-staged                     # Auto-fix warnings
 ```
 
 ## Documentation
 ```bash
-make doc                      # Generate and open rustdoc
-cargo doc --no-deps --open    # Same as above
+cargo doc --no-deps --open    # Generate and open rustdoc
 ```
 
 ## Coverage & Benchmarks
 ```bash
-make coverage                 # Generate coverage report (tarpaulin)
-make bench                    # Run benchmarks
+cargo tarpaulin --workspace --timeout 300 --out Html --output-dir target/coverage
+cargo bench                   # Run benchmarks
 ```
 
 ## Cleanup
 ```bash
-make clean                    # Clean build artifacts
-make reset                    # Full reset (clean + remove target + Cargo.lock)
-```
-
-## CI
-```bash
-make ci                       # Run full CI checks (format, lint, test, audit)
+cargo clean                   # Clean build artifacts
 ```
 
 ## Docker
