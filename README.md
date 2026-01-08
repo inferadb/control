@@ -159,7 +159,7 @@ See [helm/README.md](helm/README.md) for full configuration options.
 
 ## Community
 
-Join our [Discord](https://discord.gg/inferadb) for questions, help, and community discussion.
+Join us on [Discord](https://discord.gg/inferadb) for questions, discussions, and contributions.
 
 ## License
 
