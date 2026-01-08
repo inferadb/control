@@ -142,7 +142,7 @@ jobs:
     permissions:
       contents: read
     env:
-      CARGO_INCREMENTAL: 0
+      # Note: CARGO_INCREMENTAL must NOT be set when using sccache
       RUSTFLAGS: "-C codegen-units=16 -C link-arg=-fuse-ld=mold"
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
