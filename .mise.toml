@@ -14,9 +14,10 @@ rust = "stable"
 node = "24"
 
 # Development tools (installed automatically with `mise install`)
-"cargo:cargo-watch" = "latest"    # Auto-rebuild on file changes
-"cargo:cargo-nextest" = "latest"  # Next-generation test runner
-"cargo:cargo-llvm-cov" = "latest" # Code coverage
+"cargo:cargo-watch" = "latest"     # Auto-rebuild on file changes
+"cargo:cargo-nextest" = "latest"   # Next-generation test runner
+"cargo:cargo-llvm-cov" = "latest"  # Code coverage
+"cargo:cargo-outdated" = "latest"  # Dependency freshness check (for CI)
 
 # Protobuf compiler for gRPC
 protobuf = "latest"

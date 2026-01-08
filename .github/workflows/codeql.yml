@@ -8,10 +8,10 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel in-progress runs for PRs
+# Cancel in-progress runs when new commits are pushed
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

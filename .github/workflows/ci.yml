@@ -8,10 +8,10 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel in-progress runs for PRs, queue for main
+# Cancel in-progress runs when new commits are pushed
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 # Default to read-only permissions
 permissions:
@@ -103,11 +103,16 @@ jobs:
           toolchain: stable
           components: clippy
 
-      - name: Install system dependencies
+      - name: Install development tools via Mise
+        uses: jdx/mise-action@v2
+        with:
+          install_args: protobuf
+          cache: true
+
+      - name: Install mold linker
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq protobuf-compiler mold
-          protoc --version
+          sudo apt-get install -y -qq mold
           mold --version
 
       - name: Install FoundationDB client library
@@ -152,11 +157,16 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install system dependencies
+      - name: Install development tools via Mise
+        uses: jdx/mise-action@v2
+        with:
+          install_args: protobuf
+          cache: true
+
+      - name: Install mold linker
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq protobuf-compiler mold
-          protoc --version
+          sudo apt-get install -y -qq mold
           mold --version
 
       - name: Install FoundationDB client library
@@ -207,22 +217,22 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install system dependencies
+      - name: Install development tools via Mise
+        uses: jdx/mise-action@v2
+        with:
+          install_args: protobuf cargo:cargo-nextest
+          cache: true
+
+      - name: Install mold linker
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq protobuf-compiler mold
-          protoc --version
+          sudo apt-get install -y -qq mold
           mold --version
 
       - name: Install FoundationDB client library
         run: |
           wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
           sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
-
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@dfcb1ee29051d97c8d0f2d437199570008fd5612 # v2.65.15
-        with:
-          tool: cargo-nextest
 
       - name: Restore build cache
         uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
@@ -278,22 +288,22 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install system dependencies
+      - name: Install development tools via Mise
+        uses: jdx/mise-action@v2
+        with:
+          install_args: protobuf cargo:cargo-llvm-cov
+          cache: true
+
+      - name: Install mold linker
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq protobuf-compiler mold
-          protoc --version
+          sudo apt-get install -y -qq mold
           mold --version
 
       - name: Install FoundationDB client library
         run: |
           wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
           sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@dfcb1ee29051d97c8d0f2d437199570008fd5612 # v2.65.15
-        with:
-          tool: cargo-llvm-cov
 
       - name: Restore build cache
         uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
@@ -311,11 +321,11 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  # Check dependencies
+  # Check dependencies (main branch only - informational, not blocking PRs)
   dependencies:
     name: Dependencies
     runs-on: ubuntu-latest
-    if: github.actor != 'dependabot[bot]'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
     steps:
@@ -332,13 +342,17 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Install development tools via Mise
+        uses: jdx/mise-action@v2
+        with:
+          install_args: cargo:cargo-outdated
+          cache: true
+
       - name: Cache Rust dependencies
         uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
 
       - name: Check outdated dependencies
-        run: |
-          cargo install cargo-outdated
-          cargo outdated --exit-code 1 || echo "Some dependencies are outdated"
+        run: cargo outdated --exit-code 1 || echo "Some dependencies are outdated"
 
       - name: Check for duplicate dependencies
         run: cargo tree --duplicates
