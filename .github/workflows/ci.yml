@@ -180,11 +180,8 @@ jobs:
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
-      - name: Cache Rust dependencies
-        uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
-        with:
-          shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Note: rust-cache is NOT used here because it sets CARGO_INCREMENTAL=0
+      # which conflicts with sccache. sccache handles compilation caching.
 
       - name: Build workspace (debug)
         run: cargo build --workspace
