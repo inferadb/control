@@ -142,8 +142,6 @@ jobs:
     permissions:
       contents: read
     env:
-      # Explicitly unset CARGO_INCREMENTAL (sccache prohibits it being set)
-      CARGO_INCREMENTAL: ""
       RUSTFLAGS: "-C codegen-units=16 -C link-arg=-fuse-ld=mold"
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -185,10 +183,10 @@ jobs:
       # which conflicts with sccache. sccache handles compilation caching.
 
       - name: Build workspace (debug)
-        run: cargo build --workspace
+        run: unset CARGO_INCREMENTAL && cargo build --workspace
 
       - name: Build and archive tests for downstream jobs
-        run: cargo nextest archive --workspace --archive-file nextest-archive.tar.zst
+        run: unset CARGO_INCREMENTAL && cargo nextest archive --workspace --archive-file nextest-archive.tar.zst
 
       - name: Upload nextest archive
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
