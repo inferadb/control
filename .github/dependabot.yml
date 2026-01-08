@@ -1,9 +1,6 @@
 # yaml-language-server: $schema=https://json.schemastore.org/dependabot-2.0.json
-#
-# Dependabot configuration for inferadb/control
-# Managed by github/tools/repos.sh - manual edits will be overwritten
-#
-# To customize: update repos.json and run ./repos.sh --dependabot
+# Managed by github/tools/repos.sh - edits will be overwritten
+# Customize via repos.json, then run ./repos.sh --dependabot
 
 version: 2
 updates:
