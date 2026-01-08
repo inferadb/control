@@ -110,7 +110,7 @@ jobs:
         uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: protobuf
-          cache: true
+          cache: false
 
       - name: Install mold linker
         run: |
@@ -164,7 +164,7 @@ jobs:
         uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: protobuf
-          cache: true
+          cache: false
 
       - name: Install mold linker
         run: |
@@ -224,7 +224,7 @@ jobs:
         uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: protobuf cargo:cargo-nextest
-          cache: true
+          cache: false
 
       - name: Install mold linker
         run: |
@@ -295,7 +295,7 @@ jobs:
         uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: protobuf cargo:cargo-llvm-cov
-          cache: true
+          cache: false
 
       - name: Install mold linker
         run: |
@@ -349,7 +349,7 @@ jobs:
         uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: cargo:cargo-outdated
-          cache: true
+          cache: false
 
       - name: Cache Rust dependencies
         uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
