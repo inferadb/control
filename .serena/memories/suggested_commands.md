@@ -40,7 +40,8 @@ cargo doc --no-deps --open    # Generate and open rustdoc
 
 ## Coverage & Benchmarks
 ```bash
-cargo tarpaulin --workspace --timeout 300 --out Html --output-dir target/coverage
+cargo llvm-cov --workspace --html   # HTML report in target/llvm-cov/html/
+cargo llvm-cov --workspace          # Text summary
 cargo bench                   # Run benchmarks
 ```
 

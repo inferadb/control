@@ -562,18 +562,19 @@ cargo test -- --nocapture
 
 ### Code Coverage Issues
 
-#### Issue: Tarpaulin timeout
-
-**Error**: `Test timed out after 300 seconds`
+#### Issue: Coverage generation slow or timing out
 
 **Solution**:
 
 ```bash
-# Increase timeout
-cargo tarpaulin --timeout 600
+# Use llvm-cov for faster, more accurate coverage
+cargo llvm-cov --workspace --html
 
-# Or skip slow tests
-cargo tarpaulin --exclude-files 'crates/*/tests/integration/*'
+# For CI (generates LCOV format)
+cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+# Exclude specific files if needed
+cargo llvm-cov --workspace --html --ignore-filename-regex 'tests/'
 ```
 
 ### Clippy Warnings
