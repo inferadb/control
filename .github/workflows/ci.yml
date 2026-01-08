@@ -160,17 +160,17 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install development tools via Mise
-        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
-        with:
-          install_args: protobuf
-          cache: true
-
       - name: Install mold linker
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mold
           mold --version
+
+      - name: Install development tools via Mise
+        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
+        with:
+          install_args: protobuf cargo:cargo-nextest
+          cache: true
 
       - name: Install FoundationDB client library
         run: |
@@ -189,13 +189,20 @@ jobs:
       - name: Build workspace (debug)
         run: cargo build --workspace
 
-      - name: Build tests (no run)
-        run: cargo test --workspace --no-run
+      - name: Build and archive tests for downstream jobs
+        run: cargo nextest archive --workspace --archive-file nextest-archive.tar.zst
+
+      - name: Upload nextest archive
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: nextest-archive
+          path: nextest-archive.tar.zst
+          retention-days: 1
 
       - name: Print sccache stats
         run: sccache --show-stats
 
-  # Run tests (reuses build cache)
+  # Run tests (uses pre-built archive from build job)
   test:
     name: Tests
     needs: build
@@ -237,16 +244,17 @@ jobs:
           wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
           sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
 
-      - name: Restore build cache
-        uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
+      - name: Download nextest archive
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
-          shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
-          save-if: false # Don't save, only restore from build job
+          name: nextest-archive
 
-      - name: Run tests with nextest
-        run: cargo nextest run --workspace --profile ci --no-fail-fast
+      - name: Run tests from archive
+        run: cargo nextest run --archive-file nextest-archive.tar.zst --profile ci --no-fail-fast
 
       - name: Run doc tests
+        env:
+          RUSTFLAGS: "" # Avoid parallel LLVM linking OOM
         run: cargo test --workspace --doc
 
       - name: Publish test results

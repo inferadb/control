@@ -40,7 +40,7 @@ failure-output = "immediate"
 # [profile.ci]
 # CI/CD optimized profile
 [profile.ci]
-retries = 2
+retries = { backoff = "fixed", count = 1, delay = "1s" }
 fail-fast = false
 status-level = "fail"
 success-output = "never"
