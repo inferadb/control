@@ -142,9 +142,8 @@ jobs:
     permissions:
       contents: read
     env:
+      CARGO_INCREMENTAL: 0
       RUSTFLAGS: "-C codegen-units=16 -C link-arg=-fuse-ld=mold"
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
@@ -176,17 +175,17 @@ jobs:
           wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
           sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
 
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-      # Note: rust-cache is NOT used here because it sets CARGO_INCREMENTAL=0
-      # which conflicts with sccache. sccache handles compilation caching.
+      - name: Cache Rust dependencies
+        uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
+        with:
+          shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build workspace (debug)
-        run: env -u CARGO_INCREMENTAL cargo build --workspace
+        run: cargo build --workspace
 
       - name: Build and archive tests for downstream jobs
-        run: env -u CARGO_INCREMENTAL cargo nextest archive --workspace --archive-file nextest-archive.tar.zst
+        run: cargo nextest archive --workspace --archive-file nextest-archive.tar.zst
 
       - name: Upload nextest archive
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
@@ -194,9 +193,6 @@ jobs:
           name: nextest-archive
           path: nextest-archive.tar.zst
           retention-days: 1
-
-      - name: Print sccache stats
-        run: sccache --show-stats
 
   # Run tests (uses pre-built archive from build job)
   test:
