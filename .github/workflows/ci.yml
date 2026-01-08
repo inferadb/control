@@ -107,7 +107,7 @@ jobs:
           components: clippy
 
       - name: Install development tools via Mise
-        uses: jdx/mise-action@v2
+        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: protobuf
           cache: true
@@ -161,7 +161,7 @@ jobs:
           toolchain: stable
 
       - name: Install development tools via Mise
-        uses: jdx/mise-action@v2
+        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: protobuf
           cache: true
@@ -221,7 +221,7 @@ jobs:
           toolchain: stable
 
       - name: Install development tools via Mise
-        uses: jdx/mise-action@v2
+        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: protobuf cargo:cargo-nextest
           cache: true
@@ -292,7 +292,7 @@ jobs:
           toolchain: stable
 
       - name: Install development tools via Mise
-        uses: jdx/mise-action@v2
+        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: protobuf cargo:cargo-llvm-cov
           cache: true
@@ -346,7 +346,7 @@ jobs:
           toolchain: stable
 
       - name: Install development tools via Mise
-        uses: jdx/mise-action@v2
+        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: cargo:cargo-outdated
           cache: true
