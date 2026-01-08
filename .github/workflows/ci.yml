@@ -183,10 +183,10 @@ jobs:
       # which conflicts with sccache. sccache handles compilation caching.
 
       - name: Build workspace (debug)
-        run: unset CARGO_INCREMENTAL && cargo build --workspace
+        run: env -u CARGO_INCREMENTAL cargo build --workspace
 
       - name: Build and archive tests for downstream jobs
-        run: unset CARGO_INCREMENTAL && cargo nextest archive --workspace --archive-file nextest-archive.tar.zst
+        run: env -u CARGO_INCREMENTAL cargo nextest archive --workspace --archive-file nextest-archive.tar.zst
 
       - name: Upload nextest archive
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
