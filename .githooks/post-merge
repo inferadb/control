@@ -8,7 +8,9 @@
 # Arguments:
 #   $1 - flag (1 = squash merge, 0 = normal merge)
 
-echo "Updating submodules..."
+echo "[post-merge hook] Triggered!"
+echo "[post-merge hook] Updating submodules..."
 git submodule update --init --recursive --remote
+echo "[post-merge hook] Done."
 
 exit 0
