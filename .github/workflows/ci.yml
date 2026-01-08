@@ -110,7 +110,7 @@ jobs:
         uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: protobuf
-          cache: false
+          cache: true
 
       - name: Install mold linker
         run: |
@@ -164,7 +164,7 @@ jobs:
         uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: protobuf
-          cache: false
+          cache: true
 
       - name: Install mold linker
         run: |
@@ -220,17 +220,17 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install development tools via Mise
-        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
-        with:
-          install_args: protobuf cargo:cargo-nextest
-          cache: false
-
       - name: Install mold linker
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mold
           mold --version
+
+      - name: Install development tools via Mise
+        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
+        with:
+          install_args: protobuf cargo:cargo-nextest
+          cache: true
 
       - name: Install FoundationDB client library
         run: |
@@ -291,17 +291,17 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install development tools via Mise
-        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
-        with:
-          install_args: protobuf cargo:cargo-llvm-cov
-          cache: false
-
       - name: Install mold linker
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mold
           mold --version
+
+      - name: Install development tools via Mise
+        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
+        with:
+          install_args: protobuf cargo:cargo-llvm-cov
+          cache: true
 
       - name: Install FoundationDB client library
         run: |
@@ -349,7 +349,7 @@ jobs:
         uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
           install_args: cargo:cargo-outdated
-          cache: false
+          cache: true
 
       - name: Cache Rust dependencies
         uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
