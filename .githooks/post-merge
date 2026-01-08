@@ -1,0 +1,14 @@
+#!/bin/sh
+# Git post-merge hook - updates submodules after merge/pull
+#
+# This hook runs after:
+#   - git merge
+#   - git pull (which does fetch + merge)
+#
+# Arguments:
+#   $1 - flag (1 = squash merge, 0 = normal merge)
+
+echo "Updating submodules..."
+git submodule update --init --recursive
+
+exit 0
