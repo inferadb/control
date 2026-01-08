@@ -34,8 +34,9 @@ CARGO_BUILD_JOBS = "{{ num_cpus() }}"
 [tasks.setup]
 description = "One-time development environment setup"
 run = [
-  "git config core.hooksPath .githooks",
-  "git submodule update --init --recursive",
+  "git config submodule.recurse true",
+  "git config fetch.recurseSubmodules on-demand",
+  "git submodule update --init --recursive --remote",
   "rustup component add rustfmt clippy rust-src rust-analyzer",
   "cargo fetch",
   "echo '\n✅ Setup complete! Use standard cargo commands for development.'",
