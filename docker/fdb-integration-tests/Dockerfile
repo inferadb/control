@@ -2,7 +2,7 @@
 # This container runs InferaDB Management API tests against a real FDB instance
 # For integration testing only - not for production use
 
-FROM rust:1.92-slim@sha256:6cff8a33b03d328aa58d00dedda6a3c5bbee4b41e21533932bffd90d7d58f9c4
+FROM rust:1.92-slim@sha256:991b1768c575086cbf188eb03e78003ec4e31947029b1947e8034ae32aa6156b
 
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
