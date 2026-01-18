@@ -10,6 +10,17 @@ control:
     grpc: "127.0.0.1:9091"
     mesh: "0.0.0.0:9092"
 
+  # Storage backend: "memory" (default), "foundationdb", or "ledger"
+  # storage: "memory"
+
+  # Ledger storage configuration (requires --features ledger)
+  # Provides cryptographically verifiable storage using InferaDB Ledger
+  # ledger:
+  #   endpoint: "http://localhost:50051"
+  #   client_id: "control-dev-001"
+  #   namespace_id: 1
+  #   vault_id: 1  # optional
+
   webauthn:
     party: "localhost"
     origin: "http://localhost:9090"

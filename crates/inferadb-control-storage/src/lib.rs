@@ -9,6 +9,8 @@ pub mod optimization;
 
 pub use backend::{KeyValue, StorageBackend, StorageError, StorageResult, Transaction};
 pub use coordination::{Coordinator, LeaderStatus, WorkerInfo};
+#[cfg(feature = "ledger")]
+pub use factory::LedgerConfig;
 pub use factory::{Backend, StorageBackendType, StorageConfig, create_storage_backend};
 #[cfg(feature = "fdb")]
 pub use fdb::FdbBackend;

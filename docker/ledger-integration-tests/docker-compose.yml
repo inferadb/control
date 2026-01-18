@@ -1,0 +1,94 @@
+# Control + Ledger Integration Test Environment
+# This setup provides a single-node Ledger cluster for running Control integration tests.
+# NOT FOR PRODUCTION USE
+#
+# Usage:
+#   docker-compose up -d ledger
+#   docker-compose run --rm test-runner
+#
+# Or with the helper script:
+#   ./run-tests.sh
+
+services:
+  # Single-node Ledger cluster for integration testing
+  ledger:
+    build:
+      context: ../../../../ledger
+      dockerfile: Dockerfile
+    container_name: inferadb-control-ledger-test
+    hostname: ledger-server
+    networks:
+      - control-ledger-test-network
+    ports:
+      - "50052:50051"
+      - "9092:9090"
+    environment:
+      INFERADB__LEDGER__BOOTSTRAP_EXPECT: "1"
+      INFERADB__LEDGER__LISTEN_ADDR: "0.0.0.0:50051"
+      INFERADB__LEDGER__METRICS_ADDR: "0.0.0.0:9090"
+      INFERADB__LEDGER__DATA_DIR: "/var/lib/ledger"
+      RUST_LOG: "info,inferadb_ledger_server=debug"
+    volumes:
+      - ledger-data:/var/lib/ledger
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 50051 || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # Test runner for Control integration tests with Ledger backend
+  test-runner:
+    build:
+      context: ../../
+      dockerfile: docker/ledger-integration-tests/Dockerfile
+    container_name: inferadb-control-ledger-test-runner
+    networks:
+      - control-ledger-test-network
+    depends_on:
+      ledger:
+        condition: service_healthy
+    environment:
+      LEDGER_ENDPOINT: "http://ledger:50051"
+      LEDGER_NAMESPACE_ID: "1"
+      LEDGER_VAULT_ID: "1"
+      RUST_BACKTRACE: "1"
+      RUST_LOG: "debug"
+      RUN_LEDGER_INTEGRATION_TESTS: "1"
+    volumes:
+      - ../../:/workspace:cached
+      - ../../../../crates:/shared-crates:cached
+      - ../../../../ledger/crates:/ledger-crates:ro
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/workspace/target
+    working_dir: /workspace
+    command: >
+      cargo test
+        --package inferadb-control-storage
+        --test ledger_integration_tests
+        --features ledger
+        -- --test-threads=1
+
+networks:
+  control-ledger-test-network:
+    driver: bridge
+    name: inferadb-control-ledger-test-net
+
+volumes:
+  ledger-data:
+    name: inferadb-control-ledger-data
+  cargo-registry:
+    name: inferadb-control-ledger-cargo-registry
+  cargo-git:
+    name: inferadb-control-ledger-cargo-git
+  target-cache:
+    name: inferadb-control-ledger-target-cache

@@ -2,21 +2,37 @@ use std::ops::RangeBounds;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use inferadb_storage::{KeyValue, StorageBackend, StorageResult, Transaction};
+#[cfg(feature = "ledger")]
+use inferadb_storage_ledger::{LedgerBackend, LedgerBackendConfig};
 
 #[cfg(feature = "fdb")]
 use crate::FdbBackend;
-use crate::{
-    MemoryBackend,
-    backend::{KeyValue, StorageBackend, StorageResult, Transaction},
-};
+use crate::MemoryBackend;
 
 /// Storage backend type
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageBackendType {
     /// In-memory storage (for development and testing)
     Memory,
-    /// FoundationDB storage (for production)
+    /// FoundationDB storage (for production, legacy)
     FoundationDB,
+    /// Ledger storage (target production backend)
+    Ledger,
+}
+
+/// Ledger-specific configuration
+#[cfg(feature = "ledger")]
+#[derive(Debug, Clone)]
+pub struct LedgerConfig {
+    /// Ledger server endpoint (e.g., "http://localhost:50051")
+    pub endpoint: String,
+    /// Client ID for idempotency tracking
+    pub client_id: String,
+    /// Namespace ID for data scoping
+    pub namespace_id: i64,
+    /// Optional vault ID for finer-grained scoping
+    pub vault_id: Option<i64>,
 }
 
 /// Storage backend configuration
@@ -26,17 +42,40 @@ pub struct StorageConfig {
     pub backend_type: StorageBackendType,
     /// FDB cluster file path (only used for FoundationDB backend)
     pub fdb_cluster_file: Option<String>,
+    /// Ledger configuration (only used for Ledger backend)
+    #[cfg(feature = "ledger")]
+    pub ledger: Option<LedgerConfig>,
 }
 
 impl StorageConfig {
     /// Create a new in-memory storage configuration
     pub fn memory() -> Self {
-        Self { backend_type: StorageBackendType::Memory, fdb_cluster_file: None }
+        Self {
+            backend_type: StorageBackendType::Memory,
+            fdb_cluster_file: None,
+            #[cfg(feature = "ledger")]
+            ledger: None,
+        }
     }
 
     /// Create a new FoundationDB storage configuration
     pub fn foundationdb(cluster_file: Option<String>) -> Self {
-        Self { backend_type: StorageBackendType::FoundationDB, fdb_cluster_file: cluster_file }
+        Self {
+            backend_type: StorageBackendType::FoundationDB,
+            fdb_cluster_file: cluster_file,
+            #[cfg(feature = "ledger")]
+            ledger: None,
+        }
+    }
+
+    /// Create a new Ledger storage configuration
+    #[cfg(feature = "ledger")]
+    pub fn ledger(config: LedgerConfig) -> Self {
+        Self {
+            backend_type: StorageBackendType::Ledger,
+            fdb_cluster_file: None,
+            ledger: Some(config),
+        }
     }
 }
 
@@ -46,6 +85,8 @@ pub enum Backend {
     Memory(MemoryBackend),
     #[cfg(feature = "fdb")]
     FoundationDB(FdbBackend),
+    #[cfg(feature = "ledger")]
+    Ledger(LedgerBackend),
 }
 
 impl Backend {
@@ -78,6 +119,8 @@ impl StorageBackend for Backend {
             Backend::Memory(b) => b.get(key).await,
             #[cfg(feature = "fdb")]
             Backend::FoundationDB(b) => b.get(key).await,
+            #[cfg(feature = "ledger")]
+            Backend::Ledger(b) => b.get(key).await,
         }
     }
 
@@ -86,6 +129,8 @@ impl StorageBackend for Backend {
             Backend::Memory(b) => b.set(key, value).await,
             #[cfg(feature = "fdb")]
             Backend::FoundationDB(b) => b.set(key, value).await,
+            #[cfg(feature = "ledger")]
+            Backend::Ledger(b) => b.set(key, value).await,
         }
     }
 
@@ -94,6 +139,8 @@ impl StorageBackend for Backend {
             Backend::Memory(b) => b.delete(key).await,
             #[cfg(feature = "fdb")]
             Backend::FoundationDB(b) => b.delete(key).await,
+            #[cfg(feature = "ledger")]
+            Backend::Ledger(b) => b.delete(key).await,
         }
     }
 
@@ -105,6 +152,8 @@ impl StorageBackend for Backend {
             Backend::Memory(b) => b.get_range(range).await,
             #[cfg(feature = "fdb")]
             Backend::FoundationDB(b) => b.get_range(range).await,
+            #[cfg(feature = "ledger")]
+            Backend::Ledger(b) => b.get_range(range).await,
         }
     }
 
@@ -116,6 +165,8 @@ impl StorageBackend for Backend {
             Backend::Memory(b) => b.clear_range(range).await,
             #[cfg(feature = "fdb")]
             Backend::FoundationDB(b) => b.clear_range(range).await,
+            #[cfg(feature = "ledger")]
+            Backend::Ledger(b) => b.clear_range(range).await,
         }
     }
 
@@ -129,6 +180,8 @@ impl StorageBackend for Backend {
             Backend::Memory(b) => b.set_with_ttl(key, value, ttl_seconds).await,
             #[cfg(feature = "fdb")]
             Backend::FoundationDB(b) => b.set_with_ttl(key, value, ttl_seconds).await,
+            #[cfg(feature = "ledger")]
+            Backend::Ledger(b) => b.set_with_ttl(key, value, ttl_seconds).await,
         }
     }
 
@@ -137,6 +190,8 @@ impl StorageBackend for Backend {
             Backend::Memory(b) => b.transaction().await,
             #[cfg(feature = "fdb")]
             Backend::FoundationDB(b) => b.transaction().await,
+            #[cfg(feature = "ledger")]
+            Backend::Ledger(b) => b.transaction().await,
         }
     }
 
@@ -145,6 +200,8 @@ impl StorageBackend for Backend {
             Backend::Memory(b) => b.health_check().await,
             #[cfg(feature = "fdb")]
             Backend::FoundationDB(b) => b.health_check().await,
+            #[cfg(feature = "ledger")]
+            Backend::Ledger(b) => b.health_check().await,
         }
     }
 }
@@ -174,12 +231,37 @@ pub async fn create_storage_backend(config: &StorageConfig) -> StorageResult<Bac
             Ok(Backend::FoundationDB(backend))
         },
         #[cfg(not(feature = "fdb"))]
-        StorageBackendType::FoundationDB => {
-            use crate::backend::StorageError;
-            Err(StorageError::Internal(
-                "FoundationDB support not compiled. Enable the 'fdb' feature.".to_string(),
-            ))
+        StorageBackendType::FoundationDB => Err(inferadb_storage::StorageError::Internal(
+            "FoundationDB support not compiled. Enable the 'fdb' feature.".to_string(),
+        )),
+        #[cfg(feature = "ledger")]
+        StorageBackendType::Ledger => {
+            let ledger_config = config.ledger.as_ref().ok_or_else(|| {
+                inferadb_storage::StorageError::Internal(
+                    "Ledger configuration required for Ledger backend".to_string(),
+                )
+            })?;
+            let backend_config = LedgerBackendConfig::builder()
+                .with_endpoint(&ledger_config.endpoint)
+                .with_client_id(&ledger_config.client_id)
+                .with_namespace_id(ledger_config.namespace_id);
+            let backend_config = if let Some(vault_id) = ledger_config.vault_id {
+                backend_config.with_vault_id(vault_id)
+            } else {
+                backend_config
+            };
+            let backend_config = backend_config.build().map_err(|e| {
+                inferadb_storage::StorageError::Internal(format!("Ledger config error: {}", e))
+            })?;
+            let backend = LedgerBackend::new(backend_config).await.map_err(|e| {
+                inferadb_storage::StorageError::Internal(format!("Ledger connection error: {}", e))
+            })?;
+            Ok(Backend::Ledger(backend))
         },
+        #[cfg(not(feature = "ledger"))]
+        StorageBackendType::Ledger => Err(inferadb_storage::StorageError::Internal(
+            "Ledger support not compiled. Enable the 'ledger' feature.".to_string(),
+        )),
     }
 }
 

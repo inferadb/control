@@ -74,20 +74,30 @@ graph TD
     API --> Core[inferadb-control-core]
     Core --> Config
     Core --> Storage[inferadb-control-storage]
-    Storage --> FDB[(FoundationDB)]
+    Storage --> SharedStorage[inferadb-storage]
+    SharedStorage --> Memory[(Memory)]
+    SharedStorage --> StorageLedger[inferadb-storage-ledger]
+    StorageLedger --> Ledger[(InferaDB Ledger)]
     Core --> Engine[inferadb-control-engine-client]
 ```
 
-| Crate                          | Purpose                  |
-| ------------------------------ | ------------------------ |
-| inferadb-control               | Binary entrypoint        |
-| inferadb-control-api           | REST/gRPC handlers       |
-| inferadb-control-config        | Configuration loading    |
-| inferadb-control-const         | Shared constants         |
-| inferadb-control-core          | Business logic, entities |
-| inferadb-control-storage       | Memory or FoundationDB   |
-| inferadb-control-types         | Shared type definitions  |
-| inferadb-control-engine-client | Engine API client        |
+| Crate                          | Purpose                        |
+| ------------------------------ | ------------------------------ |
+| inferadb-control               | Binary entrypoint              |
+| inferadb-control-api           | REST/gRPC handlers             |
+| inferadb-control-config        | Configuration loading          |
+| inferadb-control-const         | Shared constants               |
+| inferadb-control-core          | Business logic, entities       |
+| inferadb-control-storage       | Repositories + storage factory |
+| inferadb-control-types         | Shared type definitions        |
+| inferadb-control-engine-client | Engine API client              |
+
+### Shared Storage Crates
+
+| Crate                   | Purpose                                      |
+| ----------------------- | -------------------------------------------- |
+| inferadb-storage        | Generic StorageBackend trait + MemoryBackend |
+| inferadb-storage-ledger | Ledger-backed StorageBackend implementation  |
 
 ## Configuration
 
@@ -98,12 +108,33 @@ control:
     grpc: "0.0.0.0:9091"
     mesh: "0.0.0.0:9092"
 
+  # Storage: "memory" (dev), "foundationdb", or "ledger" (production)
+  storage: "ledger"
+
+  # Ledger configuration (requires --features ledger)
+  ledger:
+    endpoint: "http://ledger.inferadb:50051"
+    client_id: "control-prod-001"
+    namespace_id: 1
+    vault_id: 1 # optional
+
   webauthn:
     party: "localhost"
     origin: "http://localhost:9090"
 ```
 
-Environment variables use `INFERADB_CTRL__` prefix (e.g., `INFERADB_CTRL__LISTEN__HTTP`).
+### Environment Variables
+
+Environment variables use `INFERADB_CTRL__` prefix with double underscores for nesting:
+
+| Variable                              | Description                | Example               |
+| ------------------------------------- | -------------------------- | --------------------- |
+| `INFERADB_CTRL__LISTEN__HTTP`         | HTTP listen address        | `0.0.0.0:9090`        |
+| `INFERADB_CTRL__STORAGE`              | Storage backend            | `ledger`              |
+| `INFERADB_CTRL__LEDGER__ENDPOINT`     | Ledger server URL          | `http://ledger:50051` |
+| `INFERADB_CTRL__LEDGER__CLIENT_ID`    | Client ID for idempotency  | `control-001`         |
+| `INFERADB_CTRL__LEDGER__NAMESPACE_ID` | Namespace for data scoping | `1`                   |
+| `INFERADB_CTRL__LEDGER__VAULT_ID`     | Vault for finer scoping    | `1`                   |
 
 See [config.yaml](config.yaml) for all options.
 

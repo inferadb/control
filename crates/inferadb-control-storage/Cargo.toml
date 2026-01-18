@@ -10,6 +10,10 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+# Internal dependencies
+inferadb-storage = { path = "../../../crates/inferadb-storage" }
+inferadb-storage-ledger = { path = "../../../crates/inferadb-storage-ledger", optional = true }
+
 # External dependencies
 anyhow = { workspace = true }
 async-trait = { workspace = true }
@@ -24,7 +28,19 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 
 [features]
 default = []
 fdb = ["foundationdb"]
+ledger = ["inferadb-storage-ledger"]
+
+[[test]]
+name = "fdb_integration_tests"
+path = "tests/fdb_integration_tests.rs"
+required-features = ["fdb"]
+
+[[test]]
+name = "ledger_integration_tests"
+path = "tests/ledger_integration_tests.rs"
+required-features = ["ledger"]

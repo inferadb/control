@@ -17,11 +17,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use foundationdb::{Database, FdbBindingError, RangeOption, tuple::Subspace};
 use futures::StreamExt;
+use inferadb_storage::{KeyValue, StorageBackend, StorageError, StorageResult, Transaction};
 use parking_lot::Mutex;
 use tokio::time::{Duration, interval};
 use tracing::{debug, warn};
-
-use crate::backend::{KeyValue, StorageBackend, StorageError, StorageResult, Transaction};
 
 // Global initialization flag for FDB network
 // The FDB client library requires that select_api_version (called by boot())
