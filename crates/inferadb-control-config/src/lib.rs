@@ -319,7 +319,7 @@ fn default_logging() -> String {
 }
 
 fn default_storage() -> String {
-    "memory".to_string()
+    "ledger".to_string()
 }
 
 fn default_email_port() -> u16 {
@@ -614,6 +614,39 @@ impl ControlConfig {
 
         Ok(())
     }
+
+    /// Apply environment-aware defaults for storage backend.
+    ///
+    /// In development environment, if Ledger is the default but no Ledger configuration
+    /// is provided, automatically fall back to memory storage for convenience.
+    /// This allows `cargo run` to "just work" without requiring Ledger setup.
+    ///
+    /// In production or when Ledger configuration is explicitly provided,
+    /// no changes are made and validation will enforce proper configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `environment` - The environment name (e.g., "development", "staging", "production")
+    pub fn apply_environment_defaults(&mut self, environment: &str) {
+        // Only apply in development environment
+        if environment != "development" {
+            return;
+        }
+
+        // If storage is ledger (the default) and no ledger config is provided,
+        // fall back to memory for developer convenience
+        if self.storage == "ledger"
+            && self.ledger.endpoint.is_none()
+            && self.ledger.client_id.is_none()
+            && self.ledger.namespace_id.is_none()
+        {
+            tracing::info!(
+                "Development mode: No Ledger configuration provided, using memory storage. \
+                 Set storage='memory' explicitly or provide ledger config to suppress this message."
+            );
+            self.storage = "memory".to_string();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -625,7 +658,7 @@ mod tests {
         assert_eq!(default_http(), "127.0.0.1:9090");
         assert_eq!(default_grpc(), "127.0.0.1:9091");
         assert_eq!(default_mesh(), "0.0.0.0:9092");
-        assert_eq!(default_storage(), "memory");
+        assert_eq!(default_storage(), "ledger"); // Ledger is now the default
         assert_eq!(default_webauthn_party(), "localhost");
         assert_eq!(default_webauthn_origin(), "http://localhost:3000");
     }

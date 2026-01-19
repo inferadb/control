@@ -1,5 +1,11 @@
 # InferaDB Control Configuration - Development Defaults
 # Good defaults for local development and testing
+#
+# STORAGE BEHAVIOR:
+# - Default is "ledger" (production-ready, cryptographically verifiable)
+# - In development environment with no Ledger config, auto-falls back to "memory"
+# - Use --dev-mode flag to force memory storage regardless of config
+# - Set storage: "memory" explicitly for persistent development mode
 
 control:
   frontend:
@@ -10,10 +16,12 @@ control:
     grpc: "127.0.0.1:9091"
     mesh: "0.0.0.0:9092"
 
-  # Storage backend: "memory" (default) or "ledger"
+  # Storage backend: "ledger" (default, production) or "memory" (development)
+  # In development mode without Ledger config, automatically uses memory.
+  # Uncomment to explicitly use memory storage:
   # storage: "memory"
 
-  # Ledger storage configuration (requires --features ledger)
+  # Ledger storage configuration (required in production)
   # Provides cryptographically verifiable storage using InferaDB Ledger
   # ledger:
   #   endpoint: "http://localhost:50051"

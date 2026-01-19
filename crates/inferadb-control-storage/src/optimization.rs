@@ -223,11 +223,8 @@ impl<B: StorageBackend + Clone> BatchWriter<B> {
             return Vec::new();
         }
 
-        let max_bytes = if self.config.enabled {
-            self.config.max_batch_bytes
-        } else {
-            TRANSACTION_SIZE_LIMIT
-        };
+        let max_bytes =
+            if self.config.enabled { self.config.max_batch_bytes } else { TRANSACTION_SIZE_LIMIT };
 
         let max_ops = if self.config.enabled { self.config.max_batch_size } else { usize::MAX };
 

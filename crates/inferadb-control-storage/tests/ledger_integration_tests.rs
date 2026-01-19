@@ -3,14 +3,13 @@
 //! These tests require a running Ledger server. They are skipped unless the
 //! `RUN_LEDGER_INTEGRATION_TESTS` environment variable is set.
 //!
-//! Run with: cargo test --test ledger_integration_tests --features ledger
+//! Run with: cargo test --test ledger_integration_tests
 //!
 //! Or using Docker Compose:
 //! ```bash
 //! cd docker/ledger-integration-tests && ./run-tests.sh
 //! ```
 
-#![cfg(feature = "ledger")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::{
@@ -51,7 +50,7 @@ async fn create_ledger_backend() -> LedgerBackend {
     let vault_id = unique_vault_id();
     let config = LedgerBackendConfig::builder()
         .with_endpoint(ledger_endpoint())
-        .with_client_id(&format!("control-test-{}", vault_id))
+        .with_client_id(format!("control-test-{}", vault_id))
         .with_namespace_id(ledger_namespace_id())
         .with_vault_id(vault_id)
         .build()
@@ -240,15 +239,13 @@ async fn test_ledger_concurrent_writes() {
         return;
     }
 
-    let backend = create_ledger_backend().await;
-
-    // Spawn concurrent writers
+    // Spawn concurrent writers (each gets its own backend with unique vault)
     let mut handles = Vec::new();
     for i in 0..10 {
         let vault_id = unique_vault_id();
         let config = LedgerBackendConfig::builder()
             .with_endpoint(ledger_endpoint())
-            .with_client_id(&format!("concurrent-test-{}", vault_id))
+            .with_client_id(format!("concurrent-test-{}", vault_id))
             .with_namespace_id(ledger_namespace_id())
             .with_vault_id(vault_id)
             .build()
@@ -284,7 +281,7 @@ async fn test_ledger_vault_isolation() {
 
     let config_a = LedgerBackendConfig::builder()
         .with_endpoint(ledger_endpoint())
-        .with_client_id(&format!("vault-a-{}", vault_a))
+        .with_client_id(format!("vault-a-{}", vault_a))
         .with_namespace_id(ledger_namespace_id())
         .with_vault_id(vault_a)
         .build()
@@ -292,7 +289,7 @@ async fn test_ledger_vault_isolation() {
 
     let config_b = LedgerBackendConfig::builder()
         .with_endpoint(ledger_endpoint())
-        .with_client_id(&format!("vault-b-{}", vault_b))
+        .with_client_id(format!("vault-b-{}", vault_b))
         .with_namespace_id(ledger_namespace_id())
         .with_vault_id(vault_b)
         .build()
