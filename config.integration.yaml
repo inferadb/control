@@ -9,10 +9,13 @@ control:
     grpc: "0.0.0.0:9091"
     mesh: "0.0.0.0:9092"
 
-  storage: "foundationdb"
+  storage: "ledger"
 
-  foundationdb:
-    cluster_file: "/var/fdb/fdb.cluster"
+  # Ledger storage configuration
+  # ledger:
+  #   endpoint: "http://ledger:50051"
+  #   client_id: "control-integration"
+  #   namespace_id: 1
 
   webauthn:
     party: "localhost"

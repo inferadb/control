@@ -38,7 +38,6 @@ pub struct AppState {
     pub start_time: std::time::SystemTime,
     pub leader: Option<Arc<inferadb_control_core::LeaderElection<Backend>>>,
     pub email_service: Option<Arc<inferadb_control_core::EmailService>>,
-    pub fdb_invalidation: Option<Arc<crate::FdbInvalidationType>>,
     pub control_identity: Option<Arc<inferadb_control_types::ControlIdentity>>,
 }
 
@@ -50,7 +49,6 @@ pub struct AppStateBuilder {
     worker_id: u16,
     leader: Option<Arc<inferadb_control_core::LeaderElection<Backend>>>,
     email_service: Option<Arc<inferadb_control_core::EmailService>>,
-    fdb_invalidation: Option<Arc<crate::FdbInvalidationType>>,
     control_identity: Option<Arc<inferadb_control_types::ControlIdentity>>,
 }
 
@@ -69,7 +67,6 @@ impl AppStateBuilder {
             worker_id,
             leader: None,
             email_service: None,
-            fdb_invalidation: None,
             control_identity: None,
         }
     }
@@ -86,12 +83,6 @@ impl AppStateBuilder {
         email_service: Arc<inferadb_control_core::EmailService>,
     ) -> Self {
         self.email_service = Some(email_service);
-        self
-    }
-
-    /// Set FDB invalidation writer (optional)
-    pub fn fdb_invalidation(mut self, fdb_invalidation: Arc<crate::FdbInvalidationType>) -> Self {
-        self.fdb_invalidation = Some(fdb_invalidation);
         self
     }
 
@@ -114,7 +105,6 @@ impl AppStateBuilder {
             start_time: std::time::SystemTime::now(),
             leader: self.leader,
             email_service: self.email_service,
-            fdb_invalidation: self.fdb_invalidation,
             control_identity: self.control_identity,
         }
     }
@@ -128,7 +118,6 @@ impl AppState {
     /// ```ignore
     /// let state = AppState::builder(storage, config, engine_client, worker_id)
     ///     .email_service(email_service)
-    ///     .fdb_invalidation(fdb_invalidation)
     ///     .build();
     /// ```
     pub fn builder(
@@ -166,8 +155,7 @@ impl AppState {
             start_time: std::time::SystemTime::now(),
             leader: None,
             email_service: Some(Arc::new(email_service)),
-            fdb_invalidation: None, // No FDB invalidation in tests
-            control_identity: None, // No control identity in tests
+            control_identity: None,
         }
     }
 }

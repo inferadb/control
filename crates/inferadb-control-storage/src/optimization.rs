@@ -3,7 +3,7 @@
 //! This module provides performance optimizations on top of the base storage backend:
 //!
 //! - **Batch Writes**: Accumulate multiple writes and flush in batches with automatic splitting to
-//!   respect FDB's 10MB transaction limit
+//!   respect transaction size limits
 //! - **Read Caching**: LRU cache for frequently accessed keys
 //! - **Size Estimation**: Accurate tracking of batch sizes to prevent transaction failures
 //!
@@ -12,7 +12,7 @@
 //! Wrap any `StorageBackend` implementation with `OptimizedBackend`:
 //!
 //! ```ignore
-//! let base_backend = FdbBackend::new().await?;
+//! let base_backend = LedgerBackend::new().await?;
 //! let optimized = OptimizedBackend::new(base_backend, cache_config, batch_config);
 //!
 //! // Use batch writer for bulk operations
@@ -39,14 +39,14 @@ use crate::{
     metrics::{Metrics, MetricsCollector},
 };
 
-/// FDB transaction size limit (10MB with safety margin)
+/// Transaction size limit (10MB with safety margin)
 /// We use 9MB as the effective limit to leave room for metadata overhead
-const FDB_TRANSACTION_SIZE_LIMIT: usize = 9 * 1024 * 1024;
+const TRANSACTION_SIZE_LIMIT: usize = 9 * 1024 * 1024;
 
 /// Default maximum batch size (number of operations)
 const DEFAULT_MAX_BATCH_SIZE: usize = 1000;
 
-/// Default maximum batch byte size (8MB to stay well under FDB limit)
+/// Default maximum batch byte size (8MB to stay well under transaction limit)
 const DEFAULT_MAX_BATCH_BYTES: usize = 8 * 1024 * 1024;
 
 /// Configuration for read caching
@@ -83,7 +83,7 @@ impl CacheConfig {
 pub struct BatchConfig {
     /// Maximum number of operations per batch
     pub max_batch_size: usize,
-    /// Maximum byte size per batch (should be under FDB's 10MB limit)
+    /// Maximum byte size per batch (should be under the 10MB transaction limit)
     pub max_batch_bytes: usize,
     /// Enable batching (can be disabled for testing)
     pub enabled: bool,
@@ -110,11 +110,11 @@ impl BatchConfig {
         Self { max_batch_size, max_batch_bytes, enabled: true }
     }
 
-    /// Create a batch config optimized for FDB
-    pub fn for_fdb() -> Self {
+    /// Create a batch config optimized for large transactions
+    pub fn for_large_transactions() -> Self {
         Self {
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
-            max_batch_bytes: FDB_TRANSACTION_SIZE_LIMIT,
+            max_batch_bytes: TRANSACTION_SIZE_LIMIT,
             enabled: true,
         }
     }
@@ -134,7 +134,7 @@ impl BatchOperation {
     pub fn size_bytes(&self) -> usize {
         match self {
             BatchOperation::Set { key, value } => {
-                // Key + value + overhead for FDB tuple encoding (estimate ~50 bytes)
+                // Key + value + overhead for encoding (estimate ~50 bytes)
                 key.len() + value.len() + 50
             },
             BatchOperation::Delete { key } => {
@@ -169,7 +169,7 @@ pub struct BatchFlushStats {
 /// Batch writer for accumulating and flushing write operations
 ///
 /// This writer accumulates write operations and flushes them in optimized batches.
-/// It automatically splits large batches to respect FDB's transaction size limits.
+/// It automatically splits large batches to respect transaction size limits.
 pub struct BatchWriter<B: StorageBackend> {
     backend: B,
     operations: Vec<BatchOperation>,
@@ -226,7 +226,7 @@ impl<B: StorageBackend + Clone> BatchWriter<B> {
         let max_bytes = if self.config.enabled {
             self.config.max_batch_bytes
         } else {
-            FDB_TRANSACTION_SIZE_LIMIT
+            TRANSACTION_SIZE_LIMIT
         };
 
         let max_ops = if self.config.enabled { self.config.max_batch_size } else { usize::MAX };
@@ -239,7 +239,7 @@ impl<B: StorageBackend + Clone> BatchWriter<B> {
             let op_size = op.size_bytes();
 
             // If this single operation exceeds the limit, it goes in its own batch
-            // (FDB will reject it, but we let it through for proper error handling)
+            // (storage backend will reject it, but we let it through for proper error handling)
             if op_size > max_bytes {
                 if !current_batch.is_empty() {
                     batches.push(current_batch);
@@ -465,7 +465,7 @@ impl<B: StorageBackend + Clone> OptimizedBackend<B> {
     /// Create a batch writer for bulk write operations
     ///
     /// The batch writer accumulates operations and flushes them in optimized
-    /// batches, automatically splitting to respect FDB transaction limits.
+    /// batches, automatically splitting to respect transaction size limits.
     ///
     /// # Example
     ///
@@ -975,10 +975,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_batch_config_for_fdb() {
-        let config = BatchConfig::for_fdb();
+    async fn test_batch_config_for_large_transactions() {
+        let config = BatchConfig::for_large_transactions();
         assert!(config.enabled);
-        assert_eq!(config.max_batch_bytes, FDB_TRANSACTION_SIZE_LIMIT);
+        assert_eq!(config.max_batch_bytes, TRANSACTION_SIZE_LIMIT);
         assert_eq!(config.max_batch_size, DEFAULT_MAX_BATCH_SIZE);
     }
 

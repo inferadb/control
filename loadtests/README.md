@@ -280,7 +280,7 @@ If you see many 429 responses:
 
 ### High Latency
 
-- Check database performance (FoundationDB metrics)
+- Check database performance (Ledger metrics)
 - Monitor system resources (CPU, memory)
 - Review logs for errors
 - Consider horizontal scaling
@@ -293,7 +293,7 @@ Load tests create test users/organizations. To clean up:
 # For memory backend (development)
 # Restart the service
 
-# For FoundationDB (production)
+# For Ledger (production)
 # Implement cleanup script or use soft-delete TTL
 ```
 

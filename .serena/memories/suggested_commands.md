@@ -3,7 +3,7 @@
 ## One-Time Setup
 ```bash
 mise trust && mise install    # Install tools via mise
-docker-compose up -d          # Start FoundationDB (optional)
+docker-compose up -d          # Start dependencies (optional)
 export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 ```
 

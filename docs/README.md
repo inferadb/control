@@ -86,7 +86,7 @@ Start here: **[Getting Started Guide](getting-started.md)** - Step-by-step tutor
 
 ### Testing Infrastructure
 
-- **[FoundationDB Integration Tests](../docker/fdb-integration-tests/)** - Docker-based FDB test environment
+- **[Ledger Integration Tests](../docker/ledger-integration-tests/)** - Docker-based Ledger test environment
   - Quick start and architecture
   - Environment variables
   - Troubleshooting

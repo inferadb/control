@@ -108,7 +108,7 @@ control:
     grpc: "0.0.0.0:9091"
     mesh: "0.0.0.0:9092"
 
-  # Storage: "memory" (dev), "foundationdb", or "ledger" (production)
+  # Storage: "memory" (dev) or "ledger" (production)
   storage: "ledger"
 
   # Ledger configuration (requires --features ledger)
@@ -172,7 +172,8 @@ docker run -p 9090:9090 inferadb/control:latest
 helm install inferadb-control ./helm \
   --namespace inferadb \
   --create-namespace \
-  --set config.storage=foundationdb \
+  --set config.storage=ledger \
+  --set config.ledger.endpoint=http://ledger.inferadb:50051 \
   --set config.webauthn.party=example.com \
   --set config.webauthn.origin=https://app.example.com
 ```

@@ -39,7 +39,7 @@ graph TB
     subgraph "Storage Layer"
         Storage[Storage<br/>Abstraction]
         Memory[Memory<br/>Backend<br/>(Implemented)]
-        FDB[FoundationDB<br/>Backend<br/>(Planned)]
+        Ledger[Ledger<br/>Backend<br/>(Production)]
     end
 
     subgraph "External Services"
@@ -74,7 +74,7 @@ graph TB
 
     Repos --> Storage
     Storage --> Memory
-    Storage --> FDB
+    Storage --> Ledger
 
     Token --> Engine
     Email --> SMTP
@@ -138,10 +138,10 @@ graph TB
         API3[Instance 3<br/>Worker ID: 2]
     end
 
-    subgraph "FoundationDB Cluster"
-        FDB1[(FDB Node 1)]
-        FDB2[(FDB Node 2)]
-        FDB3[(FDB Node 3)]
+    subgraph "Ledger Cluster"
+        Ledger1[(Ledger Node 1)]
+        Ledger2[(Ledger Node 2)]
+        Ledger3[(Ledger Node 3)]
     end
 
     subgraph "Observability"
@@ -154,21 +154,21 @@ graph TB
     LB --> API2
     LB --> API3
 
-    API1 -.Leader Election.-> FDB1
-    API2 -.Heartbeat.-> FDB1
-    API3 -.Heartbeat.-> FDB1
+    API1 -.Leader Election.-> Ledger1
+    API2 -.Heartbeat.-> Ledger1
+    API3 -.Heartbeat.-> Ledger1
 
-    API1 --> FDB1
-    API1 --> FDB2
-    API1 --> FDB3
+    API1 --> Ledger1
+    API1 --> Ledger2
+    API1 --> Ledger3
 
-    API2 --> FDB1
-    API2 --> FDB2
-    API2 --> FDB3
+    API2 --> Ledger1
+    API2 --> Ledger2
+    API2 --> Ledger3
 
-    API3 --> FDB1
-    API3 --> FDB2
-    API3 --> FDB3
+    API3 --> Ledger1
+    API3 --> Ledger2
+    API3 --> Ledger3
 
     API1 --> Prom
     API2 --> Prom
@@ -183,9 +183,9 @@ graph TB
     style API1 fill:#4CAF50,stroke:#2E7D32,stroke-width:3px
     style API2 fill:#4CAF50
     style API3 fill:#4CAF50
-    style FDB1 fill:#2196F3
-    style FDB2 fill:#2196F3
-    style FDB3 fill:#2196F3
+    style Ledger1 fill:#2196F3
+    style Ledger2 fill:#2196F3
+    style Ledger3 fill:#2196F3
 ```
 
 ## Multi-Instance Coordination
@@ -197,52 +197,52 @@ sequenceDiagram
     participant API1 as Instance 1
     participant API2 as Instance 2
     participant API3 as Instance 3
-    participant FDB as FoundationDB
+    participant Ledger as Ledger
 
-    Note over API1,FDB: Startup & Leader Election
+    Note over API1,Ledger: Startup & Leader Election
 
-    API1->>FDB: Register Worker ID 0 + Heartbeat
-    API2->>FDB: Register Worker ID 1 + Heartbeat
-    API3->>FDB: Register Worker ID 2 + Heartbeat
+    API1->>Ledger: Register Worker ID 0 + Heartbeat
+    API2->>Ledger: Register Worker ID 1 + Heartbeat
+    API3->>Ledger: Register Worker ID 2 + Heartbeat
 
-    API1->>FDB: Try Acquire Leader Lock
-    FDB-->>API1: Lock Acquired (Leader)
+    API1->>Ledger: Try Acquire Leader Lock
+    Ledger-->>API1: Lock Acquired (Leader)
 
-    API2->>FDB: Try Acquire Leader Lock
-    FDB-->>API2: Lock Held (Follower)
+    API2->>Ledger: Try Acquire Leader Lock
+    Ledger-->>API2: Lock Held (Follower)
 
-    API3->>FDB: Try Acquire Leader Lock
-    FDB-->>API3: Lock Held (Follower)
+    API3->>Ledger: Try Acquire Leader Lock
+    Ledger-->>API3: Lock Held (Follower)
 
-    Note over API1,FDB: Background Jobs (Leader Only)
+    Note over API1,Ledger: Background Jobs (Leader Only)
 
     loop Every 10 seconds
-        API1->>FDB: Update Heartbeat
-        API2->>FDB: Update Heartbeat
-        API3->>FDB: Update Heartbeat
+        API1->>Ledger: Update Heartbeat
+        API2->>Ledger: Update Heartbeat
+        API3->>Ledger: Update Heartbeat
     end
 
     loop Every 30 seconds (Leader Only)
-        API1->>FDB: Cleanup Expired Sessions
-        API1->>FDB: Cleanup Expired Tokens
-        API1->>FDB: Send Email Queue
+        API1->>Ledger: Cleanup Expired Sessions
+        API1->>Ledger: Cleanup Expired Tokens
+        API1->>Ledger: Send Email Queue
     end
 
-    Note over API1,FDB: Leader Failure & Re-election
+    Note over API1,Ledger: Leader Failure & Re-election
 
     API1-xAPI1: Crash/Shutdown
 
     loop Every 5 seconds
-        API2->>FDB: Check Leader Health
-        API2->>FDB: Try Acquire Leader Lock
-        FDB-->>API2: Lock Acquired (New Leader)
+        API2->>Ledger: Check Leader Health
+        API2->>Ledger: Try Acquire Leader Lock
+        Ledger-->>API2: Lock Acquired (New Leader)
     end
 
-    Note over API2,FDB: New Leader Takes Over
+    Note over API2,Ledger: New Leader Takes Over
 
     loop Every 30 seconds (New Leader)
-        API2->>FDB: Cleanup Expired Sessions
-        API2->>FDB: Cleanup Expired Tokens
+        API2->>Ledger: Cleanup Expired Sessions
+        API2->>Ledger: Cleanup Expired Tokens
     end
 ```
 
@@ -267,7 +267,7 @@ graph TB
         IDs3["IDs: xxx...200<br/>xxx...201<br/>xxx...202"]
     end
 
-    subgraph "FoundationDB"
+    subgraph "Ledger"
         Worker["Worker Registry<br/>workers/active/0<br/>workers/active/1<br/>workers/active/2"]
     end
 
@@ -302,15 +302,15 @@ Control supports a HashMap-based in-memory storage backend with the following ch
 - All data stored in RAM
 - No persistence across restarts
 - Suitable for development, testing, and single-instance deployments
-- Uses the same logical keyspace structure as planned FoundationDB backend
+- Uses the same logical keyspace structure as the Ledger backend
 
-### FoundationDB Storage
+### Ledger Storage
 
-When implemented, data will be organized in FoundationDB keyspace:
+Data is organized in Ledger's keyspace:
 
 ```mermaid
 graph TB
-    subgraph "FoundationDB Keyspace"
+    subgraph "Ledger Keyspace"
         subgraph "Users"
             U1["users/{id}"]
             U2["users_by_name/{name}"]
@@ -440,7 +440,7 @@ sequenceDiagram
     participant Auth as Auth Middleware
     participant Handler as Request Handler
     participant Repo as Repository
-    participant FDB as FoundationDB
+    participant DB as Ledger
     participant Metrics
 
     Client->>LB: HTTPS Request
@@ -456,8 +456,8 @@ sequenceDiagram
     Auth->>Handler: Authorized Request
     Handler->>Repo: Business Logic
 
-    Repo->>FDB: Query/Mutation
-    FDB-->>Repo: Result
+    Repo->>DB: Query/Mutation
+    DB-->>Repo: Result
 
     Repo-->>Handler: Data
     Handler-->>API: Response
@@ -483,7 +483,7 @@ graph LR
     end
 
     subgraph "Storage"
-        FDB[FoundationDB<br/>7.3.x]
+        LedgerDB[Ledger<br/>Raft-based]
         Memory[In-Memory<br/>HashMap]
     end
 
@@ -506,7 +506,7 @@ graph LR
     Axum --> Tower
     Tonic --> Tower
 
-    Tower --> FDB
+    Tower --> LedgerDB
     Tower --> Memory
 
     Axum --> Argon2
@@ -521,7 +521,7 @@ graph LR
     style Rust fill:#FF5722
     style Tokio fill:#FF9800
     style Axum fill:#4CAF50
-    style FDB fill:#2196F3
+    style LedgerDB fill:#2196F3
     style Argon2 fill:#9C27B0
     style Tracing fill:#00BCD4
 ```
@@ -542,7 +542,7 @@ graph TB
     end
 
     subgraph "Database Scaling"
-        D1[FoundationDB<br/>Auto-Sharding]
+        D1[Ledger<br/>Raft Consensus]
         D2[Multi-Region<br/>Replication]
         D3[Read Replicas]
     end

@@ -7,7 +7,7 @@ This tutorial walks you through setting up and using InferaDB Control from scrat
 - **Rust** 1.85+ (install via [rustup](https://rustup.rs/))
 - **curl** or similar HTTP client
 
-**Note**: This guide uses the in-memory storage backend for quick setup. FoundationDB backend is planned for future multi-instance production deployments but is not yet implemented.
+**Note**: This guide uses the in-memory storage backend for quick setup. Ledger backend is planned for future multi-instance production deployments but is not yet implemented.
 
 ## Installation
 
@@ -384,7 +384,7 @@ Now that you have the basics working, explore:
 
 ### Storage backend issues
 
-**Note**: This guide uses the in-memory backend. FoundationDB backend is not yet implemented.
+**Note**: This guide uses the in-memory backend. Ledger backend is not yet implemented.
 
 **Error**: `Failed to initialize storage backend`
 

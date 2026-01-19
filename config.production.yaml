@@ -6,10 +6,12 @@ control:
     grpc: "0.0.0.0:9091"
     mesh: "0.0.0.0:9092"
 
-  storage: "foundationdb"
+  storage: "ledger"
 
-  foundationdb:
-    cluster_file: "/etc/foundationdb/fdb.cluster"
+  # Ledger storage configuration - configure via environment variables:
+  # INFERADB__CONTROL__LEDGER__ENDPOINT
+  # INFERADB__CONTROL__LEDGER__CLIENT_ID
+  # INFERADB__CONTROL__LEDGER__NAMESPACE_ID
 
   webauthn:
     party: "example.com"

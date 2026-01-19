@@ -12,13 +12,13 @@ version.workspace = true
 [dependencies]
 # Internal dependencies
 inferadb-storage = { path = "../../../common/crates/inferadb-storage" }
-inferadb-storage-ledger = { path = "../../../common/crates/inferadb-storage-ledger", optional = true }
+inferadb-storage-ledger = { path = "../../../common/crates/inferadb-storage-ledger" }
 
 # External dependencies
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
-foundationdb = { workspace = true, optional = true }
+
 futures = { workspace = true }
 parking_lot = "0.12"
 serde = { workspace = true }
@@ -32,15 +32,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 
 [features]
 default = []
-fdb = ["foundationdb"]
-ledger = ["inferadb-storage-ledger"]
-
-[[test]]
-name = "fdb_integration_tests"
-path = "tests/fdb_integration_tests.rs"
-required-features = ["fdb"]
 
 [[test]]
 name = "ledger_integration_tests"
 path = "tests/ledger_integration_tests.rs"
-required-features = ["ledger"]

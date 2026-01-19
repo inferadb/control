@@ -11,8 +11,7 @@ control/
 │   ├── inferadb-control-core/       # Business logic, entities, services
 │   ├── inferadb-control-discovery/  # Service discovery
 │   ├── inferadb-control-engine-client/ # Engine API client
-│   ├── inferadb-control-fdb-shared/ # FoundationDB shared utilities
-│   ├── inferadb-control-storage/    # Storage layer (FDB, in-memory)
+│   ├── inferadb-control-storage/    # Storage layer (Ledger, in-memory)
 │   ├── inferadb-control-test-fixtures/ # Test utilities and fixtures
 │   └── inferadb-control-types/      # Shared type definitions
 ├── docs/                            # Documentation
@@ -36,7 +35,7 @@ inferadb-control (binary)
          └── inferadb-control-core
               └── inferadb-control-config
               └── inferadb-control-storage
-                   └── FoundationDB
+                   └── Ledger
               └── inferadb-control-engine-client
 ```
 
@@ -45,8 +44,6 @@ inferadb-control (binary)
 - `clock` - Time utilities
 - `crypto` - Cryptographic operations
 - `email` - Email sending
-- `fdb_invalidation` - FDB cache invalidation
-- `fdb_jwks` - JWK storage in FDB
 - `id` - ID generation (Snowflake)
 - `jobs` - Background jobs
 - `jwt` - JWT token handling

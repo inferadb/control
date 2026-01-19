@@ -95,10 +95,11 @@ pub struct ControlConfig {
 
     #[serde(default = "default_storage")]
     pub storage: String,
+    /// Ledger backend configuration (required when storage = "ledger")
+    #[serde(default)]
+    pub ledger: LedgerConfig,
     #[serde(default)]
     pub listen: ListenConfig,
-    #[serde(default)]
-    pub foundationdb: FoundationDbConfig,
     #[serde(default)]
     pub webauthn: WebAuthnConfig,
     #[serde(default)]
@@ -132,14 +133,6 @@ pub struct ListenConfig {
     /// Format: "host:port" (e.g., "0.0.0.0:9092")
     #[serde(default = "default_mesh")]
     pub mesh: String,
-}
-
-/// FoundationDB configuration (only used when storage = "foundationdb")
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct FoundationDbConfig {
-    /// FoundationDB cluster file path
-    /// e.g., "/etc/foundationdb/fdb.cluster"
-    pub cluster_file: Option<String>,
 }
 
 /// WebAuthn configuration for passkey authentication
@@ -283,6 +276,27 @@ impl Default for WebhookConfig {
     }
 }
 
+/// Ledger storage backend configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LedgerConfig {
+    /// Ledger server endpoint URL
+    /// e.g., "http://localhost:50051" or "https://ledger.inferadb.com:50051"
+    pub endpoint: Option<String>,
+
+    /// Client ID for idempotency tracking
+    /// Should be unique per control instance to ensure correct duplicate detection
+    /// e.g., "control-prod-us-west-1a-001"
+    pub client_id: Option<String>,
+
+    /// Namespace ID for data scoping
+    /// All keys will be stored within this namespace
+    pub namespace_id: Option<i64>,
+
+    /// Optional vault ID for finer-grained key scoping
+    /// If set, keys are scoped to this specific vault within the namespace
+    pub vault_id: Option<i64>,
+}
+
 // Default value functions
 fn default_http() -> String {
     "127.0.0.1:9090".to_string()
@@ -366,12 +380,12 @@ impl Default for ControlConfig {
             threads: default_threads(),
             logging: default_logging(),
             storage: default_storage(),
+            ledger: LedgerConfig::default(),
             listen: ListenConfig {
                 http: default_http(),
                 grpc: default_grpc(),
                 mesh: default_mesh(),
             },
-            foundationdb: FoundationDbConfig::default(),
             webauthn: WebAuthnConfig::default(),
             key_file: default_key_file(),
             email: EmailConfig {
@@ -506,18 +520,40 @@ impl ControlConfig {
         })?;
 
         // Validate storage backend
-        if self.storage != "memory" && self.storage != "foundationdb" {
-            return Err(Error::Config(format!(
-                "Invalid storage: {}. Must be 'memory' or 'foundationdb'",
-                self.storage
-            )));
-        }
-
-        // Validate FoundationDB config
-        if self.storage == "foundationdb" && self.foundationdb.cluster_file.is_none() {
-            return Err(Error::Config(
-                "foundationdb.cluster_file is required when storage = 'foundationdb'".to_string(),
-            ));
+        match self.storage.as_str() {
+            "memory" => {},
+            "ledger" => {
+                // Validate required ledger fields
+                if self.ledger.endpoint.is_none() {
+                    return Err(Error::Config(
+                        "ledger.endpoint is required when using Ledger backend".to_string(),
+                    ));
+                }
+                if self.ledger.client_id.is_none() {
+                    return Err(Error::Config(
+                        "ledger.client_id is required when using Ledger backend".to_string(),
+                    ));
+                }
+                if self.ledger.namespace_id.is_none() {
+                    return Err(Error::Config(
+                        "ledger.namespace_id is required when using Ledger backend".to_string(),
+                    ));
+                }
+                // Validate endpoint format
+                let endpoint = self.ledger.endpoint.as_ref().unwrap();
+                if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+                    return Err(Error::Config(format!(
+                        "ledger.endpoint must start with http:// or https://, got: {}",
+                        endpoint
+                    )));
+                }
+            },
+            _ => {
+                return Err(Error::Config(format!(
+                    "Invalid storage backend: '{}'. Supported: 'memory', 'ledger'",
+                    self.storage
+                )));
+            },
         }
 
         // Note: key_file validation is handled at runtime when loading the key
@@ -608,8 +644,21 @@ mod tests {
         config.storage = "memory".to_string();
         assert!(config.validate().is_ok());
 
-        config.storage = "foundationdb".to_string();
-        config.foundationdb.cluster_file = Some("/path/to/fdb.cluster".to_string());
+        // Ledger requires configuration
+        config.storage = "ledger".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("ledger.endpoint is required"));
+
+        // Ledger with valid config
+        config.ledger.endpoint = Some("http://localhost:50051".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("ledger.client_id is required"));
+
+        config.ledger.client_id = Some("control-test".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("ledger.namespace_id is required"));
+
+        config.ledger.namespace_id = Some(1);
         assert!(config.validate().is_ok());
     }
 

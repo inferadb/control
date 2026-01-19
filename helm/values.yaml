@@ -139,12 +139,15 @@ config:
   # Frontend URL (for email links, CORS, etc.)
   frontendUrl: ""  # e.g., "https://app.inferadb.com"
 
-  # Storage backend: "memory" or "foundationdb"
+  # Storage backend: "memory" or "ledger"
   storage: "memory"
 
-  # FoundationDB configuration (only used when storage = "foundationdb")
-  foundationdb:
-    clusterFile: "/etc/foundationdb/fdb.cluster"
+  # Ledger configuration (only used when storage = "ledger")
+  ledger:
+    endpoint: "http://ledger.inferadb:50051"
+    client_id: "control-001"
+    namespace_id: 1
+    vault_id: 1
 
   # WebAuthn (Passkey) configuration
   # Required for passkey authentication
@@ -254,9 +257,6 @@ secrets:
   email:
     password: ""
 
-  # FoundationDB cluster file content
-  fdbClusterFile: ""
-
   # Additional custom secrets
   additional: {}
 
@@ -315,15 +315,15 @@ healthCheck:
 # Graceful shutdown
 terminationGracePeriodSeconds: 30
 
-# Init containers (e.g., wait for FoundationDB)
+# Init containers (e.g., wait for Ledger)
 initContainers: []
-  # - name: wait-for-fdb
+  # - name: wait-for-ledger
   #   image: busybox:1.36
   #   command:
   #   - sh
   #   - -c
   #   - |
-  #     until nc -z -v -w30 foundationdb-cluster 4500; do
+  #     until nc -z -v -w30 ledger.inferadb 50051; do
   #       sleep 5
   #     done
 
@@ -349,7 +349,8 @@ serviceMonitor:
   metricRelabelings: []
 
 # External dependencies
-foundationdb:
+ledger:
   enabled: false
-  clusterName: "inferadb-fdb"
-  version: "7.3.x"
+  serviceName: "ledger"
+  namespace: "inferadb"
+  port: 50051

@@ -17,7 +17,7 @@ The **Control** is InferaDB's control plane, providing self-service capabilities
 
 **Architecture**:
 
-- **Storage**: FoundationDB (production) or in-memory (development)
+- **Storage**: Ledger (production) or in-memory (development)
 - **Engine Communication**: gRPC for real-time vault synchronization
 - **Client APIs**: REST (Dashboard, CLI) and gRPC (SDKs)
 - **Deployment**: Single-instance (dev/small deployments) or multi-instance HA (production)
@@ -115,7 +115,7 @@ All entities use **Twitter Snowflake IDs** for primary keys to remain storage-la
 
 - 64-bit integers (sortable by creation time)
 - Globally unique across all entity types
-- Compatible with in-memory, FoundationDB, and future storage backends
+- Compatible with in-memory, Ledger, and future storage backends
 - Encoded as strings in JSON APIs to avoid JavaScript integer precision issues
 
 ### Snowflake ID Implementation
@@ -163,7 +163,7 @@ let mut id_gen = IdInstance::new(options);
 let user_id = id_gen.next_id(); // Returns i64
 ```
 
-**Storage**: IDs are stored as `i64` in FoundationDB and serialized as strings in JSON responses to avoid JavaScript's 53-bit integer precision limit.
+**Storage**: IDs are stored as `i64` in Ledger and serialized as strings in JSON responses to avoid JavaScript's 53-bit integer precision limit.
 
 ---
 
@@ -483,7 +483,7 @@ Lives under the `/v1/organizations/:org/clients/:client/certificates` API path.
   - **Exposed ONLY during creation** (one-time display for developer to save)
   - After creation, never returned by any API endpoint
   - Stored by the **client application** (backend service, SDK, CLI) to sign client assertions
-  - Encrypted at rest in FoundationDB using AES-256-GCM
+  - Encrypted at rest in Ledger using AES-256-GCM
 - **kid** (string, required): Key ID (used in JWT header)
   - Format: `org-<org_id>-client-<client_id>-cert-<cert_id>` (e.g., `org-123-client-456-cert-789`)
   - Globally unique across all organizations
@@ -3289,7 +3289,7 @@ pub async fn validate_management_jwt(token: &str) -> Result<ClientAssertion> {
         return Err(anyhow!("Insufficient scope"));
     }
 
-    // Check JTI for replay attack prevention (MANDATORY in production, cache recent JTIs in Redis/FoundationDB)
+    // Check JTI for replay attack prevention (MANDATORY in production, cache recent JTIs in Redis/Ledger)
     // In development mode with in-memory storage, JTI checking can be disabled via config flag
     if config.jti_replay_protection_enabled {
         check_jti_not_replayed(&token_data.claims.jti).await?;
@@ -3436,7 +3436,7 @@ management_auth:
   jti_replay_protection:
     enabled: true # MUST be true in production deployments
     ttl_seconds: 120 # Must be > max JWT TTL (60s)
-    backend: "foundationdb" # Production: "foundationdb" or "redis", Dev: "memory"
+    backend: "ledger" # Production: "ledger" or "redis", Dev: "memory"
     # Emergency mode: If backend is unavailable, fail closed (reject all JWTs) to prevent replay attacks
 ```
 
@@ -3701,7 +3701,7 @@ pub fn validate_vault_isolation(jwt_vault_id: &str, request_vault_id: &str) -> R
 
 The Engine API enforces tenant isolation by prefixing all storage operations with the `vault_id` from the JWT:
 
-**FoundationDB Keyspace** (Engine side):
+**Storage Keyspace** (Engine side):
 
 ```text
 vault_<vault_id>/
@@ -3731,7 +3731,7 @@ impl StorageEngine {
             tuple.subject
         );
 
-        self.fdb.set(key.as_bytes(), &serialize(tuple)?).await?;
+        self.storage.set(key.as_bytes(), &serialize(tuple)?).await?;
         Ok(())
     }
 
@@ -3746,7 +3746,7 @@ impl StorageEngine {
         let prefix = format!("vault_{}/tuples/", vault_id);
 
         // Query only within this vault's keyspace
-        let results = self.fdb.get_range(prefix.as_bytes()).await?;
+        let results = self.storage.get_range(prefix.as_bytes()).await?;
 
         // Process results...
         Ok(true)
@@ -3863,8 +3863,11 @@ server:
   private_rest: "0.0.0.0:9092" # Internal REST API (JWKS, webhooks)
 
 storage:
-  backend: "memory" # or "foundationdb"
-  fdb_cluster_file: "/etc/foundationdb/fdb.cluster"
+  backend: "memory" # or "ledger"
+  ledger:
+    endpoint: "https://ledger.inferadb.com"
+    client_id: "${LEDGER_CLIENT_ID}"
+    namespace_id: 1
 
 policy_service:
   service_url: "http://localhost"
@@ -3921,7 +3924,7 @@ observability:
 
 **Environment Variable Overrides**:
 
-- `INFERADB_CTRL__STORAGE__BACKEND=foundationdb`
+- `INFERADB_CTRL__STORAGE__BACKEND=ledger`
 - `INFERADB_CTRL__POLICY_SERVICE__SERVICE_URL=https://engine.inferadb.com`
 - `CONTROL_API_AUDIENCE=https://control.inferadb.com` - Expected JWT audience for Engine → Control authentication (defaults to `http://localhost:8081`)
 - `SMTP_PASSWORD=<secret>`
@@ -3943,7 +3946,7 @@ Control is designed to run as multiple instances for high availability and horiz
 
 2. **Multi-instance** (production, high availability)
    - Worker IDs: 0-1023 (statically assigned)
-   - Coordination via FoundationDB (no external dependencies)
+   - Coordination via Ledger (no external dependencies)
    - Horizontal scalability
 
 ### Worker ID Assignment Strategy
@@ -4009,14 +4012,14 @@ services:
 
 Background jobs (cleanup, email retries, token expiration) must run on exactly one instance at a time to avoid duplicate work.
 
-**Leader Election via FoundationDB**:
+**Leader Election via Ledger**:
 
-We use FoundationDB's atomic compare-and-set operations for distributed leader election without external dependencies.
+We use Ledger's atomic compare-and-set operations for distributed leader election without external dependencies.
 
 **Implementation**:
 
 ```rust
-use foundationdb::*;
+use ledger_client::*;
 use std::time::{Duration, SystemTime};
 
 const LEADER_LEASE_TTL: Duration = Duration::from_secs(30);
@@ -4154,7 +4157,7 @@ pub async fn run_background_jobs(leader_election: Arc<LeaderElection>) {
 
 **Properties**:
 
-- ✅ No external coordination service required (uses FoundationDB)
+- ✅ No external coordination service required (uses Ledger)
 - ✅ Automatic failover if leader crashes (lease expires)
 - ✅ Single active leader at any time (prevents duplicate work)
 - ✅ Graceful leadership transitions (lease-based)
@@ -4164,14 +4167,14 @@ pub async fn run_background_jobs(leader_election: Arc<LeaderElection>) {
 
 Rate limiting must be enforced globally across all instances, not per-instance.
 
-**Distributed Rate Limiting via FoundationDB**:
+**Distributed Rate Limiting via Ledger**:
 
-Use FoundationDB atomic operations for distributed counters.
+Use Ledger atomic operations for distributed counters.
 
 **Implementation**:
 
 ```rust
-use foundationdb::*;
+use ledger_client::*;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct DistributedRateLimiter {
@@ -4297,7 +4300,7 @@ rate_limiter.check_and_increment(
 
 When enforcing max concurrent sessions (10 per user), we must handle race conditions where multiple instances create sessions simultaneously.
 
-**Strategy**: Use FoundationDB transactions to atomically count and enforce limits.
+**Strategy**: Use Ledger transactions to atomically count and enforce limits.
 
 **Implementation**:
 
@@ -4384,7 +4387,7 @@ struct HealthStatus {
     instance_id: String,      // Unique instance identifier
     worker_id: u16,           // Snowflake worker ID
     uptime_seconds: u64,      // Time since startup
-    storage_healthy: bool,    // FoundationDB connection status
+    storage_healthy: bool,    // Ledger connection status
     is_leader: bool,          // Whether this instance is leader for background jobs
 }
 
@@ -4499,7 +4502,7 @@ async fn main() -> Result<()> {
 
 ## Multi-Tenancy & Data Isolation
 
-### FoundationDB Keyspace Design
+### Ledger Keyspace Design
 
 All data is isolated by entity type and organization to ensure security:
 
@@ -4563,7 +4566,7 @@ Control is designed as a **true multi-tenant SaaS platform** supporting thousand
 
 **1. Data Isolation (Storage Layer)**:
 
-- **FoundationDB keyspace partitioning**: All organization data prefixed with `orgs/<org_id>/`
+- **Ledger keyspace partitioning**: All organization data prefixed with `orgs/<org_id>/`
 - **Vault data isolation**: Each vault has independent keyspace at `vaults/<vault_id>/`
 - **@engine isolation**: Engine API enforces vault-level isolation with `vault_id` prefix on all operations
 - **No shared data**: Organizations cannot access or enumerate other organizations' data
@@ -4607,7 +4610,7 @@ Control is designed as a **true multi-tenant SaaS platform** supporting thousand
 
 - **Vault sync failures**: Failed vault creation in one org doesn't affect other orgs
 - **Background jobs**: Scoped to specific organizations, failures don't cascade
-- **Storage transactions**: FoundationDB ACID transactions ensure partial failures rollback cleanly
+- **Storage transactions**: Ledger ACID transactions ensure partial failures rollback cleanly
 - **Worker ID collision**: Independent worker IDs prevent cross-instance data corruption
 
 **8. Billing Isolation** (Future):
@@ -4681,7 +4684,7 @@ Follow @engine patterns:
 - **Integration tests**: In `tests/` directory
 - **Use cargo-nextest** for test execution
 - **Test fixtures**: Shared utilities in `inferadb-control-test-fixtures` crate
-- **Storage tests**: Run against both in-memory and FoundationDB backends
+- **Storage tests**: Run against both in-memory and Ledger backends
 
 **Key Test Coverage**:
 
@@ -5246,7 +5249,7 @@ Expose Prometheus metrics on `/metrics` endpoint:
 
 ```rust
 async fn readiness_check(state: AppState) -> Result<StatusCode> {
-    // Check FoundationDB connectivity
+    // Check Ledger connectivity
     if !state.db.is_healthy().await {
         return Ok(StatusCode::SERVICE_UNAVAILABLE);
     }

@@ -32,7 +32,7 @@ API Endpoints:
 {{- if eq .Values.config.storage "memory" }}
 
 WARNING: Using in-memory storage. Data will be lost on pod restart.
-         Set config.storage=foundationdb for production use.
+         Set config.storage=ledger for production use.
 {{- end }}
 
 {{- if not .Values.config.webauthn.party }}

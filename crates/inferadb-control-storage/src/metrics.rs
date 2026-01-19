@@ -1,7 +1,7 @@
 //! Storage metrics collection and monitoring
 //!
 //! This module provides comprehensive metrics for storage backends, particularly
-//! FoundationDB-specific telemetry including:
+//! Ledger-specific telemetry including:
 //!
 //! - Operation latencies (get, set, delete, range queries, transactions)
 //! - Operation counts and throughput

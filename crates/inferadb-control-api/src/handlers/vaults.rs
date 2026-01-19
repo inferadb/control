@@ -314,12 +314,6 @@ pub async fn update_vault(
     // Save changes
     repos.vault.update(vault.clone()).await?;
 
-    // Invalidate caches on all engine instances (vault metadata changed)
-    #[cfg(feature = "fdb")]
-    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
-        let _ = fdb_invalidation.invalidate_vault(vault_id).await;
-    }
-
     Ok(Json(UpdateVaultResponse {
         vault: VaultInfo {
             id: vault.id,
@@ -393,12 +387,6 @@ pub async fn delete_vault(
     // Soft delete
     vault.mark_deleted();
     repos.vault.update(vault).await?;
-
-    // Invalidate caches on all engine instances
-    #[cfg(feature = "fdb")]
-    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
-        let _ = fdb_invalidation.invalidate_vault(vault_id).await;
-    }
 
     Ok(StatusCode::NO_CONTENT)
 }

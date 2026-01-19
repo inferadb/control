@@ -44,11 +44,13 @@ cargo build --release
 control:
   storage: "memory"
 
-# Or for FoundationDB:
+# Or for Ledger (production):
 control:
-  storage: "foundationdb"
-  foundationdb:
-    cluster_file: "/etc/foundationdb/fdb.cluster"
+  storage: "ledger"
+  ledger:
+    endpoint: "https://ledger.example.com"
+    client_id: "your-client-id"
+    namespace_id: 1
 ```
 
 ### Port Conflicts
@@ -141,7 +143,7 @@ control:
 
 1. Implement regular data export procedures
 2. Document this limitation for your team
-3. Wait for FoundationDB backend implementation (planned)
+3. Use Ledger backend for production deployments
 
 ### Data Migration Issues
 
@@ -155,7 +157,7 @@ control:
 # With memory backend, simply restart the server to reset
 # All data will be cleared
 
-# For persistent data, wait for FoundationDB backend implementation
+# For persistent data, use Ledger backend
 ```
 
 ## Authentication & Sessions

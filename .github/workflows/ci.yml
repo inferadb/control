@@ -118,11 +118,6 @@ jobs:
           sudo apt-get install -y -qq mold
           mold --version
 
-      - name: Install FoundationDB client library
-        run: |
-          wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
-          sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
-
       - name: Cache Rust dependencies
         uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
         with:
@@ -169,11 +164,6 @@ jobs:
         with:
           install_args: protobuf cargo:cargo-nextest
           cache: true
-
-      - name: Install FoundationDB client library
-        run: |
-          wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
-          sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
 
       - name: Cache Rust dependencies
         uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
@@ -231,11 +221,6 @@ jobs:
           install_args: protobuf cargo:cargo-nextest
           cache: true
 
-      - name: Install FoundationDB client library
-        run: |
-          wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
-          sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
-
       - name: Download nextest archive
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -264,6 +249,85 @@ jobs:
           name: test-results-ubuntu
           path: target/nextest/ci/junit.xml
           retention-days: 7
+
+  # Ledger Integration Tests
+  # Runs Control tests against a real Ledger server to verify storage backend integration.
+  # Uses Docker Compose to start a single-node Ledger cluster, then runs native cargo tests.
+  ledger-integration-tests:
+    name: Ledger Integration Tests
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    env:
+      CARGO_INCREMENTAL: 0
+      RUSTFLAGS: "-C codegen-units=16 -C link-arg=-fuse-ld=mold"
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+
+      - name: Install mold linker
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mold
+
+      - name: Install development tools via Mise
+        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
+        with:
+          install_args: protobuf cargo:cargo-nextest
+          cache: true
+
+      - name: Cache Rust dependencies
+        uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
+        with:
+          shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
+          save-if: false
+
+      - name: Start Ledger server
+        working-directory: docker/ledger-integration-tests
+        run: |
+          docker-compose up -d ledger
+          echo "Waiting for Ledger to be ready..."
+          for i in {1..30}; do
+            if docker-compose exec -T ledger nc -z localhost 50051 2>/dev/null; then
+              echo "Ledger is ready!"
+              break
+            fi
+            echo "Attempt $i/30: Ledger not ready yet..."
+            sleep 2
+          done
+          # Final check
+          docker-compose exec -T ledger nc -z localhost 50051 || (docker-compose logs ledger && exit 1)
+
+      - name: Run Ledger integration tests
+        env:
+          RUN_LEDGER_INTEGRATION_TESTS: "1"
+          LEDGER_ENDPOINT: "http://localhost:50052"
+          LEDGER_NAMESPACE_ID: "1"
+          RUST_BACKTRACE: "1"
+        run: |
+          cargo nextest run \
+            --package inferadb-control-storage \
+            --test ledger_integration_tests \
+            --features ledger \
+            --profile ci \
+            --no-fail-fast
+
+      - name: Stop Ledger server
+        if: always()
+        working-directory: docker/ledger-integration-tests
+        run: docker-compose down -v
 
   # Test code coverage (nightly only to reduce CI costs)
   coverage:
@@ -302,11 +366,6 @@ jobs:
         with:
           install_args: protobuf cargo:cargo-llvm-cov
           cache: true
-
-      - name: Install FoundationDB client library
-        run: |
-          wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb
-          sudo dpkg -i foundationdb-clients_7.3.69-1_amd64.deb
 
       - name: Restore build cache
         uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
@@ -363,7 +422,7 @@ jobs:
   # Overall status check
   ci-success:
     name: CI Success
-    needs: [changes, fmt, clippy, build, test, coverage, dependencies]
+    needs: [changes, fmt, clippy, build, test, ledger-integration-tests, coverage, dependencies]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -392,6 +451,11 @@ jobs:
           fi
           if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
             echo "Tests failed"
+            exit 1
+          fi
+          # Ledger integration tests verify storage backend
+          if [[ "${{ needs.ledger-integration-tests.result }}" != "success" && "${{ needs.ledger-integration-tests.result }}" != "skipped" ]]; then
+            echo "Ledger integration tests failed"
             exit 1
           fi
           # Coverage and dependencies can be skipped for Dependabot PRs

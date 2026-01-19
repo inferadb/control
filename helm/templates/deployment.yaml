@@ -87,11 +87,6 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
-            {{- if eq .Values.config.storage "foundationdb" }}
-            - name: fdb-cluster-file
-              mountPath: /etc/foundationdb
-              readOnly: true
-            {{- end }}
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -156,19 +151,6 @@ spec:
             name: {{ include "inferadb-control.configMapName" . }}
         - name: tmp
           emptyDir: {}
-        {{- if eq .Values.config.storage "foundationdb" }}
-        - name: fdb-cluster-file
-          {{- if .Values.secrets.fdbClusterFile }}
-          secret:
-            secretName: {{ include "inferadb-control.secretName" . }}
-            items:
-              - key: fdbClusterFile
-                path: fdb.cluster
-          {{- else }}
-          configMap:
-            name: foundationdb-cluster-file
-          {{- end }}
-        {{- end }}
         {{- if eq (include "inferadb-control.tailscaleEnabled" .) "true" }}
         - name: tailscale-state
           emptyDir: {}

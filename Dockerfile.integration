@@ -8,28 +8,10 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     curl \
-    wget \
     clang \
     libclang-dev \
     protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
-
-# Install FoundationDB client libraries (required for compilation)
-# Note: FDB uses _aarch64 naming for ARM64, not _arm64
-# Version 7.3.69 matches the FDB server in docker-compose
-ARG TARGETARCH
-RUN echo "Installing FDB clients for architecture: ${TARGETARCH:-amd64}" && \
-    if [ "$TARGETARCH" = "arm64" ]; then \
-        wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_aarch64.deb -O /tmp/fdb-clients.deb; \
-    else \
-        wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb -O /tmp/fdb-clients.deb; \
-    fi && \
-    dpkg -i /tmp/fdb-clients.deb || (apt-get update && apt-get install -f -y) && \
-    rm /tmp/fdb-clients.deb && \
-    ldconfig && \
-    # Verify installation
-    ls -la /usr/include/foundationdb/ && \
-    test -f /usr/include/foundationdb/fdb.options
 
 WORKDIR /workspace
 
@@ -37,31 +19,17 @@ WORKDIR /workspace
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 
-# Build dependencies first (cached layer) with FDB feature
-RUN cargo build --release --bin inferadb-control --features fdb
+# Build dependencies first (cached layer) with Ledger feature
+RUN cargo build --release --bin inferadb-control --features ledger
 
 # Final stage - minimal runtime image
 FROM debian:bookworm-slim
 
-# Install runtime dependencies including FDB client libraries
-ARG TARGETARCH
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
     curl \
-    wget \
-    && rm -rf /var/lib/apt/lists/* \
-    && echo "Installing FDB client libraries for architecture: ${TARGETARCH:-amd64}" \
-    && if [ "$TARGETARCH" = "arm64" ]; then \
-        wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_aarch64.deb -O /tmp/fdb-clients.deb; \
-    else \
-        wget -q https://github.com/apple/foundationdb/releases/download/7.3.69/foundationdb-clients_7.3.69-1_amd64.deb -O /tmp/fdb-clients.deb; \
-    fi \
-    && dpkg -i /tmp/fdb-clients.deb || (apt-get update && apt-get install -f -y) \
-    && rm /tmp/fdb-clients.deb \
-    && ldconfig \
-    && apt-get remove -y wget \
-    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

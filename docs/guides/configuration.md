@@ -54,9 +54,12 @@ control:
 
   storage: "memory"
 
-  # FoundationDB configuration (only used when storage = "foundationdb")
-  foundationdb:
-    cluster_file: "/etc/foundationdb/fdb.cluster"
+  # Ledger configuration (only used when storage = "ledger")
+  ledger:
+    endpoint: "http://ledger.inferadb:50051"
+    client_id: "control-001"
+    namespace_id: 1
+    vault_id: 1
 
   # WebAuthn configuration
   webauthn:
@@ -129,7 +132,10 @@ export INFERADB__CONTROL__LOGGING="info"
 
 # Storage configuration
 export INFERADB__CONTROL__STORAGE="memory"
-export INFERADB__CONTROL__FOUNDATIONDB__CLUSTER_FILE="/etc/foundationdb/fdb.cluster"
+export INFERADB__CONTROL__LEDGER__ENDPOINT="http://ledger.inferadb:50051"
+export INFERADB__CONTROL__LEDGER__CLIENT_ID="control-001"
+export INFERADB__CONTROL__LEDGER__NAMESPACE_ID=1
+export INFERADB__CONTROL__LEDGER__VAULT_ID=1
 
 # WebAuthn
 export INFERADB__CONTROL__WEBAUTHN__PARTY="inferadb.com"
@@ -215,10 +221,13 @@ Controls the data storage backend.
 
 ### Options
 
-| Option                      | Type              | Default    | Description                                     |
-| --------------------------- | ----------------- | ---------- | ----------------------------------------------- |
-| `storage`                   | string            | `"memory"` | Storage backend: `"memory"` or `"foundationdb"` |
-| `foundationdb.cluster_file` | string (optional) | `null`     | Path to FoundationDB cluster file               |
+| Option                | Type               | Default    | Description                               |
+| --------------------- | ------------------ | ---------- | ----------------------------------------- |
+| `storage`             | string             | `"memory"` | Storage backend: `"memory"` or `"ledger"` |
+| `ledger.endpoint`     | string (optional)  | `null`     | Ledger gRPC endpoint URL                  |
+| `ledger.client_id`    | string (optional)  | `null`     | Client ID for idempotency                 |
+| `ledger.namespace_id` | integer (optional) | `null`     | Namespace for data scoping                |
+| `ledger.vault_id`     | integer (optional) | `null`     | Vault for finer scoping                   |
 
 ### Backend Options
 
@@ -227,32 +236,38 @@ Controls the data storage backend.
 - **Use case**: Local development, testing
 - **Persistence**: None (data lost on restart)
 - **Performance**: Fastest
-- **Configuration**: No cluster file needed
+- **Configuration**: No additional config needed
 
 ```yaml
 control:
   storage: "memory"
 ```
 
-#### FoundationDB Backend (Production)
+#### Ledger Backend (Production)
 
 - **Use case**: Production deployments
-- **Persistence**: ACID transactions, replication
+- **Persistence**: ACID transactions, Raft replication, cryptographic verifiability
 - **Performance**: High throughput, low latency
-- **Configuration**: Requires FDB cluster file path
+- **Configuration**: Requires Ledger endpoint and namespace
 
 ```yaml
 control:
-  storage: "foundationdb"
-  foundationdb:
-    cluster_file: "/etc/foundationdb/fdb.cluster"
+  storage: "ledger"
+  ledger:
+    endpoint: "http://ledger.inferadb:50051"
+    client_id: "control-001"
+    namespace_id: 1
+    vault_id: 1
 ```
 
 ### Environment Variables
 
 ```bash
-export INFERADB__CONTROL__STORAGE="foundationdb"
-export INFERADB__CONTROL__FOUNDATIONDB__CLUSTER_FILE="/etc/foundationdb/fdb.cluster"
+export INFERADB__CONTROL__STORAGE="ledger"
+export INFERADB__CONTROL__LEDGER__ENDPOINT="http://ledger.inferadb:50051"
+export INFERADB__CONTROL__LEDGER__CLIENT_ID="control-001"
+export INFERADB__CONTROL__LEDGER__NAMESPACE_ID=1
+export INFERADB__CONTROL__LEDGER__VAULT_ID=1
 ```
 
 ## Authentication Configuration
@@ -658,9 +673,12 @@ control:
     grpc: "0.0.0.0:9091"
     mesh: "0.0.0.0:9092"
 
-  storage: "foundationdb"
-  foundationdb:
-    cluster_file: "/etc/foundationdb/fdb.cluster"
+  storage: "ledger"
+  ledger:
+    endpoint: "http://ledger.inferadb:50051"
+    client_id: "control-001"
+    namespace_id: 1
+    vault_id: 1
 
   pem: "${CONTROL_PRIVATE_KEY}"
   key_file: "/secrets/master.key"
@@ -828,8 +846,8 @@ Control validates configuration at startup with clear error messages.
 
 **Storage**:
 
-- `storage` must be `"memory"` or `"foundationdb"`
-- `foundationdb.cluster_file` required when `storage = "foundationdb"`
+- `storage` must be `"memory"` or `"ledger"`
+- `ledger.endpoint` required when `storage = "ledger"`
 
 **WebAuthn**:
 
@@ -858,7 +876,7 @@ Control validates configuration at startup with clear error messages.
 ### Example Validation Errors
 
 ```text
-Error: Invalid storage: postgres. Must be 'memory' or 'foundationdb'
+Error: Invalid storage: postgres. Must be 'memory' or 'ledger'
 ```
 
 ```text
@@ -917,9 +935,9 @@ Error: frontend.url must start with http:// or https://
 
 ### Performance
 
-1. **Use FoundationDB in production**
+1. **Use Ledger in production**
    - Memory backend doesn't persist
-   - FoundationDB provides ACID + replication
+   - Ledger provides ACID + Raft replication + cryptographic verifiability
 
 2. **Tune threads**
    - Defaults to number of CPU cores
@@ -946,12 +964,13 @@ services:
       INFERADB__CONTROL__LISTEN__HTTP: "0.0.0.0:9090"
       INFERADB__CONTROL__LISTEN__GRPC: "0.0.0.0:9091"
       INFERADB__CONTROL__LISTEN__MESH: "0.0.0.0:9092"
-      INFERADB__CONTROL__STORAGE: "foundationdb"
-      INFERADB__CONTROL__FOUNDATIONDB__CLUSTER_FILE: "/etc/foundationdb/fdb.cluster"
+      INFERADB__CONTROL__STORAGE: "ledger"
+      INFERADB__CONTROL__LEDGER__ENDPOINT: "http://ledger.inferadb:50051"
+      INFERADB__CONTROL__LEDGER__CLIENT_ID: "control-001"
+      INFERADB__CONTROL__LEDGER__NAMESPACE_ID: "1"
       INFERADB__CONTROL__MESH__URL: "http://inferadb-engine"
       INFERADB__CONTROL__FRONTEND__URL: "https://app.inferadb.com"
     volumes:
-      - /etc/foundationdb:/etc/foundationdb:ro
       - ./secrets:/secrets:ro
 ```
 

@@ -1,16 +1,18 @@
 version: "3.8"
 
 services:
-  # FoundationDB for production-like development
-  foundationdb:
-    image: foundationdb/foundationdb:7.3.63
-    container_name: inferadb-control-fdb
+  # Ledger for production-like development
+  ledger:
+    image: ghcr.io/inferadb/ledger:latest
+    container_name: inferadb-control-ledger
     ports:
-      - "4500:4500"
+      - "50051:50051"
     environment:
-      - FDB_NETWORKING_MODE=host
+      - LEDGER_BIND_ADDR=0.0.0.0:50051
+      - LEDGER_DATA_DIR=/var/lib/ledger/data
+      - BOOTSTRAP_EXPECT=1
     volumes:
-      - fdb-data:/var/fdb/data
+      - ledger-data:/var/lib/ledger/data
     networks:
       - inferadb-control-network
 
@@ -67,7 +69,7 @@ services:
       - prometheus
 
 volumes:
-  fdb-data:
+  ledger-data:
   prometheus-data:
   grafana-data:
 

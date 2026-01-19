@@ -56,17 +56,10 @@ async fn shutdown_signal() {
     }
 }
 
-/// Type alias for FDB invalidation writer (conditionally compiled)
-#[cfg(feature = "fdb")]
-pub type FdbInvalidationType = inferadb_control_core::FdbInvalidationWriter;
-#[cfg(not(feature = "fdb"))]
-pub type FdbInvalidationType = ();
-
 /// Configuration for optional services in the Control API
 pub struct ServicesConfig {
     pub leader: Option<Arc<inferadb_control_core::LeaderElection<Backend>>>,
     pub email_service: Option<Arc<inferadb_control_core::EmailService>>,
-    pub fdb_invalidation: Option<Arc<FdbInvalidationType>>,
     pub control_identity: Option<Arc<ControlIdentity>>,
 }
 
@@ -87,9 +80,6 @@ pub async fn serve(
     }
     if let Some(email_service) = services.email_service {
         builder = builder.email_service(email_service);
-    }
-    if let Some(fdb_invalidation) = services.fdb_invalidation {
-        builder = builder.fdb_invalidation(fdb_invalidation);
     }
     if let Some(control_identity) = services.control_identity {
         builder = builder.control_identity(control_identity);

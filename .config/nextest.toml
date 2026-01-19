@@ -97,8 +97,8 @@ slow-timeout = { period = "120s" }
 threads-required = 2
 
 [[profile.default.overrides]]
-# FDB tests need to run serially to avoid conflicts
-filter = 'test(fdb) | test(foundationdb)'
+# Ledger tests need to run serially to avoid conflicts
+filter = 'test(ledger)'
 test-group = "database"
 threads-required = 1
 

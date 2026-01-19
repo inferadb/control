@@ -380,12 +380,6 @@ pub async fn delete_organization(
     // Finally, soft delete the organization
     repos.org.delete(org_ctx.organization_id).await?;
 
-    // Invalidate caches on all servers
-    #[cfg(feature = "fdb")]
-    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
-        let _ = fdb_invalidation.invalidate_organization(org_ctx.organization_id).await;
-    }
-
     Ok(Json(DeleteOrganizationResponse {
         message: "Organization deleted successfully".to_string(),
     }))
@@ -427,12 +421,6 @@ pub async fn suspend_organization(
     org.suspend();
     repos.org.update(org).await?;
 
-    // Invalidate caches on all servers
-    #[cfg(feature = "fdb")]
-    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
-        let _ = fdb_invalidation.invalidate_organization(org_ctx.organization_id).await;
-    }
-
     Ok(Json(SuspendOrganizationResponse {
         message: "Organization suspended successfully".to_string(),
     }))
@@ -473,12 +461,6 @@ pub async fn resume_organization(
     // Resume the organization
     org.resume();
     repos.org.update(org).await?;
-
-    // Invalidate caches on all servers
-    #[cfg(feature = "fdb")]
-    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
-        let _ = fdb_invalidation.invalidate_organization(org_ctx.organization_id).await;
-    }
 
     Ok(Json(ResumeOrganizationResponse {
         message: "Organization resumed successfully".to_string(),

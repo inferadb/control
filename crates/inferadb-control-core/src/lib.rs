@@ -8,10 +8,6 @@ pub mod auth;
 pub mod clock;
 pub mod crypto;
 pub mod email;
-#[cfg(feature = "fdb")]
-pub mod fdb_invalidation;
-#[cfg(feature = "fdb")]
-pub mod fdb_jwks;
 pub mod id;
 pub mod jobs;
 pub mod jwt;
@@ -32,10 +28,6 @@ pub use email::{
     PasswordResetEmailTemplate, RoleChangeEmailTemplate, SmtpConfig, SmtpEmailService,
     VerificationEmailTemplate,
 };
-#[cfg(feature = "fdb")]
-pub use fdb_invalidation::FdbInvalidationWriter;
-#[cfg(feature = "fdb")]
-pub use fdb_jwks::FdbJwksWriter;
 pub use id::{IdGenerator, WorkerRegistry, acquire_worker_id};
 pub use jobs::BackgroundJobs;
 pub use jwt::{JwtSigner, VaultTokenClaims};

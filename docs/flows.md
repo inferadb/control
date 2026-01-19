@@ -8,7 +8,7 @@ This document illustrates the data flows for key operations in InferaDB Control.
 sequenceDiagram
     participant User
     participant API as Control
-    participant DB as FoundationDB
+    participant DB as Ledger
     participant Email as Email Service
 
     User->>API: POST /v1/auth/register<br/>{email, password, name}
@@ -55,7 +55,7 @@ sequenceDiagram
 sequenceDiagram
     participant User
     participant API as Control
-    participant DB as FoundationDB
+    participant DB as Ledger
 
     User->>API: POST /v1/auth/login<br/>{email, password}
 
@@ -93,7 +93,7 @@ sequenceDiagram
 sequenceDiagram
     participant App as Application
     participant API as Control
-    participant DB as FoundationDB
+    participant DB as Ledger
     participant Engine as InferaDB Engine
 
     App->>API: POST /v1/vaults/{vault_id}/token<br/>Cookie: infera_session={session_id}
@@ -143,7 +143,7 @@ sequenceDiagram
 sequenceDiagram
     participant User
     participant API as Control
-    participant DB as FoundationDB
+    participant DB as Ledger
 
     User->>API: POST /v1/organizations<br/>{name, tier}<br/>Cookie: infera_session={session_id}
 
@@ -175,7 +175,7 @@ sequenceDiagram
 sequenceDiagram
     participant Admin
     participant API as Control
-    participant DB as FoundationDB
+    participant DB as Ledger
 
     Admin->>API: POST /v1/organizations/{org_id}/vaults/{vault_id}/access/users<br/>{user_id, role}<br/>Cookie: infera_session={session_id}
 
@@ -220,7 +220,7 @@ sequenceDiagram
 sequenceDiagram
     participant Admin
     participant API as Control
-    participant DB as FoundationDB
+    participant DB as Ledger
 
     Admin->>API: POST /v1/organizations/{org_id}/clients/{client_id}/certificates<br/>{name}<br/>Cookie: infera_session={session_id}
 
@@ -268,7 +268,7 @@ sequenceDiagram
 sequenceDiagram
     participant App as Application
     participant API as Control
-    participant DB as FoundationDB
+    participant DB as Ledger
 
     App->>API: POST /v1/vaults/token/refresh<br/>{refresh_token}
 
@@ -313,7 +313,7 @@ sequenceDiagram
 sequenceDiagram
     participant User
     participant API as Control
-    participant DB as FoundationDB
+    participant DB as Ledger
 
     User->>API: POST /v1/auth/verify-email<br/>{token}
 
@@ -351,7 +351,7 @@ sequenceDiagram
 sequenceDiagram
     participant User
     participant API as Control
-    participant DB as FoundationDB
+    participant DB as Ledger
     participant Email as Email Service
 
     rect rgb(240, 240, 240)
@@ -409,54 +409,54 @@ sequenceDiagram
     participant I1 as Instance 1
     participant I2 as Instance 2
     participant I3 as Instance 3
-    participant FDB as FoundationDB
+    participant Ledger as Ledger
 
     rect rgb(240, 255, 240)
-    Note over I1,FDB: Startup & Initial Leader Election
+    Note over I1,Ledger: Startup & Initial Leader Election
 
-    I1->>FDB: Acquire Leader Lock
-    FDB-->>I1: Lock Acquired → LEADER
+    I1->>Ledger: Acquire Leader Lock
+    Ledger-->>I1: Lock Acquired → LEADER
 
-    I2->>FDB: Acquire Leader Lock
-    FDB-->>I2: Lock Held → FOLLOWER
+    I2->>Ledger: Acquire Leader Lock
+    Ledger-->>I2: Lock Held → FOLLOWER
 
-    I3->>FDB: Acquire Leader Lock
-    FDB-->>I3: Lock Held → FOLLOWER
+    I3->>Ledger: Acquire Leader Lock
+    Ledger-->>I3: Lock Held → FOLLOWER
     end
 
     rect rgb(255, 255, 240)
-    Note over I1,FDB: Normal Operations
+    Note over I1,Ledger: Normal Operations
 
     loop Every 10s - All Instances
-        I1->>FDB: Renew Leader Lock
-        I2->>FDB: Update Heartbeat
-        I3->>FDB: Update Heartbeat
+        I1->>Ledger: Renew Leader Lock
+        I2->>Ledger: Update Heartbeat
+        I3->>Ledger: Update Heartbeat
     end
 
     loop Every 30s - Leader Only
-        I1->>FDB: Cleanup Expired Sessions
-        I1->>FDB: Cleanup Expired Tokens
-        I1->>FDB: Send Email Queue
+        I1->>Ledger: Cleanup Expired Sessions
+        I1->>Ledger: Cleanup Expired Tokens
+        I1->>Ledger: Send Email Queue
     end
     end
 
     rect rgb(255, 240, 240)
-    Note over I1,FDB: Leader Failure Scenario
+    Note over I1,Ledger: Leader Failure Scenario
 
     I1-xI1: Leader Crashes
 
-    I2->>FDB: Detect Stale Lock (no renewal)
-    I2->>FDB: Attempt Lock Acquisition
-    FDB-->>I2: Lock Acquired → LEADER
+    I2->>Ledger: Detect Stale Lock (no renewal)
+    I2->>Ledger: Attempt Lock Acquisition
+    Ledger-->>I2: Lock Acquired → LEADER
 
-    I3->>FDB: Attempt Lock Acquisition
-    FDB-->>I3: Lock Held → FOLLOWER
+    I3->>Ledger: Attempt Lock Acquisition
+    Ledger-->>I3: Lock Held → FOLLOWER
 
     Note over I2: Instance 2 is now leader
 
     loop Every 30s - New Leader
-        I2->>FDB: Cleanup Expired Sessions
-        I2->>FDB: Cleanup Expired Tokens
+        I2->>Ledger: Cleanup Expired Sessions
+        I2->>Ledger: Cleanup Expired Tokens
     end
     end
 ```
@@ -468,7 +468,7 @@ sequenceDiagram
     participant User
     participant API as Control
     participant Handler as Request Handler
-    participant DB as FoundationDB
+    participant DB as Ledger
 
     User->>API: POST /v1/organizations/{org_id}/vaults<br/>{name}<br/>Cookie: infera_session={session_id}
 
@@ -538,7 +538,7 @@ sequenceDiagram
     participant User
     participant API as Control
     participant RateLimit as Rate Limiter
-    participant DB as FoundationDB
+    participant DB as Ledger
 
     User->>API: POST /v1/auth/login<br/>(Request 1)
 
@@ -572,7 +572,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Leader as Leader Instance
-    participant DB as FoundationDB
+    participant DB as Ledger
 
     loop Every 30 seconds (Leader Only)
         Leader->>DB: Query Expired Sessions<br/>(expired_at < now())

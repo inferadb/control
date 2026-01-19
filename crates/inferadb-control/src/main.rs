@@ -3,14 +3,13 @@ use std::sync::Arc;
 use anyhow::Result;
 use clap::Parser;
 use inferadb_control_api::ControlIdentity;
-#[cfg(feature = "fdb")]
-use inferadb_control_core::FdbInvalidationWriter;
 use inferadb_control_core::{
     ControlConfig, EmailService, IdGenerator, SmtpConfig, SmtpEmailService, WorkerRegistry,
     acquire_worker_id, logging, startup,
 };
 use inferadb_control_discovery::DiscoveryMode;
 use inferadb_control_engine_client::EngineClient;
+use inferadb_control_storage::LedgerConfig as StorageLedgerConfig;
 use inferadb_control_storage::factory::{StorageConfig, create_storage_backend};
 
 #[derive(Parser, Debug)]
@@ -141,8 +140,19 @@ async fn main() -> Result<()> {
     // Storage backend
     let storage_config = match config.storage.as_str() {
         "memory" => StorageConfig::memory(),
-        "foundationdb" => StorageConfig::foundationdb(config.foundationdb.cluster_file.clone()),
-        _ => anyhow::bail!("Invalid storage: {}", config.storage),
+        "ledger" => {
+            let ledger_config = StorageLedgerConfig {
+                endpoint: config.ledger.endpoint.clone().expect("validated"),
+                client_id: config.ledger.client_id.clone().expect("validated"),
+                namespace_id: config.ledger.namespace_id.expect("validated"),
+                vault_id: config.ledger.vault_id,
+            };
+            StorageConfig::ledger(ledger_config)
+        },
+        _ => anyhow::bail!(
+            "Invalid storage backend: '{}'. Supported: 'memory', 'ledger'",
+            config.storage
+        ),
     };
     let storage = Arc::new(create_storage_backend(&storage_config).await?);
     startup::log_initialized(&format!("Storage ({})", config.storage));
@@ -196,23 +206,6 @@ async fn main() -> Result<()> {
     )?);
     startup::log_initialized("Engine client");
 
-    // FDB-based cache invalidation (replaces HTTP webhooks)
-    // Only enabled when using FoundationDB storage and compiled with fdb feature
-    #[cfg(feature = "fdb")]
-    let fdb_invalidation = if let Some(fdb_db) = storage.fdb_database() {
-        let writer =
-            Arc::new(FdbInvalidationWriter::new(fdb_db, control_identity.control_id.clone()));
-        // Start background cleanup task for old invalidation events
-        writer.clone().start_cleanup_task();
-        startup::log_initialized("FDB invalidation writer");
-        Some(writer)
-    } else {
-        tracing::info!("FDB invalidation disabled (not using FoundationDB storage)");
-        None
-    };
-    #[cfg(not(feature = "fdb"))]
-    let fdb_invalidation = None;
-
     // Initialize email service (if configured)
     let email_service = if !config.email.host.is_empty() {
         let smtp_config = SmtpConfig {
@@ -254,11 +247,9 @@ async fn main() -> Result<()> {
         engine_client.clone(),
         worker_id,
         inferadb_control_api::ServicesConfig {
-            leader: None,  // leader election (optional, for multi-node)
-            email_service, // email service for verification emails
-            fdb_invalidation, /* FDB-based cache invalidation (replaces
-                            * HTTP webhooks) */
-            control_identity: Some(control_identity), // control identity for JWKS endpoint
+            leader: None,
+            email_service,
+            control_identity: Some(control_identity),
         },
     )
     .await?;

@@ -189,17 +189,17 @@ spec:
 
 - All data (users, sessions, vaults, etc.) is stored in RAM
 - Restarting the server loses all data
-- For production use, implement regular backups or wait for FoundationDB backend
+- For production use, implement regular backups or wait for Ledger backend
 
 **Recommended Approach**:
 
 - Use persistent volumes to store export snapshots
 - Implement automated backup scripts
-- Plan migration strategy for when FoundationDB backend is available
+- Plan migration strategy for when Ledger backend is available
 
 ## Future: Multi-Instance Deployment
 
-When FoundationDB backend is implemented, the following features will enable multi-instance HA deployments:
+When Ledger backend is implemented, the following features will enable multi-instance HA deployments:
 
 ### Worker ID Management (Future)
 
@@ -212,7 +212,7 @@ id_generation:
 
 ### Leader Election (Future)
 
-Leader election will be automatically handled using FoundationDB:
+Leader election will be automatically handled using Ledger:
 
 ```yaml
 leader_election:
@@ -402,7 +402,7 @@ cors:
 
 1. Implement regular data export/backup procedures
 2. Document recovery procedures for team
-3. Wait for FoundationDB backend implementation for persistent storage
+3. Wait for Ledger backend implementation for persistent storage
 
 ### High Rate Limit Rejections
 

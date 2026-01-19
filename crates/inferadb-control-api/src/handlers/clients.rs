@@ -239,17 +239,6 @@ pub async fn delete_client(
     client.mark_deleted();
     repos.client.update(client).await?;
 
-    // Invalidate certificate cache for all certificates of this client
-    #[cfg(feature = "fdb")]
-    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
-        let certs = repos.client_certificate.list_by_client(client_id).await?;
-        for cert in certs {
-            let _ = fdb_invalidation
-                .invalidate_certificate(org_ctx.organization_id, client_id, cert.id)
-                .await;
-        }
-    }
-
     Ok(Json(DeleteClientResponse { message: "Client deleted successfully".to_string() }))
 }
 
@@ -469,14 +458,6 @@ pub async fn revoke_certificate(
     // Revoke the certificate
     cert.mark_revoked(org_ctx.member.user_id);
     repos.client_certificate.update(cert).await?;
-
-    // Invalidate certificate cache on all servers
-    #[cfg(feature = "fdb")]
-    if let Some(ref fdb_invalidation) = state.fdb_invalidation {
-        let _ = fdb_invalidation
-            .invalidate_certificate(org_ctx.organization_id, client_id, cert_id)
-            .await;
-    }
 
     Ok(Json(RevokeCertificateResponse { message: "Certificate revoked successfully".to_string() }))
 }

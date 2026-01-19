@@ -19,9 +19,6 @@ updates:
       prefix: "deps"
       include: "scope"
     ignore:
-      - dependency-name: "foundationdb"
-        update-types:
-          - "version-update:semver-major"
       - dependency-name: "tonic"
         update-types:
           - "version-update:semver-major"
@@ -75,7 +72,7 @@ updates:
           - "*"
 
   - package-ecosystem: "docker"
-    directory: "/docker/fdb-integration-tests"
+    directory: "/docker/ledger-integration-tests"
     schedule:
       interval: "daily"
       time: "09:00"

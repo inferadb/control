@@ -10,7 +10,7 @@ control:
     grpc: "127.0.0.1:9091"
     mesh: "0.0.0.0:9092"
 
-  # Storage backend: "memory" (default), "foundationdb", or "ledger"
+  # Storage backend: "memory" (default) or "ledger"
   # storage: "memory"
 
   # Ledger storage configuration (requires --features ledger)

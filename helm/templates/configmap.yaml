@@ -21,9 +21,12 @@ data:
 
       storage: {{ .Values.config.storage | quote }}
 
-      {{- if eq .Values.config.storage "foundationdb" }}
-      foundationdb:
-        cluster_file: {{ .Values.config.foundationdb.clusterFile | quote }}
+      {{- if eq .Values.config.storage "ledger" }}
+      ledger:
+        endpoint: {{ .Values.config.ledger.endpoint | quote }}
+        client_id: {{ .Values.config.ledger.client_id | quote }}
+        namespace_id: {{ .Values.config.ledger.namespace_id }}
+        vault_id: {{ .Values.config.ledger.vault_id }}
       {{- end }}
 
       {{- if or .Values.config.webauthn.party .Values.config.webauthn.origin }}

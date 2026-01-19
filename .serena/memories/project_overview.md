@@ -7,7 +7,7 @@ Multi-tenant administration headless APIs for InferaDB with Kubernetes-native de
 - **Language**: Rust 1.85+ (stable toolchain)
 - **Async Runtime**: Tokio
 - **Web Framework**: Axum (REST), Tonic (gRPC)
-- **Storage**: FoundationDB (production) or in-memory (development)
+- **Storage**: Ledger (production) or in-memory (development)
 - **Authentication**: Argon2 (password), WebAuthn/FIDO2 (passkeys), OAuth, Email verification
 - **Cryptography**: Ed25519 (client certs), JWT (tokens), AES-GCM (encryption)
 - **Observability**: OpenTelemetry, Prometheus metrics, tracing

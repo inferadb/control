@@ -6,7 +6,7 @@ Helm chart for deploying InferaDB Control Plane - the multi-tenant administratio
 
 - Kubernetes 1.28+
 - Helm 3.0+
-- (Optional) FoundationDB cluster for production storage
+- (Optional) Ledger for production storage
 - (Optional) Prometheus Operator for ServiceMonitor
 
 ## Installation
@@ -25,7 +25,7 @@ helm install inferadb-control ./helm \
 helm install inferadb-control ./helm \
   --namespace inferadb \
   --create-namespace \
-  --set config.storage=foundationdb \
+  --set config.storage=ledger \
   --set config.webauthn.party=inferadb.example.com \
   --set config.webauthn.origin=https://app.inferadb.example.com \
   --set secrets.masterKey=$(openssl rand -base64 32)
@@ -38,7 +38,7 @@ helm install inferadb-control ./helm \
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `replicaCount` | Number of Control replicas | `2` |
-| `config.storage` | Storage backend (`memory` or `foundationdb`) | `memory` |
+| `config.storage` | Storage backend (`memory` or `ledger`) | `memory` |
 | `config.webauthn.party` | WebAuthn Relying Party ID (your domain) | `""` |
 | `config.webauthn.origin` | WebAuthn origin URL | `""` |
 | `discovery.mode` | Service discovery mode (`none`, `kubernetes`, `tailscale`) | `kubernetes` |
@@ -52,16 +52,15 @@ config:
   storage: "memory"
 ```
 
-#### FoundationDB (Production)
+#### Ledger (Production)
 
 ```yaml
 config:
-  storage: "foundationdb"
-  foundationdb:
-    clusterFile: "/etc/foundationdb/fdb.cluster"
-
-secrets:
-  fdbClusterFile: "docker:docker@fdb-service:4500"
+  storage: "ledger"
+  ledger:
+    endpoint: "https://ledger.example.com"
+    clientId: "your-client-id"
+    namespaceId: 1
 ```
 
 ### WebAuthn (Passkey) Configuration

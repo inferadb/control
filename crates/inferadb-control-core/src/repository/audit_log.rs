@@ -70,7 +70,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
         offset: i64,
     ) -> Result<(Vec<AuditLog>, usize)> {
         // For in-memory backend, we need to scan all logs
-        // In production with FoundationDB, we would use indexes
+        // In production with Ledger, we would use indexes
 
         // This is a simplified implementation that scans all logs
         // In a real implementation, we would use a secondary index on organization_id + created_at

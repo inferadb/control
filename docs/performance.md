@@ -2,7 +2,7 @@
 
 This document describes the performance characteristics, benchmarks, and scalability guidance for InferaDB Control.
 
-**IMPORTANT NOTE**: This document describes both current capabilities (in-memory backend) and planned capabilities (FoundationDB backend). Sections marked "Future" or referencing FoundationDB features apply to the planned FoundationDB backend implementation.
+**IMPORTANT NOTE**: This document describes both current capabilities (in-memory backend) and production capabilities (Ledger backend). Sections marked "Production" or referencing Ledger features apply to the Ledger storage backend implementation.
 
 ## Summary
 
@@ -11,7 +11,7 @@ Control is designed for high performance:
 - **Target Latency**: p95 < 500ms, p99 < 1000ms for most operations
 - **Target Throughput**: 1000+ requests/second on modest hardware
 - **Current Scalability**: Single-instance with in-memory storage
-- **Future Scalability**: Horizontally scalable with FoundationDB backend (planned)
+- **Production Scalability**: Horizontally scalable with Ledger backend
 
 ## Benchmark Environment
 
@@ -25,7 +25,7 @@ Control is designed for high performance:
 **Software:**
 
 - Rust: 1.85+
-- Storage: FoundationDB 7.3.x (3-node cluster) or Memory backend
+- Storage: Ledger or Memory backend
 - Load Tool: k6
 
 ## Performance Benchmarks
@@ -109,14 +109,14 @@ Control is designed for high performance:
 
 ## Scalability
 
-### Horizontal Scaling (Future - Requires FoundationDB)
+### Horizontal Scaling (Production - Requires Ledger)
 
-**Note**: Horizontal scaling will be supported when FoundationDB backend is implemented. Currently limited to single-instance deployments.
+**Note**: Horizontal scaling is supported with Ledger backend. In-memory backend is limited to single-instance deployments.
 
-Planned horizontal scaling features:
+Horizontal scaling features:
 
 1. **Stateless Design**: No in-memory state beyond configuration
-2. **Leader Election**: FoundationDB-based coordination for background jobs
+2. **Leader Election**: Ledger-based coordination for background jobs
 3. **Worker IDs**: Unique Snowflake ID generation per instance (0-1023)
 4. **Load Balancing**: Round-robin or least-connections
 
@@ -133,7 +133,7 @@ Planned horizontal scaling features:
 
 - **CPU**: Target 60-70% utilization per instance
 - **Memory**: ~500MB base + ~100MB per 1000 active sessions
-- **Connections**: FoundationDB connection pool (10 per instance)
+- **Connections**: Ledger connection pool (10 per instance)
 
 ### Vertical Scaling
 
@@ -149,34 +149,34 @@ Resource recommendations per instance:
 
 - **CPU**: Password hashing (Argon2), Ed25519 signing
 - **Memory**: Session cache, connection pools
-- **Storage**: FoundationDB transaction throughput
+- **Storage**: Ledger transaction throughput
 - **Network**: Typically not a bottleneck
 
-### Database Scaling (Future - Requires FoundationDB)
+### Database Scaling (Production - Ledger)
 
 **Current**: In-memory backend scales with available RAM on single instance.
 
-**Future**: When FoundationDB backend is implemented, it will automatically handle:
+**Production**: With Ledger backend, the storage layer automatically handles:
 
 - **Sharding**: Data distributed across cluster nodes
 - **Replication**: 3x replication by default
-- **Failover**: Automatic leader election
+- **Failover**: Automatic leader election via Raft consensus
 
-**Planned FoundationDB Cluster Sizing:**
+**Ledger Cluster Sizing:**
 
-| Control Load      | FDB Nodes | Storage Per Node | Notes                           |
-| ----------------- | --------- | ---------------- | ------------------------------- |
-| Development/Test  | 1         | 50 GB            | Not recommended for production  |
-| Small Production  | 3         | 100 GB           | Standard 3-node cluster         |
-| Medium Production | 5-7       | 200 GB           | Increased capacity + redundancy |
-| Large Production  | 9+        | 500 GB           | Multi-datacenter recommended    |
+| Control Load      | Ledger Nodes | Storage Per Node | Notes                           |
+| ----------------- | ------------ | ---------------- | ------------------------------- |
+| Development/Test  | 1            | 50 GB            | Not recommended for production  |
+| Small Production  | 3            | 100 GB           | Standard 3-node cluster         |
+| Medium Production | 5-7          | 200 GB           | Increased capacity + redundancy |
+| Large Production  | 9+           | 500 GB           | Multi-datacenter recommended    |
 
 ## Optimization Guidelines
 
 ### Application-Level
 
 1. **Connection Pooling**
-   - Maintain persistent FoundationDB connections
+   - Maintain persistent Ledger connections
    - Pool size: 10 connections per instance
    - Reuse HTTP client connections
 
@@ -307,7 +307,7 @@ Adjustments:
 
 **Diagnosis:**
 
-1. Check FoundationDB metrics: `fdbcli` → `status`
+1. Check Ledger metrics via monitoring dashboard
 2. Review Prometheus metrics: Query duration histogram
 3. Check system resources: `htop`, `iostat`
 
@@ -315,7 +315,7 @@ Adjustments:
 
 - Scale horizontally (add instances)
 - Optimize database queries (check transaction conflicts)
-- Increase FoundationDB cluster size
+- Increase Ledger cluster size
 - Review rate limiting settings
 
 ### High Error Rate
@@ -373,9 +373,9 @@ Adjustments:
 
 Potential improvements for future releases:
 
-1. **Read Replicas**: FoundationDB read-only replicas for list operations
+1. **Read Replicas**: Ledger read-only replicas for list operations
 2. **Caching Layer**: Redis/Memcached for session validation
-3. **Connection Pooling**: HTTP/2 multiplexing for FDB connections
+3. **Connection Pooling**: HTTP/2 multiplexing for Ledger connections
 4. **Background Queues**: Async email sending via message queue
 5. **Query Optimization**: Analyze slow queries, add selective indexes
 6. **Compression**: Gzip response bodies for large payloads
@@ -391,7 +391,6 @@ Potential improvements for future releases:
 
 ## Further Reading
 
-- [FoundationDB Performance Guide](https://apple.github.io/foundationdb/performance.html)
 - [Tokio Performance Tuning](https://tokio.rs/tokio/topics/performance)
 - [Load Testing with k6](https://k6.io/docs/testing-guides/)
 - [Prometheus Best Practices](https://prometheus.io/docs/practices/)
