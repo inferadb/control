@@ -11,8 +11,8 @@ version.workspace = true
 
 [dependencies]
 # Internal dependencies
-inferadb-storage = { path = "../../../crates/inferadb-storage" }
-inferadb-storage-ledger = { path = "../../../crates/inferadb-storage-ledger", optional = true }
+inferadb-storage = { path = "../../../common/crates/inferadb-storage" }
+inferadb-storage-ledger = { path = "../../../common/crates/inferadb-storage-ledger", optional = true }
 
 # External dependencies
 anyhow = { workspace = true }
