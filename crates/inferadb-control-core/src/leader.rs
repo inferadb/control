@@ -93,15 +93,14 @@ impl<S: StorageBackend + 'static> LeaderElection<S> {
             .map_err(|e| Error::Internal(format!("Failed to check leader status: {e}")))?
         {
             // Check if it's us (we might already be leader)
-            if let Ok(leader_id) = String::from_utf8(existing.to_vec()) {
-                if let Ok(id) = leader_id.parse::<u16>() {
-                    if id == self.instance_id {
-                        // We're already the leader
-                        let mut is_leader = self.is_leader.write().await;
-                        *is_leader = true;
-                        return Ok(true);
-                    }
-                }
+            if let Ok(leader_id) = String::from_utf8(existing.to_vec())
+                && let Ok(id) = leader_id.parse::<u16>()
+                && id == self.instance_id
+            {
+                // We're already the leader
+                let mut is_leader = self.is_leader.write().await;
+                *is_leader = true;
+                return Ok(true);
             }
 
             // Another instance is leader
@@ -266,12 +265,9 @@ impl<S: StorageBackend + 'static> LeaderElection<S> {
 
         tracing::info!("Running leader-only task");
 
-        let result = task().await;
-
         // Don't release leadership automatically - let the caller decide
         // This allows for long-running leader tasks
-
-        result
+        task().await
     }
 }
 

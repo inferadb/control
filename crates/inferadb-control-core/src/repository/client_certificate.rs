@@ -324,19 +324,19 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
             };
 
             // Check if certificate is revoked and older than cutoff
-            if let Some(revoked_at) = cert.revoked_at {
-                if revoked_at < cutoff {
-                    // Delete the certificate and its indexes
-                    if let Err(e) = self.delete(cert.id).await {
-                        tracing::warn!(
-                            cert_id = cert.id,
-                            error = %e,
-                            "Failed to delete old revoked certificate"
-                        );
-                        continue;
-                    }
-                    deleted_count += 1;
+            if let Some(revoked_at) = cert.revoked_at
+                && revoked_at < cutoff
+            {
+                // Delete the certificate and its indexes
+                if let Err(e) = self.delete(cert.id).await {
+                    tracing::warn!(
+                        cert_id = cert.id,
+                        error = %e,
+                        "Failed to delete old revoked certificate"
+                    );
+                    continue;
                 }
+                deleted_count += 1;
             }
         }
 

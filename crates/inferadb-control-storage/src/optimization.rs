@@ -333,12 +333,12 @@ impl<B: StorageBackend + Clone> StorageBackend for OptimizedBackend<B> {
         let result = self.backend.get(key).await;
 
         // Update cache on success
-        if self.cache_config.enabled {
-            if let Ok(ref value) = result {
-                let mut cache = self.cache.lock();
-                cache.insert(key.to_vec(), value.clone());
-                trace!(key_len = key.len(), "Cached value");
-            }
+        if self.cache_config.enabled
+            && let Ok(ref value) = result
+        {
+            let mut cache = self.cache.lock();
+            cache.insert(key.to_vec(), value.clone());
+            trace!(key_len = key.len(), "Cached value");
         }
 
         self.metrics.record_get(start.elapsed());

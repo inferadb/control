@@ -225,13 +225,13 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Deactivate the current active schema if any
-        if let Some(mut current_active) = self.get_active(schema.vault_id).await? {
-            if current_active.id != schema_id {
-                current_active.mark_superseded();
-                let current_data = serde_json::to_vec(&current_active)
-                    .map_err(|e| Error::Internal(format!("Failed to serialize schema: {e}")))?;
-                txn.set(Self::schema_key(current_active.id), current_data);
-            }
+        if let Some(mut current_active) = self.get_active(schema.vault_id).await?
+            && current_active.id != schema_id
+        {
+            current_active.mark_superseded();
+            let current_data = serde_json::to_vec(&current_active)
+                .map_err(|e| Error::Internal(format!("Failed to serialize schema: {e}")))?;
+            txn.set(Self::schema_key(current_active.id), current_data);
         }
 
         // Activate the new schema

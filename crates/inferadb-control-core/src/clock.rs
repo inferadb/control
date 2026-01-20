@@ -79,22 +79,22 @@ impl ClockValidator {
     /// In production, consider using a dedicated NTP client library.
     async fn query_ntp_time(&self) -> Result<DateTime<Utc>> {
         // Try to use chrony if available (more modern)
-        if let Ok(output) = Command::new("chronyc").arg("tracking").output() {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if let Some(time) = self.parse_chrony_output(&stdout) {
-                    return Ok(time);
-                }
+        if let Ok(output) = Command::new("chronyc").arg("tracking").output()
+            && output.status.success()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if let Some(time) = self.parse_chrony_output(&stdout) {
+                return Ok(time);
             }
         }
 
         // Try ntpdate as fallback
-        if let Ok(output) = Command::new("ntpdate").arg("-q").arg("pool.ntp.org").output() {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if let Some(time) = self.parse_ntpdate_output(&stdout) {
-                    return Ok(time);
-                }
+        if let Ok(output) = Command::new("ntpdate").arg("-q").arg("pool.ntp.org").output()
+            && output.status.success()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if let Some(time) = self.parse_ntpdate_output(&stdout) {
+                return Ok(time);
             }
         }
 

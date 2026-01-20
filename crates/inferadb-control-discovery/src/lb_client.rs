@@ -42,10 +42,10 @@ impl EndpointState {
         }
 
         // Check if we should try again (half-open state)
-        if let Some(last_failure) = self.last_failure {
-            if last_failure.elapsed() >= CIRCUIT_BREAKER_RECOVERY_TIMEOUT {
-                return true;
-            }
+        if let Some(last_failure) = self.last_failure
+            && last_failure.elapsed() >= CIRCUIT_BREAKER_RECOVERY_TIMEOUT
+        {
+            return true;
         }
 
         false

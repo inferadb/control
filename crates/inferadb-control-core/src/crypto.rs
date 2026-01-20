@@ -72,16 +72,16 @@ impl MasterKey {
     /// Save the master key to a file
     fn save_to_file(&self, path: &Path) -> Result<()> {
         // Create parent directories if needed
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                fs::create_dir_all(parent).map_err(|e| {
-                    Error::Config(format!(
-                        "Failed to create directory '{}': {}",
-                        parent.display(),
-                        e
-                    ))
-                })?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent).map_err(|e| {
+                Error::Config(format!(
+                    "Failed to create directory '{}': {}",
+                    parent.display(),
+                    e
+                ))
+            })?;
         }
 
         // Write the key file

@@ -149,14 +149,14 @@ impl<S: StorageBackend> AuditLogRepository<S> {
         let mut deleted_count = 0;
 
         for kv in kvs {
-            if let Ok(log) = serde_json::from_slice::<AuditLog>(&kv.value) {
-                if log.created_at < cutoff_date {
-                    self.storage
-                        .delete(&kv.key)
-                        .await
-                        .map_err(|e| Error::Internal(format!("Failed to delete audit log: {e}")))?;
-                    deleted_count += 1;
-                }
+            if let Ok(log) = serde_json::from_slice::<AuditLog>(&kv.value)
+                && log.created_at < cutoff_date
+            {
+                self.storage
+                    .delete(&kv.key)
+                    .await
+                    .map_err(|e| Error::Internal(format!("Failed to delete audit log: {e}")))?;
+                deleted_count += 1;
             }
         }
 
