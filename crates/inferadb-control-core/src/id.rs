@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Once},
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 
@@ -18,8 +18,9 @@ const WORKER_HEARTBEAT_TTL: u64 = 30;
 /// Worker heartbeat interval in seconds
 const WORKER_HEARTBEAT_INTERVAL: u64 = 10;
 
-static INIT: Once = Once::new();
-static mut WORKER_ID: u16 = 0;
+/// Stores the worker ID after initialization. Using OnceLock ensures thread-safe
+/// one-time initialization without requiring unsafe code.
+static WORKER_ID: OnceLock<u16> = OnceLock::new();
 
 /// Worker ID registration manager for multi-instance coordination
 pub struct WorkerRegistry<S: StorageBackend> {
@@ -325,16 +326,14 @@ impl IdGenerator {
             )));
         }
 
-        let options = IdGeneratorOptions::new()
-            .worker_id(worker_id.into())
-            .worker_id_bit_len(10)
-            .base_time(CUSTOM_EPOCH);
+        WORKER_ID.get_or_init(|| {
+            let options = IdGeneratorOptions::new()
+                .worker_id(worker_id.into())
+                .worker_id_bit_len(10)
+                .base_time(CUSTOM_EPOCH);
 
-        INIT.call_once(|| {
-            unsafe {
-                WORKER_ID = worker_id;
-            }
             idgenerator::IdInstance::init(options).expect("Failed to initialize ID generator");
+            worker_id
         });
 
         Ok(())
@@ -354,8 +353,10 @@ impl IdGenerator {
     }
 
     /// Get the worker ID for this generator
+    ///
+    /// Returns 0 if the generator has not been initialized.
     pub fn worker_id() -> u16 {
-        unsafe { WORKER_ID }
+        WORKER_ID.get().copied().unwrap_or(0)
     }
 }
 
