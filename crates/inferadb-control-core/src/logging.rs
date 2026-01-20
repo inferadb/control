@@ -204,7 +204,7 @@ pub fn init(log_level: &str, json: bool) {
     };
 
     if let Err(e) = init_logging(log_config) {
-        eprintln!("Failed to initialize logging: {}", e);
+        eprintln!("Failed to initialize logging: {e}");
     }
 }
 

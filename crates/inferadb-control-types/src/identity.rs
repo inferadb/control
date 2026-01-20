@@ -94,7 +94,7 @@ impl ControlIdentity {
     /// Create control identity from an existing Ed25519 private key (PEM format).
     pub fn from_pem(pem: &str) -> Result<Self, String> {
         // Parse PEM to extract the private key bytes
-        let pem = pem::parse(pem).map_err(|e| format!("Failed to parse PEM: {}", e))?;
+        let pem = pem::parse(pem).map_err(|e| format!("Failed to parse PEM: {e}"))?;
 
         if pem.tag() != "PRIVATE KEY" {
             return Err(format!("Invalid PEM tag: expected 'PRIVATE KEY', got '{}'", pem.tag()));
@@ -128,7 +128,7 @@ impl ControlIdentity {
         // Try Kubernetes pod name first (HOSTNAME env var)
         if let Ok(pod_name) = std::env::var("HOSTNAME") {
             // In Kubernetes, HOSTNAME is typically the pod name (e.g., "inferadb-control-0")
-            return format!("ctrl-{}", pod_name);
+            return format!("ctrl-{pod_name}");
         }
 
         // Fallback to hostname + random suffix for non-Kubernetes environments
@@ -136,7 +136,7 @@ impl ControlIdentity {
             .map(|h| h.to_string_lossy().to_string())
             .unwrap_or_else(|_| "unknown".to_string());
         let random_suffix = &uuid::Uuid::new_v4().to_string()[..8];
-        format!("ctrl-{}-{}", hostname, random_suffix)
+        format!("ctrl-{hostname}-{random_suffix}")
     }
 
     /// Generate the kid as an RFC 7638 JWK Thumbprint.
@@ -150,7 +150,7 @@ impl ControlIdentity {
         let x = URL_SAFE_NO_PAD.encode(public_key_bytes);
 
         // RFC 7638: Canonical JWK representation (alphabetically ordered, no whitespace)
-        let canonical_jwk = format!(r#"{{"crv":"Ed25519","kty":"OKP","x":"{}"}}"#, x);
+        let canonical_jwk = format!(r#"{{"crv":"Ed25519","kty":"OKP","x":"{x}"}}"#);
 
         // SHA-256 hash of the canonical representation
         let mut hasher = Sha256::new();
@@ -216,9 +216,9 @@ impl ControlIdentity {
         // Convert Ed25519 signing key to PEM for jsonwebtoken
         let pem = self.to_pem();
         let encoding_key = EncodingKey::from_ed_pem(pem.as_bytes())
-            .map_err(|e| format!("Failed to create encoding key: {}", e))?;
+            .map_err(|e| format!("Failed to create encoding key: {e}"))?;
 
-        encode(&header, &claims, &encoding_key).map_err(|e| format!("Failed to sign JWT: {}", e))
+        encode(&header, &claims, &encoding_key).map_err(|e| format!("Failed to sign JWT: {e}"))
     }
 
     /// Get the JWKS representation of the public key

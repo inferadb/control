@@ -58,8 +58,7 @@ pub async fn create_organization(
 
     if user_org_count >= PER_USER_ORGANIZATION_LIMIT {
         return Err(CoreError::TierLimit(format!(
-            "You have reached the maximum number of organizations ({})",
-            PER_USER_ORGANIZATION_LIMIT
+            "You have reached the maximum number of organizations ({PER_USER_ORGANIZATION_LIMIT})"
         ))
         .into());
     }

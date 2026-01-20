@@ -12,8 +12,8 @@ async fn setup_vault(app: &axum::Router, worker_id: u16) -> (i64, i64, String) {
     let _ = IdGenerator::init(worker_id);
     let session = register_user(
         app,
-        &format!("schemauser{}", worker_id),
-        &format!("schema{}@example.com", worker_id),
+        &format!("schemauser{worker_id}"),
+        &format!("schema{worker_id}@example.com"),
         "securepassword123",
     )
     .await;
@@ -25,7 +25,7 @@ async fn setup_vault(app: &axum::Router, worker_id: u16) -> (i64, i64, String) {
             Request::builder()
                 .method("GET")
                 .uri("/control/v1/organizations")
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -42,8 +42,8 @@ async fn setup_vault(app: &axum::Router, worker_id: u16) -> (i64, i64, String) {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults", org_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -77,10 +77,9 @@ async fn test_deploy_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{}/vaults/{}/schemas",
-                    org_id, vault_id
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"
                 ))
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -122,8 +121,8 @@ async fn test_deploy_schema_auto_version_increment() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -148,8 +147,8 @@ async fn test_deploy_schema_auto_version_increment() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -181,8 +180,8 @@ async fn test_deploy_schema_explicit_version() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -215,11 +214,8 @@ async fn test_list_schemas() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/control/v1/organizations/{}/vaults/{}/schemas",
-                        org_id, vault_id
-                    ))
-                    .header("cookie", format!("infera_session={}", session))
+                    .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                    .header("cookie", format!("infera_session={session}"))
                     .header("content-type", "application/json")
                     .body(Body::from(
                         json!({
@@ -240,8 +236,8 @@ async fn test_list_schemas() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -268,8 +264,8 @@ async fn test_get_schema_by_version() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -289,11 +285,8 @@ async fn test_get_schema_by_version() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!(
-                    "/control/v1/organizations/{}/vaults/{}/schemas/1.0.0",
-                    org_id, vault_id
-                ))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/1.0.0"))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -320,8 +313,8 @@ async fn test_activate_schema() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -342,10 +335,9 @@ async fn test_activate_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{}/vaults/{}/schemas/1.0.0/activate",
-                    org_id, vault_id
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/1.0.0/activate"
                 ))
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -372,8 +364,8 @@ async fn test_get_current_schema() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -393,10 +385,9 @@ async fn test_get_current_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{}/vaults/{}/schemas/1.0.0/activate",
-                    org_id, vault_id
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/1.0.0/activate"
                 ))
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -410,10 +401,9 @@ async fn test_get_current_schema() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/control/v1/organizations/{}/vaults/{}/schemas/current",
-                    org_id, vault_id
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/current"
                 ))
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -439,8 +429,8 @@ async fn test_rollback_schema() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -460,10 +450,9 @@ async fn test_rollback_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{}/vaults/{}/schemas/1.0.0/activate",
-                    org_id, vault_id
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/1.0.0/activate"
                 ))
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -475,8 +464,8 @@ async fn test_rollback_schema() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -496,10 +485,9 @@ async fn test_rollback_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{}/vaults/{}/schemas/1.1.0/activate",
-                    org_id, vault_id
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/1.1.0/activate"
                 ))
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -513,10 +501,9 @@ async fn test_rollback_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{}/vaults/{}/schemas/rollback",
-                    org_id, vault_id
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/rollback"
                 ))
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -551,8 +538,8 @@ async fn test_schema_diff() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -570,8 +557,8 @@ async fn test_schema_diff() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -592,10 +579,9 @@ async fn test_schema_diff() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/control/v1/organizations/{}/vaults/{}/schemas/diff?from=1.0.0&to=1.1.0",
-                    org_id, vault_id
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/diff?from=1.0.0&to=1.1.0"
                 ))
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -625,8 +611,8 @@ async fn test_deploy_schema_duplicate_version_rejected() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -648,8 +634,8 @@ async fn test_deploy_schema_duplicate_version_rejected() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -680,10 +666,9 @@ async fn test_get_nonexistent_schema_returns_404() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/control/v1/organizations/{}/vaults/{}/schemas/99.99.99",
-                    org_id, vault_id
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/99.99.99"
                 ))
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -704,8 +689,8 @@ async fn test_get_current_schema_when_none_active_returns_404() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{}/vaults/{}/schemas", org_id, vault_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -726,10 +711,9 @@ async fn test_get_current_schema_when_none_active_returns_404() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/control/v1/organizations/{}/vaults/{}/schemas/current",
-                    org_id, vault_id
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/current"
                 ))
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )

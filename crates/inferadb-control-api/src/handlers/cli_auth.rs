@@ -58,7 +58,7 @@ pub async fn cli_authorize(
     // Store the authorization code
     let repos = RepositoryContext::new((*state.storage).clone());
     repos.authorization_code.create(auth_code.clone()).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create authorization code: {}", e))
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create authorization code: {e}"))
             .into_response()
     })?;
 
@@ -88,7 +88,7 @@ pub async fn cli_token_exchange(
         .get_by_code(&req.code)
         .await
         .map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get authorization code: {}", e))
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get authorization code: {e}"))
                 .into_response()
         })?
         .ok_or_else(|| {
@@ -111,7 +111,7 @@ pub async fn cli_token_exchange(
         .get(auth_code.session_id)
         .await
         .map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get session: {}", e))
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get session: {e}"))
                 .into_response()
         })?
         .ok_or_else(|| {
@@ -133,14 +133,14 @@ pub async fn cli_token_exchange(
 
     // Store CLI session
     repos.user_session.create(cli_session.clone()).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create CLI session: {}", e))
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create CLI session: {e}"))
             .into_response()
     })?;
 
     // Mark authorization code as used (prevent replay)
     auth_code.mark_used();
     repos.authorization_code.update(auth_code).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to mark code as used: {}", e))
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to mark code as used: {e}"))
             .into_response()
     })?;
 

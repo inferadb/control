@@ -23,17 +23,17 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
 
     /// Generate key for invitation by ID
     fn invitation_key(id: i64) -> Vec<u8> {
-        format!("invite:{}", id).into_bytes()
+        format!("invite:{id}").into_bytes()
     }
 
     /// Generate key for invitation token index
     fn invitation_token_index_key(token: &str) -> Vec<u8> {
-        format!("invite:token:{}", token).into_bytes()
+        format!("invite:token:{token}").into_bytes()
     }
 
     /// Generate key for invitation by organization index
     fn invitation_org_index_key(org_id: i64, idx: i64) -> Vec<u8> {
-        format!("invite:org:{}:{}", org_id, idx).into_bytes()
+        format!("invite:org:{org_id}:{idx}").into_bytes()
     }
 
     /// Generate key for invitation by email and organization (for duplicate checking)
@@ -45,14 +45,14 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     pub async fn create(&self, invitation: OrganizationInvitation) -> Result<()> {
         // Serialize invitation
         let invitation_data = serde_json::to_vec(&invitation)
-            .map_err(|e| Error::Internal(format!("Failed to serialize invitation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize invitation: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Check for duplicate invitation (email + org)
         let email_org_key =
@@ -61,7 +61,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
             .storage
             .get(&email_org_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check duplicate invitation: {}", e)))?
+            .map_err(|e| Error::Internal(format!("Failed to check duplicate invitation: {e}")))?
             .is_some()
         {
             return Err(Error::AlreadyExists(format!(
@@ -91,7 +91,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit invitation creation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit invitation creation: {e}")))?;
 
         Ok(())
     }
@@ -103,13 +103,13 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get invitation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get invitation: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let invitation: OrganizationInvitation =
                     serde_json::from_slice(&bytes).map_err(|e| {
-                        Error::Internal(format!("Failed to deserialize invitation: {}", e))
+                        Error::Internal(format!("Failed to deserialize invitation: {e}"))
                     })?;
                 Ok(Some(invitation))
             },
@@ -120,10 +120,11 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     /// Get an invitation by token
     pub async fn get_by_token(&self, token: &str) -> Result<Option<OrganizationInvitation>> {
         let index_key = Self::invitation_token_index_key(token);
-        let data =
-            self.storage.get(&index_key).await.map_err(|e| {
-                Error::Internal(format!("Failed to get invitation by token: {}", e))
-            })?;
+        let data = self
+            .storage
+            .get(&index_key)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get invitation by token: {e}")))?;
 
         match data {
             Some(bytes) => {
@@ -139,13 +140,14 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
 
     /// List all active invitations for an organization
     pub async fn list_by_organization(&self, org_id: i64) -> Result<Vec<OrganizationInvitation>> {
-        let prefix = format!("invite:org:{}:", org_id);
+        let prefix = format!("invite:org:{org_id}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("invite:org:{}~", org_id).into_bytes();
+        let end = format!("invite:org:{org_id}~").into_bytes();
 
-        let kvs = self.storage.get_range(start..end).await.map_err(|e| {
-            Error::Internal(format!("Failed to get organization invitations: {}", e))
-        })?;
+        let kvs =
+            self.storage.get_range(start..end).await.map_err(|e| {
+                Error::Internal(format!("Failed to get organization invitations: {e}"))
+            })?;
 
         let mut invitations = Vec::new();
         for kv in kvs {
@@ -166,7 +168,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         let key = Self::invitation_email_org_index_key(email, org_id);
         let data =
             self.storage.get(&key).await.map_err(|e| {
-                Error::Internal(format!("Failed to check invitation existence: {}", e))
+                Error::Internal(format!("Failed to check invitation existence: {e}"))
             })?;
 
         Ok(data.is_some())
@@ -178,14 +180,14 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         let invitation = self
             .get(id)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Invitation {} not found", id)))?;
+            .ok_or_else(|| Error::NotFound(format!("Invitation {id} not found")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete invitation record
         txn.delete(Self::invitation_key(id));
@@ -205,7 +207,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit invitation deletion: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit invitation deletion: {e}")))?;
 
         Ok(())
     }

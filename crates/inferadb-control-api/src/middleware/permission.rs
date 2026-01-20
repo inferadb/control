@@ -63,8 +63,7 @@ pub async fn require_organization_permission(
 ) -> Result<(), ApiError> {
     if !has_organization_permission(state, org_ctx, required_permission).await? {
         return Err(CoreError::Authz(format!(
-            "Missing required permission: {:?}",
-            required_permission
+            "Missing required permission: {required_permission:?}"
         ))
         .into());
     }

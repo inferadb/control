@@ -22,12 +22,12 @@ impl<S: StorageBackend> ClientRepository<S> {
 
     /// Generate key for client by ID
     fn client_key(id: i64) -> Vec<u8> {
-        format!("client:{}", id).into_bytes()
+        format!("client:{id}").into_bytes()
     }
 
     /// Generate key for client by organization index
     fn client_org_index_key(org_id: i64, idx: i64) -> Vec<u8> {
-        format!("client:org:{}:{}", org_id, idx).into_bytes()
+        format!("client:org:{org_id}:{idx}").into_bytes()
     }
 
     /// Generate key for client by name (for duplicate checking)
@@ -39,14 +39,14 @@ impl<S: StorageBackend> ClientRepository<S> {
     pub async fn create(&self, client: Client) -> Result<()> {
         // Serialize client
         let client_data = serde_json::to_vec(&client)
-            .map_err(|e| Error::Internal(format!("Failed to serialize client: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize client: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Check for duplicate name within organization
         let name_key = Self::client_name_index_key(client.organization_id, &client.name);
@@ -54,7 +54,7 @@ impl<S: StorageBackend> ClientRepository<S> {
             .storage
             .get(&name_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check duplicate client name: {}", e)))?
+            .map_err(|e| Error::Internal(format!("Failed to check duplicate client name: {e}")))?
             .is_some()
         {
             return Err(Error::AlreadyExists(format!(
@@ -78,7 +78,7 @@ impl<S: StorageBackend> ClientRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit client creation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit client creation: {e}")))?;
 
         Ok(())
     }
@@ -90,12 +90,12 @@ impl<S: StorageBackend> ClientRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get client: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get client: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let client: Client = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize client: {}", e)))?;
+                    .map_err(|e| Error::Internal(format!("Failed to deserialize client: {e}")))?;
                 Ok(Some(client))
             },
             None => Ok(None),
@@ -104,14 +104,15 @@ impl<S: StorageBackend> ClientRepository<S> {
 
     /// List all clients for an organization (including soft-deleted)
     pub async fn list_by_organization(&self, org_id: i64) -> Result<Vec<Client>> {
-        let prefix = format!("client:org:{}:", org_id);
+        let prefix = format!("client:org:{org_id}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("client:org:{}~", org_id).into_bytes();
+        let end = format!("client:org:{org_id}~").into_bytes();
 
-        let kvs =
-            self.storage.get_range(start..end).await.map_err(|e| {
-                Error::Internal(format!("Failed to get organization clients: {}", e))
-            })?;
+        let kvs = self
+            .storage
+            .get_range(start..end)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get organization clients: {e}")))?;
 
         let mut clients = Vec::new();
         for kv in kvs {
@@ -143,14 +144,14 @@ impl<S: StorageBackend> ClientRepository<S> {
 
         // Serialize updated client
         let client_data = serde_json::to_vec(&client)
-            .map_err(|e| Error::Internal(format!("Failed to serialize client: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize client: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // If name changed, update name index
         if existing.name != client.name {
@@ -164,7 +165,7 @@ impl<S: StorageBackend> ClientRepository<S> {
                 .get(&new_name_key)
                 .await
                 .map_err(|e| {
-                    Error::Internal(format!("Failed to check duplicate client name: {}", e))
+                    Error::Internal(format!("Failed to check duplicate client name: {e}"))
                 })?
                 .is_some()
             {
@@ -184,7 +185,7 @@ impl<S: StorageBackend> ClientRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit client update: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit client update: {e}")))?;
 
         Ok(())
     }
@@ -192,17 +193,15 @@ impl<S: StorageBackend> ClientRepository<S> {
     /// Delete a client (removes all indexes)
     pub async fn delete(&self, id: i64) -> Result<()> {
         // Get the client first to clean up indexes
-        let client = self
-            .get(id)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Client {} not found", id)))?;
+        let client =
+            self.get(id).await?.ok_or_else(|| Error::NotFound(format!("Client {id} not found")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete client record
         txn.delete(Self::client_key(id));
@@ -216,7 +215,7 @@ impl<S: StorageBackend> ClientRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit client deletion: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit client deletion: {e}")))?;
 
         Ok(())
     }

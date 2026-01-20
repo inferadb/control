@@ -402,7 +402,7 @@ pub async fn client_assertion_authenticate(
     // Decode JWT header to extract kid (key ID)
     use jsonwebtoken::decode_header;
     let header = decode_header(&req.client_assertion)
-        .map_err(|e| CoreError::Auth(format!("Invalid client assertion JWT: {}", e)))?;
+        .map_err(|e| CoreError::Auth(format!("Invalid client assertion JWT: {e}")))?;
 
     let kid = header.kid.ok_or_else(|| {
         CoreError::Auth("client assertion JWT missing 'kid' in header".to_string())
@@ -419,7 +419,7 @@ pub async fn client_assertion_authenticate(
         || kid_parts[2] != "client"
         || kid_parts[4] != "cert"
     {
-        return Err(CoreError::Auth(format!("Invalid kid format: {}", kid)).into());
+        return Err(CoreError::Auth(format!("Invalid kid format: {kid}")).into());
     }
 
     let _org_id = kid_parts[1]
@@ -437,7 +437,7 @@ pub async fn client_assertion_authenticate(
         .client_certificate
         .get(cert_id)
         .await?
-        .ok_or_else(|| CoreError::Auth(format!("No certificate found with kid: {}", kid)))?;
+        .ok_or_else(|| CoreError::Auth(format!("No certificate found with kid: {kid}")))?;
 
     // Verify kid matches
     if certificate.kid != kid {
@@ -454,7 +454,7 @@ pub async fn client_assertion_authenticate(
 
     let public_key_bytes = BASE64
         .decode(&certificate.public_key)
-        .map_err(|e| CoreError::Internal(format!("Failed to decode public key: {}", e)))?;
+        .map_err(|e| CoreError::Internal(format!("Failed to decode public key: {e}")))?;
 
     if public_key_bytes.len() != 32 {
         return Err(CoreError::Internal("Invalid public key length".to_string()).into());
@@ -475,7 +475,7 @@ pub async fn client_assertion_authenticate(
     );
 
     let decoding_key = DecodingKey::from_ed_pem(public_key_pem.as_bytes())
-        .map_err(|e| CoreError::Internal(format!("Failed to create decoding key: {}", e)))?;
+        .map_err(|e| CoreError::Internal(format!("Failed to create decoding key: {e}")))?;
 
     // Set up validation - expect token endpoint as audience
     let mut validation = Validation::new(Algorithm::EdDSA);
@@ -484,7 +484,7 @@ pub async fn client_assertion_authenticate(
     // Decode and verify JWT
     let token_data =
         decode::<ClientAssertionClaims>(&req.client_assertion, &decoding_key, &validation)
-            .map_err(|e| CoreError::Auth(format!("Failed to verify client assertion: {}", e)))?;
+            .map_err(|e| CoreError::Auth(format!("Failed to verify client assertion: {e}")))?;
 
     let claims = token_data.claims;
 

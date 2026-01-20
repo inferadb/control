@@ -22,31 +22,31 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
 
     /// Generate key for certificate by ID
     fn cert_key(id: i64) -> Vec<u8> {
-        format!("cert:{}", id).into_bytes()
+        format!("cert:{id}").into_bytes()
     }
 
     /// Generate key for certificate by kid (key ID) index
     fn cert_kid_index_key(kid: &str) -> Vec<u8> {
-        format!("cert:kid:{}", kid).into_bytes()
+        format!("cert:kid:{kid}").into_bytes()
     }
 
     /// Generate key for certificate by client index
     fn cert_client_index_key(client_id: i64, idx: i64) -> Vec<u8> {
-        format!("cert:client:{}:{}", client_id, idx).into_bytes()
+        format!("cert:client:{client_id}:{idx}").into_bytes()
     }
 
     /// Create a new certificate
     pub async fn create(&self, cert: ClientCertificate) -> Result<()> {
         // Serialize certificate
         let cert_data = serde_json::to_vec(&cert)
-            .map_err(|e| Error::Internal(format!("Failed to serialize certificate: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize certificate: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Check if kid already exists (should be unique globally)
         let kid_key = Self::cert_kid_index_key(&cert.kid);
@@ -54,7 +54,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
             .storage
             .get(&kid_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check duplicate kid: {}", e)))?
+            .map_err(|e| Error::Internal(format!("Failed to check duplicate kid: {e}")))?
             .is_some()
         {
             return Err(Error::AlreadyExists(format!(
@@ -76,9 +76,9 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
         );
 
         // Commit transaction
-        txn.commit().await.map_err(|e| {
-            Error::Internal(format!("Failed to commit certificate creation: {}", e))
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to commit certificate creation: {e}")))?;
 
         Ok(())
     }
@@ -90,12 +90,12 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get certificate: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get certificate: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let cert: ClientCertificate = serde_json::from_slice(&bytes).map_err(|e| {
-                    Error::Internal(format!("Failed to deserialize certificate: {}", e))
+                    Error::Internal(format!("Failed to deserialize certificate: {e}"))
                 })?;
                 Ok(Some(cert))
             },
@@ -110,7 +110,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
             .storage
             .get(&index_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get certificate by kid: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get certificate by kid: {e}")))?;
 
         match data {
             Some(bytes) => {
@@ -126,14 +126,15 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
 
     /// List all certificates for a client (including revoked and deleted)
     pub async fn list_by_client(&self, client_id: i64) -> Result<Vec<ClientCertificate>> {
-        let prefix = format!("cert:client:{}:", client_id);
+        let prefix = format!("cert:client:{client_id}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("cert:client:{}~", client_id).into_bytes();
+        let end = format!("cert:client:{client_id}~").into_bytes();
 
-        let kvs =
-            self.storage.get_range(start..end).await.map_err(|e| {
-                Error::Internal(format!("Failed to get client certificates: {}", e))
-            })?;
+        let kvs = self
+            .storage
+            .get_range(start..end)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get client certificates: {e}")))?;
 
         let mut certs = Vec::new();
         for kv in kvs {
@@ -165,7 +166,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get all certificates: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get all certificates: {e}")))?;
 
         tracing::debug!(kv_count = kvs.len(), "list_all_active: Retrieved KV pairs from storage");
 
@@ -231,13 +232,13 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
 
         // Serialize updated certificate
         let cert_data = serde_json::to_vec(&cert)
-            .map_err(|e| Error::Internal(format!("Failed to serialize certificate: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize certificate: {e}")))?;
 
         // Update certificate record
         self.storage
             .set(Self::cert_key(cert.id), cert_data)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update certificate: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to update certificate: {e}")))?;
 
         Ok(())
     }
@@ -248,14 +249,14 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
         let cert = self
             .get(id)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Certificate {} not found", id)))?;
+            .ok_or_else(|| Error::NotFound(format!("Certificate {id} not found")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete certificate record
         txn.delete(Self::cert_key(id));
@@ -267,9 +268,9 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
         txn.delete(Self::cert_client_index_key(cert.client_id, cert.id));
 
         // Commit transaction
-        txn.commit().await.map_err(|e| {
-            Error::Internal(format!("Failed to commit certificate deletion: {}", e))
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to commit certificate deletion: {e}")))?;
 
         Ok(())
     }
@@ -305,7 +306,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to scan certificates: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to scan certificates: {e}")))?;
 
         let mut deleted_count = 0;
 

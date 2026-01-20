@@ -114,7 +114,7 @@ pub async fn serve(
                     shutdown_rx.recv().await.ok();
                 })
                 .await
-                .map_err(|e| anyhow::anyhow!("Public server error: {}", e))
+                .map_err(|e| anyhow::anyhow!("Public server error: {e}"))
         },
         async {
             axum::serve(internal_listener, internal_router)
@@ -122,7 +122,7 @@ pub async fn serve(
                     shutdown_rx_internal.recv().await.ok();
                 })
                 .await
-                .map_err(|e| anyhow::anyhow!("Internal server error: {}", e))
+                .map_err(|e| anyhow::anyhow!("Internal server error: {e}"))
         }
     )?;
 

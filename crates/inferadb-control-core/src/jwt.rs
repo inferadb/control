@@ -79,7 +79,7 @@ impl VaultTokenClaims {
 
         Self {
             iss: REQUIRED_ISSUER.to_string(),
-            sub: format!("client:{}", client_id),
+            sub: format!("client:{client_id}"),
             aud: REQUIRED_AUDIENCE.to_string(),
             exp: exp.timestamp(),
             iat: now.timestamp(),
@@ -201,7 +201,7 @@ impl JwtSigner {
         // Create encoding key for jsonwebtoken using raw Ed25519 key bytes
         // jsonwebtoken expects the seed (32 bytes) for EdDSA
         let encoding_key = EncodingKey::from_ed_pem(&self.ed25519_to_pem(&signing_key_array)?)
-            .map_err(|e| Error::Internal(format!("Failed to create encoding key: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to create encoding key: {e}")))?;
 
         // Create header with kid (key ID)
         let mut header = Header::new(Algorithm::EdDSA);
@@ -209,7 +209,7 @@ impl JwtSigner {
 
         // Encode the JWT
         let token = encode(&header, claims, &encoding_key)
-            .map_err(|e| Error::Internal(format!("Failed to sign JWT: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to sign JWT: {e}")))?;
 
         Ok(token)
     }
@@ -227,7 +227,7 @@ impl JwtSigner {
         // Decode the public key
         let public_key_bytes = BASE64
             .decode(&certificate.public_key)
-            .map_err(|e| Error::Internal(format!("Failed to decode public key: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to decode public key: {e}")))?;
 
         if public_key_bytes.len() != 32 {
             return Err(Error::Internal(
@@ -238,7 +238,7 @@ impl JwtSigner {
         // Create decoding key from PEM
         let public_key_pem = self.ed25519_public_to_pem(&public_key_bytes)?;
         let decoding_key = DecodingKey::from_ed_pem(&public_key_pem)
-            .map_err(|e| Error::Internal(format!("Failed to create decoding key: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to create decoding key: {e}")))?;
 
         // Set up validation
         let mut validation = Validation::new(Algorithm::EdDSA);
@@ -248,7 +248,7 @@ impl JwtSigner {
 
         // Decode and verify
         let token_data = decode::<VaultTokenClaims>(token, &decoding_key, &validation)
-            .map_err(|e| Error::Internal(format!("Failed to verify JWT: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to verify JWT: {e}")))?;
 
         Ok(token_data.claims)
     }

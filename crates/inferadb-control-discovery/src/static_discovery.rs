@@ -28,10 +28,12 @@ impl EndpointDiscovery for StaticDiscovery {
         let url = url::Url::parse(service_url)?;
 
         // Build the endpoint URL
+        let scheme = url.scheme();
+        let host = url.host_str().unwrap_or("localhost");
         let endpoint_url = if let Some(port) = url.port() {
-            format!("{}://{}:{}", url.scheme(), url.host_str().unwrap_or("localhost"), port)
+            format!("{scheme}://{host}:{port}")
         } else {
-            format!("{}://{}", url.scheme(), url.host_str().unwrap_or("localhost"))
+            format!("{scheme}://{host}")
         };
 
         Ok(vec![Endpoint::healthy(endpoint_url)])

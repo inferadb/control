@@ -17,16 +17,17 @@ impl<S: StorageBackend> JtiReplayProtectionRepository<S> {
 
     /// Key for a specific JTI
     fn jti_key(jti: &str) -> Vec<u8> {
-        format!("jti:{}", jti).into_bytes()
+        format!("jti:{jti}").into_bytes()
     }
 
     /// Check if a JTI has been used (exists in storage)
     pub async fn is_jti_used(&self, jti: &str) -> Result<bool> {
         let key = Self::jti_key(jti);
-        let result =
-            self.storage.get(&key).await.map_err(|e| {
-                crate::error::Error::Internal(format!("Failed to check JTI: {}", e))
-            })?;
+        let result = self
+            .storage
+            .get(&key)
+            .await
+            .map_err(|e| crate::error::Error::Internal(format!("Failed to check JTI: {e}")))?;
         Ok(result.is_some())
     }
 
@@ -44,12 +45,12 @@ impl<S: StorageBackend> JtiReplayProtectionRepository<S> {
 
         if ttl_seconds > 0 {
             self.storage.set_with_ttl(key, value, ttl_seconds as u64).await.map_err(|e| {
-                crate::error::Error::Internal(format!("Failed to mark JTI as used: {}", e))
+                crate::error::Error::Internal(format!("Failed to mark JTI as used: {e}"))
             })?;
         } else {
             // If already expired, still set it with 1 second TTL to prevent race conditions
             self.storage.set_with_ttl(key, value, 1).await.map_err(|e| {
-                crate::error::Error::Internal(format!("Failed to mark JTI as used: {}", e))
+                crate::error::Error::Internal(format!("Failed to mark JTI as used: {e}"))
             })?;
         }
 

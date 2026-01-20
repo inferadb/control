@@ -205,8 +205,7 @@ impl EngineClient {
             .build()
             .map_err(|e| {
                 inferadb_control_types::Error::External(format!(
-                    "Failed to create HTTP client: {}",
-                    e
+                    "Failed to create HTTP client: {e}"
                 ))
             })?;
 
@@ -325,8 +324,7 @@ impl EngineClient {
 
         Err(last_error.unwrap_or_else(|| {
             inferadb_control_types::Error::External(format!(
-                "{} failed after {} attempts",
-                operation, MAX_RETRY_ATTEMPTS
+                "{operation} failed after {MAX_RETRY_ATTEMPTS} attempts"
             ))
         }))
     }
@@ -349,19 +347,15 @@ impl EngineClient {
 
         self.execute_with_failover("create_vault", |endpoint| {
             let http_client = self.http_client.clone();
-            let vault_name = format!("vault-{}", vault_id);
+            let vault_name = format!("vault-{vault_id}");
 
             async move {
-                let url =
-                    format!("{}/access/v1/organizations/{}/vaults", endpoint, organization_id);
+                let url = format!("{endpoint}/access/v1/organizations/{organization_id}/vaults");
 
                 // Sign JWT for authentication
                 let jwt = match &self.control_identity {
                     Some(identity) => identity.sign_jwt(&endpoint).map_err(|e| {
-                        inferadb_control_types::Error::External(format!(
-                            "Failed to sign JWT: {}",
-                            e
-                        ))
+                        inferadb_control_types::Error::External(format!("Failed to sign JWT: {e}"))
                     })?,
                     None => String::new(),
                 };
@@ -370,11 +364,11 @@ impl EngineClient {
                     http_client.post(&url).json(&CreateVaultRequest { name: vault_name });
 
                 if !jwt.is_empty() {
-                    request = request.header("Authorization", format!("Bearer {}", jwt));
+                    request = request.header("Authorization", format!("Bearer {jwt}"));
                 }
 
                 let response = request.send().await.map_err(|e| {
-                    inferadb_control_types::Error::External(format!("HTTP request failed: {}", e))
+                    inferadb_control_types::Error::External(format!("HTTP request failed: {e}"))
                 })?;
 
                 if response.status().is_success() {
@@ -384,8 +378,7 @@ impl EngineClient {
                     let status = response.status();
                     let body = response.text().await.unwrap_or_default();
                     Err(inferadb_control_types::Error::External(format!(
-                        "Engine returned {}: {}",
-                        status, body
+                        "Engine returned {status}: {body}"
                     )))
                 }
             }
@@ -412,15 +405,12 @@ impl EngineClient {
             let http_client = self.http_client.clone();
 
             async move {
-                let url = format!("{}/access/v1/vaults/{}", endpoint, vault_id);
+                let url = format!("{endpoint}/access/v1/vaults/{vault_id}");
 
                 // Sign JWT for authentication
                 let jwt = match &self.control_identity {
                     Some(identity) => identity.sign_jwt(&endpoint).map_err(|e| {
-                        inferadb_control_types::Error::External(format!(
-                            "Failed to sign JWT: {}",
-                            e
-                        ))
+                        inferadb_control_types::Error::External(format!("Failed to sign JWT: {e}"))
                     })?,
                     None => String::new(),
                 };
@@ -428,11 +418,11 @@ impl EngineClient {
                 let mut request = http_client.delete(&url);
 
                 if !jwt.is_empty() {
-                    request = request.header("Authorization", format!("Bearer {}", jwt));
+                    request = request.header("Authorization", format!("Bearer {jwt}"));
                 }
 
                 let response = request.send().await.map_err(|e| {
-                    inferadb_control_types::Error::External(format!("HTTP request failed: {}", e))
+                    inferadb_control_types::Error::External(format!("HTTP request failed: {e}"))
                 })?;
 
                 if response.status().is_success() || response.status().as_u16() == 404 {
@@ -443,8 +433,7 @@ impl EngineClient {
                     let status = response.status();
                     let body = response.text().await.unwrap_or_default();
                     Err(inferadb_control_types::Error::External(format!(
-                        "Engine returned {}: {}",
-                        status, body
+                        "Engine returned {status}: {body}"
                     )))
                 }
             }

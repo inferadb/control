@@ -131,7 +131,7 @@ impl PrivateKeyEncryptor {
     /// secure random data, typically loaded via `MasterKey::load_or_generate()`.
     pub fn new(master_key: &[u8; 32]) -> Result<Self> {
         let cipher = Aes256Gcm::new_from_slice(master_key)
-            .map_err(|e| Error::Internal(format!("Failed to initialize cipher: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to initialize cipher: {e}")))?;
 
         Ok(Self { cipher })
     }
@@ -156,7 +156,7 @@ impl PrivateKeyEncryptor {
         let ciphertext = self
             .cipher
             .encrypt(&nonce, private_key)
-            .map_err(|e| Error::Internal(format!("Failed to encrypt private key: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to encrypt private key: {e}")))?;
 
         // Combine nonce + ciphertext for storage
         let mut combined = nonce.to_vec();
@@ -176,7 +176,7 @@ impl PrivateKeyEncryptor {
         // Decode from base64
         let combined = BASE64
             .decode(encrypted_base64)
-            .map_err(|e| Error::Internal(format!("Failed to decode encrypted key: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to decode encrypted key: {e}")))?;
 
         // Split nonce and ciphertext (first 12 bytes are nonce)
         if combined.len() < 12 {
@@ -190,7 +190,7 @@ impl PrivateKeyEncryptor {
         let plaintext = self
             .cipher
             .decrypt(nonce, ciphertext)
-            .map_err(|e| Error::Internal(format!("Failed to decrypt private key: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to decrypt private key: {e}")))?;
 
         // Verify it's 32 bytes (Ed25519 private key)
         if plaintext.len() != 32 {

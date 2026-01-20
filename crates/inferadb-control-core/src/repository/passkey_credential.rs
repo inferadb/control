@@ -24,18 +24,18 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
 
     /// Generate key for passkey by ID
     fn passkey_key(id: i64) -> Vec<u8> {
-        format!("passkey:{}", id).into_bytes()
+        format!("passkey:{id}").into_bytes()
     }
 
     /// Generate key for user's passkey index
     fn user_passkey_index_key(user_id: i64, passkey_id: i64) -> Vec<u8> {
-        format!("passkey:user:{}:{}", user_id, passkey_id).into_bytes()
+        format!("passkey:user:{user_id}:{passkey_id}").into_bytes()
     }
 
     /// Generate key for credential ID lookup
     fn credential_id_index_key(credential_id: &[u8]) -> Vec<u8> {
         let cred_id_base64 = URL_SAFE_NO_PAD.encode(credential_id);
-        format!("passkey:cred_id:{}", cred_id_base64).into_bytes()
+        format!("passkey:cred_id:{cred_id_base64}").into_bytes()
     }
 
     /// Create a new passkey credential
@@ -48,16 +48,15 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
         }
 
         // Serialize credential
-        let credential_data = serde_json::to_vec(&credential).map_err(|e| {
-            Error::Internal(format!("Failed to serialize passkey credential: {}", e))
-        })?;
+        let credential_data = serde_json::to_vec(&credential)
+            .map_err(|e| Error::Internal(format!("Failed to serialize passkey credential: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Store credential record
         txn.set(Self::passkey_key(credential.id), credential_data);
@@ -76,7 +75,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
 
         // Commit transaction
         txn.commit().await.map_err(|e| {
-            Error::Internal(format!("Failed to commit passkey credential creation: {}", e))
+            Error::Internal(format!("Failed to commit passkey credential creation: {e}"))
         })?;
 
         Ok(())
@@ -89,12 +88,12 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get passkey credential: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get passkey credential: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let credential = serde_json::from_slice(&bytes).map_err(|e| {
-                    Error::Internal(format!("Failed to deserialize passkey credential: {}", e))
+                    Error::Internal(format!("Failed to deserialize passkey credential: {e}"))
                 })?;
                 Ok(Some(credential))
             },
@@ -110,7 +109,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
         // Look up the internal ID from the credential ID index
         let key = Self::credential_id_index_key(credential_id);
         let id_data = self.storage.get(&key).await.map_err(|e| {
-            Error::Internal(format!("Failed to lookup passkey by credential ID: {}", e))
+            Error::Internal(format!("Failed to lookup passkey by credential ID: {e}"))
         })?;
 
         match id_data {
@@ -127,7 +126,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
 
     /// Get all passkey credentials for a user
     pub async fn get_user_credentials(&self, user_id: i64) -> Result<Vec<PasskeyCredential>> {
-        let start = format!("passkey:user:{}:", user_id).into_bytes();
+        let start = format!("passkey:user:{user_id}:").into_bytes();
         let mut end = start.clone();
         // Increment the last byte to create an exclusive end range
         if let Some(last) = end.last_mut() {
@@ -138,7 +137,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to list user passkeys: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to list user passkeys: {e}")))?;
 
         let mut credentials = Vec::new();
         for kv in items {
@@ -157,15 +156,14 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
     /// Update a passkey credential
     pub async fn update(&self, credential: &PasskeyCredential) -> Result<()> {
         // Serialize credential
-        let credential_data = serde_json::to_vec(credential).map_err(|e| {
-            Error::Internal(format!("Failed to serialize passkey credential: {}", e))
-        })?;
+        let credential_data = serde_json::to_vec(credential)
+            .map_err(|e| Error::Internal(format!("Failed to serialize passkey credential: {e}")))?;
 
         // Update the record
         self.storage
             .set(Self::passkey_key(credential.id), credential_data)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update passkey credential: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to update passkey credential: {e}")))?;
 
         Ok(())
     }
@@ -181,7 +179,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete credential record
         txn.delete(Self::passkey_key(id));
@@ -194,7 +192,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
 
         // Commit transaction
         txn.commit().await.map_err(|e| {
-            Error::Internal(format!("Failed to commit passkey credential deletion: {}", e))
+            Error::Internal(format!("Failed to commit passkey credential deletion: {e}"))
         })?;
 
         Ok(())

@@ -170,7 +170,7 @@ async fn test_audit_log_query_endpoint() {
             Request::builder()
                 .method("GET")
                 .uri("/control/v1/organizations")
-                .header("cookie", format!("infera_session={}", session))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -195,8 +195,8 @@ async fn test_audit_log_query_endpoint() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{}/audit-logs", org_id))
-                .header("cookie", format!("infera_session={}", session))
+                .uri(format!("/control/v1/organizations/{org_id}/audit-logs"))
+                .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )

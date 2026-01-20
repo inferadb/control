@@ -152,7 +152,7 @@ impl ClientCertificate {
 
     /// Generate a kid (key ID) in the format: org-<org_id>-client-<client_id>-cert-<cert_id>
     pub fn generate_kid(organization_id: i64, client_id: i64, cert_id: i64) -> String {
-        format!("org-{}-client-{}-cert-{}", organization_id, client_id, cert_id)
+        format!("org-{organization_id}-client-{client_id}-cert-{cert_id}")
     }
 
     /// Validate certificate name

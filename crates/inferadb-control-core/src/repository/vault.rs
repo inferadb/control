@@ -22,12 +22,12 @@ impl<S: StorageBackend> VaultRepository<S> {
 
     /// Generate key for vault by ID
     fn vault_key(id: i64) -> Vec<u8> {
-        format!("vault:{}", id).into_bytes()
+        format!("vault:{id}").into_bytes()
     }
 
     /// Generate key for vault by organization index
     fn vault_org_index_key(org_id: i64, idx: i64) -> Vec<u8> {
-        format!("vault:org:{}:{}", org_id, idx).into_bytes()
+        format!("vault:org:{org_id}:{idx}").into_bytes()
     }
 
     /// Generate key for vault by name (for duplicate checking)
@@ -39,14 +39,14 @@ impl<S: StorageBackend> VaultRepository<S> {
     pub async fn create(&self, vault: Vault) -> Result<()> {
         // Serialize vault
         let vault_data = serde_json::to_vec(&vault)
-            .map_err(|e| Error::Internal(format!("Failed to serialize vault: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize vault: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Check for duplicate name within organization
         let name_key = Self::vault_name_index_key(vault.organization_id, &vault.name);
@@ -54,7 +54,7 @@ impl<S: StorageBackend> VaultRepository<S> {
             .storage
             .get(&name_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check duplicate vault name: {}", e)))?
+            .map_err(|e| Error::Internal(format!("Failed to check duplicate vault name: {e}")))?
             .is_some()
         {
             return Err(Error::AlreadyExists(format!(
@@ -78,7 +78,7 @@ impl<S: StorageBackend> VaultRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit vault creation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit vault creation: {e}")))?;
 
         Ok(())
     }
@@ -90,12 +90,12 @@ impl<S: StorageBackend> VaultRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get vault: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get vault: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let vault: Vault = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize vault: {}", e)))?;
+                    .map_err(|e| Error::Internal(format!("Failed to deserialize vault: {e}")))?;
                 Ok(Some(vault))
             },
             None => Ok(None),
@@ -104,14 +104,15 @@ impl<S: StorageBackend> VaultRepository<S> {
 
     /// List all vaults for an organization (including soft-deleted)
     pub async fn list_by_organization(&self, org_id: i64) -> Result<Vec<Vault>> {
-        let prefix = format!("vault:org:{}:", org_id);
+        let prefix = format!("vault:org:{org_id}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("vault:org:{}~", org_id).into_bytes();
+        let end = format!("vault:org:{org_id}~").into_bytes();
 
-        let kvs =
-            self.storage.get_range(start..end).await.map_err(|e| {
-                Error::Internal(format!("Failed to get organization vaults: {}", e))
-            })?;
+        let kvs = self
+            .storage
+            .get_range(start..end)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get organization vaults: {e}")))?;
 
         let mut vaults = Vec::new();
         for kv in kvs {
@@ -143,14 +144,14 @@ impl<S: StorageBackend> VaultRepository<S> {
 
         // Serialize updated vault
         let vault_data = serde_json::to_vec(&vault)
-            .map_err(|e| Error::Internal(format!("Failed to serialize vault: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize vault: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // If name changed, update name index
         if existing.name != vault.name {
@@ -163,9 +164,7 @@ impl<S: StorageBackend> VaultRepository<S> {
                 .storage
                 .get(&new_name_key)
                 .await
-                .map_err(|e| {
-                    Error::Internal(format!("Failed to check duplicate vault name: {}", e))
-                })?
+                .map_err(|e| Error::Internal(format!("Failed to check duplicate vault name: {e}")))?
                 .is_some()
             {
                 return Err(Error::AlreadyExists(format!(
@@ -184,7 +183,7 @@ impl<S: StorageBackend> VaultRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit vault update: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit vault update: {e}")))?;
 
         Ok(())
     }
@@ -192,17 +191,15 @@ impl<S: StorageBackend> VaultRepository<S> {
     /// Delete a vault (removes all indexes)
     pub async fn delete(&self, id: i64) -> Result<()> {
         // Get the vault first to clean up indexes
-        let vault = self
-            .get(id)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Vault {} not found", id)))?;
+        let vault =
+            self.get(id).await?.ok_or_else(|| Error::NotFound(format!("Vault {id} not found")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete vault record
         txn.delete(Self::vault_key(id));
@@ -216,7 +213,7 @@ impl<S: StorageBackend> VaultRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit vault deletion: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit vault deletion: {e}")))?;
 
         Ok(())
     }
@@ -252,31 +249,31 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
 
     /// Generate key for grant by ID
     fn grant_key(id: i64) -> Vec<u8> {
-        format!("vault_user_grant:{}", id).into_bytes()
+        format!("vault_user_grant:{id}").into_bytes()
     }
 
     /// Generate key for vault-user unique constraint
     fn vault_user_index_key(vault_id: i64, user_id: i64) -> Vec<u8> {
-        format!("vault_user_grant:vault:{}:{}", vault_id, user_id).into_bytes()
+        format!("vault_user_grant:vault:{vault_id}:{user_id}").into_bytes()
     }
 
     /// Generate key for user's vault grants
     fn user_vault_index_key(user_id: i64, vault_id: i64) -> Vec<u8> {
-        format!("vault_user_grant:user:{}:{}", user_id, vault_id).into_bytes()
+        format!("vault_user_grant:user:{user_id}:{vault_id}").into_bytes()
     }
 
     /// Create a new user grant
     pub async fn create(&self, grant: VaultUserGrant) -> Result<()> {
         // Serialize grant
         let grant_data = serde_json::to_vec(&grant)
-            .map_err(|e| Error::Internal(format!("Failed to serialize grant: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize grant: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Check for duplicate grant (vault_id, user_id unique)
         let unique_key = Self::vault_user_index_key(grant.vault_id, grant.user_id);
@@ -284,7 +281,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
             .storage
             .get(&unique_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check duplicate grant: {}", e)))?
+            .map_err(|e| Error::Internal(format!("Failed to check duplicate grant: {e}")))?
             .is_some()
         {
             return Err(Error::AlreadyExists("User already has access to this vault".to_string()));
@@ -305,7 +302,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit user grant creation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit user grant creation: {e}")))?;
 
         Ok(())
     }
@@ -317,12 +314,12 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get grant: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get grant: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let grant: VaultUserGrant = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize grant: {}", e)))?;
+                    .map_err(|e| Error::Internal(format!("Failed to deserialize grant: {e}")))?;
                 Ok(Some(grant))
             },
             None => Ok(None),
@@ -336,10 +333,11 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
         user_id: i64,
     ) -> Result<Option<VaultUserGrant>> {
         let index_key = Self::vault_user_index_key(vault_id, user_id);
-        let data =
-            self.storage.get(&index_key).await.map_err(|e| {
-                Error::Internal(format!("Failed to get grant by vault/user: {}", e))
-            })?;
+        let data = self
+            .storage
+            .get(&index_key)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get grant by vault/user: {e}")))?;
 
         match data {
             Some(bytes) => {
@@ -355,15 +353,15 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
 
     /// List all grants for a vault
     pub async fn list_by_vault(&self, vault_id: i64) -> Result<Vec<VaultUserGrant>> {
-        let prefix = format!("vault_user_grant:vault:{}:", vault_id);
+        let prefix = format!("vault_user_grant:vault:{vault_id}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("vault_user_grant:vault:{}~", vault_id).into_bytes();
+        let end = format!("vault_user_grant:vault:{vault_id}~").into_bytes();
 
         let kvs = self
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get vault grants: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get vault grants: {e}")))?;
 
         let mut grants = Vec::new();
         for kv in kvs {
@@ -381,15 +379,15 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
 
     /// List all grants for a user
     pub async fn list_by_user(&self, user_id: i64) -> Result<Vec<VaultUserGrant>> {
-        let prefix = format!("vault_user_grant:user:{}:", user_id);
+        let prefix = format!("vault_user_grant:user:{user_id}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("vault_user_grant:user:{}~", user_id).into_bytes();
+        let end = format!("vault_user_grant:user:{user_id}~").into_bytes();
 
         let kvs = self
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get user grants: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get user grants: {e}")))?;
 
         let mut grants = Vec::new();
         for kv in kvs {
@@ -414,13 +412,13 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
 
         // Serialize updated grant
         let grant_data = serde_json::to_vec(&grant)
-            .map_err(|e| Error::Internal(format!("Failed to serialize grant: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize grant: {e}")))?;
 
         // Update grant record
         self.storage
             .set(Self::grant_key(grant.id), grant_data)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update grant: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to update grant: {e}")))?;
 
         Ok(())
     }
@@ -428,17 +426,15 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
     /// Delete a grant
     pub async fn delete(&self, id: i64) -> Result<()> {
         // Get the grant first to clean up indexes
-        let grant = self
-            .get(id)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Grant {} not found", id)))?;
+        let grant =
+            self.get(id).await?.ok_or_else(|| Error::NotFound(format!("Grant {id} not found")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete grant record
         txn.delete(Self::grant_key(id));
@@ -452,7 +448,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit grant deletion: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit grant deletion: {e}")))?;
 
         Ok(())
     }
@@ -476,31 +472,31 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
 
     /// Generate key for grant by ID
     fn grant_key(id: i64) -> Vec<u8> {
-        format!("vault_team_grant:{}", id).into_bytes()
+        format!("vault_team_grant:{id}").into_bytes()
     }
 
     /// Generate key for vault-team unique constraint
     fn vault_team_index_key(vault_id: i64, team_id: i64) -> Vec<u8> {
-        format!("vault_team_grant:vault:{}:{}", vault_id, team_id).into_bytes()
+        format!("vault_team_grant:vault:{vault_id}:{team_id}").into_bytes()
     }
 
     /// Generate key for team's vault grants
     fn team_vault_index_key(team_id: i64, vault_id: i64) -> Vec<u8> {
-        format!("vault_team_grant:team:{}:{}", team_id, vault_id).into_bytes()
+        format!("vault_team_grant:team:{team_id}:{vault_id}").into_bytes()
     }
 
     /// Create a new team grant
     pub async fn create(&self, grant: VaultTeamGrant) -> Result<()> {
         // Serialize grant
         let grant_data = serde_json::to_vec(&grant)
-            .map_err(|e| Error::Internal(format!("Failed to serialize grant: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize grant: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Check for duplicate grant (vault_id, team_id unique)
         let unique_key = Self::vault_team_index_key(grant.vault_id, grant.team_id);
@@ -508,7 +504,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
             .storage
             .get(&unique_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check duplicate grant: {}", e)))?
+            .map_err(|e| Error::Internal(format!("Failed to check duplicate grant: {e}")))?
             .is_some()
         {
             return Err(Error::AlreadyExists("Team already has access to this vault".to_string()));
@@ -529,7 +525,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit team grant creation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit team grant creation: {e}")))?;
 
         Ok(())
     }
@@ -541,12 +537,12 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get grant: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get grant: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let grant: VaultTeamGrant = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize grant: {}", e)))?;
+                    .map_err(|e| Error::Internal(format!("Failed to deserialize grant: {e}")))?;
                 Ok(Some(grant))
             },
             None => Ok(None),
@@ -560,10 +556,11 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
         team_id: i64,
     ) -> Result<Option<VaultTeamGrant>> {
         let index_key = Self::vault_team_index_key(vault_id, team_id);
-        let data =
-            self.storage.get(&index_key).await.map_err(|e| {
-                Error::Internal(format!("Failed to get grant by vault/team: {}", e))
-            })?;
+        let data = self
+            .storage
+            .get(&index_key)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get grant by vault/team: {e}")))?;
 
         match data {
             Some(bytes) => {
@@ -579,15 +576,15 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
 
     /// List all grants for a vault
     pub async fn list_by_vault(&self, vault_id: i64) -> Result<Vec<VaultTeamGrant>> {
-        let prefix = format!("vault_team_grant:vault:{}:", vault_id);
+        let prefix = format!("vault_team_grant:vault:{vault_id}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("vault_team_grant:vault:{}~", vault_id).into_bytes();
+        let end = format!("vault_team_grant:vault:{vault_id}~").into_bytes();
 
         let kvs = self
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get vault grants: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get vault grants: {e}")))?;
 
         let mut grants = Vec::new();
         for kv in kvs {
@@ -605,15 +602,15 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
 
     /// List all grants for a team
     pub async fn list_by_team(&self, team_id: i64) -> Result<Vec<VaultTeamGrant>> {
-        let prefix = format!("vault_team_grant:team:{}:", team_id);
+        let prefix = format!("vault_team_grant:team:{team_id}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("vault_team_grant:team:{}~", team_id).into_bytes();
+        let end = format!("vault_team_grant:team:{team_id}~").into_bytes();
 
         let kvs = self
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get team grants: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get team grants: {e}")))?;
 
         let mut grants = Vec::new();
         for kv in kvs {
@@ -638,13 +635,13 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
 
         // Serialize updated grant
         let grant_data = serde_json::to_vec(&grant)
-            .map_err(|e| Error::Internal(format!("Failed to serialize grant: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize grant: {e}")))?;
 
         // Update grant record
         self.storage
             .set(Self::grant_key(grant.id), grant_data)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update grant: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to update grant: {e}")))?;
 
         Ok(())
     }
@@ -652,17 +649,15 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
     /// Delete a grant
     pub async fn delete(&self, id: i64) -> Result<()> {
         // Get the grant first to clean up indexes
-        let grant = self
-            .get(id)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Grant {} not found", id)))?;
+        let grant =
+            self.get(id).await?.ok_or_else(|| Error::NotFound(format!("Grant {id} not found")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete grant record
         txn.delete(Self::grant_key(id));
@@ -676,7 +671,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit grant deletion: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit grant deletion: {e}")))?;
 
         Ok(())
     }

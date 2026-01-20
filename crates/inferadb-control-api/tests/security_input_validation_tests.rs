@@ -88,8 +88,7 @@ async fn test_xss_in_organization_name_rejected() {
         assert_eq!(
             response.status(),
             StatusCode::BAD_REQUEST,
-            "XSS payload should be rejected: {}",
-            payload
+            "XSS payload should be rejected: {payload}"
         );
     }
 }
@@ -243,8 +242,7 @@ async fn test_path_traversal_in_organization_name_rejected() {
         assert_eq!(
             response.status(),
             StatusCode::BAD_REQUEST,
-            "Path traversal payload should be rejected: {}",
-            payload
+            "Path traversal payload should be rejected: {payload}"
         );
     }
 }
@@ -347,8 +345,7 @@ async fn test_whitespace_only_name_rejected() {
         assert_eq!(
             response.status(),
             StatusCode::BAD_REQUEST,
-            "Whitespace-only input should be rejected: {:?}",
-            input
+            "Whitespace-only input should be rejected: {input:?}"
         );
     }
 }
@@ -428,8 +425,7 @@ async fn test_unicode_edge_cases_handled() {
         assert!(
             response.status() == StatusCode::CREATED
                 || response.status() == StatusCode::BAD_REQUEST,
-            "Unicode input should be handled safely: {:?}",
-            input
+            "Unicode input should be handled safely: {input:?}"
         );
     }
 }
@@ -474,8 +470,7 @@ async fn test_sql_injection_patterns_rejected() {
         assert_eq!(
             response.status(),
             StatusCode::BAD_REQUEST,
-            "SQL injection payload should be rejected: {}",
-            payload
+            "SQL injection payload should be rejected: {payload}"
         );
     }
 }
@@ -520,8 +515,7 @@ async fn test_control_characters_rejected() {
         assert_eq!(
             response.status(),
             StatusCode::BAD_REQUEST,
-            "Control character input should be rejected: {:?}",
-            input
+            "Control character input should be rejected: {input:?}"
         );
     }
 }

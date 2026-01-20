@@ -18,7 +18,7 @@ fn test_keypair_generate_sign_verify() {
     let (public_key_base64, private_key_bytes) = keypair::generate();
 
     println!("Generated keypair:");
-    println!("  Public key (base64): {}", public_key_base64);
+    println!("  Public key (base64): {public_key_base64}");
     println!("  Private key length: {} bytes", private_key_bytes.len());
 
     // 2. Simulate client: Receive private key, sign JWT
@@ -47,7 +47,7 @@ fn test_keypair_generate_sign_verify() {
 
     let public_key_base64url =
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&public_key_bytes);
-    println!("  Public key (base64url): {}", public_key_base64url);
+    println!("  Public key (base64url): {public_key_base64url}");
 
     // 4. Simulate server: Use JWKS public key to create DecodingKey
     let decoding_key = DecodingKey::from_ed_components(&public_key_base64url)
@@ -67,7 +67,7 @@ fn test_keypair_generate_sign_verify() {
             assert_eq!(token_data.claims.sub, "test-subject");
         },
         Err(e) => {
-            panic!("✗ JWT verification FAILED: {:?}", e);
+            panic!("✗ JWT verification FAILED: {e:?}");
         },
     }
 }

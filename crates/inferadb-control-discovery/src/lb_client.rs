@@ -212,7 +212,7 @@ mod tests {
     use super::*;
 
     fn create_test_endpoints(count: usize) -> Vec<Endpoint> {
-        (0..count).map(|i| Endpoint::healthy(format!("http://endpoint-{}:8080", i))).collect()
+        (0..count).map(|i| Endpoint::healthy(format!("http://endpoint-{i}:8080"))).collect()
     }
 
     #[test]

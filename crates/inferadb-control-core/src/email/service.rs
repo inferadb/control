@@ -73,7 +73,7 @@ impl SmtpEmailService {
             // Use STARTTLS for production
             let creds = Credentials::new(config.username.clone(), config.password.clone());
             AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)
-                .map_err(|e| Error::Internal(format!("Failed to create SMTP transport: {}", e)))?
+                .map_err(|e| Error::Internal(format!("Failed to create SMTP transport: {e}")))?
                 .port(config.port)
                 .credentials(creds)
                 .build()
@@ -86,7 +86,7 @@ impl SmtpEmailService {
     fn get_from_mailbox(&self) -> Result<Mailbox> {
         format!("{} <{}>", self.config.name, self.config.address)
             .parse()
-            .map_err(|e| Error::Internal(format!("Invalid from address: {}", e)))
+            .map_err(|e| Error::Internal(format!("Invalid from address: {e}")))
     }
 }
 
@@ -101,20 +101,20 @@ impl EmailSender for SmtpEmailService {
     ) -> Result<()> {
         let from = self.get_from_mailbox()?;
         let to_mailbox: Mailbox =
-            to.parse().map_err(|e| Error::Validation(format!("Invalid recipient email: {}", e)))?;
+            to.parse().map_err(|e| Error::Validation(format!("Invalid recipient email: {e}")))?;
 
         let email = Message::builder()
             .from(from)
             .to(to_mailbox)
             .subject(subject)
             .header(ContentType::TEXT_HTML)
-            .body(format!("{}\n\n---\n\n{}", body_html, body_text))
-            .map_err(|e| Error::Internal(format!("Failed to build email message: {}", e)))?;
+            .body(format!("{body_html}\n\n---\n\n{body_text}"))
+            .map_err(|e| Error::Internal(format!("Failed to build email message: {e}")))?;
 
         self.transport
             .send(email)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to send email: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to send email: {e}")))?;
 
         tracing::info!("Email sent to {} with subject: {}", to, subject);
         Ok(())

@@ -33,13 +33,13 @@ pub enum DiscoveryError {
 impl fmt::Display for DiscoveryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DiscoveryError::KubernetesApi(msg) => write!(f, "Kubernetes API error: {}", msg),
-            DiscoveryError::InvalidUrl(msg) => write!(f, "Invalid URL: {}", msg),
-            DiscoveryError::ServiceNotFound(msg) => write!(f, "Service not found: {}", msg),
-            DiscoveryError::NoEndpoints(msg) => write!(f, "No endpoints available: {}", msg),
-            DiscoveryError::Config(msg) => write!(f, "Configuration error: {}", msg),
-            DiscoveryError::DnsResolution(msg) => write!(f, "DNS resolution error: {}", msg),
-            DiscoveryError::Other(msg) => write!(f, "{}", msg),
+            DiscoveryError::KubernetesApi(msg) => write!(f, "Kubernetes API error: {msg}"),
+            DiscoveryError::InvalidUrl(msg) => write!(f, "Invalid URL: {msg}"),
+            DiscoveryError::ServiceNotFound(msg) => write!(f, "Service not found: {msg}"),
+            DiscoveryError::NoEndpoints(msg) => write!(f, "No endpoints available: {msg}"),
+            DiscoveryError::Config(msg) => write!(f, "Configuration error: {msg}"),
+            DiscoveryError::DnsResolution(msg) => write!(f, "DNS resolution error: {msg}"),
+            DiscoveryError::Other(msg) => write!(f, "{msg}"),
         }
     }
 }

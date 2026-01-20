@@ -87,11 +87,10 @@ impl EndpointDiscovery for KubernetesServiceDiscovery {
 
         let endpoints = endpoints_api.get(&service_name).await.map_err(|e| {
             if e.to_string().contains("404") {
-                DiscoveryError::ServiceNotFound(format!("{}.{}", service_name, namespace))
+                DiscoveryError::ServiceNotFound(format!("{service_name}.{namespace}"))
             } else {
                 DiscoveryError::KubernetesApi(format!(
-                    "Failed to get endpoints for {}.{}: {}",
-                    service_name, namespace, e
+                    "Failed to get endpoints for {service_name}.{namespace}: {e}"
                 ))
             }
         })?;
@@ -105,7 +104,7 @@ impl EndpointDiscovery for KubernetesServiceDiscovery {
                 if let Some(addresses) = subset.addresses {
                     for address in addresses {
                         let pod_ip = &address.ip;
-                        let endpoint_url = format!("http://{}:{}", pod_ip, port);
+                        let endpoint_url = format!("http://{pod_ip}:{port}");
 
                         let mut endpoint = Endpoint::healthy(endpoint_url);
 
@@ -134,8 +133,7 @@ impl EndpointDiscovery for KubernetesServiceDiscovery {
                 "No ready endpoints found for service"
             );
             return Err(DiscoveryError::NoEndpoints(format!(
-                "No ready endpoints for {}.{}",
-                service_name, namespace
+                "No ready endpoints for {service_name}.{namespace}"
             )));
         }
 

@@ -37,7 +37,7 @@ async fn setup_user_and_org(
     session_repo.create(session.clone()).await.unwrap();
 
     // Create organization
-    let org = Organization::new(org_id, format!("{}'s Org", username), OrganizationTier::TierDevV1)
+    let org = Organization::new(org_id, format!("{username}'s Org"), OrganizationTier::TierDevV1)
         .unwrap();
     let org_repo = OrganizationRepository::new((*state.storage).clone());
     org_repo.create(org.clone()).await.unwrap();

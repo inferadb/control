@@ -111,9 +111,7 @@ pub async fn revoke_other_sessions(
         }
     }
 
-    Ok(Json(RevokeSessionResponse {
-        message: format!("Revoked {} other session(s)", revoked_count),
-    }))
+    Ok(Json(RevokeSessionResponse { message: format!("Revoked {revoked_count} other session(s)") }))
 }
 
 #[cfg(test)]

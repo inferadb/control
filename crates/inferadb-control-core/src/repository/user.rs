@@ -21,7 +21,7 @@ impl<S: StorageBackend> UserRepository<S> {
 
     /// Generate key for user by ID
     fn user_key(id: i64) -> Vec<u8> {
-        format!("user:{}", id).into_bytes()
+        format!("user:{id}").into_bytes()
     }
 
     /// Generate key for name index
@@ -36,14 +36,14 @@ impl<S: StorageBackend> UserRepository<S> {
     pub async fn create(&self, user: User) -> Result<()> {
         // Serialize user
         let user_data = serde_json::to_vec(&user)
-            .map_err(|e| Error::Internal(format!("Failed to serialize user: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize user: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Store user record
         txn.set(Self::user_key(user.id), user_data);
@@ -55,7 +55,7 @@ impl<S: StorageBackend> UserRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit user creation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit user creation: {e}")))?;
 
         Ok(())
     }
@@ -67,12 +67,12 @@ impl<S: StorageBackend> UserRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get user: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get user: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let user: User = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize user: {}", e)))?;
+                    .map_err(|e| Error::Internal(format!("Failed to deserialize user: {e}")))?;
 
                 // Filter out soft-deleted users
                 if user.deleted_at.is_some() { Ok(None) } else { Ok(Some(user)) }
@@ -88,7 +88,7 @@ impl<S: StorageBackend> UserRepository<S> {
             .storage
             .get(&name_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to lookup user by name: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to lookup user by name: {e}")))?;
 
         match id_data {
             Some(bytes) => {
@@ -114,14 +114,14 @@ impl<S: StorageBackend> UserRepository<S> {
 
         // Serialize user
         let user_data = serde_json::to_vec(&user)
-            .map_err(|e| Error::Internal(format!("Failed to serialize user: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize user: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Update user record
         txn.set(Self::user_key(user.id), user_data);
@@ -137,7 +137,7 @@ impl<S: StorageBackend> UserRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit user update: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit user update: {e}")))?;
 
         Ok(())
     }
@@ -163,7 +163,7 @@ impl<S: StorageBackend> UserRepository<S> {
                 .storage
                 .transaction()
                 .await
-                .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+                .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
             // Delete user record
             txn.delete(Self::user_key(id));
@@ -174,7 +174,7 @@ impl<S: StorageBackend> UserRepository<S> {
             // Commit transaction
             txn.commit()
                 .await
-                .map_err(|e| Error::Internal(format!("Failed to commit user deletion: {}", e)))?;
+                .map_err(|e| Error::Internal(format!("Failed to commit user deletion: {e}")))?;
         }
 
         Ok(())

@@ -73,13 +73,13 @@ mod tests {
     fn test_create_discovery_static() {
         let mode = DiscoveryMode::None;
         let discovery = create_discovery(&mode);
-        assert!(format!("{:?}", discovery).contains("StaticDiscovery"));
+        assert!(format!("{discovery:?}").contains("StaticDiscovery"));
     }
 
     #[test]
     fn test_create_discovery_kubernetes() {
         let mode = DiscoveryMode::Kubernetes;
         let discovery = create_discovery(&mode);
-        assert!(format!("{:?}", discovery).contains("KubernetesServiceDiscovery"));
+        assert!(format!("{discovery:?}").contains("KubernetesServiceDiscovery"));
     }
 }

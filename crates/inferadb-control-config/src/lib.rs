@@ -473,12 +473,12 @@ impl ControlConfig {
         );
 
         let config =
-            builder.build().map_err(|e| Error::Config(format!("Failed to build config: {}", e)))?;
+            builder.build().map_err(|e| Error::Config(format!("Failed to build config: {e}")))?;
 
         // Deserialize as RootConfig and extract the control section
         let root: RootConfig = config
             .try_deserialize()
-            .map_err(|e| Error::Config(format!("Failed to deserialize config: {}", e)))?;
+            .map_err(|e| Error::Config(format!("Failed to deserialize config: {e}")))?;
 
         Ok(root.control)
     }
@@ -543,8 +543,7 @@ impl ControlConfig {
                 let endpoint = self.ledger.endpoint.as_ref().unwrap();
                 if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
                     return Err(Error::Config(format!(
-                        "ledger.endpoint must start with http:// or https://, got: {}",
-                        endpoint
+                        "ledger.endpoint must start with http:// or https://, got: {endpoint}"
                     )));
                 }
             },

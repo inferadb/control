@@ -36,7 +36,7 @@ impl<S: StorageBackend + 'static> WorkerRegistry<S> {
 
     /// Generate storage key for worker registration
     fn worker_key(worker_id: u16) -> Vec<u8> {
-        format!("workers/active/{}", worker_id).into_bytes()
+        format!("workers/active/{worker_id}").into_bytes()
     }
 
     /// Register this worker and check for collisions
@@ -50,7 +50,7 @@ impl<S: StorageBackend + 'static> WorkerRegistry<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check worker registration: {}", e)))?)
+            .map_err(|e| Error::Internal(format!("Failed to check worker registration: {e}")))?)
         .is_some()
         {
             return Err(Error::Config(format!(
@@ -64,7 +64,7 @@ impl<S: StorageBackend + 'static> WorkerRegistry<S> {
         self.storage
             .set_with_ttl(key, timestamp.as_bytes().to_vec(), WORKER_HEARTBEAT_TTL)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to register worker: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to register worker: {e}")))?;
 
         Ok(())
     }
@@ -77,7 +77,7 @@ impl<S: StorageBackend + 'static> WorkerRegistry<S> {
         self.storage
             .set_with_ttl(key, timestamp.as_bytes().to_vec(), WORKER_HEARTBEAT_TTL)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update worker heartbeat: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to update worker heartbeat: {e}")))?;
 
         Ok(())
     }
@@ -125,9 +125,10 @@ impl<S: StorageBackend + 'static> WorkerRegistry<S> {
     async fn cleanup(&self) -> Result<()> {
         let key = Self::worker_key(self.worker_id);
 
-        self.storage.delete(&key).await.map_err(|e| {
-            Error::Internal(format!("Failed to cleanup worker registration: {}", e))
-        })?;
+        self.storage
+            .delete(&key)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to cleanup worker registration: {e}")))?;
 
         Ok(())
     }
@@ -173,8 +174,7 @@ pub async fn acquire_worker_id<S: StorageBackend + 'static>(
     if let Some(id) = explicit_id {
         if id > MAX_WORKER_ID {
             return Err(Error::Config(format!(
-                "Worker ID must be between 0 and {}, got {}",
-                MAX_WORKER_ID, id
+                "Worker ID must be between 0 and {MAX_WORKER_ID}, got {id}"
             )));
         }
         tracing::info!(worker_id = id, "Using explicitly configured worker ID");
@@ -250,7 +250,7 @@ async fn acquire_random_worker_id<S: StorageBackend>(storage: &S) -> Result<u16>
         };
 
         // Try to register this worker ID
-        let key = format!("workers/active/{}", worker_id).into_bytes();
+        let key = format!("workers/active/{worker_id}").into_bytes();
 
         // Check if already registered
         match storage.get(&key).await {
@@ -299,8 +299,7 @@ async fn acquire_random_worker_id<S: StorageBackend>(storage: &S) -> Result<u16>
     }
 
     Err(Error::Config(format!(
-        "Failed to acquire worker ID after {} attempts. All attempted IDs were in use.",
-        MAX_WORKER_ID_ATTEMPTS
+        "Failed to acquire worker ID after {MAX_WORKER_ID_ATTEMPTS} attempts. All attempted IDs were in use."
     )))
 }
 
@@ -322,8 +321,7 @@ impl IdGenerator {
     pub fn init(worker_id: u16) -> Result<()> {
         if worker_id > 1023 {
             return Err(Error::Config(format!(
-                "Worker ID must be between 0 and 1023, got {}",
-                worker_id
+                "Worker ID must be between 0 and 1023, got {worker_id}"
             )));
         }
 
@@ -380,9 +378,9 @@ mod tests {
         let id3 = IdGenerator::next_id();
 
         // All IDs should be positive
-        assert!(id1 > 0, "id1 ({}) should be positive", id1);
-        assert!(id2 > 0, "id2 ({}) should be positive", id2);
-        assert!(id3 > 0, "id3 ({}) should be positive", id3);
+        assert!(id1 > 0, "id1 ({id1}) should be positive");
+        assert!(id2 > 0, "id2 ({id2}) should be positive");
+        assert!(id3 > 0, "id3 ({id3}) should be positive");
 
         // All IDs should be unique (the core requirement)
         assert_ne!(id1, id2, "id1 and id2 should be different");
@@ -408,7 +406,7 @@ mod tests {
 
         for _ in 0..1000 {
             let id = IdGenerator::next_id();
-            assert!(ids.insert(id), "Duplicate ID generated: {}", id);
+            assert!(ids.insert(id), "Duplicate ID generated: {id}");
         }
     }
 
@@ -505,7 +503,7 @@ mod tests {
 
         // Without explicit ID and without POD_NAME, should acquire a random ID
         let id = acquire_worker_id(&storage, None).await.unwrap();
-        assert!(id <= MAX_WORKER_ID, "Worker ID {} should be <= {}", id, MAX_WORKER_ID);
+        assert!(id <= MAX_WORKER_ID, "Worker ID {id} should be <= {MAX_WORKER_ID}");
     }
 
     #[tokio::test]
@@ -514,7 +512,7 @@ mod tests {
 
         // Register a few worker IDs manually
         for id in 0..10 {
-            let key = format!("workers/active/{}", id).into_bytes();
+            let key = format!("workers/active/{id}").into_bytes();
             storage.set_with_ttl(key, b"timestamp".to_vec(), 30).await.unwrap();
         }
 

@@ -50,7 +50,7 @@ async fn create_ledger_backend() -> LedgerBackend {
     let vault_id = unique_vault_id();
     let config = LedgerBackendConfig::builder()
         .with_endpoint(ledger_endpoint())
-        .with_client_id(format!("control-test-{}", vault_id))
+        .with_client_id(format!("control-test-{vault_id}"))
         .with_namespace_id(ledger_namespace_id())
         .with_vault_id(vault_id)
         .build()
@@ -101,8 +101,8 @@ async fn test_ledger_range_operations() {
 
     // Insert test data
     for i in 0..10 {
-        let key = format!("ctrl_range_test_{:02}", i);
-        let value = format!("value_{}", i);
+        let key = format!("ctrl_range_test_{i:02}");
+        let value = format!("value_{i}");
         backend
             .set(key.as_bytes().to_vec(), value.as_bytes().to_vec())
             .await
@@ -120,8 +120,8 @@ async fn test_ledger_range_operations() {
 
     // Verify results are in order
     for (i, kv) in results.iter().enumerate() {
-        let expected_key = format!("ctrl_range_test_{:02}", i);
-        let expected_value = format!("value_{}", i);
+        let expected_key = format!("ctrl_range_test_{i:02}");
+        let expected_value = format!("value_{i}");
         assert_eq!(kv.key.as_ref(), expected_key.as_bytes());
         assert_eq!(kv.value.as_ref(), expected_value.as_bytes());
     }
@@ -245,7 +245,7 @@ async fn test_ledger_concurrent_writes() {
         let vault_id = unique_vault_id();
         let config = LedgerBackendConfig::builder()
             .with_endpoint(ledger_endpoint())
-            .with_client_id(format!("concurrent-test-{}", vault_id))
+            .with_client_id(format!("concurrent-test-{vault_id}"))
             .with_namespace_id(ledger_namespace_id())
             .with_vault_id(vault_id)
             .build()
@@ -253,8 +253,8 @@ async fn test_ledger_concurrent_writes() {
 
         handles.push(tokio::spawn(async move {
             let backend = LedgerBackend::new(config).await.expect("backend");
-            let key = format!("ctrl_concurrent_{}", i);
-            let value = format!("value_{}", i);
+            let key = format!("ctrl_concurrent_{i}");
+            let value = format!("value_{i}");
             backend.set(key.into_bytes(), value.into_bytes()).await
         }));
     }
@@ -281,7 +281,7 @@ async fn test_ledger_vault_isolation() {
 
     let config_a = LedgerBackendConfig::builder()
         .with_endpoint(ledger_endpoint())
-        .with_client_id(format!("vault-a-{}", vault_a))
+        .with_client_id(format!("vault-a-{vault_a}"))
         .with_namespace_id(ledger_namespace_id())
         .with_vault_id(vault_a)
         .build()
@@ -289,7 +289,7 @@ async fn test_ledger_vault_isolation() {
 
     let config_b = LedgerBackendConfig::builder()
         .with_endpoint(ledger_endpoint())
-        .with_client_id(format!("vault-b-{}", vault_b))
+        .with_client_id(format!("vault-b-{vault_b}"))
         .with_namespace_id(ledger_namespace_id())
         .with_vault_id(vault_b)
         .build()

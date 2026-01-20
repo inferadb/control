@@ -162,10 +162,10 @@ pub async fn create_storage_backend(config: &StorageConfig) -> StorageResult<Bac
                 backend_config
             };
             let backend_config = backend_config.build().map_err(|e| {
-                inferadb_storage::StorageError::Internal(format!("Ledger config error: {}", e))
+                inferadb_storage::StorageError::Internal(format!("Ledger config error: {e}"))
             })?;
             let backend = LedgerBackend::new(backend_config).await.map_err(|e| {
-                inferadb_storage::StorageError::Internal(format!("Ledger connection error: {}", e))
+                inferadb_storage::StorageError::Internal(format!("Ledger connection error: {e}"))
             })?;
             Ok(Backend::Ledger(backend))
         },

@@ -81,7 +81,7 @@ async fn main() -> Result<()> {
     };
 
     if let Err(e) = logging::init_logging(log_config) {
-        eprintln!("Failed to initialize logging: {}", e);
+        eprintln!("Failed to initialize logging: {e}");
         std::process::exit(1);
     }
 
@@ -106,12 +106,12 @@ async fn main() -> Result<()> {
             DiscoveryMode::None => startup::ConfigEntry::new(
                 "Network",
                 "Engine Endpoint",
-                format!("{} (local)", policy_url),
+                format!("{policy_url} (local)"),
             ),
             DiscoveryMode::Kubernetes => startup::ConfigEntry::new(
                 "Network",
                 "Engine Endpoint",
-                format!("{} (kubernetes)", policy_url),
+                format!("{policy_url} (kubernetes)"),
             ),
         };
 
@@ -179,23 +179,23 @@ async fn main() -> Result<()> {
     // Acquire worker ID automatically (uses pod ordinal or random with collision detection)
     let worker_id = acquire_worker_id(storage.as_ref(), None)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to acquire worker ID: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to acquire worker ID: {e}"))?;
 
     // Initialize the ID generator with the acquired worker ID
     IdGenerator::init(worker_id)
-        .map_err(|e| anyhow::anyhow!("Failed to initialize ID generator: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to initialize ID generator: {e}"))?;
 
     // Start worker registry heartbeat to maintain registration
     // Note: acquire_worker_id already registers the ID with TTL, so we only need to start the
     // heartbeat
     let worker_registry = Arc::new(WorkerRegistry::new(storage.as_ref().clone(), worker_id));
     worker_registry.clone().start_heartbeat();
-    startup::log_initialized(&format!("Worker ID ({})", worker_id));
+    startup::log_initialized(&format!("Worker ID ({worker_id})"));
 
     // Identity for engine authentication (needs to be created before engine_client)
     let control_identity = if let Some(ref pem) = config.pem {
         ControlIdentity::from_pem(pem)
-            .map_err(|e| anyhow::anyhow!("Failed to load Control identity from PEM: {}", e))?
+            .map_err(|e| anyhow::anyhow!("Failed to load Control identity from PEM: {e}"))?
     } else {
         // Generate new identity and display in formatted box
         let identity = ControlIdentity::generate();

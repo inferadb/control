@@ -89,10 +89,10 @@ impl JwksCache {
             .get(jwks_url)
             .send()
             .await
-            .map_err(|e| CoreError::Internal(format!("Failed to fetch engine JWKS: {}", e)))?
+            .map_err(|e| CoreError::Internal(format!("Failed to fetch engine JWKS: {e}")))?
             .json()
             .await
-            .map_err(|e| CoreError::Internal(format!("Failed to parse engine JWKS: {}", e)))?;
+            .map_err(|e| CoreError::Internal(format!("Failed to parse engine JWKS: {e}")))?;
 
         // Update cache
         {
@@ -134,7 +134,7 @@ pub async fn require_engine_jwt(
 
     // Decode header to get kid
     let header = decode_header(token)
-        .map_err(|e| CoreError::Auth(format!("Failed to decode JWT header: {}", e)))?;
+        .map_err(|e| CoreError::Auth(format!("Failed to decode JWT header: {e}")))?;
 
     let kid = header.kid.ok_or_else(|| CoreError::Auth("JWT missing kid claim".to_string()))?;
 
@@ -149,7 +149,7 @@ pub async fn require_engine_jwt(
         .keys
         .iter()
         .find(|k| k.kid == kid)
-        .ok_or_else(|| CoreError::Auth(format!("Key ID {} not found in engine JWKS", kid)))?;
+        .ok_or_else(|| CoreError::Auth(format!("Key ID {kid} not found in engine JWKS")))?;
 
     // Verify algorithm
     if jwk.alg != "EdDSA" || jwk.kty != "OKP" || jwk.crv != "Ed25519" {
@@ -164,7 +164,7 @@ pub async fn require_engine_jwt(
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     let public_key_bytes = URL_SAFE_NO_PAD
         .decode(&jwk.x)
-        .map_err(|e| CoreError::Auth(format!("Failed to decode public key: {}", e)))?;
+        .map_err(|e| CoreError::Auth(format!("Failed to decode public key: {e}")))?;
 
     if public_key_bytes.len() != 32 {
         return Err(CoreError::Auth("Invalid Ed25519 public key length".to_string()).into());
@@ -174,7 +174,7 @@ pub async fn require_engine_jwt(
     let pem = create_ed25519_public_key_pem(&public_key_bytes);
 
     let decoding_key = DecodingKey::from_ed_pem(pem.as_bytes())
-        .map_err(|e| CoreError::Auth(format!("Failed to create decoding key: {}", e)))?;
+        .map_err(|e| CoreError::Auth(format!("Failed to create decoding key: {e}")))?;
 
     // Set up validation
     let mut validation = Validation::new(Algorithm::EdDSA);
@@ -189,7 +189,7 @@ pub async fn require_engine_jwt(
 
     // Verify JWT
     let token_data = decode::<EngineJwtClaims>(token, &decoding_key, &validation)
-        .map_err(|e| CoreError::Auth(format!("JWT validation failed: {}", e)))?;
+        .map_err(|e| CoreError::Auth(format!("JWT validation failed: {e}")))?;
 
     // Extract engine ID from subject claim (format: "server:{server_id}" from engine)
     let engine_id = token_data

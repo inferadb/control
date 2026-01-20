@@ -182,10 +182,9 @@ impl IntoResponse for ApiError {
             CoreError::AlreadyExists(msg) => (StatusCode::CONFLICT, msg),
             CoreError::RateLimit(msg) => (StatusCode::TOO_MANY_REQUESTS, msg),
             CoreError::TierLimit(msg) => (StatusCode::PAYMENT_REQUIRED, msg),
-            CoreError::TooManyPasskeys { max } => (
-                StatusCode::BAD_REQUEST,
-                format!("Too many passkeys registered (maximum: {})", max),
-            ),
+            CoreError::TooManyPasskeys { max } => {
+                (StatusCode::BAD_REQUEST, format!("Too many passkeys registered (maximum: {max})"))
+            },
             CoreError::External(msg) => (StatusCode::BAD_GATEWAY, msg),
             CoreError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             CoreError::Other(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
@@ -270,7 +269,7 @@ pub async fn register(
         tokio::spawn(async move {
             use inferadb_control_core::{EmailTemplate, VerificationEmailTemplate};
 
-            let verification_link = format!("{}/verify-email?token={}", frontend_url, token_str);
+            let verification_link = format!("{frontend_url}/verify-email?token={token_str}");
 
             let template = VerificationEmailTemplate {
                 user_name,
@@ -521,7 +520,7 @@ pub async fn request_password_reset(
         tokio::spawn(async move {
             use inferadb_control_core::{EmailTemplate, PasswordResetEmailTemplate};
 
-            let reset_link = format!("{}/reset-password?token={}", frontend_url, token_for_email);
+            let reset_link = format!("{frontend_url}/reset-password?token={token_for_email}");
 
             let template =
                 PasswordResetEmailTemplate { user_name, reset_link, reset_code: token_for_email };

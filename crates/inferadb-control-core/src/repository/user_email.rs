@@ -23,7 +23,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
 
     /// Generate key for email by ID
     fn email_key(id: i64) -> Vec<u8> {
-        format!("user_email:{}", id).into_bytes()
+        format!("user_email:{id}").into_bytes()
     }
 
     /// Generate key for user's email index
@@ -38,7 +38,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
 
     /// Generate key for primary email index
     fn primary_email_index_key(user_id: i64) -> Vec<u8> {
-        format!("user_email:user:{}:primary", user_id).into_bytes()
+        format!("user_email:user:{user_id}:primary").into_bytes()
     }
 
     /// Create a new user email
@@ -51,7 +51,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
             .storage
             .get(&email_idx_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check email uniqueness: {}", e)))?
+            .map_err(|e| Error::Internal(format!("Failed to check email uniqueness: {e}")))?
             .is_some()
         {
             return Err(Error::Validation(format!("Email '{}' is already in use", email.email)));
@@ -64,7 +64,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
                 .storage
                 .get(&primary_key)
                 .await
-                .map_err(|e| Error::Internal(format!("Failed to check primary email: {}", e)))?
+                .map_err(|e| Error::Internal(format!("Failed to check primary email: {e}")))?
                 .is_some()
             {
                 return Err(Error::Validation("User already has a primary email".to_string()));
@@ -73,14 +73,14 @@ impl<S: StorageBackend> UserEmailRepository<S> {
 
         // Serialize email
         let email_data = serde_json::to_vec(&email)
-            .map_err(|e| Error::Internal(format!("Failed to serialize email: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize email: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Store email record
         txn.set(Self::email_key(email.id), email_data);
@@ -102,7 +102,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit email creation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit email creation: {e}")))?;
 
         Ok(())
     }
@@ -114,12 +114,12 @@ impl<S: StorageBackend> UserEmailRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get email: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get email: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let email: UserEmail = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize email: {}", e)))?;
+                    .map_err(|e| Error::Internal(format!("Failed to deserialize email: {e}")))?;
                 Ok(Some(email))
             },
             None => Ok(None),
@@ -133,7 +133,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
             .storage
             .get(&email_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to lookup email: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to lookup email: {e}")))?;
 
         match id_data {
             Some(bytes) => {
@@ -154,7 +154,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
             .storage
             .get(&primary_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to lookup primary email: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to lookup primary email: {e}")))?;
 
         match id_data {
             Some(bytes) => {
@@ -171,15 +171,15 @@ impl<S: StorageBackend> UserEmailRepository<S> {
     /// Get all emails for a user
     pub async fn get_user_emails(&self, user_id: i64) -> Result<Vec<UserEmail>> {
         // Use range query to get all emails for this user
-        let prefix = format!("user_email:user:{}:", user_id);
+        let prefix = format!("user_email:user:{user_id}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("user_email:user:{}~", user_id).into_bytes();
+        let end = format!("user_email:user:{user_id}~").into_bytes();
 
         let kvs = self
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get user emails: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get user emails: {e}")))?;
 
         let mut emails = Vec::new();
         for kv in kvs {
@@ -233,14 +233,14 @@ impl<S: StorageBackend> UserEmailRepository<S> {
 
         // Serialize email
         let email_data = serde_json::to_vec(&email)
-            .map_err(|e| Error::Internal(format!("Failed to serialize email: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize email: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Update email record
         txn.set(Self::email_key(email.id), email_data);
@@ -262,7 +262,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit email update: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit email update: {e}")))?;
 
         Ok(())
     }
@@ -277,7 +277,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete email record
         txn.delete(Self::email_key(id));
@@ -296,7 +296,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit email deletion: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit email deletion: {e}")))?;
 
         Ok(())
     }

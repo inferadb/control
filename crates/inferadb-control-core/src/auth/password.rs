@@ -45,7 +45,7 @@ impl PasswordHasher {
         let password_hash = self
             .argon2
             .hash_password(password.as_bytes(), &salt)
-            .map_err(|e| Error::Internal(format!("Failed to hash password: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to hash password: {e}")))?;
 
         Ok(password_hash.to_string())
     }
@@ -62,7 +62,7 @@ impl PasswordHasher {
     /// Ok(()) if password matches, Err otherwise
     pub fn verify(&self, password: &str, hash: &str) -> Result<()> {
         let parsed_hash = PasswordHash::new(hash)
-            .map_err(|e| Error::Auth(format!("Invalid password hash: {}", e)))?;
+            .map_err(|e| Error::Auth(format!("Invalid password hash: {e}")))?;
 
         self.argon2
             .verify_password(password.as_bytes(), &parsed_hash)
@@ -80,8 +80,7 @@ impl PasswordHasher {
     pub fn validate_password(password: &str) -> Result<()> {
         if password.len() < MIN_PASSWORD_LENGTH {
             return Err(Error::Validation(format!(
-                "Password must be at least {} characters long",
-                MIN_PASSWORD_LENGTH
+                "Password must be at least {MIN_PASSWORD_LENGTH} characters long"
             )));
         }
 

@@ -44,7 +44,7 @@ impl Jwk {
         // Decode the base64 public key
         let public_key_bytes = BASE64
             .decode(public_key_base64)
-            .map_err(|e| format!("Failed to decode public key: {}", e))?;
+            .map_err(|e| format!("Failed to decode public key: {e}"))?;
 
         if public_key_bytes.len() != 32 {
             return Err(format!(
@@ -135,7 +135,7 @@ pub async fn get_org_jwks(
     );
 
     // Filter by organization (kid format: org-<org_id>-client-<client_id>-cert-<cert_id>)
-    let org_prefix = format!("org-{}-", org_id);
+    let org_prefix = format!("org-{org_id}-");
     let org_certs: Vec<_> =
         all_certs.into_iter().filter(|cert| cert.kid.starts_with(&org_prefix)).collect();
 

@@ -68,8 +68,7 @@ pub async fn deploy_schema(
     // Check if version already exists
     if repos.vault_schema.get_by_version(vault_id, &version).await?.is_some() {
         return Err(CoreError::AlreadyExists(format!(
-            "Schema version {} already exists for this vault",
-            version
+            "Schema version {version} already exists for this vault"
         ))
         .into());
     }
@@ -181,7 +180,7 @@ pub async fn get_schema(
         .vault_schema
         .get_by_version(vault_id, &schema_version)
         .await?
-        .ok_or_else(|| CoreError::NotFound(format!("Schema version {} not found", version)))?;
+        .ok_or_else(|| CoreError::NotFound(format!("Schema version {version} not found")))?;
 
     Ok(Json(GetSchemaResponse { schema: SchemaDetail::from(&schema) }))
 }
@@ -251,7 +250,7 @@ pub async fn activate_schema(
         .vault_schema
         .get_by_version(vault_id, &schema_version)
         .await?
-        .ok_or_else(|| CoreError::NotFound(format!("Schema version {} not found", version)))?;
+        .ok_or_else(|| CoreError::NotFound(format!("Schema version {version} not found")))?;
 
     // Activate the schema (Engine observes schema changes via Ledger watch)
     let activated_schema = repos.vault_schema.activate(schema.id).await?;
@@ -390,6 +389,6 @@ fn parse_deployment_status(status_str: &str) -> Result<SchemaDeploymentStatus> {
         "FAILED" => Ok(SchemaDeploymentStatus::Failed),
         "SUPERSEDED" => Ok(SchemaDeploymentStatus::Superseded),
         "ROLLED_BACK" => Ok(SchemaDeploymentStatus::RolledBack),
-        _ => Err(CoreError::Validation(format!("Invalid status: {}", status_str)).into()),
+        _ => Err(CoreError::Validation(format!("Invalid status: {status_str}")).into()),
     }
 }

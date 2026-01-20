@@ -21,12 +21,12 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
 
     /// Generate key for code by code string
     fn code_key(code: &str) -> Vec<u8> {
-        format!("authz_code:{}", code).into_bytes()
+        format!("authz_code:{code}").into_bytes()
     }
 
     /// Generate key for session's code index
     fn session_code_index_key(session_id: i64, code: &str) -> Vec<u8> {
-        format!("authz_code:session:{}:{}", session_id, code).into_bytes()
+        format!("authz_code:session:{session_id}:{code}").into_bytes()
     }
 
     /// Create a new authorization code
@@ -35,7 +35,7 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
     pub async fn create(&self, code: AuthorizationCode) -> Result<()> {
         // Serialize code
         let code_data = serde_json::to_vec(&code)
-            .map_err(|e| Error::Internal(format!("Failed to serialize code: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize code: {e}")))?;
 
         // Calculate TTL in seconds from now until expiry
         let ttl_seconds = code
@@ -48,7 +48,7 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Store code record with TTL
         txn.set(Self::code_key(&code.code), code_data.clone());
@@ -62,13 +62,13 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit code creation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit code creation: {e}")))?;
 
         // Set TTL for the code record (after commit since TTL is not transactional)
         self.storage
             .set_with_ttl(Self::code_key(&code.code), code_data, ttl_seconds)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to set code TTL: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to set code TTL: {e}")))?;
 
         // Set TTL for the session index
         self.storage
@@ -78,7 +78,7 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
                 ttl_seconds,
             )
             .await
-            .map_err(|e| Error::Internal(format!("Failed to set session index TTL: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to set session index TTL: {e}")))?;
 
         Ok(())
     }
@@ -92,12 +92,12 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get code: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get code: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let auth_code: AuthorizationCode = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize code: {}", e)))?;
+                    .map_err(|e| Error::Internal(format!("Failed to deserialize code: {e}")))?;
 
                 // Only return valid codes
                 if auth_code.is_valid() { Ok(Some(auth_code)) } else { Ok(None) }
@@ -116,7 +116,7 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
 
         // Serialize code
         let code_data = serde_json::to_vec(&code)
-            .map_err(|e| Error::Internal(format!("Failed to serialize code: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize code: {e}")))?;
 
         // Calculate TTL in seconds from now until expiry
         let ttl_seconds =
@@ -126,7 +126,7 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
         self.storage
             .set_with_ttl(Self::code_key(&code.code), code_data, ttl_seconds)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update code: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to update code: {e}")))?;
 
         Ok(())
     }
@@ -151,7 +151,7 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
                 .storage
                 .transaction()
                 .await
-                .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+                .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
             // Delete code record
             txn.delete(Self::code_key(code));
@@ -162,7 +162,7 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
             // Commit transaction
             txn.commit()
                 .await
-                .map_err(|e| Error::Internal(format!("Failed to commit code deletion: {}", e)))?;
+                .map_err(|e| Error::Internal(format!("Failed to commit code deletion: {e}")))?;
         }
 
         Ok(())

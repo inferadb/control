@@ -361,9 +361,9 @@ impl StartupDisplay {
                                 truncated.push(c);
                                 width += char_width;
                             }
-                            (format!("{yellow}{}...{reset}", truncated), value_col_width)
+                            (format!("{yellow}{truncated}...{reset}"), value_col_width)
                         } else {
-                            (format!("{yellow}{}{reset}", val), display_width)
+                            (format!("{yellow}{val}{reset}"), display_width)
                         }
                     },
                     ConfigEntryStyle::Normal => {
@@ -382,9 +382,9 @@ impl StartupDisplay {
                                 truncated.push(c);
                                 width += char_width;
                             }
-                            (format!("{green}{}...{reset}", truncated), value_col_width)
+                            (format!("{green}{truncated}...{reset}"), value_col_width)
                         } else {
-                            (format!("{green}{}{reset}", val), display_width)
+                            (format!("{green}{val}{reset}"), display_width)
                         }
                     },
                     ConfigEntryStyle::Separator => unreachable!(), // Handled above
@@ -475,9 +475,9 @@ pub fn private_key_hint(pem: &str) -> String {
     if base64_content.len() > 8 {
         let start = &base64_content[..4];
         let end = &base64_content[base64_content.len() - 4..];
-        format!("✓ {}...{}", start, end)
+        format!("✓ {start}...{end}")
     } else if !base64_content.is_empty() {
-        format!("✓ {}", base64_content)
+        format!("✓ {base64_content}")
     } else {
         "✓ Configured".to_string()
     }

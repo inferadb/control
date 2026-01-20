@@ -22,17 +22,17 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
 
     /// Generate key for token by ID
     fn token_key(id: i64) -> Vec<u8> {
-        format!("password_reset_token:{}", id).into_bytes()
+        format!("password_reset_token:{id}").into_bytes()
     }
 
     /// Generate key for token string index
     fn token_string_index_key(token: &str) -> Vec<u8> {
-        format!("password_reset_token:token:{}", token).into_bytes()
+        format!("password_reset_token:token:{token}").into_bytes()
     }
 
     /// Generate key for user's token index
     fn user_token_index_key(user_id: i64, token_id: i64) -> Vec<u8> {
-        format!("password_reset_token:user:{}:{}", user_id, token_id).into_bytes()
+        format!("password_reset_token:user:{user_id}:{token_id}").into_bytes()
     }
 
     /// Create a new password reset token
@@ -41,7 +41,7 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
     pub async fn create(&self, token: UserPasswordResetToken) -> Result<()> {
         // Serialize token
         let token_data = serde_json::to_vec(&token)
-            .map_err(|e| Error::Internal(format!("Failed to serialize token: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize token: {e}")))?;
 
         // Expired tokens are filtered out in get() since transactions don't support TTL
 
@@ -50,7 +50,7 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Store token record
         txn.set(Self::token_key(token.id), token_data);
@@ -67,7 +67,7 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit token creation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit token creation: {e}")))?;
 
         Ok(())
     }
@@ -81,12 +81,12 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get token: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get token: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let token: UserPasswordResetToken = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize token: {}", e)))?;
+                    .map_err(|e| Error::Internal(format!("Failed to deserialize token: {e}")))?;
 
                 Ok(Some(token))
             },
@@ -103,7 +103,7 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
             .storage
             .get(&index_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get token by string: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get token by string: {e}")))?;
 
         match data {
             Some(bytes) => {
@@ -122,15 +122,15 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
     /// Returns all tokens (used and unused) for the user
     pub async fn get_by_user(&self, user_id: i64) -> Result<Vec<UserPasswordResetToken>> {
         // Use range query to get all tokens for this user
-        let prefix = format!("password_reset_token:user:{}:", user_id);
+        let prefix = format!("password_reset_token:user:{user_id}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("password_reset_token:user:{}~", user_id).into_bytes();
+        let end = format!("password_reset_token:user:{user_id}~").into_bytes();
 
         let kvs = self
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get user tokens: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get user tokens: {e}")))?;
 
         let mut tokens = Vec::new();
         for kv in kvs {
@@ -150,14 +150,14 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
     pub async fn update(&self, token: UserPasswordResetToken) -> Result<()> {
         // Serialize token
         let token_data = serde_json::to_vec(&token)
-            .map_err(|e| Error::Internal(format!("Failed to serialize token: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize token: {e}")))?;
 
         // Update token record
         let token_key = Self::token_key(token.id);
         self.storage
             .set(token_key, token_data)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update token: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to update token: {e}")))?;
 
         Ok(())
     }
@@ -165,17 +165,15 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
     /// Delete a token (revoke it)
     pub async fn delete(&self, id: i64) -> Result<()> {
         // Get the token first to get the token string and user ID for index cleanup
-        let token = self
-            .get(id)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Token {} not found", id)))?;
+        let token =
+            self.get(id).await?.ok_or_else(|| Error::NotFound(format!("Token {id} not found")))?;
 
         // Use transaction to delete all related keys atomically
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete main token record
         txn.delete(Self::token_key(id));
@@ -189,7 +187,7 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit token deletion: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit token deletion: {e}")))?;
 
         Ok(())
     }

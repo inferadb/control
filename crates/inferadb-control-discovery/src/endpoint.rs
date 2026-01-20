@@ -110,7 +110,7 @@ mod tests {
     #[test]
     fn test_endpoint_display() {
         let endpoint = Endpoint::healthy("http://10.0.1.2:8080".to_string());
-        assert_eq!(format!("{}", endpoint), "http://10.0.1.2:8080 (Healthy)");
+        assert_eq!(format!("{endpoint}"), "http://10.0.1.2:8080 (Healthy)");
     }
 
     #[test]

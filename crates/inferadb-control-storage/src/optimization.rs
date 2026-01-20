@@ -611,7 +611,7 @@ mod tests {
 
         let mut batch = optimized.batch_writer();
         for i in 0..5 {
-            batch.set(format!("key{}", i).into_bytes(), format!("value{}", i).into_bytes());
+            batch.set(format!("key{i}").into_bytes(), format!("value{i}").into_bytes());
         }
 
         let stats = batch.flush().await.expect("flush failed");
@@ -620,8 +620,8 @@ mod tests {
 
         // Verify all writes were applied
         for i in 0..5 {
-            let val = backend.get(format!("key{}", i).as_bytes()).await.expect("get failed");
-            assert_eq!(val, Some(Bytes::from(format!("value{}", i))));
+            let val = backend.get(format!("key{i}").as_bytes()).await.expect("get failed");
+            assert_eq!(val, Some(Bytes::from(format!("value{i}"))));
         }
     }
 
@@ -636,7 +636,7 @@ mod tests {
         let mut batch = optimized.batch_writer();
         // Each operation is roughly 60+ bytes (key + value + overhead)
         for i in 0..5 {
-            batch.set(format!("key{}", i).into_bytes(), format!("value{}", i).into_bytes());
+            batch.set(format!("key{i}").into_bytes(), format!("value{i}").into_bytes());
         }
 
         let stats = batch.flush().await.expect("flush failed");
@@ -645,8 +645,8 @@ mod tests {
 
         // Verify all writes were applied
         for i in 0..5 {
-            let val = backend.get(format!("key{}", i).as_bytes()).await.expect("get failed");
-            assert_eq!(val, Some(Bytes::from(format!("value{}", i))));
+            let val = backend.get(format!("key{i}").as_bytes()).await.expect("get failed");
+            assert_eq!(val, Some(Bytes::from(format!("value{i}"))));
         }
     }
 
@@ -777,8 +777,8 @@ mod tests {
         // Add many operations
         for i in 0..500 {
             batch.set(
-                format!("stress_key_{}", i).into_bytes(),
-                format!("stress_value_{}", i).into_bytes(),
+                format!("stress_key_{i}").into_bytes(),
+                format!("stress_value_{i}").into_bytes(),
             );
         }
 

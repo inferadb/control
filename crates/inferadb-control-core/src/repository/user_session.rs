@@ -23,17 +23,17 @@ impl<S: StorageBackend> UserSessionRepository<S> {
 
     /// Generate key for session by ID
     fn session_key(id: i64) -> Vec<u8> {
-        format!("session:{}", id).into_bytes()
+        format!("session:{id}").into_bytes()
     }
 
     /// Generate key for user's session index
     fn user_session_index_key(user_id: i64, session_id: i64) -> Vec<u8> {
-        format!("session:user:{}:{}", user_id, session_id).into_bytes()
+        format!("session:user:{user_id}:{session_id}").into_bytes()
     }
 
     /// Generate key for active session index
     fn active_session_index_key(id: i64) -> Vec<u8> {
-        format!("session:active:{}", id).into_bytes()
+        format!("session:active:{id}").into_bytes()
     }
 
     /// Create a new session
@@ -58,7 +58,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
 
         // Serialize session
         let session_data = serde_json::to_vec(&session)
-            .map_err(|e| Error::Internal(format!("Failed to serialize session: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize session: {e}")))?;
 
         // Calculate TTL in seconds from now until expiry
         let _ttl_seconds =
@@ -71,7 +71,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
         // Store session record
         txn.set(Self::session_key(session.id), session_data);
@@ -88,7 +88,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit session creation: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to commit session creation: {e}")))?;
 
         Ok(())
     }
@@ -102,13 +102,12 @@ impl<S: StorageBackend> UserSessionRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get session: {e}")))?;
 
         match data {
             Some(bytes) => {
-                let session: UserSession = serde_json::from_slice(&bytes).map_err(|e| {
-                    Error::Internal(format!("Failed to deserialize session: {}", e))
-                })?;
+                let session: UserSession = serde_json::from_slice(&bytes)
+                    .map_err(|e| Error::Internal(format!("Failed to deserialize session: {e}")))?;
 
                 // Only return active sessions
                 if session.is_active() { Ok(Some(session)) } else { Ok(None) }
@@ -120,15 +119,15 @@ impl<S: StorageBackend> UserSessionRepository<S> {
     /// Get all active sessions for a user
     pub async fn get_user_sessions(&self, user_id: i64) -> Result<Vec<UserSession>> {
         // Use range query to get all sessions for this user
-        let prefix = format!("session:user:{}:", user_id);
+        let prefix = format!("session:user:{user_id}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("session:user:{}~", user_id).into_bytes();
+        let end = format!("session:user:{user_id}~").into_bytes();
 
         let kvs = self
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get user sessions: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get user sessions: {e}")))?;
 
         let mut sessions = Vec::new();
         for kv in kvs {
@@ -162,13 +161,13 @@ impl<S: StorageBackend> UserSessionRepository<S> {
 
         // Serialize session
         let session_data = serde_json::to_vec(&session)
-            .map_err(|e| Error::Internal(format!("Failed to serialize session: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to serialize session: {e}")))?;
 
         // Update session record
         self.storage
             .set(Self::session_key(session.id), session_data)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update session: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to update session: {e}")))?;
 
         Ok(())
     }
@@ -220,7 +219,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
                 .storage
                 .transaction()
                 .await
-                .map_err(|e| Error::Internal(format!("Failed to start transaction: {}", e)))?;
+                .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
 
             // Delete session record
             txn.delete(Self::session_key(id));
@@ -232,9 +231,9 @@ impl<S: StorageBackend> UserSessionRepository<S> {
             txn.delete(Self::active_session_index_key(id));
 
             // Commit transaction
-            txn.commit().await.map_err(|e| {
-                Error::Internal(format!("Failed to commit session deletion: {}", e))
-            })?;
+            txn.commit()
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to commit session deletion: {e}")))?;
         }
 
         Ok(())
@@ -253,7 +252,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get active sessions: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Failed to get active sessions: {e}")))?;
 
         let mut cleaned = 0;
 
