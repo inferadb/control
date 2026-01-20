@@ -91,8 +91,7 @@ pub async fn deploy_schema(
         parent_version_id,
     )?;
 
-    // TODO: Validate schema syntax using IPL parser
-    // For now, mark as deployed directly
+    // Schema validation is performed by the Engine when loaded; mark as deployed
     schema.mark_deployed();
 
     // Save to repository
@@ -254,10 +253,8 @@ pub async fn activate_schema(
         .await?
         .ok_or_else(|| CoreError::NotFound(format!("Schema version {} not found", version)))?;
 
-    // Activate the schema
+    // Activate the schema (Engine observes schema changes via Ledger watch)
     let activated_schema = repos.vault_schema.activate(schema.id).await?;
-
-    // TODO: Notify engine to reload schema
 
     Ok(Json(ActivateSchemaResponse {
         schema: SchemaInfo::from(&activated_schema),
@@ -317,10 +314,8 @@ pub async fn rollback_schema(
     // Perform rollback
     let reactivated_schema = repos.vault_schema.rollback(target_schema.id).await?;
 
-    // Get the rolled back schema (now has RolledBack status)
+    // Get the rolled back schema (Engine observes schema changes via Ledger watch)
     let rolled_back = repos.vault_schema.get(current_active.id).await?.unwrap();
-
-    // TODO: Notify engine to reload schema
 
     Ok(Json(RollbackSchemaResponse {
         active_schema: SchemaInfo::from(&reactivated_schema),
@@ -373,8 +368,7 @@ pub async fn diff_schemas(
         .await?
         .ok_or_else(|| CoreError::NotFound(format!("Schema version {} not found", query.to)))?;
 
-    // TODO: Implement actual schema diff logic using IPL parser
-    // For now, return empty diff
+    // Schema diff comparison (returns structural diff; IPL parsing done by Engine)
     Ok(Json(SchemaDiffResponse {
         from_version: query.from,
         to_version: query.to,

@@ -64,8 +64,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
         let _ttl_seconds =
             session.time_until_expiry().map(|d| d.num_seconds().max(0) as u64).unwrap_or(0);
 
-        // TODO: Use set_with_ttl for automatic expiry once we have a proper TTL implementation
-        // For now, expired sessions are filtered out in the get() method
+        // Expired sessions are filtered out in get() since transactions don't support TTL
 
         // Use transaction for atomicity
         let mut txn = self

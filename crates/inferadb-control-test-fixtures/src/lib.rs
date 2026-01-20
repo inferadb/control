@@ -98,9 +98,9 @@ pub fn create_test_app(state: AppState) -> axum::Router {
 ///
 /// ```rust,no_run
 /// use inferadb_control_test_fixtures::extract_session_cookie;
-/// use axum::http::HeaderMap;
 ///
-/// let headers: HeaderMap = todo!(); // from response
+/// // Given response headers from an HTTP response:
+/// # let headers = axum::http::HeaderMap::new();
 /// if let Some(session) = extract_session_cookie(&headers) {
 ///     println!("Session cookie: {}", session);
 /// }

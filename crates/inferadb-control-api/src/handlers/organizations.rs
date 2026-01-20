@@ -658,7 +658,7 @@ fn invitation_to_response(invitation: OrganizationInvitation) -> InvitationRespo
     InvitationResponse {
         id: invitation.id,
         email: invitation.email,
-        role: format!("{:?}", invitation.role).to_uppercase(),
+        role: role_to_string(&invitation.role),
         created_at: invitation.created_at.to_rfc3339(),
         expires_at: invitation.expires_at.to_rfc3339(),
         invited_by_user_id: invitation.invited_by_user_id,
@@ -890,9 +890,9 @@ pub async fn accept_invitation(
     let org_response = OrganizationResponse {
         id: org.id,
         name: org.name,
-        tier: format!("{:?}", org.tier).to_uppercase(),
+        tier: tier_to_string(&org.tier),
         created_at: org.created_at.to_rfc3339(),
-        role: format!("{:?}", invitation.role).to_uppercase(),
+        role: role_to_string(&invitation.role),
     };
 
     Ok(Json(AcceptInvitationResponse { organization: org_response }))

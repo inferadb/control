@@ -14,7 +14,7 @@ version.workspace = true
 async-trait = { workspace = true }
 k8s-openapi = { workspace = true }
 kube = { workspace = true }
-parking_lot = "0.12"
+parking_lot = { workspace = true }
 prometheus = { version = "0.14", default-features = false }
 serde = { workspace = true }
 thiserror = { workspace = true }

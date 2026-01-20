@@ -16,7 +16,7 @@ inferadb-control-types = { path = "../inferadb-control-types" }
 
 # External dependencies
 anyhow = { workspace = true }
-parking_lot = "0.12"
+parking_lot = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

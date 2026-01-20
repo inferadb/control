@@ -14,7 +14,7 @@ version.workspace = true
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
-parking_lot = "0.12"
+parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }

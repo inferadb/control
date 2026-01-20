@@ -1323,8 +1323,9 @@ curl -X GET http://localhost:9092/internal/organizations/123456789 \
 Control caches engine JWKS to avoid fetching on every request:
 
 ```rust
-static JWKS_CACHE: once_cell::sync::Lazy<JwksCache> =
-    once_cell::sync::Lazy::new(|| JwksCache::new(900)); // 15 minutes TTL
+use std::sync::LazyLock;
+
+static JWKS_CACHE: LazyLock<JwksCache> = LazyLock::new(|| JwksCache::new(900)); // 15 minutes TTL
 ```
 
 **Cache Behavior**:

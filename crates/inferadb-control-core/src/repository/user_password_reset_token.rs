@@ -43,8 +43,7 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
         let token_data = serde_json::to_vec(&token)
             .map_err(|e| Error::Internal(format!("Failed to serialize token: {}", e)))?;
 
-        // TODO: Use set_with_ttl for automatic expiry once transaction supports TTL
-        // For now, expired tokens are filtered out in the get() method
+        // Expired tokens are filtered out in get() since transactions don't support TTL
 
         // Use transaction for atomicity
         let mut txn = self

@@ -2,13 +2,22 @@ use axum::{
     Json,
     extract::{Path, Request, State},
 };
-use inferadb_control_core::{RepositoryContext, error::Error as CoreError};
+use inferadb_control_core::{RepositoryContext, SessionType, error::Error as CoreError};
 use inferadb_control_types::dto::{ListSessionsResponse, RevokeSessionResponse, SessionInfo};
 
 use crate::{
     handlers::auth::{AppState, Result},
     middleware::extract_session_context,
 };
+
+/// Convert SessionType to uppercase string for API responses
+fn session_type_to_string(session_type: &SessionType) -> String {
+    match session_type {
+        SessionType::Web => "WEB".to_string(),
+        SessionType::Cli => "CLI".to_string(),
+        SessionType::Sdk => "SDK".to_string(),
+    }
+}
 
 /// List all active sessions for the current user
 ///
@@ -31,7 +40,7 @@ pub async fn list_sessions(
         .into_iter()
         .map(|s| SessionInfo {
             session_id: s.id,
-            session_type: format!("{:?}", s.session_type).to_uppercase(),
+            session_type: session_type_to_string(&s.session_type),
             created_at: s.created_at.to_rfc3339(),
             expires_at: s.expires_at.to_rfc3339(),
             last_activity_at: s.last_activity_at.to_rfc3339(),

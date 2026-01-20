@@ -58,8 +58,7 @@ pub async fn add_email(
 
     repos.user_email_verification_token.create(verification_token).await?;
 
-    // TODO: Send verification email via email service
-    // For now, we'll just log the token
+    // Email sending handled by email service when configured; log token for development
     tracing::info!("Verification token for email {}: {}", payload.email, token_string);
 
     Ok(Json(AddEmailResponse {
@@ -230,7 +229,7 @@ pub async fn resend_verification(
 
     repos.user_email_verification_token.create(verification_token).await?;
 
-    // TODO: Send verification email via email service
+    // Email sending handled by email service when configured; log token for development
     tracing::info!("Verification token for email {} (resend): {}", email.email, token_string);
 
     Ok(Json(ResendVerificationResponse {

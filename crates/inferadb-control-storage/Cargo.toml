@@ -20,7 +20,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 
 futures = { workspace = true }
-parking_lot = "0.12"
+parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

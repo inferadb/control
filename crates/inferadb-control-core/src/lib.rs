@@ -1,8 +1,18 @@
-// Re-export types from inferadb-control-types
 // Re-export configuration from dedicated config crate
 pub use inferadb_control_config as config;
 pub use inferadb_control_config::{ConfigRefresher, ControlConfig};
-pub use inferadb_control_types::{entities::*, error::*, *};
+// Re-export commonly used entity types at crate root for convenience
+pub use inferadb_control_types::entities::{
+    AuditEventType, AuditLog, AuditResourceType, AuthorizationCode, Client, ClientCertificate,
+    Organization, OrganizationInvitation, OrganizationMember, OrganizationPermission,
+    OrganizationRole, OrganizationTeam, OrganizationTeamMember, OrganizationTeamPermission,
+    OrganizationTier, PasskeyCredential, SessionType, User, UserEmail, UserEmailVerificationToken,
+    UserPasswordResetToken, UserSession, Vault, VaultRefreshToken, VaultRole, VaultSchema,
+    VaultSyncStatus, VaultTeamGrant, VaultUserGrant,
+};
+pub use inferadb_control_types::{Error, PaginationMeta, Result};
+// Re-export types modules (explicit instead of triple-wildcard for clarity)
+pub use inferadb_control_types::{dto, entities, error, identity};
 
 pub mod auth;
 pub mod clock;

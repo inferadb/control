@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use axum::{
     extract::{Request, State},
@@ -106,8 +106,7 @@ impl JwksCache {
 
 /// Global JWKS cache (lazy initialized with default TTL)
 /// The actual TTL is configured per-request from AppState config
-static JWKS_CACHE: once_cell::sync::Lazy<JwksCache> =
-    once_cell::sync::Lazy::new(|| JwksCache::new(300)); // 5 minutes default
+static JWKS_CACHE: LazyLock<JwksCache> = LazyLock::new(|| JwksCache::new(300)); // 5 minutes
 
 /// Engine JWT authentication middleware
 ///
