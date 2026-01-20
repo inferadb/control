@@ -4,7 +4,7 @@
 Multi-tenant administration headless APIs for InferaDB with Kubernetes-native deployment and WebAuthn authentication. This is the control plane service that manages users, organizations, vaults, and client authentication.
 
 ## Tech Stack
-- **Language**: Rust 1.85+ (stable toolchain)
+- **Language**: Rust 1.92+ (stable toolchain)
 - **Async Runtime**: Tokio
 - **Web Framework**: Axum (REST), Tonic (gRPC)
 - **Storage**: Ledger (production) or in-memory (development)

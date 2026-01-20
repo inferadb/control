@@ -1,7 +1,7 @@
 # InferaDB Control - Code Style & Conventions
 
 ## Rust Toolchain
-- **Channel**: Stable (Rust 1.85+)
+- **Channel**: Stable (Rust 1.92+)
 - **Components**: clippy, rust-analyzer, rust-src, rustfmt
 - **Edition**: 2021
 

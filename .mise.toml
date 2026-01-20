@@ -10,7 +10,7 @@
 # See README.md for common development workflows.
 
 [tools]
-rust = "stable"
+rust = "1.92"
 node = "24"
 
 # Development tools (installed automatically with `mise install`)

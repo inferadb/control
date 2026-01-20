@@ -24,7 +24,7 @@ Control is designed for high performance:
 
 **Software:**
 
-- Rust: 1.85+
+- Rust: 1.92+
 - Storage: Ledger or Memory backend
 - Load Tool: k6
 
