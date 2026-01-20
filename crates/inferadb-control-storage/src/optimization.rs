@@ -5,7 +5,7 @@
 //! - **Batch Writes**: Accumulate multiple writes and flush in batches with automatic splitting to
 //!   respect transaction size limits
 //! - **Read Caching**: LRU cache for frequently accessed keys
-//! - **Size Estimation**: Accurate tracking of batch sizes to prevent transaction failures
+//! - **Cache Invalidation**: Automatic cache invalidation on batch writes
 //!
 //! # Usage
 //!
@@ -31,23 +31,18 @@ use std::{
 
 use async_trait::async_trait;
 use bytes::Bytes;
+// Re-export shared batch types from inferadb-storage
+pub use inferadb_storage::batch::{
+    BatchConfig, BatchFlushStats, BatchOperation, DEFAULT_MAX_BATCH_BYTES, DEFAULT_MAX_BATCH_SIZE,
+    TRANSACTION_SIZE_LIMIT,
+};
 use parking_lot::Mutex;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 use crate::{
     backend::{KeyValue, StorageBackend, StorageResult, Transaction},
     metrics::{Metrics, MetricsCollector},
 };
-
-/// Transaction size limit (10MB with safety margin)
-/// We use 9MB as the effective limit to leave room for metadata overhead
-const TRANSACTION_SIZE_LIMIT: usize = 9 * 1024 * 1024;
-
-/// Default maximum batch size (number of operations)
-const DEFAULT_MAX_BATCH_SIZE: usize = 1000;
-
-/// Default maximum batch byte size (8MB to stay well under transaction limit)
-const DEFAULT_MAX_BATCH_BYTES: usize = 8 * 1024 * 1024;
 
 /// Configuration for read caching
 #[derive(Debug, Clone)]
@@ -75,283 +70,6 @@ impl CacheConfig {
     /// Create a cache config with custom settings
     pub fn new(max_entries: usize, ttl_secs: u64) -> Self {
         Self { max_entries, ttl_secs, enabled: true }
-    }
-}
-
-/// Configuration for batch writes
-#[derive(Debug, Clone)]
-pub struct BatchConfig {
-    /// Maximum number of operations per batch
-    pub max_batch_size: usize,
-    /// Maximum byte size per batch (should be under the 10MB transaction limit)
-    pub max_batch_bytes: usize,
-    /// Enable batching (can be disabled for testing)
-    pub enabled: bool,
-}
-
-impl Default for BatchConfig {
-    fn default() -> Self {
-        Self {
-            max_batch_size: DEFAULT_MAX_BATCH_SIZE,
-            max_batch_bytes: DEFAULT_MAX_BATCH_BYTES,
-            enabled: true,
-        }
-    }
-}
-
-impl BatchConfig {
-    /// Create a disabled batch config
-    pub fn disabled() -> Self {
-        Self { max_batch_size: 0, max_batch_bytes: 0, enabled: false }
-    }
-
-    /// Create a batch config with custom settings
-    pub fn new(max_batch_size: usize, max_batch_bytes: usize) -> Self {
-        Self { max_batch_size, max_batch_bytes, enabled: true }
-    }
-
-    /// Create a batch config optimized for large transactions
-    pub fn for_large_transactions() -> Self {
-        Self {
-            max_batch_size: DEFAULT_MAX_BATCH_SIZE,
-            max_batch_bytes: TRANSACTION_SIZE_LIMIT,
-            enabled: true,
-        }
-    }
-}
-
-/// Represents a single write operation in a batch
-#[derive(Debug, Clone)]
-pub enum BatchOperation {
-    /// Set a key-value pair
-    Set { key: Vec<u8>, value: Vec<u8> },
-    /// Delete a key
-    Delete { key: Vec<u8> },
-}
-
-impl BatchOperation {
-    /// Calculate the approximate size of this operation in bytes
-    pub fn size_bytes(&self) -> usize {
-        match self {
-            BatchOperation::Set { key, value } => {
-                // Key + value + overhead for encoding (estimate ~50 bytes)
-                key.len() + value.len() + 50
-            },
-            BatchOperation::Delete { key } => {
-                // Key + overhead
-                key.len() + 50
-            },
-        }
-    }
-
-    /// Get the key for this operation
-    pub fn key(&self) -> &[u8] {
-        match self {
-            BatchOperation::Set { key, .. } => key,
-            BatchOperation::Delete { key } => key,
-        }
-    }
-}
-
-/// Statistics from a batch flush operation
-#[derive(Debug, Clone, Default)]
-pub struct BatchFlushStats {
-    /// Number of operations flushed
-    pub operations_count: usize,
-    /// Number of sub-batches created (due to size limits)
-    pub batches_count: usize,
-    /// Total bytes written
-    pub total_bytes: usize,
-    /// Time taken to flush
-    pub duration: Duration,
-}
-
-/// Batch writer for accumulating and flushing write operations
-///
-/// This writer accumulates write operations and flushes them in optimized batches.
-/// It automatically splits large batches to respect transaction size limits.
-pub struct BatchWriter<B: StorageBackend> {
-    backend: B,
-    operations: Vec<BatchOperation>,
-    current_size_bytes: usize,
-    config: BatchConfig,
-    cache: Option<Arc<Mutex<LruCache>>>,
-}
-
-impl<B: StorageBackend + Clone> BatchWriter<B> {
-    /// Create a new batch writer
-    pub fn new(backend: B, config: BatchConfig, cache: Option<Arc<Mutex<LruCache>>>) -> Self {
-        Self { backend, operations: Vec::new(), current_size_bytes: 0, config, cache }
-    }
-
-    /// Add a set operation to the batch
-    pub fn set(&mut self, key: Vec<u8>, value: Vec<u8>) {
-        let op = BatchOperation::Set { key, value };
-        self.current_size_bytes += op.size_bytes();
-        self.operations.push(op);
-    }
-
-    /// Add a delete operation to the batch
-    pub fn delete(&mut self, key: Vec<u8>) {
-        let op = BatchOperation::Delete { key };
-        self.current_size_bytes += op.size_bytes();
-        self.operations.push(op);
-    }
-
-    /// Get the current number of pending operations
-    pub fn pending_count(&self) -> usize {
-        self.operations.len()
-    }
-
-    /// Get the current estimated size in bytes
-    pub fn pending_bytes(&self) -> usize {
-        self.current_size_bytes
-    }
-
-    /// Check if the batch should be flushed based on size limits
-    pub fn should_flush(&self) -> bool {
-        if !self.config.enabled {
-            return !self.operations.is_empty();
-        }
-        self.operations.len() >= self.config.max_batch_size
-            || self.current_size_bytes >= self.config.max_batch_bytes
-    }
-
-    /// Split operations into sub-batches that fit within size limits
-    fn split_into_batches(&self) -> Vec<Vec<&BatchOperation>> {
-        if self.operations.is_empty() {
-            return Vec::new();
-        }
-
-        let max_bytes =
-            if self.config.enabled { self.config.max_batch_bytes } else { TRANSACTION_SIZE_LIMIT };
-
-        let max_ops = if self.config.enabled { self.config.max_batch_size } else { usize::MAX };
-
-        let mut batches = Vec::new();
-        let mut current_batch = Vec::new();
-        let mut current_bytes = 0usize;
-
-        for op in &self.operations {
-            let op_size = op.size_bytes();
-
-            // If this single operation exceeds the limit, it goes in its own batch
-            // (storage backend will reject it, but we let it through for proper error handling)
-            if op_size > max_bytes {
-                if !current_batch.is_empty() {
-                    batches.push(current_batch);
-                    current_batch = Vec::new();
-                    current_bytes = 0;
-                }
-                batches.push(vec![op]);
-                continue;
-            }
-
-            // Check if adding this operation would exceed limits
-            if (current_bytes + op_size > max_bytes || current_batch.len() >= max_ops)
-                && !current_batch.is_empty()
-            {
-                batches.push(current_batch);
-                current_batch = Vec::new();
-                current_bytes = 0;
-            }
-
-            current_batch.push(op);
-            current_bytes += op_size;
-        }
-
-        if !current_batch.is_empty() {
-            batches.push(current_batch);
-        }
-
-        batches
-    }
-
-    /// Flush all pending operations to the backend
-    ///
-    /// This method splits operations into appropriately-sized batches and
-    /// commits each batch in a separate transaction for optimal performance.
-    pub async fn flush(&mut self) -> StorageResult<BatchFlushStats> {
-        if self.operations.is_empty() {
-            return Ok(BatchFlushStats::default());
-        }
-
-        let start = Instant::now();
-        let total_ops = self.operations.len();
-        let total_bytes = self.current_size_bytes;
-
-        let batches = self.split_into_batches();
-        let batches_count = batches.len();
-
-        debug!(
-            operations = total_ops,
-            bytes = total_bytes,
-            batches = batches_count,
-            "Flushing batch writes"
-        );
-
-        // Invalidate cache entries for all keys being written
-        if let Some(cache) = &self.cache {
-            let mut cache = cache.lock();
-            for op in &self.operations {
-                cache.invalidate(op.key());
-            }
-        }
-
-        // Execute each sub-batch in its own transaction
-        for (batch_idx, batch_ops) in batches.into_iter().enumerate() {
-            let mut txn = self.backend.transaction().await?;
-
-            for op in batch_ops {
-                match op {
-                    BatchOperation::Set { key, value } => {
-                        txn.set(key.clone(), value.clone());
-                    },
-                    BatchOperation::Delete { key } => {
-                        txn.delete(key.clone());
-                    },
-                }
-            }
-
-            txn.commit().await.map_err(|e| {
-                warn!(batch = batch_idx, error = %e, "Batch commit failed");
-                e
-            })?;
-
-            trace!(batch = batch_idx, "Batch committed successfully");
-        }
-
-        // Clear the pending operations
-        self.operations.clear();
-        self.current_size_bytes = 0;
-
-        let stats = BatchFlushStats {
-            operations_count: total_ops,
-            batches_count,
-            total_bytes,
-            duration: start.elapsed(),
-        };
-
-        debug!(
-            operations = stats.operations_count,
-            batches = stats.batches_count,
-            bytes = stats.total_bytes,
-            duration_ms = stats.duration.as_millis(),
-            "Batch flush completed"
-        );
-
-        Ok(stats)
-    }
-
-    /// Flush if the batch has reached size limits, otherwise do nothing
-    pub async fn flush_if_needed(&mut self) -> StorageResult<Option<BatchFlushStats>> {
-        if self.should_flush() { Ok(Some(self.flush().await?)) } else { Ok(None) }
-    }
-
-    /// Clear all pending operations without flushing
-    pub fn clear(&mut self) {
-        self.operations.clear();
-        self.current_size_bytes = 0;
     }
 }
 
@@ -437,6 +155,73 @@ impl LruCache {
     }
 }
 
+/// Batch writer with cache invalidation support
+///
+/// This wraps the shared `inferadb_storage::BatchWriter` and adds cache invalidation
+/// on flush. This ensures cache consistency when using batch operations.
+pub struct BatchWriter<B: StorageBackend> {
+    inner: inferadb_storage::BatchWriter<B>,
+    cache: Option<Arc<Mutex<LruCache>>>,
+}
+
+impl<B: StorageBackend + Clone> BatchWriter<B> {
+    /// Create a new batch writer with optional cache
+    pub fn new(backend: B, config: BatchConfig, cache: Option<Arc<Mutex<LruCache>>>) -> Self {
+        Self { inner: inferadb_storage::BatchWriter::new(backend, config), cache }
+    }
+
+    /// Add a set operation to the batch
+    pub fn set(&mut self, key: Vec<u8>, value: Vec<u8>) {
+        self.inner.set(key, value);
+    }
+
+    /// Add a delete operation to the batch
+    pub fn delete(&mut self, key: Vec<u8>) {
+        self.inner.delete(key);
+    }
+
+    /// Get the current number of pending operations
+    pub fn pending_count(&self) -> usize {
+        self.inner.pending_count()
+    }
+
+    /// Get the current estimated size in bytes
+    pub fn pending_bytes(&self) -> usize {
+        self.inner.pending_bytes()
+    }
+
+    /// Check if the batch should be flushed based on size limits
+    pub fn should_flush(&self) -> bool {
+        self.inner.should_flush()
+    }
+
+    /// Flush all pending operations to the backend
+    ///
+    /// This method invalidates cache entries for all keys being written
+    /// before delegating to the underlying batch writer.
+    pub async fn flush(&mut self) -> StorageResult<BatchFlushStats> {
+        // Invalidate cache entries for all keys being written
+        if let Some(cache) = &self.cache {
+            let mut cache = cache.lock();
+            for op in self.inner.pending_operations() {
+                cache.invalidate(op.key());
+            }
+        }
+
+        self.inner.flush().await
+    }
+
+    /// Flush if the batch has reached size limits, otherwise do nothing
+    pub async fn flush_if_needed(&mut self) -> StorageResult<Option<BatchFlushStats>> {
+        if self.should_flush() { Ok(Some(self.flush().await?)) } else { Ok(None) }
+    }
+
+    /// Clear all pending operations without flushing
+    pub fn clear(&mut self) {
+        self.inner.clear();
+    }
+}
+
 /// Optimized storage backend wrapper
 #[derive(Clone)]
 pub struct OptimizedBackend<B: StorageBackend> {
@@ -463,6 +248,7 @@ impl<B: StorageBackend + Clone> OptimizedBackend<B> {
     ///
     /// The batch writer accumulates operations and flushes them in optimized
     /// batches, automatically splitting to respect transaction size limits.
+    /// Cache entries are automatically invalidated on flush.
     ///
     /// # Example
     ///
@@ -704,12 +490,12 @@ mod tests {
         let optimized = OptimizedBackend::new(backend, cache_config, batch_config);
 
         // First get - cache miss
-        optimized.set(b"key1".to_vec(), b"value1".to_vec()).await.unwrap();
-        let val1 = optimized.get(b"key1").await.unwrap();
+        optimized.set(b"key1".to_vec(), b"value1".to_vec()).await.expect("set failed");
+        let val1 = optimized.get(b"key1").await.expect("get failed");
         assert_eq!(val1, Some(Bytes::from("value1")));
 
         // Second get - should hit cache
-        let val2 = optimized.get(b"key1").await.unwrap();
+        let val2 = optimized.get(b"key1").await.expect("get failed");
         assert_eq!(val2, Some(Bytes::from("value1")));
 
         let snapshot = optimized.metrics().snapshot();
@@ -724,14 +510,14 @@ mod tests {
         let optimized = OptimizedBackend::new(backend, cache_config, batch_config);
 
         // Set and cache
-        optimized.set(b"key1".to_vec(), b"value1".to_vec()).await.unwrap();
-        optimized.get(b"key1").await.unwrap();
+        optimized.set(b"key1".to_vec(), b"value1".to_vec()).await.expect("set failed");
+        optimized.get(b"key1").await.expect("get failed");
 
         // Update value - should invalidate cache
-        optimized.set(b"key1".to_vec(), b"value2".to_vec()).await.unwrap();
+        optimized.set(b"key1".to_vec(), b"value2".to_vec()).await.expect("set failed");
 
         // Next get should fetch new value
-        let val = optimized.get(b"key1").await.unwrap();
+        let val = optimized.get(b"key1").await.expect("get failed");
         assert_eq!(val, Some(Bytes::from("value2")));
     }
 
@@ -743,14 +529,14 @@ mod tests {
         let optimized = OptimizedBackend::new(backend, cache_config, batch_config);
 
         // Add 3 entries - oldest should be evicted
-        optimized.set(b"key1".to_vec(), b"value1".to_vec()).await.unwrap();
-        optimized.get(b"key1").await.unwrap();
+        optimized.set(b"key1".to_vec(), b"value1".to_vec()).await.expect("set failed");
+        optimized.get(b"key1").await.expect("get failed");
 
-        optimized.set(b"key2".to_vec(), b"value2".to_vec()).await.unwrap();
-        optimized.get(b"key2").await.unwrap();
+        optimized.set(b"key2".to_vec(), b"value2".to_vec()).await.expect("set failed");
+        optimized.get(b"key2").await.expect("get failed");
 
-        optimized.set(b"key3".to_vec(), b"value3".to_vec()).await.unwrap();
-        optimized.get(b"key3").await.unwrap();
+        optimized.set(b"key3".to_vec(), b"value3".to_vec()).await.expect("set failed");
+        optimized.get(b"key3").await.expect("get failed");
 
         let (cache_size, _) = optimized.cache_stats();
         assert_eq!(cache_size, 2, "Cache should not exceed max size");
@@ -763,9 +549,9 @@ mod tests {
         let batch_config = BatchConfig::disabled();
         let optimized = OptimizedBackend::new(backend, cache_config, batch_config);
 
-        optimized.set(b"key1".to_vec(), b"value1".to_vec()).await.unwrap();
-        optimized.get(b"key1").await.unwrap();
-        optimized.get(b"key1").await.unwrap();
+        optimized.set(b"key1".to_vec(), b"value1".to_vec()).await.expect("set failed");
+        optimized.get(b"key1").await.expect("get failed");
+        optimized.get(b"key1").await.expect("get failed");
 
         let snapshot = optimized.metrics().snapshot();
         assert_eq!(snapshot.cache_hits, 0, "Disabled cache should have no hits");
@@ -778,9 +564,9 @@ mod tests {
         let batch_config = BatchConfig::disabled();
         let optimized = OptimizedBackend::new(backend, cache_config, batch_config);
 
-        optimized.set(b"key1".to_vec(), b"value1".to_vec()).await.unwrap();
-        optimized.get(b"key1").await.unwrap();
-        optimized.delete(b"key1").await.unwrap();
+        optimized.set(b"key1".to_vec(), b"value1".to_vec()).await.expect("set failed");
+        optimized.get(b"key1").await.expect("get failed");
+        optimized.delete(b"key1").await.expect("delete failed");
 
         let snapshot = optimized.metrics().snapshot();
         assert_eq!(snapshot.set_count, 1);
@@ -804,14 +590,14 @@ mod tests {
 
         assert_eq!(batch.pending_count(), 3);
 
-        let stats = batch.flush().await.unwrap();
+        let stats = batch.flush().await.expect("flush failed");
         assert_eq!(stats.operations_count, 3);
         assert_eq!(stats.batches_count, 1);
 
         // Verify writes were applied
-        let val1 = backend.get(b"key1").await.unwrap();
+        let val1 = backend.get(b"key1").await.expect("get failed");
         assert_eq!(val1, Some(Bytes::from("value1")));
-        let val2 = backend.get(b"key2").await.unwrap();
+        let val2 = backend.get(b"key2").await.expect("get failed");
         assert_eq!(val2, Some(Bytes::from("value2")));
     }
 
@@ -828,13 +614,13 @@ mod tests {
             batch.set(format!("key{}", i).into_bytes(), format!("value{}", i).into_bytes());
         }
 
-        let stats = batch.flush().await.unwrap();
+        let stats = batch.flush().await.expect("flush failed");
         assert_eq!(stats.operations_count, 5);
         assert_eq!(stats.batches_count, 3); // 2 + 2 + 1
 
         // Verify all writes were applied
         for i in 0..5 {
-            let val = backend.get(format!("key{}", i).as_bytes()).await.unwrap();
+            let val = backend.get(format!("key{}", i).as_bytes()).await.expect("get failed");
             assert_eq!(val, Some(Bytes::from(format!("value{}", i))));
         }
     }
@@ -853,13 +639,13 @@ mod tests {
             batch.set(format!("key{}", i).into_bytes(), format!("value{}", i).into_bytes());
         }
 
-        let stats = batch.flush().await.unwrap();
+        let stats = batch.flush().await.expect("flush failed");
         assert_eq!(stats.operations_count, 5);
         assert!(stats.batches_count >= 2, "Should split into multiple batches");
 
         // Verify all writes were applied
         for i in 0..5 {
-            let val = backend.get(format!("key{}", i).as_bytes()).await.unwrap();
+            let val = backend.get(format!("key{}", i).as_bytes()).await.expect("get failed");
             assert_eq!(val, Some(Bytes::from(format!("value{}", i))));
         }
     }
@@ -893,15 +679,15 @@ mod tests {
         batch.set(b"key1".to_vec(), b"value1".to_vec());
 
         // Not at limit yet
-        let result = batch.flush_if_needed().await.unwrap();
+        let result = batch.flush_if_needed().await.expect("flush failed");
         assert!(result.is_none());
 
         batch.set(b"key2".to_vec(), b"value2".to_vec());
 
         // Now at limit
-        let result = batch.flush_if_needed().await.unwrap();
+        let result = batch.flush_if_needed().await.expect("flush failed");
         assert!(result.is_some());
-        assert_eq!(result.unwrap().operations_count, 2);
+        assert_eq!(result.expect("expected stats").operations_count, 2);
     }
 
     #[tokio::test]
@@ -912,7 +698,7 @@ mod tests {
         let optimized = OptimizedBackend::new(backend, cache_config, batch_config);
 
         let mut batch = optimized.batch_writer();
-        let stats = batch.flush().await.unwrap();
+        let stats = batch.flush().await.expect("flush failed");
 
         assert_eq!(stats.operations_count, 0);
         assert_eq!(stats.batches_count, 0);
@@ -926,16 +712,16 @@ mod tests {
         let optimized = OptimizedBackend::new(backend.clone(), cache_config, batch_config);
 
         // Pre-populate cache
-        optimized.set(b"key1".to_vec(), b"old_value".to_vec()).await.unwrap();
-        optimized.get(b"key1").await.unwrap(); // Cache it
+        optimized.set(b"key1".to_vec(), b"old_value".to_vec()).await.expect("set failed");
+        optimized.get(b"key1").await.expect("get failed"); // Cache it
 
         // Use batch writer to update
         let mut batch = optimized.batch_writer();
         batch.set(b"key1".to_vec(), b"new_value".to_vec());
-        batch.flush().await.unwrap();
+        batch.flush().await.expect("flush failed");
 
         // Verify cache was invalidated and new value is returned
-        let val = optimized.get(b"key1").await.unwrap();
+        let val = optimized.get(b"key1").await.expect("get failed");
         assert_eq!(val, Some(Bytes::from("new_value")));
     }
 
@@ -952,10 +738,10 @@ mod tests {
             BatchOperation::Delete { key: b"key3".to_vec() },
         ];
 
-        let stats = optimized.execute_batch(operations).await.unwrap();
+        let stats = optimized.execute_batch(operations).await.expect("execute failed");
         assert_eq!(stats.operations_count, 3);
 
-        let val1 = backend.get(b"key1").await.unwrap();
+        let val1 = backend.get(b"key1").await.expect("get failed");
         assert_eq!(val1, Some(Bytes::from("value1")));
     }
 
@@ -996,14 +782,14 @@ mod tests {
             );
         }
 
-        let stats = batch.flush().await.unwrap();
+        let stats = batch.flush().await.expect("flush failed");
         assert_eq!(stats.operations_count, 500);
         assert!(stats.batches_count > 1, "Large batch should be split");
 
         // Verify random samples
-        let val = backend.get(b"stress_key_0").await.unwrap();
+        let val = backend.get(b"stress_key_0").await.expect("get failed");
         assert_eq!(val, Some(Bytes::from("stress_value_0")));
-        let val = backend.get(b"stress_key_499").await.unwrap();
+        let val = backend.get(b"stress_key_499").await.expect("get failed");
         assert_eq!(val, Some(Bytes::from("stress_value_499")));
     }
 
@@ -1015,14 +801,14 @@ mod tests {
         let optimized = OptimizedBackend::new(backend, cache_config, batch_config);
 
         // Pre-populate and cache
-        optimized.set(b"key".to_vec(), b"old".to_vec()).await.unwrap();
-        optimized.get(b"key").await.unwrap();
+        optimized.set(b"key".to_vec(), b"old".to_vec()).await.expect("set failed");
+        optimized.get(b"key").await.expect("get failed");
 
         // Update via set - should invalidate cache
-        optimized.set(b"key".to_vec(), b"new".to_vec()).await.unwrap();
+        optimized.set(b"key".to_vec(), b"new".to_vec()).await.expect("set failed");
 
         // Verify cache was invalidated and new value is returned
-        let val = optimized.get(b"key").await.unwrap();
+        let val = optimized.get(b"key").await.expect("get failed");
         assert_eq!(val, Some(Bytes::from("new")));
     }
 
@@ -1036,12 +822,12 @@ mod tests {
         let optimized = OptimizedBackend::new(backend.clone(), cache_config, batch_config);
 
         // Write via transaction
-        let mut txn = optimized.transaction().await.unwrap();
+        let mut txn = optimized.transaction().await.expect("txn failed");
         txn.set(b"txn_key".to_vec(), b"value".to_vec());
-        txn.commit().await.unwrap();
+        txn.commit().await.expect("commit failed");
 
         // Value should be in backend
-        let val = backend.get(b"txn_key").await.unwrap();
+        let val = backend.get(b"txn_key").await.expect("get failed");
         assert_eq!(val, Some(Bytes::from("value")));
     }
 }

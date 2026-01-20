@@ -7,10 +7,11 @@ pub mod optimization;
 
 pub use backend::{KeyValue, StorageBackend, StorageError, StorageResult, Transaction};
 pub use coordination::{Coordinator, LeaderStatus, WorkerInfo};
-pub use factory::LedgerConfig;
-pub use factory::{Backend, StorageBackendType, StorageConfig, create_storage_backend};
+pub use factory::{
+    Backend, LedgerConfig, StorageBackendType, StorageConfig, create_storage_backend,
+};
 pub use memory::MemoryBackend;
-pub use metrics::{Metrics, MetricsCollector};
+pub use metrics::{Metrics, MetricsCollector, MetricsSnapshot};
 pub use optimization::{
     BatchConfig, BatchFlushStats, BatchOperation, BatchWriter, CacheConfig, LruCache,
     OptimizedBackend,

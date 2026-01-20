@@ -9,8 +9,10 @@ use inferadb_control_core::{
 };
 use inferadb_control_discovery::DiscoveryMode;
 use inferadb_control_engine_client::EngineClient;
-use inferadb_control_storage::LedgerConfig as StorageLedgerConfig;
-use inferadb_control_storage::factory::{StorageConfig, create_storage_backend};
+use inferadb_control_storage::{
+    LedgerConfig as StorageLedgerConfig,
+    factory::{StorageConfig, create_storage_backend},
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "inferadb-control")]
@@ -54,7 +56,8 @@ async fn main() -> Result<()> {
     // Load configuration
     let mut config = ControlConfig::load(&args.config)?;
 
-    // Apply environment-aware defaults (in development, auto-fallback to memory if no Ledger config)
+    // Apply environment-aware defaults (in development, auto-fallback to memory if no Ledger
+    // config)
     config.apply_environment_defaults(&args.environment);
 
     // Handle --dev-mode flag: force memory storage for development/testing
