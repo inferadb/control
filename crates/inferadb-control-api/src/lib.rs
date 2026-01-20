@@ -1,5 +1,7 @@
 // REST API handlers and routes
 
+#![deny(unsafe_code)]
+
 use std::sync::Arc;
 
 use inferadb_control_core::{ControlConfig, startup};

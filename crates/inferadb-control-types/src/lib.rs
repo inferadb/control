@@ -5,6 +5,8 @@
 //! This crate provides all core types used across the Control ecosystem,
 //! ensuring a single source of truth and preventing circular dependencies.
 
+#![deny(unsafe_code)]
+
 use serde::{Deserialize, Serialize};
 
 // ============================================================================

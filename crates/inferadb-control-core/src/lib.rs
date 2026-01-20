@@ -1,3 +1,5 @@
+#![deny(unsafe_code)]
+
 // Re-export configuration from dedicated config crate
 pub use inferadb_control_config as config;
 pub use inferadb_control_config::{ConfigRefresher, ControlConfig};

@@ -26,6 +26,8 @@
 //! The control service reads its configuration from the `control:` section. Any `engine:` section
 //! is ignored by control (and vice versa when engine reads the same file).
 
+#![deny(unsafe_code)]
+
 pub mod refresh;
 
 use std::path::Path;

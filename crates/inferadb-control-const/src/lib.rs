@@ -8,6 +8,8 @@
 //! - Business limit constants (max sessions, passkeys, organizations)
 //! - Rate limit category identifiers
 
+#![deny(unsafe_code)]
+
 pub mod auth;
 pub mod duration;
 pub mod limits;

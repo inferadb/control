@@ -9,6 +9,8 @@
 //! - **Static**: Use service URL directly (no discovery)
 //! - **Kubernetes**: Discover pod IPs from Kubernetes Endpoints API
 
+#![deny(unsafe_code)]
+
 use std::fmt;
 
 use async_trait::async_trait;

@@ -76,10 +76,10 @@ impl JwksCache {
         // Check cache first
         {
             let cache = self.jwks.read().await;
-            if let Some((jwks, cached_at)) = cache.as_ref() {
-                if cached_at.elapsed() < self.ttl {
-                    return Ok(jwks.clone());
-                }
+            if let Some((jwks, cached_at)) = cache.as_ref()
+                && cached_at.elapsed() < self.ttl
+            {
+                return Ok(jwks.clone());
             }
         }
 

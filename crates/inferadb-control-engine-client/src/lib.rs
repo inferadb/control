@@ -9,6 +9,8 @@
 //! - Automatic retry with failover
 //! - Background endpoint discovery refresh
 
+#![deny(unsafe_code)]
+
 pub mod client;
 pub mod discovery;
 pub mod refresh;

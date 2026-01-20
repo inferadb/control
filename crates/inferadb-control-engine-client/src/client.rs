@@ -230,11 +230,11 @@ impl EngineClient {
         // Check cache first
         {
             let cache = self.endpoint_cache.read();
-            if let Some(cached) = cache.as_ref() {
-                if cached.is_valid() {
-                    debug!(count = cached.endpoints.len(), "Using cached engine endpoints");
-                    return cached.endpoints.clone();
-                }
+            if let Some(cached) = cache.as_ref()
+                && cached.is_valid()
+            {
+                debug!(count = cached.endpoints.len(), "Using cached engine endpoints");
+                return cached.endpoints.clone();
             }
         }
 

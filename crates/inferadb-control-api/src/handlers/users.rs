@@ -99,14 +99,14 @@ pub async fn delete_user(
         if membership.role == inferadb_control_core::entities::OrganizationRole::Owner {
             // Check if this user is the only owner
             let owner_count = repos.org_member.count_owners(membership.organization_id).await?;
-            if owner_count <= 1 {
-                if let Some(org) = repos.org.get(membership.organization_id).await? {
-                    return Err(CoreError::Validation(format!(
-                        "Cannot delete account while being the only owner of organization '{}'. Please transfer ownership or delete the organization first.",
-                        org.name
-                    ))
-                    .into());
-                }
+            if owner_count <= 1
+                && let Some(org) = repos.org.get(membership.organization_id).await?
+            {
+                return Err(CoreError::Validation(format!(
+                    "Cannot delete account while being the only owner of organization '{}'. Please transfer ownership or delete the organization first.",
+                    org.name
+                ))
+                .into());
             }
         }
     }

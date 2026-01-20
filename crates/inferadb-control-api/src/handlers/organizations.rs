@@ -703,18 +703,17 @@ pub async fn create_invitation(
     }
 
     // Check if user with this email already exists and is a member
-    if let Some(existing_email) = repos.user_email.get_by_email(&payload.email).await? {
-        if repos
+    if let Some(existing_email) = repos.user_email.get_by_email(&payload.email).await?
+        && repos
             .org_member
             .get_by_org_and_user(org_ctx.organization_id, existing_email.user_id)
             .await?
             .is_some()
-        {
-            return Err(CoreError::AlreadyExists(
-                "User is already a member of this organization".to_string(),
-            )
-            .into());
-        }
+    {
+        return Err(CoreError::AlreadyExists(
+            "User is already a member of this organization".to_string(),
+        )
+        .into());
     }
 
     // Check for existing invitation

@@ -397,13 +397,13 @@ pub async fn logout(
     jar: CookieJar,
 ) -> Result<(CookieJar, Json<LogoutResponse>)> {
     // Get session ID from cookie
-    if let Some(cookie) = jar.get(SESSION_COOKIE_NAME) {
-        if let Ok(session_id) = cookie.value().parse::<i64>() {
-            let repos = RepositoryContext::new((*state.storage).clone());
-            // Revoke session
-            // Ignore errors if session doesn't exist
-            let _ = repos.user_session.revoke(session_id).await;
-        }
+    if let Some(cookie) = jar.get(SESSION_COOKIE_NAME)
+        && let Ok(session_id) = cookie.value().parse::<i64>()
+    {
+        let repos = RepositoryContext::new((*state.storage).clone());
+        // Revoke session
+        // Ignore errors if session doesn't exist
+        let _ = repos.user_session.revoke(session_id).await;
     }
 
     // Remove session cookie

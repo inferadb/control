@@ -20,6 +20,8 @@
 //! }
 //! ```
 
+#![deny(unsafe_code)]
+
 use std::sync::Arc;
 
 use axum::{body::Body, http::Request};
