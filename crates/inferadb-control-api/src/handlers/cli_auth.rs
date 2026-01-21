@@ -161,7 +161,7 @@ fn generate_secure_code(length: usize) -> Vec<u8> {
 mod tests {
     use std::sync::Arc;
 
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
 
     use super::*;
 
@@ -177,7 +177,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_authorize_invalid_method() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let state = crate::handlers::AppState::new_test(storage);
 
         let session_ctx = SessionContext { session_id: 1, user_id: 100 };
@@ -194,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_token_exchange_invalid_code() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let state = crate::handlers::AppState::new_test(storage);
 
         let req = CliTokenRequest {

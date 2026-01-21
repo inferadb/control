@@ -24,6 +24,24 @@ pub fn init() {
             "Total cache misses for endpoint discovery"
         );
 
+        // Signing key metrics
+        describe_counter!(
+            "inferadb_control_signing_keys_registered_total",
+            "Total number of signing keys registered in Ledger"
+        );
+        describe_counter!(
+            "inferadb_control_signing_keys_revoked_total",
+            "Total number of signing keys revoked in Ledger"
+        );
+        describe_counter!(
+            "inferadb_control_signing_keys_rotated_total",
+            "Total number of signing key rotations"
+        );
+        describe_histogram!(
+            "inferadb_control_ledger_key_write_duration_seconds",
+            "Duration of Ledger key write operations in seconds"
+        );
+
         // Histogram metrics
         describe_histogram!("http_request_duration_seconds", "HTTP request duration in seconds");
         describe_histogram!("db_query_duration_seconds", "Database query duration in seconds");
@@ -137,6 +155,46 @@ pub fn set_discovered_endpoints(count: i64) {
     gauge!("discovered_endpoints").set(count as f64);
 }
 
+/// Record a signing key registration in Ledger
+///
+/// # Arguments
+///
+/// * `org_id` - Organization ID that owns the key
+/// * `duration_secs` - Duration of the Ledger write operation in seconds
+pub fn record_signing_key_registered(org_id: i64, duration_secs: f64) {
+    counter!("inferadb_control_signing_keys_registered_total", "org_id" => org_id.to_string())
+        .increment(1);
+    histogram!("inferadb_control_ledger_key_write_duration_seconds", "operation" => "create")
+        .record(duration_secs);
+}
+
+/// Record a signing key revocation in Ledger
+///
+/// # Arguments
+///
+/// * `org_id` - Organization ID that owns the key
+/// * `reason` - Reason for revocation (e.g., "user_requested", "emergency", "rotation")
+/// * `duration_secs` - Duration of the Ledger write operation in seconds
+pub fn record_signing_key_revoked(org_id: i64, reason: &str, duration_secs: f64) {
+    counter!("inferadb_control_signing_keys_revoked_total", "org_id" => org_id.to_string(), "reason" => reason.to_string())
+        .increment(1);
+    histogram!("inferadb_control_ledger_key_write_duration_seconds", "operation" => "revoke")
+        .record(duration_secs);
+}
+
+/// Record a signing key rotation
+///
+/// # Arguments
+///
+/// * `org_id` - Organization ID that owns the key
+/// * `duration_secs` - Duration of the Ledger write operation in seconds
+pub fn record_signing_key_rotated(org_id: i64, duration_secs: f64) {
+    counter!("inferadb_control_signing_keys_rotated_total", "org_id" => org_id.to_string())
+        .increment(1);
+    histogram!("inferadb_control_ledger_key_write_duration_seconds", "operation" => "rotate")
+        .record(duration_secs);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +266,14 @@ mod tests {
         record_discovery_cache_hit();
         record_discovery_cache_miss();
         set_discovered_endpoints(5);
+    }
+
+    #[test]
+    fn test_record_signing_key_metrics() {
+        init();
+        record_signing_key_registered(123, 0.015);
+        record_signing_key_revoked(123, "user_requested", 0.010);
+        record_signing_key_revoked(456, "emergency", 0.005);
+        record_signing_key_rotated(123, 0.020);
     }
 }

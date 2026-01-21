@@ -27,9 +27,10 @@ pub use cli_auth::{CliAuthorizeRequest, CliAuthorizeResponse, CliTokenRequest, C
 pub use clients::{
     CertificateDetail, CertificateInfo, ClientDetail, ClientInfo, CreateCertificateRequest,
     CreateCertificateResponse, CreateClientRequest, CreateClientResponse,
-    DeleteCertificateResponse, DeleteClientResponse, GetCertificateResponse, GetClientResponse,
-    ListCertificatesResponse, ListClientsResponse, RevokeCertificateResponse, UpdateClientRequest,
-    UpdateClientResponse,
+    DeleteCertificateResponse, DeleteClientResponse, EmergencyRevocationRequest,
+    EmergencyRevocationResponse, GetCertificateResponse, GetClientResponse,
+    ListCertificatesResponse, ListClientsResponse, RevokeCertificateResponse,
+    RotateCertificateRequest, RotateCertificateResponse, UpdateClientRequest, UpdateClientResponse,
 };
 pub use emails::{
     AddEmailRequest, AddEmailResponse, EmailOperationResponse, ListEmailsResponse,

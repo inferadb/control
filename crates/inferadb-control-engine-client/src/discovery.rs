@@ -1,20 +1,18 @@
 //! Service discovery for policy service (engine) endpoints
 //!
-//! This module provides a thin wrapper around `inferadb-control-discovery` that
-//! returns simple URL strings instead of full `Endpoint` objects, for use by
-//! the engine client's load balancer.
+//! This module provides endpoint discovery for the engine client's load balancer.
+//! Currently supports static endpoint configuration. Kubernetes service discovery
+//! can be added when needed.
 
-use inferadb_control_discovery::{DiscoveryMode, EndpointDiscovery, create_discovery};
-use tracing::{error, info};
+use inferadb_control_types::DiscoveryMode;
+use tracing::info;
 
 /// Service discovery for policy service endpoints
 ///
-/// This is a convenience wrapper around the core discovery implementation
-/// that returns simple URL strings for the engine client's load balancer.
+/// This provides endpoint URLs for the engine client's load balancer.
+/// Currently uses static endpoints; Kubernetes discovery can be added later.
 #[derive(Debug)]
 pub struct ServiceDiscovery {
-    /// The underlying discovery implementation
-    discovery: Box<dyn EndpointDiscovery>,
     /// Service URL (used for building discovery query)
     service_url: String,
     /// Service port
@@ -26,8 +24,7 @@ pub struct ServiceDiscovery {
 impl ServiceDiscovery {
     /// Create a new service discovery instance
     pub fn new(service_url: String, port: u16, mode: DiscoveryMode) -> Self {
-        let discovery = create_discovery(&mode);
-        Self { discovery, service_url, port, mode }
+        Self { service_url, port, mode }
     }
 
     /// Discover endpoints based on the configured mode
@@ -36,16 +33,18 @@ impl ServiceDiscovery {
     pub async fn discover(&self) -> Vec<String> {
         let full_url = format!("{}:{}", self.service_url.trim_end_matches('/'), self.port);
 
-        match self.discovery.discover(&full_url).await {
-            Ok(endpoints) => {
-                let urls: Vec<String> = endpoints.into_iter().map(|e| e.url).collect();
-                info!(count = urls.len(), mode = ?self.mode, "Discovered endpoints");
-                urls
+        match &self.mode {
+            DiscoveryMode::None => {
+                info!(url = %full_url, "Using static endpoint");
+                vec![full_url]
             },
-            Err(e) => {
-                error!(error = %e, mode = ?self.mode, "Discovery failed, using static fallback");
-                // For static mode, the discovery crate returns the URL directly
-                // For other modes, fall back to the configured URL
+            DiscoveryMode::Kubernetes => {
+                // Kubernetes discovery not yet implemented in new architecture.
+                // Fall back to static endpoint for now.
+                info!(
+                    url = %full_url,
+                    "Kubernetes discovery not implemented, using static fallback"
+                );
                 vec![full_url]
             },
         }

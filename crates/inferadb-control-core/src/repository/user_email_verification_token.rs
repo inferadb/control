@@ -198,13 +198,13 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
 
 #[cfg(test)]
 mod tests {
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
 
     use super::*;
     use crate::IdGenerator;
 
     async fn create_test_repo() -> UserEmailVerificationTokenRepository<Backend> {
-        let storage = Backend::Memory(MemoryBackend::new());
+        let storage = Backend::memory();
         UserEmailVerificationTokenRepository::new(storage)
     }
 

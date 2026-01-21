@@ -8,8 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use inferadb_control_discovery::DiscoveryMode;
-use inferadb_control_types::{ControlIdentity, Result};
+use inferadb_control_types::{ControlIdentity, DiscoveryMode, Result};
 use parking_lot::RwLock;
 use reqwest::Client as HttpClient;
 use serde::Serialize;

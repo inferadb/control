@@ -166,8 +166,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_owner_has_all_permissions() {
-        use inferadb_control_storage::MemoryBackend;
-        let backend = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let backend = Arc::new(Backend::memory());
         let state = AppState::new_test(backend);
 
         let org_ctx = OrganizationContext {
@@ -198,8 +197,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_admin_no_owner_actions() {
-        use inferadb_control_storage::MemoryBackend;
-        let backend = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let backend = Arc::new(Backend::memory());
         let state = AppState::new_test(backend);
 
         let org_ctx = OrganizationContext {
@@ -232,10 +230,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_member_team_permissions() {
-        use inferadb_control_storage::MemoryBackend;
-        let memory = MemoryBackend::new();
-        let backend = Arc::new(Backend::Memory(memory.clone()));
-        let state = AppState::new_test(backend);
+        let backend = Backend::memory();
+        let memory = backend.as_memory().unwrap().clone();
+        let state = AppState::new_test(Arc::new(backend));
 
         let org_ctx = OrganizationContext {
             organization_id: 1,
@@ -283,10 +280,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_composite_permission() {
-        use inferadb_control_storage::MemoryBackend;
-        let memory = MemoryBackend::new();
-        let backend = Arc::new(Backend::Memory(memory.clone()));
-        let state = AppState::new_test(backend);
+        let backend = Backend::memory();
+        let memory = backend.as_memory().unwrap().clone();
+        let state = AppState::new_test(Arc::new(backend));
 
         let org_ctx = OrganizationContext {
             organization_id: 1,

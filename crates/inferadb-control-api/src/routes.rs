@@ -5,8 +5,8 @@ use axum::{
 
 use crate::{
     handlers::{
-        AppState, audit_logs, auth, cli_auth, clients, emails, health, jwks,
-        metrics as metrics_handler, organizations, schemas, sessions, teams, tokens, users, vaults,
+        AppState, audit_logs, auth, cli_auth, clients, emails, health, metrics as metrics_handler,
+        organizations, schemas, sessions, teams, tokens, users, vaults,
     },
     middleware::{
         logging_middleware, require_engine_jwt, require_organization_member, require_session,
@@ -68,6 +68,10 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route(
             "/control/v1/organizations/{org}/clients/{client}/certificates/{cert}",
             get(clients::get_certificate).delete(clients::revoke_certificate),
+        )
+        .route(
+            "/control/v1/organizations/{org}/clients/{client}/certificates/{cert}/rotate",
+            post(clients::rotate_certificate),
         )
         // Vault management routes
         .route("/control/v1/organizations/{org}/vaults", post(vaults::create_vault))
@@ -237,10 +241,6 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/control/v1/token", post(tokens::client_assertion_authenticate))
         // CLI token exchange endpoint (public, authorization code provides authentication)
         .route("/control/v1/auth/cli/token", post(cli_auth::cli_token_exchange))
-        // JWKS endpoints (public, no authentication required)
-        .route("/.well-known/jwks.json", get(jwks::get_global_jwks))
-        .route("/control/v1/organizations/{org}/jwks.json", get(jwks::get_org_jwks))
-        .route("/control/v1/organizations/{org}/.well-known/jwks.json", get(jwks::get_org_jwks))
         .with_state(state)
         .merge(org_scoped)
         .merge(protected)
@@ -257,28 +257,21 @@ pub fn public_routes(state: AppState) -> Router {
 }
 
 /// Create internal routes (engine-to-control communication)
-/// Exposes JWKS endpoints (no auth) and privileged /internal/v1/* endpoints (engine JWT auth)
+/// Exposes privileged /internal/v1/* endpoints (engine JWT auth)
 pub fn internal_routes(state: AppState) -> Router {
-    // Public JWKS endpoints (no authentication required)
-    // These are mirrored from public routes so servers can fetch JWKS from the internal port
-    let jwks_routes = Router::new()
-        .route("/internal/control-jwks.json", get(jwks::get_control_jwks))
-        // Organization JWKS endpoint - mirrored from public for engine-to-control cert fetching
-        .route("/control/v1/organizations/{org}/jwks.json", get(jwks::get_org_jwks))
-        .with_state(state.clone());
-
     // Privileged internal routes (require engine JWT authentication)
-    let privileged_routes = Router::new()
+    Router::new()
         // Organization GET endpoint - for engine-to-control org verification
         .route("/internal/organizations/{org}", get(organizations::get_organization_privileged))
         // Vault GET endpoint - for engine-to-control vault ownership verification
         .route("/internal/vaults/{vault}", get(vaults::get_vault_by_id_privileged))
+        // Emergency key revocation - for immediate key invalidation
+        .route(
+            "/internal/namespaces/{namespace}/keys/{kid}/revoke",
+            post(clients::emergency_revoke_key),
+        )
         .with_state(state.clone())
-        .layer(middleware::from_fn_with_state(state.clone(), require_engine_jwt));
-
-    // Combine JWKS (no auth) and privileged routes (engine JWT auth)
-    jwks_routes
-        .merge(privileged_routes)
+        .layer(middleware::from_fn_with_state(state.clone(), require_engine_jwt))
         // Add logging middleware to log all internal requests
         .layer(middleware::from_fn(logging_middleware))
 }

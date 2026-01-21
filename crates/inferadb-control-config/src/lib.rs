@@ -33,7 +33,7 @@ pub mod refresh;
 use std::path::Path;
 
 // Import discovery config types (used in ControlConfig struct)
-use inferadb_control_discovery::DiscoveryConfig;
+use inferadb_control_types::DiscoveryConfig;
 use inferadb_control_types::error::{Error, Result};
 pub use refresh::ConfigRefresher;
 use serde::{Deserialize, Serialize};

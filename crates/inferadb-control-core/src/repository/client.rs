@@ -235,12 +235,12 @@ impl<S: StorageBackend> ClientRepository<S> {
 
 #[cfg(test)]
 mod tests {
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
 
     use super::*;
 
     fn create_test_repo() -> ClientRepository<Backend> {
-        ClientRepository::new(Backend::Memory(MemoryBackend::new()))
+        ClientRepository::new(Backend::memory())
     }
 
     fn create_test_client(id: i64, org_id: i64, name: &str) -> Result<Client> {

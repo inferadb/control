@@ -4,7 +4,10 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
     aead::{Aead, AeadCore, KeyInit, OsRng},
 };
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use base64::{
+    Engine,
+    engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD},
+};
 use inferadb_control_types::error::{Error, Result};
 
 /// Master encryption key (256-bit / 32 bytes)
@@ -76,11 +79,7 @@ impl MasterKey {
             && !parent.exists()
         {
             fs::create_dir_all(parent).map_err(|e| {
-                Error::Config(format!(
-                    "Failed to create directory '{}': {}",
-                    parent.display(),
-                    e
-                ))
+                Error::Config(format!("Failed to create directory '{}': {}", parent.display(), e))
             })?;
         }
 
@@ -163,7 +162,7 @@ impl PrivateKeyEncryptor {
         combined.extend_from_slice(&ciphertext);
 
         // Encode to base64
-        Ok(BASE64.encode(&combined))
+        Ok(BASE64_STANDARD.encode(&combined))
     }
 
     /// Decrypt a private key
@@ -174,7 +173,7 @@ impl PrivateKeyEncryptor {
     /// longer needed.
     pub fn decrypt(&self, encrypted_base64: &str) -> Result<Vec<u8>> {
         // Decode from base64
-        let combined = BASE64
+        let combined = BASE64_STANDARD
             .decode(encrypted_base64)
             .map_err(|e| Error::Internal(format!("Failed to decode encrypted key: {e}")))?;
 
@@ -218,7 +217,8 @@ pub mod keypair {
         let signing_key = SigningKey::generate(&mut OsRng);
         let verifying_key: VerifyingKey = signing_key.verifying_key();
 
-        let public_key_base64 = BASE64.encode(verifying_key.as_bytes());
+        // JWK standard (RFC 7517) uses URL-safe base64 without padding for key material
+        let public_key_base64 = URL_SAFE_NO_PAD.encode(verifying_key.as_bytes());
         let private_key_bytes = signing_key.to_bytes().to_vec();
 
         (public_key_base64, private_key_bytes)
@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn test_decrypt_too_short() {
         let encryptor = create_test_encryptor();
-        let short_data = BASE64.encode(b"short");
+        let short_data = BASE64_STANDARD.encode(b"short");
         assert!(encryptor.decrypt(&short_data).is_err());
     }
 
@@ -359,9 +359,9 @@ mod tests {
         let encrypted = encryptor.encrypt(&private_key).unwrap();
 
         // Corrupt the ciphertext
-        let mut corrupted_bytes = BASE64.decode(&encrypted).unwrap();
+        let mut corrupted_bytes = BASE64_STANDARD.decode(&encrypted).unwrap();
         corrupted_bytes[20] ^= 0xFF; // Flip bits in ciphertext
-        let corrupted = BASE64.encode(&corrupted_bytes);
+        let corrupted = BASE64_STANDARD.encode(&corrupted_bytes);
 
         assert!(encryptor.decrypt(&corrupted).is_err());
     }
@@ -387,8 +387,8 @@ mod tests {
     fn test_keypair_generation() {
         let (public_key_base64, private_key_bytes) = keypair::generate();
 
-        // Public key should be base64 encoded 32 bytes (Ed25519)
-        let public_key_decoded = BASE64.decode(&public_key_base64).unwrap();
+        // Public key should be URL-safe base64 encoded 32 bytes (Ed25519, JWK standard)
+        let public_key_decoded = URL_SAFE_NO_PAD.decode(&public_key_base64).unwrap();
         assert_eq!(public_key_decoded.len(), 32);
 
         // Private key should be 32 bytes

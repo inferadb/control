@@ -611,7 +611,6 @@ pub async fn confirm_password_reset(
 
 #[cfg(test)]
 mod tests {
-    use inferadb_control_storage::MemoryBackend;
     use tower::ServiceExt;
 
     use super::*;
@@ -620,7 +619,7 @@ mod tests {
         // Initialize ID generator
         let _ = IdGenerator::init(1);
 
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let state = AppState::new_test(storage);
 
         axum::Router::new()
@@ -780,7 +779,7 @@ mod tests {
     #[tokio::test]
     async fn test_password_reset_flow() {
         let _ = IdGenerator::init(1);
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let state = AppState::new_test(storage.clone());
 
         let app = axum::Router::new()
@@ -873,7 +872,7 @@ mod tests {
     #[tokio::test]
     async fn test_password_reset_invalid_token() {
         let _ = IdGenerator::init(1);
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let state = AppState::new_test(storage);
 
         let app = axum::Router::new()
@@ -902,7 +901,7 @@ mod tests {
     #[tokio::test]
     async fn test_password_reset_revokes_all_sessions() {
         let _ = IdGenerator::init(1);
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let state = AppState::new_test(storage.clone());
 
         let app = axum::Router::new()

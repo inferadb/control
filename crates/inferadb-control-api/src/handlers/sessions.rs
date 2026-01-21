@@ -129,7 +129,7 @@ mod tests {
         IdGenerator,
         entities::{SessionType, UserSession},
     };
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
     use tower::ServiceExt;
 
     use super::*;
@@ -162,7 +162,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_sessions() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
 
         // Create test sessions
         let session1 = create_test_session_in_storage(storage.clone(), 1, 100).await;
@@ -189,7 +189,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_revoke_session() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
 
         // Create test sessions
         let session1 = create_test_session_in_storage(storage.clone(), 1, 100).await;
@@ -215,7 +215,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_revoke_other_sessions() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
 
         // Create test sessions
         let session1 = create_test_session_in_storage(storage.clone(), 1, 100).await;
@@ -247,7 +247,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cannot_revoke_other_users_session() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
 
         // Create sessions for different users
         let session1 = create_test_session_in_storage(storage.clone(), 1, 100).await;

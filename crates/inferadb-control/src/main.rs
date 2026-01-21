@@ -7,12 +7,12 @@ use inferadb_control_core::{
     ControlConfig, EmailService, IdGenerator, SmtpConfig, SmtpEmailService, WorkerRegistry,
     acquire_worker_id, logging, startup,
 };
-use inferadb_control_discovery::DiscoveryMode;
 use inferadb_control_engine_client::EngineClient;
 use inferadb_control_storage::{
     LedgerConfig as StorageLedgerConfig,
     factory::{StorageConfig, create_storage_backend},
 };
+use inferadb_control_types::DiscoveryMode;
 
 #[derive(Parser, Debug)]
 #[command(name = "inferadb-control")]

@@ -17,9 +17,9 @@ path = "src/main.rs"
 # Workspace crates
 inferadb-control-api = { path = "../inferadb-control-api" }
 inferadb-control-core = { path = "../inferadb-control-core" }
-inferadb-control-discovery = { path = "../inferadb-control-discovery" }
 inferadb-control-engine-client = { path = "../inferadb-control-engine-client" }
 inferadb-control-storage = { path = "../inferadb-control-storage" }
+inferadb-control-types = { path = "../inferadb-control-types" }
 
 # External dependencies
 anyhow = { workspace = true }

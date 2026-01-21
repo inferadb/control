@@ -68,6 +68,7 @@ pub enum AuditEventType {
     ClientUpdated,
     ClientDeleted,
     ClientCertificateCreated,
+    ClientCertificateRotated,
     ClientCertificateRevoked,
     ClientCertificateDeleted,
 

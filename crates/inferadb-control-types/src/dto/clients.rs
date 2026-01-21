@@ -185,3 +185,58 @@ pub struct RevokeCertificateResponse {
 pub struct DeleteCertificateResponse {
     pub message: String,
 }
+
+/// Request to rotate a certificate with a grace period.
+///
+/// Rotation creates a new certificate that becomes valid after the grace period,
+/// allowing the old certificate to remain valid during the overlap. This enables
+/// zero-downtime key rotation for clients.
+#[derive(Debug, Deserialize)]
+pub struct RotateCertificateRequest {
+    /// Name for the new certificate
+    pub name: String,
+    /// Grace period in seconds before the new key becomes valid (default: 300)
+    #[serde(default = "default_grace_period_seconds")]
+    pub grace_period_seconds: u64,
+}
+
+fn default_grace_period_seconds() -> u64 {
+    300 // 5 minutes
+}
+
+/// Response from rotating a certificate.
+///
+/// Contains the new certificate info and private key. The old certificate
+/// remains valid until the new certificate's `valid_from` time.
+#[derive(Debug, Serialize)]
+pub struct RotateCertificateResponse {
+    /// The new rotated certificate
+    pub certificate: CertificateInfo,
+    /// The new certificate's `valid_from` timestamp (RFC 3339)
+    pub valid_from: String,
+    /// The old certificate that was rotated (remains valid during grace period)
+    pub rotated_from: CertificateInfo,
+    /// Unencrypted private key (base64) - only returned once!
+    pub private_key: String,
+}
+
+/// Request to perform emergency revocation of a signing key.
+///
+/// This is a privileged endpoint for immediate key invalidation,
+/// bypassing normal cache TTL propagation delays.
+#[derive(Debug, Deserialize)]
+pub struct EmergencyRevocationRequest {
+    /// Reason for emergency revocation
+    pub reason: String,
+}
+
+/// Response from emergency key revocation.
+#[derive(Debug, Serialize)]
+pub struct EmergencyRevocationResponse {
+    /// Confirmation message
+    pub message: String,
+    /// The key ID that was revoked
+    pub kid: String,
+    /// The namespace where the key was revoked
+    pub namespace_id: i64,
+}

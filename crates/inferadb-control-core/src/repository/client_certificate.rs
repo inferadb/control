@@ -346,12 +346,12 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
 
 #[cfg(test)]
 mod tests {
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
 
     use super::*;
 
     fn create_test_repo() -> ClientCertificateRepository<Backend> {
-        ClientCertificateRepository::new(Backend::Memory(MemoryBackend::new()))
+        ClientCertificateRepository::new(Backend::memory())
     }
 
     fn create_test_cert(

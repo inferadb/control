@@ -1,5 +1,9 @@
 ---
 # ServiceAccount for InferaDB Control
+#
+# Note: Service discovery RBAC rules have been removed. In the Ledger-based
+# architecture, Control uses Ledger for signing key storage and communicates
+# with Engine via static endpoints. Kubernetes Endpoints discovery is not needed.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -8,36 +12,3 @@ metadata:
   labels:
     app.kubernetes.io/name: inferadb-control
     app.kubernetes.io/component: control-plane
-
----
-# ClusterRole for service discovery
-# Allows reading Endpoints resources across all namespaces
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: inferadb-control-discovery
-  labels:
-    app.kubernetes.io/name: inferadb-control
-    app.kubernetes.io/component: control-plane
-rules:
-  - apiGroups: [""]
-    resources: ["endpoints"]
-    verbs: ["get", "list", "watch"]
-
----
-# ClusterRoleBinding for service discovery
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: inferadb-control-discovery
-  labels:
-    app.kubernetes.io/name: inferadb-control
-    app.kubernetes.io/component: control-plane
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: inferadb-control-discovery
-subjects:
-  - kind: ServiceAccount
-    name: inferadb-control
-    namespace: inferadb

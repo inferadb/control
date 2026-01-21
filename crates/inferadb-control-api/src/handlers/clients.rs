@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
 };
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use chrono::{Duration, Utc};
 use inferadb_control_core::{
     Error as CoreError, IdGenerator, MasterKey, PrivateKeyEncryptor, RepositoryContext, keypair,
 };
@@ -11,16 +12,21 @@ use inferadb_control_types::{
     dto::{
         CertificateDetail, CertificateInfo, ClientDetail, ClientInfo, CreateCertificateRequest,
         CreateCertificateResponse, CreateClientRequest, CreateClientResponse, DeleteClientResponse,
-        GetCertificateResponse, GetClientResponse, ListCertificatesResponse, ListClientsResponse,
-        RevokeCertificateResponse, UpdateClientRequest, UpdateClientResponse,
+        EmergencyRevocationRequest, EmergencyRevocationResponse, GetCertificateResponse,
+        GetClientResponse, ListCertificatesResponse, ListClientsResponse,
+        RevokeCertificateResponse, RotateCertificateRequest, RotateCertificateResponse,
+        UpdateClientRequest, UpdateClientResponse,
     },
-    entities::{Client, ClientCertificate},
+    entities::{AuditEventType, AuditResourceType, Client, ClientCertificate},
 };
+use inferadb_storage::auth::PublicSigningKey;
+use serde_json::json;
 
 use crate::{
     AppState,
+    audit::{AuditEventParams, log_audit_event},
     handlers::auth::Result,
-    middleware::{OrganizationContext, require_admin_or_owner, require_member},
+    middleware::{EngineContext, OrganizationContext, require_admin_or_owner, require_member},
 };
 
 // ============================================================================
@@ -250,6 +256,12 @@ pub async fn delete_client(
 ///
 /// POST /v1/organizations/:org/clients/:client/certificates
 /// Required role: ADMIN or OWNER
+///
+/// This handler:
+/// 1. Generates an Ed25519 keypair
+/// 2. Stores the encrypted private key in Control's database
+/// 3. Writes the public key to Ledger (in the org's namespace)
+/// 4. Returns the private key to the caller (one-time only)
 pub async fn create_certificate(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
@@ -321,6 +333,72 @@ pub async fn create_certificate(
         kid = %cert.kid,
         "Certificate saved to repository"
     );
+
+    // Write public key to Ledger (in the org's namespace)
+    // This enables Engine to validate tokens without Control connectivity
+    let now = Utc::now();
+    let public_signing_key = PublicSigningKey {
+        kid: cert.kid.clone(),
+        public_key: public_key_base64.clone(),
+        client_id,
+        cert_id: cert.id,
+        created_at: now,
+        valid_from: now,
+        valid_until: None,
+        active: true,
+        revoked_at: None,
+    };
+
+    // org_id maps directly to namespace_id in Ledger
+    let namespace_id = org_ctx.organization_id;
+    let signing_key_store = state.storage.signing_key_store();
+
+    tracing::debug!(
+        namespace_id = namespace_id,
+        kid = %cert.kid,
+        "Writing public signing key to Ledger"
+    );
+
+    // Time the Ledger write operation for metrics
+    let ledger_start = std::time::Instant::now();
+    signing_key_store.create_key(namespace_id, &public_signing_key).await.map_err(|e| {
+        tracing::error!(
+            error = %e,
+            kid = %cert.kid,
+            "Failed to write public signing key to Ledger"
+        );
+        CoreError::Internal(format!("Failed to register signing key in Ledger: {e}"))
+    })?;
+    let ledger_duration = ledger_start.elapsed().as_secs_f64();
+
+    // Record metrics for signing key registration
+    inferadb_control_core::metrics::record_signing_key_registered(namespace_id, ledger_duration);
+
+    tracing::debug!(
+        namespace_id = namespace_id,
+        kid = %cert.kid,
+        duration_ms = ledger_duration * 1000.0,
+        "Public signing key written to Ledger"
+    );
+
+    // Log audit event for certificate creation
+    log_audit_event(
+        &state,
+        AuditEventType::ClientCertificateCreated,
+        AuditEventParams {
+            organization_id: Some(org_ctx.organization_id),
+            user_id: Some(org_ctx.member.user_id),
+            client_id: Some(client_id),
+            resource_type: Some(AuditResourceType::ClientCertificate),
+            resource_id: Some(cert.id),
+            event_data: Some(json!({
+                "kid": cert.kid,
+                "created_by": org_ctx.member.user_id,
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
 
     // Return private key (base64 encoded) - this is the ONLY time it will be available unencrypted
     let private_key_base64 = BASE64.encode(&private_key_bytes);
@@ -419,6 +497,10 @@ pub async fn get_certificate(
 /// Revokes the certificate, preventing it from being used for authentication.
 /// The certificate record is retained for audit purposes and will be automatically
 /// cleaned up after 90 days by a background job.
+///
+/// This handler:
+/// 1. Marks the certificate as revoked in Control's database
+/// 2. Revokes the public key in Ledger (propagates within cache TTL)
 pub async fn revoke_certificate(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
@@ -455,9 +537,417 @@ pub async fn revoke_certificate(
         return Err(CoreError::Validation("Certificate is already revoked".to_string()).into());
     }
 
-    // Revoke the certificate
+    // Revoke the certificate in Control's database
     cert.mark_revoked(org_ctx.member.user_id);
-    repos.client_certificate.update(cert).await?;
+    repos.client_certificate.update(cert.clone()).await?;
+
+    // Revoke the public key in Ledger
+    // org_id maps directly to namespace_id in Ledger
+    let namespace_id = org_ctx.organization_id;
+    let signing_key_store = state.storage.signing_key_store();
+
+    tracing::debug!(
+        namespace_id = namespace_id,
+        kid = %cert.kid,
+        "Revoking public signing key in Ledger"
+    );
+
+    // Time the Ledger revoke operation for metrics
+    let ledger_start = std::time::Instant::now();
+    signing_key_store
+        .revoke_key(namespace_id, &cert.kid, Some("Certificate revoked by user"))
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                error = %e,
+                kid = %cert.kid,
+                "Failed to revoke public signing key in Ledger"
+            );
+            CoreError::Internal(format!("Failed to revoke signing key in Ledger: {e}"))
+        })?;
+    let ledger_duration = ledger_start.elapsed().as_secs_f64();
+
+    // Record metrics for signing key revocation
+    inferadb_control_core::metrics::record_signing_key_revoked(
+        namespace_id,
+        "user_requested",
+        ledger_duration,
+    );
+
+    tracing::debug!(
+        namespace_id = namespace_id,
+        kid = %cert.kid,
+        duration_ms = ledger_duration * 1000.0,
+        "Public signing key revoked in Ledger"
+    );
+
+    // Log audit event for certificate revocation
+    log_audit_event(
+        &state,
+        AuditEventType::ClientCertificateRevoked,
+        AuditEventParams {
+            organization_id: Some(org_ctx.organization_id),
+            user_id: Some(org_ctx.member.user_id),
+            client_id: Some(client_id),
+            resource_type: Some(AuditResourceType::ClientCertificate),
+            resource_id: Some(cert_id),
+            event_data: Some(json!({
+                "kid": cert.kid,
+                "revoked_by": org_ctx.member.user_id,
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
 
     Ok(Json(RevokeCertificateResponse { message: "Certificate revoked successfully".to_string() }))
+}
+
+/// Rotate a certificate with a grace period
+///
+/// POST /v1/organizations/:org/clients/:client/certificates/:cert/rotate
+/// Required role: ADMIN or OWNER
+///
+/// Creates a new certificate that becomes valid after the grace period,
+/// allowing the old certificate to remain valid during the overlap. This
+/// enables zero-downtime key rotation for clients.
+///
+/// The old certificate is not modified and remains valid until it expires
+/// or is explicitly revoked. The new certificate's `valid_from` is set to
+/// `now + grace_period_seconds`.
+///
+/// # Grace Period
+///
+/// The grace period (default: 300 seconds / 5 minutes) gives clients time
+/// to switch to the new certificate. During this period:
+/// - Old certificate: Valid and can be used for authentication
+/// - New certificate: Exists but `valid_from` is in the future
+///
+/// After the grace period:
+/// - Old certificate: Still valid (unless revoked or expired)
+/// - New certificate: Now valid and can be used for authentication
+///
+/// This handler:
+/// 1. Validates the existing certificate exists and is active
+/// 2. Generates a new Ed25519 keypair
+/// 3. Stores the new certificate in Control's database
+/// 4. Writes the new public key to Ledger with `valid_from` in the future
+/// 5. Returns both the new private key and info about the rotated certificate
+pub async fn rotate_certificate(
+    State(state): State<AppState>,
+    Extension(org_ctx): Extension<OrganizationContext>,
+    Path((_org_id, client_id, cert_id)): Path<(i64, i64, i64)>,
+    Json(payload): Json<RotateCertificateRequest>,
+) -> Result<(StatusCode, Json<RotateCertificateResponse>)> {
+    // Require admin or owner role
+    require_admin_or_owner(&org_ctx)?;
+
+    // Verify client exists and belongs to this organization
+    let repos = RepositoryContext::new((*state.storage).clone());
+    let client = repos
+        .client
+        .get(client_id)
+        .await?
+        .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
+
+    if client.organization_id != org_ctx.organization_id {
+        return Err(CoreError::NotFound("Client not found".to_string()).into());
+    }
+
+    if client.is_deleted() {
+        return Err(CoreError::Validation(
+            "Cannot rotate certificate for deleted client".to_string(),
+        )
+        .into());
+    }
+
+    // Get the certificate to rotate
+    let old_cert = repos
+        .client_certificate
+        .get(cert_id)
+        .await?
+        .ok_or_else(|| CoreError::NotFound("Certificate not found".to_string()))?;
+
+    // Verify certificate belongs to this client
+    if old_cert.client_id != client_id {
+        return Err(CoreError::NotFound("Certificate not found".to_string()).into());
+    }
+
+    // Cannot rotate a revoked certificate
+    if old_cert.is_revoked() {
+        return Err(CoreError::Validation("Cannot rotate a revoked certificate".to_string()).into());
+    }
+
+    // Generate new Ed25519 key pair
+    tracing::debug!("Generating Ed25519 keypair for rotated certificate");
+    let (public_key_base64, private_key_bytes) = keypair::generate();
+
+    // Encrypt private key for storage
+    tracing::debug!("Loading master key for encryption");
+    let master_key = MasterKey::load_or_generate(state.config.key_file.as_deref())?;
+    let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
+
+    tracing::debug!("Encrypting private key");
+    let private_key_encrypted = encryptor.encrypt(&private_key_bytes)?;
+
+    // Generate ID for the new certificate
+    tracing::debug!("Generating certificate ID");
+    let new_cert_id = IdGenerator::next_id();
+
+    // Create new certificate entity
+    let new_cert = ClientCertificate::new(
+        new_cert_id,
+        client_id,
+        org_ctx.organization_id,
+        public_key_base64.clone(),
+        private_key_encrypted,
+        payload.name,
+        org_ctx.member.user_id,
+    )?;
+
+    tracing::debug!(
+        new_cert_id = new_cert.id,
+        old_cert_id = old_cert.id,
+        client_id = new_cert.client_id,
+        org_id = org_ctx.organization_id,
+        kid = %new_cert.kid,
+        grace_period_seconds = payload.grace_period_seconds,
+        "Created rotated certificate entity"
+    );
+
+    // Save new certificate to repository
+    repos.client_certificate.create(new_cert.clone()).await?;
+
+    tracing::debug!(
+        new_cert_id = new_cert.id,
+        kid = %new_cert.kid,
+        "Rotated certificate saved to repository"
+    );
+
+    // Calculate valid_from with grace period
+    let now = Utc::now();
+    let valid_from = now + Duration::seconds(payload.grace_period_seconds as i64);
+
+    // Write public key to Ledger with valid_from in the future
+    let public_signing_key = PublicSigningKey {
+        kid: new_cert.kid.clone(),
+        public_key: public_key_base64.clone(),
+        client_id,
+        cert_id: new_cert.id,
+        created_at: now,
+        valid_from,
+        valid_until: None,
+        active: true,
+        revoked_at: None,
+    };
+
+    // org_id maps directly to namespace_id in Ledger
+    let namespace_id = org_ctx.organization_id;
+    let signing_key_store = state.storage.signing_key_store();
+
+    tracing::debug!(
+        namespace_id = namespace_id,
+        kid = %new_cert.kid,
+        valid_from = %valid_from,
+        "Writing rotated public signing key to Ledger"
+    );
+
+    // Time the Ledger write operation for metrics
+    let ledger_start = std::time::Instant::now();
+    signing_key_store.create_key(namespace_id, &public_signing_key).await.map_err(|e| {
+        tracing::error!(
+            error = %e,
+            kid = %new_cert.kid,
+            "Failed to write rotated public signing key to Ledger"
+        );
+        CoreError::Internal(format!("Failed to register signing key in Ledger: {e}"))
+    })?;
+    let ledger_duration = ledger_start.elapsed().as_secs_f64();
+
+    // Record metrics for signing key rotation
+    inferadb_control_core::metrics::record_signing_key_rotated(namespace_id, ledger_duration);
+
+    tracing::info!(
+        namespace_id = namespace_id,
+        old_kid = %old_cert.kid,
+        new_kid = %new_cert.kid,
+        valid_from = %valid_from,
+        duration_ms = ledger_duration * 1000.0,
+        "Certificate rotated successfully"
+    );
+
+    // Log audit event for certificate rotation
+    log_audit_event(
+        &state,
+        AuditEventType::ClientCertificateRotated,
+        AuditEventParams {
+            organization_id: Some(org_ctx.organization_id),
+            user_id: Some(org_ctx.member.user_id),
+            client_id: Some(client_id),
+            resource_type: Some(AuditResourceType::ClientCertificate),
+            resource_id: Some(new_cert.id),
+            event_data: Some(json!({
+                "new_kid": new_cert.kid,
+                "old_kid": old_cert.kid,
+                "old_cert_id": old_cert.id,
+                "grace_period_seconds": payload.grace_period_seconds,
+                "valid_from": valid_from.to_rfc3339(),
+                "rotated_by": org_ctx.member.user_id,
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // Return private key (base64 encoded) - this is the ONLY time it will be available
+    let private_key_base64 = BASE64.encode(&private_key_bytes);
+
+    Ok((
+        StatusCode::CREATED,
+        Json(RotateCertificateResponse {
+            certificate: CertificateInfo {
+                id: new_cert.id,
+                kid: new_cert.kid.clone(),
+                name: new_cert.name.clone(),
+                public_key: public_key_base64,
+                is_active: true,
+                created_at: new_cert.created_at.to_rfc3339(),
+            },
+            valid_from: valid_from.to_rfc3339(),
+            rotated_from: CertificateInfo {
+                id: old_cert.id,
+                kid: old_cert.kid.clone(),
+                name: old_cert.name.clone(),
+                public_key: old_cert.public_key.clone(),
+                is_active: old_cert.revoked_at.is_none() && old_cert.deleted_at.is_none(),
+                created_at: old_cert.created_at.to_rfc3339(),
+            },
+            private_key: private_key_base64,
+        }),
+    ))
+}
+
+/// Emergency revocation of a signing key (privileged endpoint)
+///
+/// POST /internal/v1/namespaces/:namespace/keys/:kid/revoke
+///
+/// Immediately revokes a signing key in Ledger, bypassing normal flows.
+/// This is a privileged endpoint for security incidents that require
+/// immediate key invalidation.
+///
+/// Unlike normal revocation:
+/// - No certificate lookup required (operates directly on Ledger)
+/// - Engine can trigger revocations based on security signals
+/// - Revokes even if Control's database doesn't have the certificate
+///
+/// Note: Engine caches have a 300s TTL. This endpoint sets `revoked_at`
+/// in Ledger immediately, but cached keys remain valid until TTL expires
+/// or cache is cleared. For true immediate invalidation, Engine instances
+/// should also be notified to clear their caches.
+pub async fn emergency_revoke_key(
+    State(state): State<AppState>,
+    Path((namespace_id, kid)): Path<(i64, String)>,
+    Extension(_engine_ctx): Extension<EngineContext>,
+    Json(payload): Json<EmergencyRevocationRequest>,
+) -> Result<Json<EmergencyRevocationResponse>> {
+    tracing::warn!(
+        namespace_id = namespace_id,
+        kid = %kid,
+        reason = %payload.reason,
+        "Emergency key revocation initiated"
+    );
+
+    let signing_key_store = state.storage.signing_key_store();
+
+    // First check if the key exists
+    let key = signing_key_store.get_key(namespace_id, &kid).await.map_err(|e| {
+        tracing::error!(
+            error = %e,
+            namespace_id = namespace_id,
+            kid = %kid,
+            "Failed to fetch key for emergency revocation"
+        );
+        CoreError::Internal(format!("Failed to fetch signing key: {e}"))
+    })?;
+
+    // If key doesn't exist, return 404
+    if key.is_none() {
+        return Err(CoreError::NotFound(format!(
+            "Signing key '{kid}' not found in namespace {namespace_id}"
+        ))
+        .into());
+    }
+
+    // Check if already revoked (if-let chain for Rust 1.92+)
+    if let Some(ref key) = key
+        && key.revoked_at.is_some()
+    {
+        // Idempotent - already revoked
+        tracing::info!(
+            namespace_id = namespace_id,
+            kid = %kid,
+            "Key already revoked, returning success"
+        );
+        return Ok(Json(EmergencyRevocationResponse {
+            message: "Key was already revoked".to_string(),
+            kid,
+            namespace_id,
+        }));
+    }
+
+    // Time the Ledger revoke operation for metrics
+    let ledger_start = std::time::Instant::now();
+
+    // Revoke the key in Ledger
+    signing_key_store.revoke_key(namespace_id, &kid, Some(&payload.reason)).await.map_err(|e| {
+        tracing::error!(
+            error = %e,
+            namespace_id = namespace_id,
+            kid = %kid,
+            "Failed to revoke key in Ledger during emergency revocation"
+        );
+        CoreError::Internal(format!("Failed to revoke signing key: {e}"))
+    })?;
+    let ledger_duration = ledger_start.elapsed().as_secs_f64();
+
+    // Record metrics for emergency revocation
+    inferadb_control_core::metrics::record_signing_key_revoked(
+        namespace_id,
+        "emergency",
+        ledger_duration,
+    );
+
+    // Log audit event
+    log_audit_event(
+        &state,
+        AuditEventType::ClientCertificateRevoked,
+        AuditEventParams {
+            organization_id: Some(namespace_id), // namespace_id == org_id
+            user_id: None,                       // No user context for engine-triggered revocations
+            client_id: key.as_ref().map(|k| k.client_id),
+            resource_type: Some(AuditResourceType::ClientCertificate),
+            resource_id: key.as_ref().map(|k| k.cert_id),
+            event_data: Some(json!({
+                "kid": kid,
+                "reason": payload.reason,
+                "emergency": true,
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    tracing::warn!(
+        namespace_id = namespace_id,
+        kid = %kid,
+        reason = %payload.reason,
+        duration_ms = ledger_duration * 1000.0,
+        "Emergency key revocation completed"
+    );
+
+    Ok(Json(EmergencyRevocationResponse {
+        message: "Key revoked successfully".to_string(),
+        kid,
+        namespace_id,
+    }))
 }

@@ -289,7 +289,7 @@ mod tests {
         UserRepository, UserSessionRepository,
         entities::{SessionType, User, UserSession},
     };
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
     use tower::ServiceExt;
 
     use super::*;
@@ -327,7 +327,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_email() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
 
         let app = create_test_app(storage.clone());
@@ -357,7 +357,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_emails() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
 
         // Add an email first
@@ -386,7 +386,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_email() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
 
         // Add a non-primary email
@@ -413,7 +413,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cannot_delete_primary_email() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
 
         // Add a primary email

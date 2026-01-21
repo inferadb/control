@@ -195,13 +195,13 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
 
 #[cfg(test)]
 mod tests {
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
 
     use super::*;
     use crate::IdGenerator;
 
     async fn create_test_repo() -> UserPasswordResetTokenRepository<Backend> {
-        let storage = Backend::Memory(MemoryBackend::new());
+        let storage = Backend::memory();
         UserPasswordResetTokenRepository::new(storage)
     }
 

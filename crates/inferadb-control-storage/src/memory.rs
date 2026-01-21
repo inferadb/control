@@ -11,7 +11,6 @@
 //! # Example
 //!
 //! ```ignore
-//! use inferadb_control_storage::MemoryBackend;
 //! use inferadb_control_storage::StorageBackend;
 //!
 //! #[tokio::main]

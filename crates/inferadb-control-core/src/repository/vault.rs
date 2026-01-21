@@ -679,21 +679,21 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
 
 #[cfg(test)]
 mod tests {
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
     use inferadb_control_types::entities::{VaultRole, VaultSyncStatus};
 
     use super::*;
 
     fn create_test_vault_repo() -> VaultRepository<Backend> {
-        VaultRepository::new(Backend::Memory(MemoryBackend::new()))
+        VaultRepository::new(Backend::memory())
     }
 
     fn create_test_user_grant_repo() -> VaultUserGrantRepository<Backend> {
-        VaultUserGrantRepository::new(Backend::Memory(MemoryBackend::new()))
+        VaultUserGrantRepository::new(Backend::memory())
     }
 
     fn create_test_team_grant_repo() -> VaultTeamGrantRepository<Backend> {
-        VaultTeamGrantRepository::new(Backend::Memory(MemoryBackend::new()))
+        VaultTeamGrantRepository::new(Backend::memory())
     }
 
     fn create_test_vault(id: i64, org_id: i64, name: &str) -> Result<Vault> {

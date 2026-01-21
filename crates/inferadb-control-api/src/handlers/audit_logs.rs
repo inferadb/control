@@ -147,13 +147,13 @@ mod tests {
     use std::sync::Arc;
 
     use inferadb_control_core::AuditEventType;
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
 
     use super::*;
 
     #[tokio::test]
     async fn test_create_audit_log() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let state = AppState::new_test(storage);
 
         let payload = CreateAuditLogRequest {

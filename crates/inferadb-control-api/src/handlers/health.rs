@@ -148,7 +148,7 @@ pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse
 mod tests {
     use std::sync::Arc;
 
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
 
     use super::*;
 
@@ -160,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_readyz_with_healthy_storage() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let state = crate::handlers::AppState::new_test(storage);
 
         let response = readyz_handler(State(state)).await.into_response();
@@ -169,7 +169,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_healthz() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let state = crate::handlers::AppState::new_test(storage);
 
         let response = healthz_handler(State(state)).await.into_response();

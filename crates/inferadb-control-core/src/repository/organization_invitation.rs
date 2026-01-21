@@ -215,13 +215,13 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
 
 #[cfg(test)]
 mod tests {
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
     use inferadb_control_types::entities::OrganizationRole;
 
     use super::*;
 
     fn create_test_repo() -> OrganizationInvitationRepository<Backend> {
-        OrganizationInvitationRepository::new(Backend::Memory(MemoryBackend::new()))
+        OrganizationInvitationRepository::new(Backend::memory())
     }
 
     fn create_test_invitation(id: i64, org_id: i64, email: &str) -> Result<OrganizationInvitation> {

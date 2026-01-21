@@ -5,7 +5,7 @@ members = [
   "crates/inferadb-control-config",
   "crates/inferadb-control-const",
   "crates/inferadb-control-core",
-  "crates/inferadb-control-discovery",
+  
   "crates/inferadb-control-engine-client",
   "crates/inferadb-control-storage",
   "crates/inferadb-control-test-fixtures",

@@ -76,13 +76,13 @@ impl<S: StorageBackend> JtiReplayProtectionRepository<S> {
 #[cfg(test)]
 mod tests {
     use chrono::Duration;
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
 
     use super::*;
 
     #[tokio::test]
     async fn test_jti_not_used_initially() {
-        let storage = Backend::Memory(MemoryBackend::new());
+        let storage = Backend::memory();
         let repo = JtiReplayProtectionRepository::new(storage);
 
         assert!(!repo.is_jti_used("test-jti-123").await.unwrap());
@@ -90,7 +90,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mark_jti_used() {
-        let storage = Backend::Memory(MemoryBackend::new());
+        let storage = Backend::memory();
         let repo = JtiReplayProtectionRepository::new(storage);
 
         let expires_at = Utc::now() + Duration::hours(1);
@@ -101,7 +101,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_and_mark_jti_success() {
-        let storage = Backend::Memory(MemoryBackend::new());
+        let storage = Backend::memory();
         let repo = JtiReplayProtectionRepository::new(storage);
 
         let expires_at = Utc::now() + Duration::hours(1);
@@ -114,7 +114,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_and_mark_jti_replay_detected() {
-        let storage = Backend::Memory(MemoryBackend::new());
+        let storage = Backend::memory();
         let repo = JtiReplayProtectionRepository::new(storage);
 
         let expires_at = Utc::now() + Duration::hours(1);
@@ -130,7 +130,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_different_jtis_independent() {
-        let storage = Backend::Memory(MemoryBackend::new());
+        let storage = Backend::memory();
         let repo = JtiReplayProtectionRepository::new(storage);
 
         let expires_at = Utc::now() + Duration::hours(1);

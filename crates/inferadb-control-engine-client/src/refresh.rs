@@ -135,7 +135,7 @@ impl DiscoveryRefresher {
 
 #[cfg(test)]
 mod tests {
-    use inferadb_control_discovery::DiscoveryMode;
+    use inferadb_control_types::DiscoveryMode;
 
     use super::*;
 

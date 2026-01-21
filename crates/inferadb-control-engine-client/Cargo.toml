@@ -11,7 +11,6 @@ version.workspace = true
 
 [dependencies]
 # Workspace crates
-inferadb-control-discovery = { path = "../inferadb-control-discovery" }
 inferadb-control-types = { path = "../inferadb-control-types" }
 
 # External dependencies

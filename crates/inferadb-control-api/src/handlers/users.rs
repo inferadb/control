@@ -174,7 +174,7 @@ mod tests {
         IdGenerator, RepositoryContext,
         entities::{SessionType, User, UserSession},
     };
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
     use tower::ServiceExt;
 
     use super::*;
@@ -211,7 +211,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_profile() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let (user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
 
         let app = create_test_app(storage.clone());
@@ -236,7 +236,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_profile_name() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
 
         let app = create_test_app(storage.clone());
@@ -266,7 +266,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_profile_accept_tos() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
 
         let app = create_test_app(storage.clone());
@@ -293,7 +293,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_user() {
-        let storage = Arc::new(Backend::Memory(MemoryBackend::new()));
+        let storage = Arc::new(Backend::memory());
         let (user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
 
         let app = create_test_app(storage.clone());

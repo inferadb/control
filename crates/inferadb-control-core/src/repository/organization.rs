@@ -458,19 +458,19 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
 
 #[cfg(test)]
 mod tests {
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
     use inferadb_control_types::entities::OrganizationTier;
 
     use super::*;
     use crate::IdGenerator;
 
     async fn create_test_org_repo() -> OrganizationRepository<Backend> {
-        let storage = Backend::Memory(MemoryBackend::new());
+        let storage = Backend::memory();
         OrganizationRepository::new(storage)
     }
 
     async fn create_test_member_repo() -> OrganizationMemberRepository<Backend> {
-        let storage = Backend::Memory(MemoryBackend::new());
+        let storage = Backend::memory();
         OrganizationMemberRepository::new(storage)
     }
 

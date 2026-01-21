@@ -41,17 +41,13 @@ fn test_keypair_generate_sign_verify() {
     let jwt = encode(&header, &claims, &encoding_key).expect("Failed to encode JWT");
     println!("  JWT: {}...", &jwt[..50]);
 
-    // 3. Simulate JWKS: Convert public key to base64url (what JWKS handler does)
-    let public_key_bytes = BASE64.decode(&public_key_base64).expect("Failed to decode public key");
-    assert_eq!(public_key_bytes.len(), 32, "Public key should be 32 bytes");
-
-    let public_key_base64url =
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&public_key_bytes);
-    println!("  Public key (base64url): {public_key_base64url}");
+    // 3. The public key from keypair::generate() is already URL-safe base64 encoded
+    // (JWK standard), so we can use it directly for the decoding key
+    println!("  Public key (base64url): {public_key_base64}");
 
     // 4. Simulate server: Use JWKS public key to create DecodingKey
-    let decoding_key = DecodingKey::from_ed_components(&public_key_base64url)
-        .expect("Failed to create decoding key");
+    let decoding_key =
+        DecodingKey::from_ed_components(&public_key_base64).expect("Failed to create decoding key");
 
     // 5. Verify JWT
     let mut validation = Validation::new(Algorithm::EdDSA);

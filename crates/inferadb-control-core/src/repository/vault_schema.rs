@@ -372,12 +372,12 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
 
 #[cfg(test)]
 mod tests {
-    use inferadb_control_storage::{Backend, MemoryBackend};
+    use inferadb_control_storage::Backend;
 
     use super::*;
 
     fn create_test_repo() -> VaultSchemaRepository<Backend> {
-        VaultSchemaRepository::new(Backend::Memory(MemoryBackend::new()))
+        VaultSchemaRepository::new(Backend::memory())
     }
 
     fn create_test_schema(

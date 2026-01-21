@@ -34,6 +34,14 @@ pub mod identity;
 pub use identity::{ControlIdentity, SharedControlIdentity};
 
 // ============================================================================
+// Discovery Configuration
+// ============================================================================
+
+pub mod discovery;
+
+pub use discovery::{DiscoveryConfig, DiscoveryMode};
+
+// ============================================================================
 // Pagination Types
 // ============================================================================
 
@@ -150,6 +158,8 @@ pub use dto::{
     DeleteUserResponse,
     DeleteVaultResponse,
     EmailOperationResponse,
+    EmergencyRevocationRequest,
+    EmergencyRevocationResponse,
     ErrorResponse,
     GenerateVaultTokenRequest,
     GenerateVaultTokenResponse,

@@ -28,9 +28,6 @@ unicode-width = { workspace = true }
 # Configuration (now in separate crate)
 inferadb-control-config = { path = "../inferadb-control-config" }
 
-# Service discovery
-inferadb-control-discovery = { path = "../inferadb-control-discovery" }
-
 # Constants
 inferadb-control-const = { path = "../inferadb-control-const" }
 

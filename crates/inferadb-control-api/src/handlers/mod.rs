@@ -4,7 +4,6 @@ pub mod cli_auth;
 pub mod clients;
 pub mod emails;
 pub mod health;
-pub mod jwks;
 pub mod metrics;
 pub mod organizations;
 pub mod schemas;

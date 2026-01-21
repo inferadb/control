@@ -1,4 +1,7 @@
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use base64::{
+    Engine,
+    engine::general_purpose::{STANDARD as PEM_BASE64, URL_SAFE_NO_PAD},
+};
 use chrono::{DateTime, Duration, Utc};
 use inferadb_control_const::auth::{REQUIRED_AUDIENCE, REQUIRED_ISSUER};
 use inferadb_control_types::{
@@ -145,7 +148,7 @@ impl JwtSigner {
         // Convert to PEM
         let pem = format!(
             "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
-            BASE64.encode(&pkcs8_der)
+            PEM_BASE64.encode(&pkcs8_der)
         );
 
         Ok(pem.into_bytes())
@@ -176,7 +179,7 @@ impl JwtSigner {
         // Convert to PEM
         let pem = format!(
             "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
-            BASE64.encode(&spki_der)
+            PEM_BASE64.encode(&spki_der)
         );
 
         Ok(pem.into_bytes())
@@ -224,8 +227,8 @@ impl JwtSigner {
     ) -> Result<VaultTokenClaims> {
         use jsonwebtoken::{DecodingKey, Validation, decode};
 
-        // Decode the public key
-        let public_key_bytes = BASE64
+        // Decode the public key (JWK uses URL-safe base64)
+        let public_key_bytes = URL_SAFE_NO_PAD
             .decode(&certificate.public_key)
             .map_err(|e| Error::Internal(format!("Failed to decode public key: {e}")))?;
 
