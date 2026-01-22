@@ -24,10 +24,8 @@
 
 use std::sync::Arc;
 
-use axum::{Router, body::Body, http::Request, middleware, routing::post};
-use inferadb_control_api::{
-    AppState, create_router_with_state, handlers::clients, middleware::EngineContext,
-};
+use axum::{body::Body, http::Request};
+use inferadb_control_api::{AppState, create_router_with_state};
 use inferadb_control_storage::Backend;
 use serde_json::json;
 use tower::ServiceExt;
@@ -182,46 +180,4 @@ pub async fn register_user(app: &axum::Router, name: &str, email: &str, password
 
     assert_eq!(response.status(), StatusCode::OK, "Registration should succeed");
     extract_session_cookie(response.headers()).expect("Session cookie should be set")
-}
-
-/// Creates an internal test router with bypassed Engine JWT auth.
-///
-/// This function sets up a test router for internal/privileged endpoints
-/// that automatically injects an EngineContext, bypassing the need for
-/// real Engine JWT authentication.
-///
-/// # Arguments
-///
-/// * `state` - The AppState to use for the router
-///
-/// # Returns
-///
-/// An Axum Router with internal routes and mocked engine authentication.
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use inferadb_control_test_fixtures::{create_test_state, create_internal_test_app};
-///
-/// let state = create_test_state();
-/// let app = create_internal_test_app(state);
-/// // Use app for testing internal endpoints
-/// ```
-pub fn create_internal_test_app(state: AppState) -> axum::Router {
-    // Middleware that injects a mock EngineContext for all requests
-    async fn inject_engine_context(
-        mut request: axum::http::Request<Body>,
-        next: axum::middleware::Next,
-    ) -> axum::response::Response {
-        request.extensions_mut().insert(EngineContext { engine_id: "test-engine-001".to_string() });
-        next.run(request).await
-    }
-
-    Router::new()
-        .route(
-            "/internal/namespaces/{namespace}/keys/{kid}/revoke",
-            post(clients::emergency_revoke_key),
-        )
-        .layer(middleware::from_fn(inject_engine_context))
-        .with_state(state)
 }

@@ -1,5 +1,3 @@
-pub mod dual_auth;
-pub mod engine_auth;
 pub mod logging;
 pub mod organization;
 pub mod permission;
@@ -7,7 +5,6 @@ pub mod ratelimit;
 pub mod session;
 pub mod vault;
 
-pub use engine_auth::{EngineContext, extract_engine_context, require_engine_jwt};
 pub use logging::logging_middleware;
 pub use organization::{
     OrganizationContext, require_admin_or_owner, require_member, require_organization_member,

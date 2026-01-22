@@ -158,8 +158,7 @@ pub use dto::{
     DeleteUserResponse,
     DeleteVaultResponse,
     EmailOperationResponse,
-    EmergencyRevocationRequest,
-    EmergencyRevocationResponse,
+
     ErrorResponse,
     GenerateVaultTokenRequest,
     GenerateVaultTokenResponse,

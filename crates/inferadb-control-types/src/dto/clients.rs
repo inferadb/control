@@ -219,24 +219,3 @@ pub struct RotateCertificateResponse {
     /// Unencrypted private key (base64) - only returned once!
     pub private_key: String,
 }
-
-/// Request to perform emergency revocation of a signing key.
-///
-/// This is a privileged endpoint for immediate key invalidation,
-/// bypassing normal cache TTL propagation delays.
-#[derive(Debug, Deserialize)]
-pub struct EmergencyRevocationRequest {
-    /// Reason for emergency revocation
-    pub reason: String,
-}
-
-/// Response from emergency key revocation.
-#[derive(Debug, Serialize)]
-pub struct EmergencyRevocationResponse {
-    /// Confirmation message
-    pub message: String,
-    /// The key ID that was revoked
-    pub kid: String,
-    /// The namespace where the key was revoked
-    pub namespace_id: i64,
-}

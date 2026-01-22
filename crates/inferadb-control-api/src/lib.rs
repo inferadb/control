@@ -65,7 +65,7 @@ pub struct ServicesConfig {
     pub control_identity: Option<Arc<ControlIdentity>>,
 }
 
-/// Start the Control API HTTP server (dual-server or single-server mode)
+/// Start the Control API HTTP server
 pub async fn serve(
     storage: Arc<Backend>,
     config: Arc<ControlConfig>,
@@ -89,44 +89,20 @@ pub async fn serve(
 
     let state = builder.build();
 
-    // Create routers for both servers
-    let public_router = routes::public_routes(state.clone());
-    let internal_router = routes::internal_routes(state.clone());
+    // Create router
+    let router = routes::create_router_with_state(state.clone());
 
-    // Bind listeners (addresses are already validated in config)
-    let public_listener = tokio::net::TcpListener::bind(&config.listen.http).await?;
-    let internal_listener = tokio::net::TcpListener::bind(&config.listen.mesh).await?;
+    // Bind listener (address is already validated in config)
+    let listener = tokio::net::TcpListener::bind(&config.listen.http).await?;
 
     // Log ready status
     startup::log_ready("Control");
 
-    // Setup graceful shutdown
-    let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel::<()>(2);
-    let mut shutdown_rx_internal = shutdown_tx.subscribe();
-
-    // Spawn task to handle shutdown signals
-    tokio::spawn(async move {
-        shutdown_signal().await;
-        let _ = shutdown_tx.send(());
-    });
-    tokio::try_join!(
-        async {
-            axum::serve(public_listener, public_router)
-                .with_graceful_shutdown(async move {
-                    shutdown_rx.recv().await.ok();
-                })
-                .await
-                .map_err(|e| anyhow::anyhow!("Public server error: {e}"))
-        },
-        async {
-            axum::serve(internal_listener, internal_router)
-                .with_graceful_shutdown(async move {
-                    shutdown_rx_internal.recv().await.ok();
-                })
-                .await
-                .map_err(|e| anyhow::anyhow!("Internal server error: {e}"))
-        }
-    )?;
+    // Serve with graceful shutdown
+    axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .map_err(|e| anyhow::anyhow!("Server error: {e}"))?;
 
     Ok(())
 }

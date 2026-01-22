@@ -8,9 +8,7 @@ use crate::{
         AppState, audit_logs, auth, cli_auth, clients, emails, health, metrics as metrics_handler,
         organizations, schemas, sessions, teams, tokens, users, vaults,
     },
-    middleware::{
-        logging_middleware, require_engine_jwt, require_organization_member, require_session,
-    },
+    middleware::{logging_middleware, require_organization_member, require_session},
 };
 
 /// Create router with state and middleware applied
@@ -245,33 +243,5 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .merge(org_scoped)
         .merge(protected)
         // Add logging middleware to log all requests
-        .layer(middleware::from_fn(logging_middleware))
-}
-
-/// Create public routes (client-facing)
-/// All user-facing endpoints including auth, organizations, vaults, etc.
-pub fn public_routes(state: AppState) -> Router {
-    // Wrapper around existing create_router_with_state
-    // The existing function already has all client-facing routes
-    create_router_with_state(state)
-}
-
-/// Create internal routes (engine-to-control communication)
-/// Exposes privileged /internal/v1/* endpoints (engine JWT auth)
-pub fn internal_routes(state: AppState) -> Router {
-    // Privileged internal routes (require engine JWT authentication)
-    Router::new()
-        // Organization GET endpoint - for engine-to-control org verification
-        .route("/internal/organizations/{org}", get(organizations::get_organization_privileged))
-        // Vault GET endpoint - for engine-to-control vault ownership verification
-        .route("/internal/vaults/{vault}", get(vaults::get_vault_by_id_privileged))
-        // Emergency key revocation - for immediate key invalidation
-        .route(
-            "/internal/namespaces/{namespace}/keys/{kid}/revoke",
-            post(clients::emergency_revoke_key),
-        )
-        .with_state(state.clone())
-        .layer(middleware::from_fn_with_state(state.clone(), require_engine_jwt))
-        // Add logging middleware to log all internal requests
         .layer(middleware::from_fn(logging_middleware))
 }

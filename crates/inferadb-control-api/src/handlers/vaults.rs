@@ -19,9 +19,7 @@ use inferadb_control_types::{
 use crate::{
     AppState,
     handlers::auth::Result,
-    middleware::{
-        OrganizationContext, engine_auth::EngineContext, require_admin_or_owner, require_member,
-    },
+    middleware::{OrganizationContext, require_admin_or_owner, require_member},
 };
 
 // ============================================================================
@@ -235,32 +233,6 @@ pub async fn get_vault(
 pub async fn get_vault_by_id(
     State(state): State<AppState>,
     Path(vault_id): Path<i64>,
-) -> Result<Json<VaultResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
-    let vault = repos
-        .vault
-        .get(vault_id)
-        .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
-
-    // Don't return deleted vaults
-    if vault.is_deleted() {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
-    }
-
-    Ok(Json(vault_to_response(vault)))
-}
-
-/// Get vault by ID (privileged engine-to-control endpoint)
-///
-/// GET /internal/v1/vaults/:vault
-///
-/// Returns vault details for engine-to-control authentication.
-/// No membership or permission checks - any valid engine JWT can access.
-pub async fn get_vault_by_id_privileged(
-    State(state): State<AppState>,
-    Path(vault_id): Path<i64>,
-    Extension(_engine_ctx): Extension<EngineContext>,
 ) -> Result<Json<VaultResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos

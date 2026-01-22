@@ -23,7 +23,7 @@ use inferadb_control_types::{
 
 use crate::{
     handlers::auth::{AppState, Result},
-    middleware::{OrganizationContext, SessionContext, engine_auth::EngineContext},
+    middleware::{OrganizationContext, SessionContext},
 };
 
 /// Create a new organization
@@ -236,40 +236,6 @@ pub async fn get_organization_by_id(
     };
 
     Ok(Json(OrganizationServerResponse { id: org.id, name: org.name, status }))
-}
-
-/// Get organization (privileged engine-to-control endpoint)
-///
-/// GET /internal/v1/organizations/:org
-///
-/// Returns organization details for engine-to-control authentication.
-/// No membership or permission checks - any valid engine JWT can access.
-pub async fn get_organization_privileged(
-    State(state): State<AppState>,
-    Path(org_id): Path<i64>,
-    Extension(_engine_ctx): Extension<EngineContext>,
-) -> Result<Json<OrganizationServerResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
-
-    // Get organization
-    let org = repos
-        .org
-        .get(org_id)
-        .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
-
-    // Determine status: Deleted > Suspended > Active
-    let status = if org.is_deleted() {
-        OrganizationStatus::Deleted
-    } else if org.is_suspended() {
-        OrganizationStatus::Suspended
-    } else {
-        OrganizationStatus::Active
-    };
-
-    let response = OrganizationServerResponse { id: org.id, name: org.name, status };
-
-    Ok(Json(response))
 }
 
 /// Update organization

@@ -12,8 +12,7 @@ use inferadb_control_types::{
     dto::{
         CertificateDetail, CertificateInfo, ClientDetail, ClientInfo, CreateCertificateRequest,
         CreateCertificateResponse, CreateClientRequest, CreateClientResponse, DeleteClientResponse,
-        EmergencyRevocationRequest, EmergencyRevocationResponse, GetCertificateResponse,
-        GetClientResponse, ListCertificatesResponse, ListClientsResponse,
+        GetCertificateResponse, GetClientResponse, ListCertificatesResponse, ListClientsResponse,
         RevokeCertificateResponse, RotateCertificateRequest, RotateCertificateResponse,
         UpdateClientRequest, UpdateClientResponse,
     },
@@ -26,7 +25,7 @@ use crate::{
     AppState,
     audit::{AuditEventParams, log_audit_event},
     handlers::auth::Result,
-    middleware::{EngineContext, OrganizationContext, require_admin_or_owner, require_member},
+    middleware::{OrganizationContext, require_admin_or_owner, require_member},
 };
 
 // ============================================================================
@@ -825,129 +824,4 @@ pub async fn rotate_certificate(
             private_key: private_key_base64,
         }),
     ))
-}
-
-/// Emergency revocation of a signing key (privileged endpoint)
-///
-/// POST /internal/v1/namespaces/:namespace/keys/:kid/revoke
-///
-/// Immediately revokes a signing key in Ledger, bypassing normal flows.
-/// This is a privileged endpoint for security incidents that require
-/// immediate key invalidation.
-///
-/// Unlike normal revocation:
-/// - No certificate lookup required (operates directly on Ledger)
-/// - Engine can trigger revocations based on security signals
-/// - Revokes even if Control's database doesn't have the certificate
-///
-/// Note: Engine caches have a 300s TTL. This endpoint sets `revoked_at`
-/// in Ledger immediately, but cached keys remain valid until TTL expires
-/// or cache is cleared. For true immediate invalidation, Engine instances
-/// should also be notified to clear their caches.
-pub async fn emergency_revoke_key(
-    State(state): State<AppState>,
-    Path((namespace_id, kid)): Path<(i64, String)>,
-    Extension(_engine_ctx): Extension<EngineContext>,
-    Json(payload): Json<EmergencyRevocationRequest>,
-) -> Result<Json<EmergencyRevocationResponse>> {
-    tracing::warn!(
-        namespace_id = namespace_id,
-        kid = %kid,
-        reason = %payload.reason,
-        "Emergency key revocation initiated"
-    );
-
-    let signing_key_store = state.storage.signing_key_store();
-
-    // First check if the key exists
-    let key = signing_key_store.get_key(namespace_id, &kid).await.map_err(|e| {
-        tracing::error!(
-            error = %e,
-            namespace_id = namespace_id,
-            kid = %kid,
-            "Failed to fetch key for emergency revocation"
-        );
-        CoreError::Internal(format!("Failed to fetch signing key: {e}"))
-    })?;
-
-    // If key doesn't exist, return 404
-    if key.is_none() {
-        return Err(CoreError::NotFound(format!(
-            "Signing key '{kid}' not found in namespace {namespace_id}"
-        ))
-        .into());
-    }
-
-    // Check if already revoked (if-let chain for Rust 1.92+)
-    if let Some(ref key) = key
-        && key.revoked_at.is_some()
-    {
-        // Idempotent - already revoked
-        tracing::info!(
-            namespace_id = namespace_id,
-            kid = %kid,
-            "Key already revoked, returning success"
-        );
-        return Ok(Json(EmergencyRevocationResponse {
-            message: "Key was already revoked".to_string(),
-            kid,
-            namespace_id,
-        }));
-    }
-
-    // Time the Ledger revoke operation for metrics
-    let ledger_start = std::time::Instant::now();
-
-    // Revoke the key in Ledger
-    signing_key_store.revoke_key(namespace_id, &kid, Some(&payload.reason)).await.map_err(|e| {
-        tracing::error!(
-            error = %e,
-            namespace_id = namespace_id,
-            kid = %kid,
-            "Failed to revoke key in Ledger during emergency revocation"
-        );
-        CoreError::Internal(format!("Failed to revoke signing key: {e}"))
-    })?;
-    let ledger_duration = ledger_start.elapsed().as_secs_f64();
-
-    // Record metrics for emergency revocation
-    inferadb_control_core::metrics::record_signing_key_revoked(
-        namespace_id,
-        "emergency",
-        ledger_duration,
-    );
-
-    // Log audit event
-    log_audit_event(
-        &state,
-        AuditEventType::ClientCertificateRevoked,
-        AuditEventParams {
-            organization_id: Some(namespace_id), // namespace_id == org_id
-            user_id: None,                       // No user context for engine-triggered revocations
-            client_id: key.as_ref().map(|k| k.client_id),
-            resource_type: Some(AuditResourceType::ClientCertificate),
-            resource_id: key.as_ref().map(|k| k.cert_id),
-            event_data: Some(json!({
-                "kid": kid,
-                "reason": payload.reason,
-                "emergency": true,
-            })),
-            ..Default::default()
-        },
-    )
-    .await;
-
-    tracing::warn!(
-        namespace_id = namespace_id,
-        kid = %kid,
-        reason = %payload.reason,
-        duration_ms = ledger_duration * 1000.0,
-        "Emergency key revocation completed"
-    );
-
-    Ok(Json(EmergencyRevocationResponse {
-        message: "Key revoked successfully".to_string(),
-        kid,
-        namespace_id,
-    }))
 }
