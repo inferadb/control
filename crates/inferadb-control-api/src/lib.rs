@@ -5,7 +5,6 @@
 use std::sync::Arc;
 
 use inferadb_control_core::{ControlConfig, startup};
-use inferadb_control_engine_client::EngineClient;
 use inferadb_control_storage::Backend;
 use tracing::info;
 
@@ -69,13 +68,11 @@ pub struct ServicesConfig {
 pub async fn serve(
     storage: Arc<Backend>,
     config: Arc<ControlConfig>,
-    engine_client: Arc<EngineClient>,
     worker_id: u16,
     services: ServicesConfig,
 ) -> anyhow::Result<()> {
     // Create AppState with services using the builder pattern
-    let mut builder =
-        AppState::builder(storage.clone(), config.clone(), engine_client.clone(), worker_id);
+    let mut builder = AppState::builder(storage.clone(), config.clone(), worker_id);
 
     if let Some(leader) = services.leader {
         builder = builder.leader(leader);

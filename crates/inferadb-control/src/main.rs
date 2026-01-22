@@ -7,12 +7,10 @@ use inferadb_control_core::{
     ControlConfig, EmailService, IdGenerator, SmtpConfig, SmtpEmailService, WorkerRegistry,
     acquire_worker_id, logging, startup,
 };
-use inferadb_control_engine_client::EngineClient;
 use inferadb_control_storage::{
     LedgerConfig as StorageLedgerConfig,
     factory::{StorageConfig, create_storage_backend},
 };
-use inferadb_control_types::DiscoveryMode;
 
 #[derive(Parser, Debug)]
 #[command(name = "inferadb-control")]
@@ -100,31 +98,6 @@ async fn main() -> Result<()> {
             startup::ConfigEntry::warning("Identity", "Private Key", "○ Unassigned")
         };
 
-        // Create policy service entry with discovery context
-        let policy_url = config.effective_mesh_url();
-        let policy_entry = match &config.discovery.mode {
-            DiscoveryMode::None => startup::ConfigEntry::new(
-                "Network",
-                "Engine Endpoint",
-                format!("{policy_url} (local)"),
-            ),
-            DiscoveryMode::Kubernetes => startup::ConfigEntry::new(
-                "Network",
-                "Engine Endpoint",
-                format!("{policy_url} (kubernetes)"),
-            ),
-        };
-
-        // Create discovery mode entry
-        let discovery_entry = match config.discovery.mode {
-            DiscoveryMode::None => {
-                startup::ConfigEntry::warning("Network", "Service Discovery", "○ Disabled")
-            },
-            DiscoveryMode::Kubernetes => {
-                startup::ConfigEntry::new("Network", "Service Discovery", "✓ Enabled")
-            },
-        };
-
         startup::StartupDisplay::new(startup::ServiceInfo {
             name: "InferaDB",
             subtext: "Control",
@@ -140,10 +113,7 @@ async fn main() -> Result<()> {
             // Listen
             startup::ConfigEntry::new("Listen", "HTTP", &config.listen.http),
             startup::ConfigEntry::new("Listen", "gRPC", &config.listen.grpc),
-            startup::ConfigEntry::new("Listen", "Mesh", &config.listen.mesh),
             startup::ConfigEntry::separator("Listen"),
-            policy_entry,
-            discovery_entry,
             private_key_entry,
         ])
         .display();
@@ -213,18 +183,6 @@ async fn main() -> Result<()> {
     let control_identity = Arc::new(control_identity);
     startup::log_initialized("Identity");
 
-    // Engine client (for communication with engine)
-    // Uses control identity for JWT authentication and discovery for load balancing
-    let engine_client = Arc::new(EngineClient::with_config(
-        config.mesh.url.clone(),
-        config.mesh.grpc,
-        Some(Arc::clone(&control_identity)),
-        config.discovery.mode.clone(),
-        config.discovery.cache_ttl,
-        config.webhook.timeout,
-    )?);
-    startup::log_initialized("Engine client");
-
     // Initialize email service (if configured)
     let email_service = if !config.email.host.is_empty() {
         let smtp_config = SmtpConfig {
@@ -263,7 +221,6 @@ async fn main() -> Result<()> {
     inferadb_control_api::serve(
         storage.clone(),
         config.clone(),
-        engine_client.clone(),
         worker_id,
         inferadb_control_api::ServicesConfig {
             leader: None,

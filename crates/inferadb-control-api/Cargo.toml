@@ -13,7 +13,6 @@ version.workspace = true
 # Workspace crates
 inferadb-control-const = { path = "../inferadb-control-const" }
 inferadb-control-core = { path = "../inferadb-control-core" }
-inferadb-control-engine-client = { path = "../inferadb-control-engine-client" }
 inferadb-control-storage = { path = "../inferadb-control-storage" }
 inferadb-control-types = { path = "../inferadb-control-types" }
 inferadb-storage = { path = "../../../common/crates/inferadb-storage" }

@@ -110,23 +110,11 @@ pub async fn create_vault(
         org_ctx.member.user_id,
     )?;
 
-    // Save to repository
-    repos.vault.create(vault.clone()).await?;
+    // Mark as synced immediately - Ledger is the source of truth
+    vault.mark_synced();
 
-    // Attempt to sync with engine
-    match state.engine_client.create_vault(vault_id, org_ctx.organization_id).await {
-        Ok(()) => {
-            // Mark as synced
-            vault.mark_synced();
-            repos.vault.update(vault.clone()).await?;
-        },
-        Err(e) => {
-            // Mark as failed
-            let error_message: String = e.to_string();
-            vault.mark_sync_failed(error_message);
-            repos.vault.update(vault.clone()).await?;
-        },
-    }
+    // Save to repository (writes to Ledger)
+    repos.vault.create(vault.clone()).await?;
 
     // Auto-grant creator ADMIN role
     let grant_id = IdGenerator::next_id();
@@ -352,11 +340,7 @@ pub async fn delete_vault(
         repos.vault_team_grant.delete(grant.id).await?;
     }
 
-    // Attempt to delete from engine
-    // Note: Even if this fails, we soft-delete locally
-    let _ = state.engine_client.delete_vault(vault_id).await;
-
-    // Soft delete
+    // Soft delete (Ledger is the source of truth)
     vault.mark_deleted();
     repos.vault.update(vault).await?;
 

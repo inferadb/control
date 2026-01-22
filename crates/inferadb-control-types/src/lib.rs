@@ -34,14 +34,6 @@ pub mod identity;
 pub use identity::{ControlIdentity, SharedControlIdentity};
 
 // ============================================================================
-// Discovery Configuration
-// ============================================================================
-
-pub mod discovery;
-
-pub use discovery::{DiscoveryConfig, DiscoveryMode};
-
-// ============================================================================
 // Pagination Types
 // ============================================================================
 

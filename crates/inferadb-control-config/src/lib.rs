@@ -32,8 +32,6 @@ pub mod refresh;
 
 use std::path::Path;
 
-// Import discovery config types (used in ControlConfig struct)
-use inferadb_control_types::DiscoveryConfig;
 use inferadb_control_types::error::{Error, Result};
 pub use refresh::ConfigRefresher;
 use serde::{Deserialize, Serialize};
@@ -109,11 +107,7 @@ pub struct ControlConfig {
     #[serde(default)]
     pub limits: LimitsConfig,
     #[serde(default)]
-    pub mesh: MeshConfig,
-    #[serde(default)]
     pub webhook: WebhookConfig,
-    #[serde(default)]
-    pub discovery: DiscoveryConfig,
     #[serde(default)]
     pub frontend: FrontendConfig,
 }
@@ -130,11 +124,6 @@ pub struct ListenConfig {
     /// Format: "host:port" (e.g., "127.0.0.1:9091")
     #[serde(default = "default_grpc")]
     pub grpc: String,
-
-    /// Service mesh / inter-service communication address (engine-to-control, JWKS endpoint)
-    /// Format: "host:port" (e.g., "0.0.0.0:9092")
-    #[serde(default = "default_mesh")]
-    pub mesh: String,
 }
 
 /// WebAuthn configuration for passkey authentication
@@ -231,35 +220,6 @@ impl Default for FrontendConfig {
     }
 }
 
-/// Service mesh configuration for engine communication
-///
-/// This configuration controls how control discovers and connects to
-/// engine (policy service) instances. Both gRPC and HTTP internal endpoints are
-/// derived from the same base URL with different ports.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MeshConfig {
-    /// gRPC port for engine communication
-    /// Default: 8081
-    #[serde(default = "default_mesh_grpc")]
-    pub grpc: u16,
-
-    /// Mesh port for internal communication (webhooks/JWKS)
-    /// Default: 8082
-    #[serde(default = "default_mesh_port")]
-    pub port: u16,
-
-    /// Base URL (without port, used for discovery or direct connection)
-    /// e.g., "http://inferadb-engine.inferadb" for K8s or "http://localhost" for dev
-    #[serde(default = "default_mesh_url")]
-    pub url: String,
-}
-
-impl Default for MeshConfig {
-    fn default() -> Self {
-        Self { grpc: default_mesh_grpc(), port: default_mesh_port(), url: default_mesh_url() }
-    }
-}
-
 /// Webhook configuration for cache invalidation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookConfig {
@@ -308,10 +268,6 @@ fn default_grpc() -> String {
     "127.0.0.1:9091".to_string()
 }
 
-fn default_mesh() -> String {
-    "0.0.0.0:9092".to_string() // Control internal/mesh server port
-}
-
 fn default_threads() -> usize {
     num_cpus::get()
 }
@@ -348,18 +304,6 @@ fn default_password_reset_tokens_per_hour() -> u32 {
     3
 }
 
-fn default_mesh_grpc() -> u16 {
-    8081 // Engine's public gRPC port
-}
-
-fn default_mesh_port() -> u16 {
-    8082 // Engine's mesh/internal API port
-}
-
-fn default_mesh_url() -> String {
-    "http://localhost".to_string() // Default for development
-}
-
 fn default_frontend_url() -> String {
     "http://localhost:3000".to_string()
 }
@@ -383,11 +327,7 @@ impl Default for ControlConfig {
             logging: default_logging(),
             storage: default_storage(),
             ledger: LedgerConfig::default(),
-            listen: ListenConfig {
-                http: default_http(),
-                grpc: default_grpc(),
-                mesh: default_mesh(),
-            },
+            listen: ListenConfig { http: default_http(), grpc: default_grpc() },
             webauthn: WebAuthnConfig::default(),
             key_file: default_key_file(),
             email: EmailConfig {
@@ -405,36 +345,14 @@ impl Default for ControlConfig {
                 email_verification_tokens_per_hour: default_email_verification_tokens_per_hour(),
                 password_reset_tokens_per_hour: default_password_reset_tokens_per_hour(),
             },
-            mesh: MeshConfig::default(),
             pem: None,
             webhook: WebhookConfig::default(),
-            discovery: DiscoveryConfig::default(),
             frontend: FrontendConfig::default(),
         }
     }
 }
 
 impl ControlConfig {
-    /// Get the effective gRPC URL for the engine service
-    ///
-    /// Combines `mesh.url` with `mesh.grpc`
-    /// to produce the full gRPC endpoint URL.
-    ///
-    /// Example: "http://localhost" + 8081 → "http://localhost:8081"
-    pub fn effective_grpc_url(&self) -> String {
-        format!("{}:{}", self.mesh.url, self.mesh.grpc)
-    }
-
-    /// Get the effective mesh URL for the engine service
-    ///
-    /// Combines `mesh.url` with `mesh.port`
-    /// to produce the full mesh/internal API endpoint URL.
-    ///
-    /// Example: "http://localhost" + 8082 → "http://localhost:8082"
-    pub fn effective_mesh_url(&self) -> String {
-        format!("{}:{}", self.mesh.url, self.mesh.port)
-    }
-
     /// Load configuration with layered precedence: defaults → file → env vars
     ///
     /// This function implements a proper configuration hierarchy:
@@ -516,9 +434,6 @@ impl ControlConfig {
         })?;
         self.listen.grpc.parse::<std::net::SocketAddr>().map_err(|e| {
             Error::Config(format!("listen.grpc '{}' is not valid: {}", self.listen.grpc, e))
-        })?;
-        self.listen.mesh.parse::<std::net::SocketAddr>().map_err(|e| {
-            Error::Config(format!("listen.mesh '{}' is not valid: {}", self.listen.mesh, e))
         })?;
 
         // Validate storage backend
@@ -605,14 +520,6 @@ impl ControlConfig {
             ));
         }
 
-        // Validate mesh.url format
-        if !self.mesh.url.starts_with("http://") && !self.mesh.url.starts_with("https://") {
-            return Err(Error::Config("mesh.url must start with http:// or https://".to_string()));
-        }
-        if self.mesh.url.ends_with('/') {
-            return Err(Error::Config("mesh.url must not end with trailing slash".to_string()));
-        }
-
         Ok(())
     }
 
@@ -658,7 +565,6 @@ mod tests {
     fn test_config_defaults() {
         assert_eq!(default_http(), "127.0.0.1:9090");
         assert_eq!(default_grpc(), "127.0.0.1:9091");
-        assert_eq!(default_mesh(), "0.0.0.0:9092");
         assert_eq!(default_storage(), "ledger"); // Ledger is now the default
         assert_eq!(default_webauthn_party(), "localhost");
         assert_eq!(default_webauthn_origin(), "http://localhost:3000");
@@ -694,19 +600,5 @@ mod tests {
 
         config.ledger.namespace_id = Some(1);
         assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_effective_urls() {
-        let config = ControlConfig::default();
-        assert_eq!(config.effective_grpc_url(), "http://localhost:8081");
-        assert_eq!(config.effective_mesh_url(), "http://localhost:8082");
-
-        let mut config = ControlConfig::default();
-        config.mesh.url = "http://inferadb-engine.inferadb".to_string();
-        config.mesh.grpc = 9000;
-        config.mesh.port = 9191;
-        assert_eq!(config.effective_grpc_url(), "http://inferadb-engine.inferadb:9000");
-        assert_eq!(config.effective_mesh_url(), "http://inferadb-engine.inferadb:9191");
     }
 }

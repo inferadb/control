@@ -12,7 +12,6 @@ use inferadb_control_core::{
     IdGenerator, RepositoryContext, UserPasswordResetToken, error::Error as CoreError,
     hash_password, verify_password,
 };
-use inferadb_control_engine_client::EngineClient;
 use inferadb_control_storage::Backend;
 use inferadb_control_types::{
     dto::{
@@ -33,7 +32,6 @@ use time;
 pub struct AppState {
     pub storage: Arc<Backend>,
     pub config: Arc<inferadb_control_core::ControlConfig>,
-    pub engine_client: Arc<EngineClient>,
     pub worker_id: u16,
     pub start_time: std::time::SystemTime,
     pub leader: Option<Arc<inferadb_control_core::LeaderElection<Backend>>>,
@@ -45,7 +43,6 @@ pub struct AppState {
 pub struct AppStateBuilder {
     storage: Arc<Backend>,
     config: Arc<inferadb_control_core::ControlConfig>,
-    engine_client: Arc<EngineClient>,
     worker_id: u16,
     leader: Option<Arc<inferadb_control_core::LeaderElection<Backend>>>,
     email_service: Option<Arc<inferadb_control_core::EmailService>>,
@@ -57,13 +54,11 @@ impl AppStateBuilder {
     pub fn new(
         storage: Arc<Backend>,
         config: Arc<inferadb_control_core::ControlConfig>,
-        engine_client: Arc<EngineClient>,
         worker_id: u16,
     ) -> Self {
         Self {
             storage,
             config,
-            engine_client,
             worker_id,
             leader: None,
             email_service: None,
@@ -100,7 +95,6 @@ impl AppStateBuilder {
         AppState {
             storage: self.storage,
             config: self.config,
-            engine_client: self.engine_client,
             worker_id: self.worker_id,
             start_time: std::time::SystemTime::now(),
             leader: self.leader,
@@ -116,17 +110,16 @@ impl AppState {
     /// # Example
     ///
     /// ```ignore
-    /// let state = AppState::builder(storage, config, engine_client, worker_id)
+    /// let state = AppState::builder(storage, config, worker_id)
     ///     .email_service(email_service)
     ///     .build();
     /// ```
     pub fn builder(
         storage: Arc<Backend>,
         config: Arc<inferadb_control_core::ControlConfig>,
-        engine_client: Arc<EngineClient>,
         worker_id: u16,
     ) -> AppStateBuilder {
-        AppStateBuilder::new(storage, config, engine_client, worker_id)
+        AppStateBuilder::new(storage, config, worker_id)
     }
 
     /// Create AppState for testing with default configuration
@@ -141,7 +134,6 @@ impl AppState {
         config.key_file = Some("/tmp/test-master.key".to_string());
         config.webauthn.party = "localhost".to_string();
         config.webauthn.origin = "http://localhost:3000".to_string();
-        let engine_client = EngineClient::new("http://localhost".to_string(), 8080).unwrap();
 
         // Create mock email service for testing
         let email_sender = Box::new(inferadb_control_core::MockEmailSender::new());
@@ -150,7 +142,6 @@ impl AppState {
         Self {
             storage,
             config: Arc::new(config),
-            engine_client: Arc::new(engine_client),
             worker_id: 0,
             start_time: std::time::SystemTime::now(),
             leader: None,
