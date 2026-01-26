@@ -166,6 +166,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::MemoryBackend;
     use inferadb_control_types::entities::AuditEventType;

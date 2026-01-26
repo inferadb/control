@@ -117,7 +117,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid credential ID index data".to_string()));
                 }
-                let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+                let id = super::parse_i64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -141,10 +141,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
 
         let mut credentials = Vec::new();
         for kv in items {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let credential_id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(credential_id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(credential) = self.get(credential_id).await? {
                 credentials.push(credential);
             }
@@ -213,6 +210,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::MemoryBackend;
 

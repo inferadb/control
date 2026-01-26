@@ -112,17 +112,10 @@ pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse
     // Get instance details from state
     let instance_id = state.worker_id;
     let start_time = state.start_time;
-    let is_leader = state
-        .leader
-        .as_ref()
-        .map(|l| {
-            let leader_check = l.clone();
-            // Use tokio::task::block_in_place to avoid blocking the runtime
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(leader_check.is_leader())
-            })
-        })
-        .unwrap_or(false);
+    let is_leader = match &state.leader {
+        Some(leader) => leader.is_leader().await,
+        None => false,
+    };
 
     // Calculate uptime
     let uptime_seconds = SystemTime::now().duration_since(start_time).unwrap_or_default().as_secs();
@@ -145,6 +138,7 @@ pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::sync::Arc;
 

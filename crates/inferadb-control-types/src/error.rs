@@ -1,4 +1,4 @@
-use thiserror::Error;
+use snafu::{Backtrace, Snafu};
 
 /// Result type alias for management operations
 pub type Result<T> = std::result::Result<T, Error>;
@@ -6,120 +6,137 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Error types for the Control API
 ///
 /// Use the constructor methods (e.g., `Error::validation("message")`) to create errors.
-#[derive(Debug, Error)]
+/// These methods automatically capture backtraces when `RUST_BACKTRACE=1` is set.
+///
+/// # Examples
+///
+/// ```no_run
+/// use inferadb_control_types::error::Error;
+///
+/// // Create errors using factory methods
+/// let validation_err = Error::validation("Invalid email format");
+/// let not_found_err = Error::not_found("User with ID 123");
+/// let auth_err = Error::auth("Invalid credentials");
+///
+/// // Access error metadata
+/// assert_eq!(validation_err.status_code(), 400);
+/// assert_eq!(validation_err.error_code(), "VALIDATION_ERROR");
+/// ```
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub))]
 pub enum Error {
     /// Configuration errors
-    #[error("Configuration error: {0}")]
-    Config(String),
+    #[snafu(display("Configuration error: {message}"))]
+    Config { message: String, backtrace: Backtrace },
 
     /// Storage errors
-    #[error("Storage error: {0}")]
-    Storage(String),
+    #[snafu(display("Storage error: {message}"))]
+    Storage { message: String, backtrace: Backtrace },
 
     /// Authentication errors
-    #[error("Authentication error: {0}")]
-    Auth(String),
+    #[snafu(display("Authentication error: {message}"))]
+    Auth { message: String, backtrace: Backtrace },
 
     /// Authorization errors
-    #[error("Authorization error: {0}")]
-    Authz(String),
+    #[snafu(display("Authorization error: {message}"))]
+    Authz { message: String, backtrace: Backtrace },
 
     /// Validation errors
-    #[error("Validation error: {0}")]
-    Validation(String),
+    #[snafu(display("Validation error: {message}"))]
+    Validation { message: String, backtrace: Backtrace },
 
     /// Resource not found
-    #[error("Resource not found: {0}")]
-    NotFound(String),
+    #[snafu(display("Resource not found: {message}"))]
+    NotFound { message: String, backtrace: Backtrace },
 
     /// Resource already exists
-    #[error("Resource already exists: {0}")]
-    AlreadyExists(String),
+    #[snafu(display("Resource already exists: {message}"))]
+    AlreadyExists { message: String, backtrace: Backtrace },
 
     /// Rate limit exceeded
-    #[error("Rate limit exceeded: {0}")]
-    RateLimit(String),
+    #[snafu(display("Rate limit exceeded: {message}"))]
+    RateLimit { message: String, backtrace: Backtrace },
 
     /// Tier limit exceeded
-    #[error("Tier limit exceeded: {0}")]
-    TierLimit(String),
+    #[snafu(display("Tier limit exceeded: {message}"))]
+    TierLimit { message: String, backtrace: Backtrace },
 
     /// Too many passkeys
-    #[error("Too many passkeys registered (max: {0})")]
-    TooManyPasskeys(usize),
+    #[snafu(display("Too many passkeys registered (max: {max})"))]
+    TooManyPasskeys { max: usize, backtrace: Backtrace },
 
     /// External service errors
-    #[error("External service error: {0}")]
-    External(String),
+    #[snafu(display("External service error: {message}"))]
+    External { message: String, backtrace: Backtrace },
 
     /// Internal system errors
-    #[error("Internal error: {0}")]
-    Internal(String),
+    #[snafu(display("Internal error: {message}"))]
+    Internal { message: String, backtrace: Backtrace },
 }
 
 impl Error {
     // =========================================================================
-    // Constructors - maintain API compatibility
+    // Constructors - maintain API compatibility while using snafu selectors
     // =========================================================================
 
     /// Create a configuration error
     pub fn config(message: impl Into<String>) -> Self {
-        Self::Config(message.into())
+        ConfigSnafu { message: message.into() }.build()
     }
 
     /// Create a storage error
     pub fn storage(message: impl Into<String>) -> Self {
-        Self::Storage(message.into())
+        StorageSnafu { message: message.into() }.build()
     }
 
     /// Create an authentication error
     pub fn auth(message: impl Into<String>) -> Self {
-        Self::Auth(message.into())
+        AuthSnafu { message: message.into() }.build()
     }
 
     /// Create an authorization error
     pub fn authz(message: impl Into<String>) -> Self {
-        Self::Authz(message.into())
+        AuthzSnafu { message: message.into() }.build()
     }
 
     /// Create a validation error
     pub fn validation(message: impl Into<String>) -> Self {
-        Self::Validation(message.into())
+        ValidationSnafu { message: message.into() }.build()
     }
 
     /// Create a not found error
     pub fn not_found(message: impl Into<String>) -> Self {
-        Self::NotFound(message.into())
+        NotFoundSnafu { message: message.into() }.build()
     }
 
     /// Create an already exists error
     pub fn already_exists(message: impl Into<String>) -> Self {
-        Self::AlreadyExists(message.into())
+        AlreadyExistsSnafu { message: message.into() }.build()
     }
 
     /// Create a rate limit error
     pub fn rate_limit(message: impl Into<String>) -> Self {
-        Self::RateLimit(message.into())
+        RateLimitSnafu { message: message.into() }.build()
     }
 
     /// Create a tier limit error
     pub fn tier_limit(message: impl Into<String>) -> Self {
-        Self::TierLimit(message.into())
+        TierLimitSnafu { message: message.into() }.build()
     }
 
     /// Create a too many passkeys error
     pub fn too_many_passkeys(max: usize) -> Self {
-        Self::TooManyPasskeys(max)
+        TooManyPasskeysSnafu { max }.build()
     }
 
     /// Create an external service error
     pub fn external(message: impl Into<String>) -> Self {
-        Self::External(message.into())
+        ExternalSnafu { message: message.into() }.build()
     }
 
     /// Create an internal error
     pub fn internal(message: impl Into<String>) -> Self {
-        Self::Internal(message.into())
+        InternalSnafu { message: message.into() }.build()
     }
 
     // =========================================================================
@@ -129,36 +146,36 @@ impl Error {
     /// Get HTTP status code for this error
     pub fn status_code(&self) -> u16 {
         match self {
-            Error::Config(_) => 500,
-            Error::Storage(_) => 500,
-            Error::Auth(_) => 401,
-            Error::Authz(_) => 403,
-            Error::Validation(_) => 400,
-            Error::NotFound(_) => 404,
-            Error::AlreadyExists(_) => 409,
-            Error::RateLimit(_) => 429,
-            Error::TierLimit(_) => 402,
-            Error::TooManyPasskeys(_) => 400,
-            Error::External(_) => 502,
-            Error::Internal(_) => 500,
+            Error::Config { .. } => 500,
+            Error::Storage { .. } => 500,
+            Error::Auth { .. } => 401,
+            Error::Authz { .. } => 403,
+            Error::Validation { .. } => 400,
+            Error::NotFound { .. } => 404,
+            Error::AlreadyExists { .. } => 409,
+            Error::RateLimit { .. } => 429,
+            Error::TierLimit { .. } => 402,
+            Error::TooManyPasskeys { .. } => 400,
+            Error::External { .. } => 502,
+            Error::Internal { .. } => 500,
         }
     }
 
     /// Get error code for client consumption
     pub fn error_code(&self) -> &str {
         match self {
-            Error::Config(_) => "CONFIGURATION_ERROR",
-            Error::Storage(_) => "STORAGE_ERROR",
-            Error::Auth(_) => "AUTHENTICATION_ERROR",
-            Error::Authz(_) => "AUTHORIZATION_ERROR",
-            Error::Validation(_) => "VALIDATION_ERROR",
-            Error::NotFound(_) => "NOT_FOUND",
-            Error::AlreadyExists(_) => "ALREADY_EXISTS",
-            Error::RateLimit(_) => "RATE_LIMIT_EXCEEDED",
-            Error::TierLimit(_) => "TIER_LIMIT_EXCEEDED",
-            Error::TooManyPasskeys(_) => "TOO_MANY_PASSKEYS",
-            Error::External(_) => "EXTERNAL_SERVICE_ERROR",
-            Error::Internal(_) => "INTERNAL_ERROR",
+            Error::Config { .. } => "CONFIGURATION_ERROR",
+            Error::Storage { .. } => "STORAGE_ERROR",
+            Error::Auth { .. } => "AUTHENTICATION_ERROR",
+            Error::Authz { .. } => "AUTHORIZATION_ERROR",
+            Error::Validation { .. } => "VALIDATION_ERROR",
+            Error::NotFound { .. } => "NOT_FOUND",
+            Error::AlreadyExists { .. } => "ALREADY_EXISTS",
+            Error::RateLimit { .. } => "RATE_LIMIT_EXCEEDED",
+            Error::TierLimit { .. } => "TIER_LIMIT_EXCEEDED",
+            Error::TooManyPasskeys { .. } => "TOO_MANY_PASSKEYS",
+            Error::External { .. } => "EXTERNAL_SERVICE_ERROR",
+            Error::Internal { .. } => "INTERNAL_ERROR",
         }
     }
 }

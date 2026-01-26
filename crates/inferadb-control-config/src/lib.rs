@@ -550,12 +550,12 @@ impl ControlConfig {
         match self.storage.as_str() {
             "memory" => {},
             "ledger" => {
-                // Validate required ledger fields
-                if self.ledger.endpoint.is_none() {
+                // Validate required ledger fields using let-else for early returns
+                let Some(endpoint) = self.ledger.endpoint.as_ref() else {
                     return Err(Error::config(
                         "ledger.endpoint is required when using Ledger backend".to_string(),
                     ));
-                }
+                };
                 if self.ledger.client_id.is_none() {
                     return Err(Error::config(
                         "ledger.client_id is required when using Ledger backend".to_string(),
@@ -567,7 +567,6 @@ impl ControlConfig {
                     ));
                 }
                 // Validate endpoint format
-                let endpoint = self.ledger.endpoint.as_ref().unwrap();
                 if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
                     return Err(Error::config(format!(
                         "ledger.endpoint must start with http:// or https://, got: {endpoint}"
@@ -668,6 +667,7 @@ impl ControlConfig {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

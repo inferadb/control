@@ -76,6 +76,7 @@ impl<S: StorageBackend> JtiReplayProtectionRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use chrono::Duration;
     use inferadb_control_storage::Backend;

@@ -83,6 +83,7 @@ impl PasskeyCredential {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     #[test]
     fn test_new_passkey_credential() {

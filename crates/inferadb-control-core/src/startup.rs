@@ -550,6 +550,7 @@ pub fn print_generated_keypair(pem: &str, config_key: &str) {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

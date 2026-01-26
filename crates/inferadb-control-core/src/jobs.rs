@@ -145,6 +145,8 @@ impl<S: StorageBackend + Clone + Send + Sync + 'static> BackgroundJobs<S> {
         tokio::spawn(async move {
             // Calculate initial delay to next scheduled time
             let now = chrono::Utc::now();
+            // SAFETY: hour/minute are compile-time constants (2-6, 0) from spawn_daily_job calls
+            #[allow(clippy::unwrap_used)]
             let target_time = now
                 .date_naive()
                 .and_hms_opt(hour, minute, 0)
@@ -321,6 +323,7 @@ impl<S: StorageBackend + Clone + Send + Sync + 'static> BackgroundJobs<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::MemoryBackend;
 

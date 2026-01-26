@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 /// Minimal test to verify JWKS public key can verify JWTs signed with the corresponding
 /// private key This test simulates the E2E flow: Control API generates keypair → returns
 /// private key → client signs JWT → server fetches JWKS → server verifies JWT

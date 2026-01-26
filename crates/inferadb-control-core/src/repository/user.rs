@@ -95,7 +95,7 @@ impl<S: StorageBackend> UserRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid user ID in name index".to_string()));
                 }
-                let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+                let id = super::parse_i64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -192,6 +192,7 @@ impl<S: StorageBackend> UserRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::MemoryBackend;
 

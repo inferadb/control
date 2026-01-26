@@ -399,15 +399,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (stable + nightly for udeps)
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
 
+      - name: Install Rust nightly toolchain (for cargo-udeps)
+        uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e # master
+        with:
+          toolchain: nightly
+
       - name: Install development tools via Mise
         uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
         with:
-          install_args: cargo:cargo-outdated
+          install_args: protobuf cargo:cargo-outdated cargo:cargo-udeps
           cache: true
 
       - name: Cache Rust dependencies
@@ -415,6 +420,9 @@ jobs:
 
       - name: Check outdated dependencies
         run: cargo outdated --exit-code 1 || echo "Some dependencies are outdated"
+
+      - name: Check for unused dependencies
+        run: cargo +nightly udeps --workspace --all-targets || echo "Some dependencies may be unused"
 
       - name: Check for duplicate dependencies
         run: cargo tree --duplicates

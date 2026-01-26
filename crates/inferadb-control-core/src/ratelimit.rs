@@ -22,6 +22,8 @@ impl RateLimitWindow {
 
     /// Get window start timestamp for current time
     fn window_start(&self, now: SystemTime) -> u64 {
+        // SAFETY: duration_since(UNIX_EPOCH) cannot fail unless system clock is before 1970
+        #[allow(clippy::unwrap_used)]
         let timestamp = now.duration_since(UNIX_EPOCH).unwrap().as_secs();
         let window_seconds = self.seconds();
         (timestamp / window_seconds) * window_seconds
@@ -31,7 +33,10 @@ impl RateLimitWindow {
     fn seconds_until_reset(&self, now: SystemTime) -> u64 {
         let window_start = self.window_start(now);
         let window_seconds = self.seconds();
-        window_start + window_seconds - now.duration_since(UNIX_EPOCH).unwrap().as_secs()
+        // SAFETY: duration_since(UNIX_EPOCH) cannot fail unless system clock is before 1970
+        #[allow(clippy::unwrap_used)]
+        let now_secs = now.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        window_start + window_seconds - now_secs
     }
 }
 
@@ -264,6 +269,7 @@ pub mod limits {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::time::Duration;
 

@@ -315,7 +315,11 @@ pub async fn rollback_schema(
     let reactivated_schema = repos.vault_schema.rollback(target_schema.id).await?;
 
     // Get the rolled back schema (Engine observes schema changes via Ledger watch)
-    let rolled_back = repos.vault_schema.get(current_active.id).await?.unwrap();
+    let rolled_back = repos
+        .vault_schema
+        .get(current_active.id)
+        .await?
+        .ok_or_else(|| CoreError::internal("Schema disappeared during rollback".to_string()))?;
 
     Ok(Json(RollbackSchemaResponse {
         active_schema: SchemaInfo::from(&reactivated_schema),

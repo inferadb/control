@@ -13,6 +13,8 @@ pub mod tokens;
 pub mod users;
 pub mod vaults;
 
-pub use auth::*;
+pub use auth::{
+    AppState, confirm_password_reset, login, logout, register, request_password_reset, verify_email,
+};
 pub use health::{healthz_handler, livez_handler, readyz_handler, startupz_handler};
 pub use metrics::{init_exporter, metrics_handler};

@@ -16,7 +16,7 @@ chrono = { workspace = true }
 hostname = "0.4"
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
+snafu = { workspace = true }
 
 # Cryptography (for entity types that use crypto primitives)
 base64 = { workspace = true }
@@ -27,15 +27,10 @@ sha2 = { workspace = true }
 # WebAuthn (for passkey types)
 webauthn-rs = { workspace = true }
 
-# Validation
-regex = { workspace = true }
-validator = { workspace = true }
-
 # Random (for token generation)
 rand = { workspace = true }
 
 # Secure handling
-secrecy = { workspace = true }
 zeroize = { workspace = true }
 
 # Snowflake ID generation (for entity types)
@@ -45,3 +40,6 @@ idgenerator = { workspace = true }
 jsonwebtoken = { workspace = true }
 pem = { workspace = true }
 uuid = { workspace = true }
+
+[lints]
+workspace = true

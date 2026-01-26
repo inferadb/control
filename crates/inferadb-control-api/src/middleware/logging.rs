@@ -86,6 +86,7 @@ pub async fn logging_middleware(req: Request, next: Next) -> Response {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use axum::{
         Router,

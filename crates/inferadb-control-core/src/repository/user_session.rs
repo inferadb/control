@@ -134,7 +134,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
             if kv.value.len() != 8 {
                 continue; // Skip invalid entries
             }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(session) = self.get(id).await? {
                 // Only include active sessions
                 if session.is_active() {
@@ -257,10 +257,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
         let mut cleaned = 0;
 
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
 
             // Try to get session - if expired, it will return None
             if self.get(id).await?.is_none() {
@@ -280,6 +277,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::MemoryBackend;
     use inferadb_control_types::entities::SessionType;

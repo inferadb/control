@@ -196,6 +196,7 @@ pub fn record_signing_key_rotated(org_id: i64, duration_secs: f64) {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

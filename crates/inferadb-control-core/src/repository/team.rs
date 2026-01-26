@@ -119,10 +119,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
 
         let mut teams = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(team) = self.get(id).await? {
                 teams.push(team);
             }
@@ -349,7 +346,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid member index data".to_string()));
                 }
-                let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+                let id = super::parse_i64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -370,10 +367,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
 
         let mut members = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(member) = self.get(id).await? {
                 members.push(member);
             }
@@ -396,10 +390,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
 
         let mut members = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(member) = self.get(id).await? {
                 members.push(member);
             }
@@ -591,7 +582,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid permission index data".to_string()));
                 }
-                let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+                let id = super::parse_i64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -612,10 +603,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
 
         let mut permissions = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(permission) = self.get(id).await? {
                 permissions.push(permission);
             }
@@ -675,6 +663,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::MemoryBackend;
     use inferadb_control_types::entities::{

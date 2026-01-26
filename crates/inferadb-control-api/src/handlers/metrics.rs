@@ -14,6 +14,8 @@ static METRICS_HANDLE: OnceLock<PrometheusHandle> = OnceLock::new();
 /// It sets up the Prometheus exporter that will collect and expose metrics.
 pub fn init_exporter() {
     METRICS_HANDLE.get_or_init(|| {
+        // Metrics recorder installation failure is unrecoverable at startup
+        #[allow(clippy::expect_used)]
         let handle = PrometheusBuilder::new()
             .install_recorder()
             .expect("Failed to install Prometheus recorder");
@@ -45,6 +47,7 @@ pub async fn metrics_handler() -> Response {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

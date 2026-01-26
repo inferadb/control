@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use axum::{
     body::Body,
     http::{Request, StatusCode},

@@ -1,3 +1,6 @@
+// Test fixtures are allowed to use unwrap/expect for clear failure messages
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Test fixtures and utilities for InferaDB Control API integration tests.
 //!
 //! This crate provides shared test helpers to eliminate duplication across integration tests.

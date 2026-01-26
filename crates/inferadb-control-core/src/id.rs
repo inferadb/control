@@ -332,6 +332,8 @@ impl IdGenerator {
                 .worker_id_bit_len(10)
                 .base_time(CUSTOM_EPOCH);
 
+            // Initialization failure at startup is unrecoverable - panic is appropriate
+            #[allow(clippy::expect_used)]
             idgenerator::IdInstance::init(options).expect("Failed to initialize ID generator");
             worker_id
         });
@@ -361,6 +363,7 @@ impl IdGenerator {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::collections::HashSet;
 

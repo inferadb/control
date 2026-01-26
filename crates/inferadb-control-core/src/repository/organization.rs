@@ -104,7 +104,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid organization index data".to_string()));
                 }
-                let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+                let id = super::parse_i64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -181,9 +181,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to get organization count: {e}")))?;
 
         match data {
-            Some(bytes) if bytes.len() == 8 => {
-                Ok(i64::from_le_bytes(bytes[0..8].try_into().unwrap()))
-            },
+            Some(bytes) if bytes.len() == 8 => super::parse_i64_id(&bytes),
             _ => Ok(0),
         }
     }
@@ -317,7 +315,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
                         "Invalid organization member index data".to_string(),
                     ));
                 }
-                let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+                let id = super::parse_i64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -338,10 +336,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
 
         let mut members = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(member) = self.get(id).await? {
                 members.push(member);
             }
@@ -364,10 +359,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
 
         let mut members = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(member) = self.get(id).await? {
                 members.push(member);
             }
@@ -385,9 +377,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
             })?;
 
         match data {
-            Some(bytes) if bytes.len() == 8 => {
-                Ok(i64::from_le_bytes(bytes[0..8].try_into().unwrap()))
-            },
+            Some(bytes) if bytes.len() == 8 => super::parse_i64_id(&bytes),
             _ => Ok(0),
         }
     }
@@ -457,6 +447,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::Backend;
     use inferadb_control_types::entities::OrganizationTier;

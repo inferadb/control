@@ -254,6 +254,7 @@ pub async fn create_storage_backend(config: &StorageConfig) -> StorageResult<Bac
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

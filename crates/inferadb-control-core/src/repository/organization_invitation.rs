@@ -131,7 +131,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid invitation token index data".to_string()));
                 }
-                let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+                let id = super::parse_i64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -151,10 +151,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
 
         let mut invitations = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(invitation) = self.get(id).await? {
                 invitations.push(invitation);
             }
@@ -214,6 +211,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::Backend;
     use inferadb_control_types::entities::OrganizationRole;

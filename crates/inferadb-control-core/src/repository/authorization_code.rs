@@ -175,6 +175,7 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::MemoryBackend;
 

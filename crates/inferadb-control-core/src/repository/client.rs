@@ -116,10 +116,7 @@ impl<S: StorageBackend> ClientRepository<S> {
 
         let mut clients = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(client) = self.get(id).await? {
                 clients.push(client);
             }
@@ -236,6 +233,7 @@ impl<S: StorageBackend> ClientRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::Backend;
 

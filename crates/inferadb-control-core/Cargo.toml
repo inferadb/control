@@ -17,15 +17,11 @@ chrono = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 terminal_size = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 unicode-width = { workspace = true }
-
-# Configuration (now in separate crate)
-inferadb-control-config = { path = "../inferadb-control-config" }
 
 # Constants
 inferadb-control-const = { path = "../inferadb-control-const" }
@@ -38,7 +34,6 @@ ed25519-dalek = { workspace = true }
 hex = { workspace = true }
 jsonwebtoken = { workspace = true }
 rand = { workspace = true }
-secrecy = { workspace = true }
 sha2 = { workspace = true }
 zeroize = { workspace = true }
 
@@ -51,12 +46,7 @@ lettre = { workspace = true }
 # WebAuthn
 webauthn-rs = { workspace = true }
 
-# Validation
-regex = { workspace = true }
-validator = { workspace = true }
-
 # HTTP client (for webhook notifications)
-reqwest = { workspace = true }
 url = { workspace = true }
 
 # Metrics
@@ -67,7 +57,6 @@ inferadb-control-types = { path = "../inferadb-control-types" }
 
 # Storage
 inferadb-control-storage = { path = "../inferadb-control-storage" }
-
 
 uuid = { workspace = true }
 
@@ -88,3 +77,6 @@ opentelemetry = [
 
 [dev-dependencies]
 tempfile = "3.14"
+
+[lints]
+workspace = true

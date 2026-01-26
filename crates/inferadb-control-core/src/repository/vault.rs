@@ -116,10 +116,7 @@ impl<S: StorageBackend> VaultRepository<S> {
 
         let mut vaults = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(vault) = self.get(id).await? {
                 vaults.push(vault);
             }
@@ -344,7 +341,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid grant index data".to_string()));
                 }
-                let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+                let id = super::parse_i64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -365,10 +362,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
 
         let mut grants = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(grant) = self.get(id).await? {
                 grants.push(grant);
             }
@@ -391,10 +385,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
 
         let mut grants = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(grant) = self.get(id).await? {
                 grants.push(grant);
             }
@@ -567,7 +558,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid grant index data".to_string()));
                 }
-                let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+                let id = super::parse_i64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -588,10 +579,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
 
         let mut grants = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(grant) = self.get(id).await? {
                 grants.push(grant);
             }
@@ -614,10 +602,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
 
         let mut grants = Vec::new();
         for kv in kvs {
-            if kv.value.len() != 8 {
-                continue;
-            }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(grant) = self.get(id).await? {
                 grants.push(grant);
             }
@@ -678,6 +663,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::Backend;
     use inferadb_control_types::entities::{VaultRole, VaultSyncStatus};

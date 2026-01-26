@@ -31,6 +31,9 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 [features]
 default = []
 
+[lints]
+workspace = true
+
 [[test]]
 name = "ledger_integration_tests"
 path = "tests/ledger_integration_tests.rs"

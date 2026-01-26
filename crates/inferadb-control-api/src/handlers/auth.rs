@@ -529,6 +529,7 @@ pub async fn confirm_password_reset(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use tower::ServiceExt;
 

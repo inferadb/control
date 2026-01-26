@@ -302,6 +302,7 @@ pub fn init_with_tracing(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::sync::Once;
 

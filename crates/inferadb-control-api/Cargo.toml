@@ -28,12 +28,10 @@ chrono = { workspace = true }
 ed25519-dalek = { workspace = true }
 jsonwebtoken = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
-pem = "3.0"
+pem = { workspace = true }
 rand = { workspace = true }
-reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
@@ -45,6 +43,9 @@ uuid = { workspace = true }
 inferadb-control-test-fixtures = { path = "../inferadb-control-test-fixtures" }
 inferadb-engine-auth = { path = "../../../engine/crates/inferadb-engine-auth" }
 rand_core = { version = "0.6", features = ["getrandom"] }
+
+[lints]
+workspace = true
 
 [features]
 default = []

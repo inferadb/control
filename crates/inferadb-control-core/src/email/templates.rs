@@ -520,6 +520,7 @@ This is an automated message, please do not reply.
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

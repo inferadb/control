@@ -154,6 +154,7 @@ pub async fn get_user_permissions(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::sync::Arc;
 

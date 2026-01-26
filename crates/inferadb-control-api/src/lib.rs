@@ -57,6 +57,7 @@ use std::sync::Arc;
 use inferadb_control_config::ControlConfig;
 use inferadb_control_core::startup;
 use inferadb_control_storage::Backend;
+use inferadb_control_types::ControlIdentity;
 use tracing::info;
 
 pub mod audit;
@@ -66,10 +67,6 @@ pub mod pagination;
 pub mod routes;
 
 pub use handlers::AppState;
-pub use inferadb_control_types::{
-    dto::ErrorResponse,
-    identity::{ControlIdentity, SharedControlIdentity},
-};
 pub use middleware::{
     OrganizationContext, SessionContext, VaultContext, extract_session_context,
     get_user_vault_role, require_admin, require_admin_or_owner, require_manager, require_member,
@@ -84,11 +81,15 @@ async fn shutdown_signal() {
     use tokio::signal;
 
     let ctrl_c = async {
+        // Signal handler installation failure is unrecoverable at runtime
+        #[allow(clippy::expect_used)]
         signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]
     let terminate = async {
+        // Signal handler installation failure is unrecoverable at runtime
+        #[allow(clippy::expect_used)]
         signal::unix::signal(signal::unix::SignalKind::terminate())
             .expect("failed to install SIGTERM handler")
             .recv()

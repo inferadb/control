@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Parser;
-use inferadb_control_api::ControlIdentity;
 use inferadb_control_config::ControlConfig;
 use inferadb_control_core::{
     EmailService, IdGenerator, SmtpConfig, SmtpEmailService, WorkerRegistry, acquire_worker_id,
@@ -12,6 +11,7 @@ use inferadb_control_storage::{
     LedgerConfig as StorageLedgerConfig,
     factory::{StorageConfig, create_storage_backend},
 };
+use inferadb_control_types::ControlIdentity;
 
 #[derive(Parser, Debug)]
 #[command(name = "inferadb-control")]
@@ -41,6 +41,8 @@ async fn main() -> Result<()> {
     // Install the rustls crypto provider early, before any TLS operations.
     // This is required for crates like `kube` that use rustls internally.
     // Using aws-lc-rs as the provider for consistency with jsonwebtoken.
+    // SAFETY: Crypto provider installation failure is unrecoverable at startup
+    #[allow(clippy::expect_used)]
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
@@ -131,6 +133,8 @@ async fn main() -> Result<()> {
     let storage_config = match config.storage.as_str() {
         "memory" => StorageConfig::memory(),
         "ledger" => {
+            // SAFETY: config.validate() ensures these fields are present when storage == "ledger"
+            #[allow(clippy::expect_used)]
             let ledger_config = StorageLedgerConfig {
                 endpoint: config.ledger.endpoint.clone().expect("validated"),
                 client_id: config.ledger.client_id.clone().expect("validated"),

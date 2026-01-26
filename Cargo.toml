@@ -32,7 +32,7 @@ bon = "3.8"
 
 # Error handling
 anyhow = "1.0"
-thiserror = "2.0"
+snafu = "0.8"
 
 # System
 num_cpus = "1.16"
@@ -142,6 +142,16 @@ kube = { version = "3.0", features = ["client"] }
 rustls = { version = "0.23", default-features = false, features = [
   "aws_lc_rs",
 ] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
 
 [profile.release]
 codegen-units = 1

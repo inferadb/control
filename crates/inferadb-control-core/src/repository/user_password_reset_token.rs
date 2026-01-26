@@ -110,7 +110,7 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid token index data".to_string()));
                 }
-                let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+                let id = super::parse_i64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -137,7 +137,7 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
             if kv.value.len() != 8 {
                 continue; // Skip invalid entries
             }
-            let id = i64::from_le_bytes(kv.value[0..8].try_into().unwrap());
+            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
             if let Some(token) = self.get(id).await? {
                 tokens.push(token);
             }
@@ -194,6 +194,7 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::Backend;
 
