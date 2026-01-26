@@ -16,7 +16,7 @@ chrono = { workspace = true }
 hostname = "0.4"
 serde = { workspace = true }
 serde_json = { workspace = true }
-snafu = { workspace = true }
+thiserror = { workspace = true }
 
 # Cryptography (for entity types that use crypto primitives)
 base64 = { workspace = true }

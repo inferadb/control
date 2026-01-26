@@ -21,7 +21,7 @@ inferadb-control-core = { path = "../inferadb-control-core" }
 inferadb-control-storage = { path = "../inferadb-control-storage" }
 inferadb-control-types = { path = "../inferadb-control-types" }
 
-# External dependencies (anyhow at application level, snafu in libraries)
+# External dependencies (anyhow at application level, thiserror in libraries)
 anyhow = { workspace = true }
 clap = { workspace = true }
 config = { workspace = true }
