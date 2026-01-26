@@ -327,7 +327,7 @@ mod tests {
             .version(SchemaVersion::initial())
             .definition("entity User {}".to_string())
             .author_user_id(999)
-            .description("Initial schema".to_string())
+            .description("Initial schema")
             .create()
             .unwrap();
 
@@ -370,7 +370,7 @@ mod tests {
             .version(SchemaVersion::initial())
             .definition("entity User {}".to_string())
             .author_user_id(999)
-            .description("Initial schema".to_string())
+            .description("Initial schema")
             .create()
             .unwrap();
 
@@ -403,7 +403,7 @@ mod tests {
             .version(SchemaVersion::initial())
             .definition("entity User {}".to_string())
             .author_user_id(999)
-            .description("Initial schema".to_string())
+            .description("Initial schema")
             .create()
             .unwrap();
 
@@ -421,7 +421,7 @@ mod tests {
             .version(SchemaVersion::initial())
             .definition("entity User {}".to_string())
             .author_user_id(999)
-            .description("Initial schema".to_string())
+            .description("Initial schema")
             .create()
             .unwrap();
 

@@ -74,7 +74,7 @@ async fn test_cross_organization_vault_access_denied() {
     let vault_b = Vault::builder()
         .id(5000)
         .organization_id(org_b.id)
-        .name("Vault B".to_string())
+        .name("Vault B")
         .created_by_user_id(200)
         .create()
         .unwrap();
@@ -117,7 +117,7 @@ async fn test_cross_organization_client_access_denied() {
     let client_b = Client::builder()
         .id(6000)
         .organization_id(org_b.id)
-        .name("Client B".to_string())
+        .name("Client B")
         .created_by_user_id(200)
         .create()
         .unwrap();
@@ -158,7 +158,7 @@ async fn test_cross_organization_team_access_denied() {
     let team_b = OrganizationTeam::builder()
         .id(7000)
         .organization_id(org_b.id)
-        .name("Team B".to_string())
+        .name("Team B")
         .create()
         .unwrap();
     team_repo.create(team_b.clone()).await.unwrap();
@@ -198,7 +198,7 @@ async fn test_cannot_modify_other_organization_resources() {
     let vault_b = Vault::builder()
         .id(5000)
         .organization_id(org_b.id)
-        .name("Vault B".to_string())
+        .name("Vault B")
         .created_by_user_id(200)
         .create()
         .unwrap();
@@ -245,7 +245,7 @@ async fn test_cannot_delete_other_organization_resources() {
     let client_b = Client::builder()
         .id(6000)
         .organization_id(org_b.id)
-        .name("Client B".to_string())
+        .name("Client B")
         .created_by_user_id(200)
         .create()
         .unwrap();
@@ -317,7 +317,7 @@ async fn test_vault_jwt_isolation() {
     let vault_a = Vault::builder()
         .id(5000)
         .organization_id(org_a.id)
-        .name("Vault A".to_string())
+        .name("Vault A")
         .created_by_user_id(100)
         .create()
         .unwrap();
@@ -329,7 +329,7 @@ async fn test_vault_jwt_isolation() {
     let vault_b = Vault::builder()
         .id(6000)
         .organization_id(org_b.id)
-        .name("Vault B".to_string())
+        .name("Vault B")
         .created_by_user_id(200)
         .create()
         .unwrap();
@@ -340,7 +340,7 @@ async fn test_vault_jwt_isolation() {
     let client_a = Client::builder()
         .id(7000)
         .organization_id(org_a.id)
-        .name("Client A".to_string())
+        .name("Client A")
         .created_by_user_id(100)
         .create()
         .unwrap();
@@ -359,7 +359,7 @@ async fn test_vault_jwt_isolation() {
         .organization_id(org_a.id)
         .public_key(public_key_base64.clone())
         .private_key_encrypted(private_key_encrypted)
-        .name("Test Cert".to_string())
+        .name("Test Cert")
         .created_by_user_id(100)
         .create()
         .unwrap();

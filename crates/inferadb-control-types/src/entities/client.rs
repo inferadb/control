@@ -213,7 +213,7 @@ mod tests {
         let client = Client::builder()
             .id(1)
             .organization_id(100)
-            .name("Test Client".to_string())
+            .name("Test Client")
             .created_by_user_id(999)
             .create()
             .unwrap();
@@ -236,7 +236,7 @@ mod tests {
         let mut client = Client::builder()
             .id(1)
             .organization_id(100)
-            .name("Test Client".to_string())
+            .name("Test Client")
             .created_by_user_id(999)
             .create()
             .unwrap();
@@ -255,7 +255,7 @@ mod tests {
             .organization_id(200)
             .public_key("public_key_base64".to_string())
             .private_key_encrypted("encrypted_private_key_base64".to_string())
-            .name("Test Certificate".to_string())
+            .name("Test Certificate")
             .created_by_user_id(999)
             .create()
             .unwrap();
@@ -290,7 +290,7 @@ mod tests {
             .organization_id(200)
             .public_key("public_key".to_string())
             .private_key_encrypted("private_key".to_string())
-            .name("Test Cert".to_string())
+            .name("Test Cert")
             .created_by_user_id(999)
             .create()
             .unwrap();
@@ -312,7 +312,7 @@ mod tests {
             .organization_id(200)
             .public_key("public_key".to_string())
             .private_key_encrypted("private_key".to_string())
-            .name("Test Cert".to_string())
+            .name("Test Cert")
             .created_by_user_id(999)
             .create()
             .unwrap();
@@ -333,7 +333,7 @@ mod tests {
             .organization_id(200)
             .public_key("public_key".to_string())
             .private_key_encrypted("private_key".to_string())
-            .name("Test Cert".to_string())
+            .name("Test Cert")
             .created_by_user_id(999)
             .create()
             .unwrap();

@@ -224,7 +224,7 @@ mod tests {
     fn test_create_organization() {
         let org = Organization::builder()
             .id(1)
-            .name("Test Org".to_string())
+            .name("Test Org")
             .tier(OrganizationTier::TierDevV1)
             .create();
         assert!(org.is_ok());
@@ -238,18 +238,12 @@ mod tests {
 
     #[test]
     fn test_validate_name_empty() {
-        let result = Organization::builder()
-            .id(1)
-            .name("".to_string())
-            .tier(OrganizationTier::TierDevV1)
-            .create();
+        let result =
+            Organization::builder().id(1).name("").tier(OrganizationTier::TierDevV1).create();
         assert!(result.is_err());
 
-        let result = Organization::builder()
-            .id(1)
-            .name("   ".to_string())
-            .tier(OrganizationTier::TierDevV1)
-            .create();
+        let result =
+            Organization::builder().id(1).name("   ").tier(OrganizationTier::TierDevV1).create();
         assert!(result.is_err());
     }
 
@@ -268,7 +262,7 @@ mod tests {
     fn test_set_name() {
         let mut org = Organization::builder()
             .id(1)
-            .name("Old Name".to_string())
+            .name("Old Name")
             .tier(OrganizationTier::TierDevV1)
             .create()
             .unwrap();
@@ -284,7 +278,7 @@ mod tests {
     fn test_soft_delete() {
         let mut org = Organization::builder()
             .id(1)
-            .name("Test Org".to_string())
+            .name("Test Org")
             .tier(OrganizationTier::TierDevV1)
             .create()
             .unwrap();
@@ -367,7 +361,7 @@ mod tests {
     fn test_suspend_organization() {
         let mut org = Organization::builder()
             .id(1)
-            .name("Test Org".to_string())
+            .name("Test Org")
             .tier(OrganizationTier::TierDevV1)
             .create()
             .unwrap();
@@ -383,7 +377,7 @@ mod tests {
     fn test_suspended_not_deleted() {
         let mut org = Organization::builder()
             .id(1)
-            .name("Test Org".to_string())
+            .name("Test Org")
             .tier(OrganizationTier::TierDevV1)
             .create()
             .unwrap();

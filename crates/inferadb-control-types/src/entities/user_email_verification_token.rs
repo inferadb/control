@@ -120,11 +120,8 @@ mod tests {
 
     #[test]
     fn test_token_validation_length() {
-        let result = UserEmailVerificationToken::builder()
-            .id(1)
-            .user_email_id(100)
-            .token("short".to_string())
-            .create();
+        let result =
+            UserEmailVerificationToken::builder().id(1).user_email_id(100).token("short").create();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::Validation(_)));
     }

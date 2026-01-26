@@ -228,7 +228,7 @@ mod tests {
         let team = OrganizationTeam::builder()
             .id(1)
             .organization_id(100)
-            .name("Engineering Team".to_string())
+            .name("Engineering Team")
             .create()
             .unwrap();
         assert_eq!(team.id, 1);
@@ -252,7 +252,7 @@ mod tests {
         let mut team = OrganizationTeam::builder()
             .id(1)
             .organization_id(100)
-            .name("Old Name".to_string())
+            .name("Old Name")
             .create()
             .unwrap();
 
@@ -268,7 +268,7 @@ mod tests {
         let mut team = OrganizationTeam::builder()
             .id(1)
             .organization_id(100)
-            .name("Test Team".to_string())
+            .name("Test Team")
             .create()
             .unwrap();
 

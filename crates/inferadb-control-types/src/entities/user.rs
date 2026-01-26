@@ -130,7 +130,7 @@ mod tests {
     fn test_create_user() {
         let user = User::builder()
             .id(1)
-            .name("Test User".to_string())
+            .name("Test User")
             .password_hash("hash".to_string())
             .create()
             .unwrap();
@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_accept_tos() {
-        let mut user = User::builder().id(1).name("Test".to_string()).create().unwrap();
+        let mut user = User::builder().id(1).name("Test").create().unwrap();
         assert!(!user.has_accepted_tos());
 
         user.accept_tos();
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn test_soft_delete() {
-        let mut user = User::builder().id(1).name("Test".to_string()).create().unwrap();
+        let mut user = User::builder().id(1).name("Test").create().unwrap();
         assert!(!user.is_deleted());
 
         user.soft_delete();
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_set_name() {
-        let mut user = User::builder().id(1).name("Original".to_string()).create().unwrap();
+        let mut user = User::builder().id(1).name("Original").create().unwrap();
         user.set_name("Updated".to_string()).unwrap();
         assert_eq!(user.name, "Updated");
 

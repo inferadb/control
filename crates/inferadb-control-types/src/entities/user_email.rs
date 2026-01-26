@@ -117,7 +117,7 @@ mod tests {
         let email = UserEmail::builder()
             .id(1)
             .user_id(100)
-            .email("Test@Example.COM".to_string())
+            .email("Test@Example.COM")
             .primary(true)
             .create()
             .unwrap();
@@ -157,7 +157,7 @@ mod tests {
         let mut email = UserEmail::builder()
             .id(1)
             .user_id(100)
-            .email("test@example.com".to_string())
+            .email("test@example.com")
             .primary(true)
             .create()
             .unwrap();
@@ -177,7 +177,7 @@ mod tests {
         let mut email = UserEmail::builder()
             .id(1)
             .user_id(100)
-            .email("test@example.com".to_string())
+            .email("test@example.com")
             .primary(false)
             .create()
             .unwrap();

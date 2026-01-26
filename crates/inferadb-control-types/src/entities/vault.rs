@@ -190,8 +190,8 @@ mod tests {
         let vault = Vault::builder()
             .id(1)
             .organization_id(100)
-            .name("Test Vault".to_string())
-            .description("Test description".to_string())
+            .name("Test Vault")
+            .description("Test description")
             .created_by_user_id(999)
             .create()
             .unwrap();
@@ -209,7 +209,7 @@ mod tests {
         let vault = Vault::builder()
             .id(1)
             .organization_id(100)
-            .name("Test Vault".to_string())
+            .name("Test Vault")
             .created_by_user_id(999)
             .create()
             .unwrap();
@@ -230,7 +230,7 @@ mod tests {
         let mut vault = Vault::builder()
             .id(1)
             .organization_id(100)
-            .name("Test".to_string())
+            .name("Test")
             .created_by_user_id(999)
             .create()
             .unwrap();
@@ -244,7 +244,7 @@ mod tests {
         let mut vault = Vault::builder()
             .id(1)
             .organization_id(100)
-            .name("Test".to_string())
+            .name("Test")
             .created_by_user_id(999)
             .create()
             .unwrap();
@@ -258,7 +258,7 @@ mod tests {
         let mut vault = Vault::builder()
             .id(1)
             .organization_id(100)
-            .name("Test".to_string())
+            .name("Test")
             .created_by_user_id(999)
             .create()
             .unwrap();

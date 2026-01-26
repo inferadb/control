@@ -37,7 +37,7 @@ async fn setup_user_with_role(
     let SetupUserParams { state, user_id, session_id, org_id, member_id, username, role, is_owner } =
         params;
     // Create user
-    let user = User::builder().id(user_id).name(username.to_string()).create().unwrap();
+    let user = User::builder().id(user_id).name(username).create().unwrap();
     let user_repo = UserRepository::new((*state.storage).clone());
     user_repo.create(user.clone()).await.unwrap();
 
@@ -57,7 +57,7 @@ async fn setup_user_with_role(
     } else {
         let new_org = Organization::builder()
             .id(org_id)
-            .name("Test Org".to_string())
+            .name("Test Org")
             .tier(OrganizationTier::TierDevV1)
             .create()
             .unwrap();
@@ -455,7 +455,7 @@ async fn test_cannot_use_other_users_session() {
     let state = create_test_state();
 
     // Setup User A
-    let user_a = User::builder().id(100).name("userA".to_string()).create().unwrap();
+    let user_a = User::builder().id(100).name("userA").create().unwrap();
     let user_repo = UserRepository::new((*state.storage).clone());
     user_repo.create(user_a.clone()).await.unwrap();
 
@@ -465,7 +465,7 @@ async fn test_cannot_use_other_users_session() {
     session_repo.create(session_a.clone()).await.unwrap();
 
     // Setup User B
-    let user_b = User::builder().id(200).name("userB".to_string()).create().unwrap();
+    let user_b = User::builder().id(200).name("userB").create().unwrap();
     user_repo.create(user_b.clone()).await.unwrap();
 
     let session_b =
@@ -643,7 +643,7 @@ async fn test_member_cannot_delete_vault() {
     let vault = Vault::builder()
         .id(5000)
         .organization_id(org.id)
-        .name("Test Vault".to_string())
+        .name("Test Vault")
         .created_by_user_id(100)
         .create()
         .unwrap();

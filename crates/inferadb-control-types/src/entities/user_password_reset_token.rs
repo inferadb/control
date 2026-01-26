@@ -119,18 +119,14 @@ mod tests {
     #[test]
     fn test_invalid_token_format() {
         // Too short
-        let result = UserPasswordResetToken::builder()
-            .id(1)
-            .user_id(100)
-            .token("short".to_string())
-            .create();
+        let result = UserPasswordResetToken::builder().id(1).user_id(100).token("short").create();
         assert!(result.is_err());
 
         // Not hex
         let result = UserPasswordResetToken::builder()
             .id(1)
             .user_id(100)
-            .token("gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg".to_string())
+            .token("gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg")
             .create();
         assert!(result.is_err());
 
@@ -138,7 +134,7 @@ mod tests {
         let result = UserPasswordResetToken::builder()
             .id(1)
             .user_id(100)
-            .token("abcdef123456789012345678901234567890123456789012345678901234567g".to_string())
+            .token("abcdef123456789012345678901234567890123456789012345678901234567g")
             .create();
         assert!(result.is_err());
     }

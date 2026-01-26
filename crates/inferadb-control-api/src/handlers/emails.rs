@@ -325,7 +325,7 @@ mod tests {
         user_id: i64,
         session_id: i64,
     ) -> (User, UserSession) {
-        let user = User::builder().id(user_id).name("testuser".to_string()).create().unwrap();
+        let user = User::builder().id(user_id).name("testuser").create().unwrap();
         let user_repo = UserRepository::new((*storage).clone());
         user_repo.create(user.clone()).await.unwrap();
 
@@ -380,7 +380,7 @@ mod tests {
         let email = UserEmail::builder()
             .id(200)
             .user_id(100)
-            .email("test@example.com".to_string())
+            .email("test@example.com")
             .primary(true)
             .create()
             .unwrap();
@@ -415,7 +415,7 @@ mod tests {
         let email = UserEmail::builder()
             .id(200)
             .user_id(100)
-            .email("delete@example.com".to_string())
+            .email("delete@example.com")
             .primary(false)
             .create()
             .unwrap();
@@ -448,7 +448,7 @@ mod tests {
         let email = UserEmail::builder()
             .id(200)
             .user_id(100)
-            .email("primary@example.com".to_string())
+            .email("primary@example.com")
             .primary(true)
             .create()
             .unwrap();
