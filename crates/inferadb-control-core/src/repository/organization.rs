@@ -479,8 +479,12 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_org_repo().await;
 
-        let org =
-            Organization::new(100, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let org = Organization::builder()
+            .id(100)
+            .name("Test Org".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
         repo.create(org.clone()).await.unwrap();
 
         let retrieved = repo.get(100).await.unwrap();
@@ -493,8 +497,12 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_org_repo().await;
 
-        let org =
-            Organization::new(100, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let org = Organization::builder()
+            .id(100)
+            .name("Test Org".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
         repo.create(org).await.unwrap();
 
         let retrieved = repo.get_by_name("Test Org").await.unwrap();
@@ -511,12 +519,20 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_org_repo().await;
 
-        let org1 =
-            Organization::new(100, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let org1 = Organization::builder()
+            .id(100)
+            .name("Test Org".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
         repo.create(org1).await.unwrap();
 
-        let org2 =
-            Organization::new(101, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let org2 = Organization::builder()
+            .id(101)
+            .name("Test Org".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
         let result = repo.create(org2).await;
         // Duplicate names are now allowed
         assert!(result.is_ok());
@@ -531,8 +547,12 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_org_repo().await;
 
-        let mut org =
-            Organization::new(100, "Old Name".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let mut org = Organization::builder()
+            .id(100)
+            .name("Old Name".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
         repo.create(org.clone()).await.unwrap();
 
         org.set_name("New Name".to_string()).unwrap();
@@ -552,8 +572,12 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_org_repo().await;
 
-        let org =
-            Organization::new(100, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let org = Organization::builder()
+            .id(100)
+            .name("Test Org".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
         repo.create(org).await.unwrap();
 
         repo.delete(100).await.unwrap();
@@ -569,13 +593,21 @@ mod tests {
 
         assert_eq!(repo.get_total_count().await.unwrap(), 0);
 
-        let org1 =
-            Organization::new(100, "Org 1".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let org1 = Organization::builder()
+            .id(100)
+            .name("Org 1".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
         repo.create(org1).await.unwrap();
         assert_eq!(repo.get_total_count().await.unwrap(), 1);
 
-        let org2 =
-            Organization::new(101, "Org 2".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let org2 = Organization::builder()
+            .id(101)
+            .name("Org 2".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
         repo.create(org2).await.unwrap();
         assert_eq!(repo.get_total_count().await.unwrap(), 2);
     }

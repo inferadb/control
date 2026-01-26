@@ -1,3 +1,4 @@
+use bon::bon;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -66,6 +67,7 @@ pub struct Organization {
     pub suspended_at: Option<DateTime<Utc>>,
 }
 
+#[bon]
 impl Organization {
     /// Create a new organization
     ///
@@ -78,6 +80,7 @@ impl Organization {
     /// # Errors
     ///
     /// Returns an error if validation fails
+    #[builder]
     pub fn new(id: i64, name: String, tier: OrganizationTier) -> Result<Self> {
         Self::validate_name(&name)?;
 
@@ -219,7 +222,11 @@ mod tests {
 
     #[test]
     fn test_create_organization() {
-        let org = Organization::new(1, "Test Org".to_string(), OrganizationTier::TierDevV1);
+        let org = Organization::builder()
+            .id(1)
+            .name("Test Org".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build();
         assert!(org.is_ok());
 
         let org = org.unwrap();
@@ -231,24 +238,37 @@ mod tests {
 
     #[test]
     fn test_validate_name_empty() {
-        let result = Organization::new(1, "".to_string(), OrganizationTier::TierDevV1);
+        let result = Organization::builder()
+            .id(1)
+            .name("".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build();
         assert!(result.is_err());
 
-        let result = Organization::new(1, "   ".to_string(), OrganizationTier::TierDevV1);
+        let result = Organization::builder()
+            .id(1)
+            .name("   ".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build();
         assert!(result.is_err());
     }
 
     #[test]
     fn test_validate_name_too_long() {
         let long_name = "a".repeat(101);
-        let result = Organization::new(1, long_name, OrganizationTier::TierDevV1);
+        let result =
+            Organization::builder().id(1).name(long_name).tier(OrganizationTier::TierDevV1).build();
         assert!(result.is_err());
     }
 
     #[test]
     fn test_set_name() {
-        let mut org =
-            Organization::new(1, "Old Name".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let mut org = Organization::builder()
+            .id(1)
+            .name("Old Name".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
 
         org.set_name("New Name".to_string()).unwrap();
         assert_eq!(org.name, "New Name");
@@ -259,8 +279,12 @@ mod tests {
 
     #[test]
     fn test_soft_delete() {
-        let mut org =
-            Organization::new(1, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let mut org = Organization::builder()
+            .id(1)
+            .name("Test Org".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
 
         assert!(!org.is_deleted());
         org.soft_delete();
@@ -338,8 +362,12 @@ mod tests {
 
     #[test]
     fn test_suspend_organization() {
-        let mut org =
-            Organization::new(1, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let mut org = Organization::builder()
+            .id(1)
+            .name("Test Org".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
 
         assert!(!org.is_suspended());
         org.suspend();
@@ -350,8 +378,12 @@ mod tests {
 
     #[test]
     fn test_suspended_not_deleted() {
-        let mut org =
-            Organization::new(1, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let mut org = Organization::builder()
+            .id(1)
+            .name("Test Org".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
 
         org.suspend();
         assert!(org.is_suspended());

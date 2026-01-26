@@ -10,6 +10,9 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+# Builder pattern
+bon = { workspace = true }
+
 # Configuration loading
 config = { workspace = true }
 num_cpus = { workspace = true }

@@ -1,3 +1,4 @@
+use bon::bon;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +27,7 @@ pub struct UserPasswordResetToken {
     pub used_at: Option<DateTime<Utc>>,
 }
 
+#[bon]
 impl UserPasswordResetToken {
     /// Create a new password reset token
     ///
@@ -38,6 +40,7 @@ impl UserPasswordResetToken {
     /// # Errors
     ///
     /// Returns an error if the token format is invalid
+    #[builder]
     pub fn new(id: i64, user_id: i64, token: String) -> Result<Self> {
         // Validate token format (64 hex characters = 32 bytes)
         if token.len() != 64 || !token.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -99,7 +102,11 @@ mod tests {
     #[test]
     fn test_new_token() {
         let token_string = UserPasswordResetToken::generate_token();
-        let token = UserPasswordResetToken::new(1, 100, token_string.clone());
+        let token = UserPasswordResetToken::builder()
+            .id(1)
+            .user_id(100)
+            .token(token_string.clone())
+            .build();
 
         assert!(token.is_ok());
         let token = token.unwrap();
@@ -112,30 +119,36 @@ mod tests {
     #[test]
     fn test_invalid_token_format() {
         // Too short
-        let result = UserPasswordResetToken::new(1, 100, "short".to_string());
+        let result =
+            UserPasswordResetToken::builder().id(1).user_id(100).token("short".to_string()).build();
         assert!(result.is_err());
 
         // Not hex
-        let result = UserPasswordResetToken::new(
-            1,
-            100,
-            "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg".to_string(),
-        );
+        let result = UserPasswordResetToken::builder()
+            .id(1)
+            .user_id(100)
+            .token("gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg".to_string())
+            .build();
         assert!(result.is_err());
 
         // Correct length but not all hex
-        let result = UserPasswordResetToken::new(
-            1,
-            100,
-            "abcdef123456789012345678901234567890123456789012345678901234567g".to_string(),
-        );
+        let result = UserPasswordResetToken::builder()
+            .id(1)
+            .user_id(100)
+            .token("abcdef123456789012345678901234567890123456789012345678901234567g".to_string())
+            .build();
         assert!(result.is_err());
     }
 
     #[test]
     fn test_token_expiry() {
         let token_string = UserPasswordResetToken::generate_token();
-        let mut token = UserPasswordResetToken::new(1, 100, token_string).unwrap();
+        let mut token = UserPasswordResetToken::builder()
+            .id(1)
+            .user_id(100)
+            .token(token_string)
+            .build()
+            .unwrap();
 
         // Should not be expired initially
         assert!(!token.is_expired());
@@ -150,7 +163,12 @@ mod tests {
     #[test]
     fn test_token_usage() {
         let token_string = UserPasswordResetToken::generate_token();
-        let mut token = UserPasswordResetToken::new(1, 100, token_string).unwrap();
+        let mut token = UserPasswordResetToken::builder()
+            .id(1)
+            .user_id(100)
+            .token(token_string)
+            .build()
+            .unwrap();
 
         // Should not be used initially
         assert!(!token.is_used());
@@ -166,7 +184,12 @@ mod tests {
     #[test]
     fn test_expiry_duration() {
         let token_string = UserPasswordResetToken::generate_token();
-        let token = UserPasswordResetToken::new(1, 100, token_string).unwrap();
+        let token = UserPasswordResetToken::builder()
+            .id(1)
+            .user_id(100)
+            .token(token_string)
+            .build()
+            .unwrap();
 
         let duration = token.expires_at - token.created_at;
         // Allow for small timing differences

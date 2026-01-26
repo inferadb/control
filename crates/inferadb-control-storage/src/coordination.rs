@@ -16,6 +16,7 @@
 //! - All operations are multi-instance safe with optimistic concurrency control
 
 use async_trait::async_trait;
+use bon::Builder;
 use serde::{Deserialize, Serialize};
 
 use crate::backend::StorageResult;
@@ -32,7 +33,8 @@ pub enum LeaderStatus {
 }
 
 /// Worker information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct WorkerInfo {
     /// Unique worker ID (e.g., hostname, pod name)
     pub worker_id: String,

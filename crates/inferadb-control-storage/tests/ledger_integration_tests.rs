@@ -49,10 +49,10 @@ fn unique_vault_id() -> i64 {
 async fn create_ledger_backend() -> LedgerBackend {
     let vault_id = unique_vault_id();
     let config = LedgerBackendConfig::builder()
-        .with_endpoint(ledger_endpoint())
-        .with_client_id(format!("control-test-{vault_id}"))
-        .with_namespace_id(ledger_namespace_id())
-        .with_vault_id(vault_id)
+        .endpoints(vec![ledger_endpoint()])
+        .client_id(format!("control-test-{vault_id}"))
+        .namespace_id(ledger_namespace_id())
+        .vault_id(vault_id)
         .build()
         .expect("valid config");
 
@@ -244,10 +244,10 @@ async fn test_ledger_concurrent_writes() {
     for i in 0..10 {
         let vault_id = unique_vault_id();
         let config = LedgerBackendConfig::builder()
-            .with_endpoint(ledger_endpoint())
-            .with_client_id(format!("concurrent-test-{vault_id}"))
-            .with_namespace_id(ledger_namespace_id())
-            .with_vault_id(vault_id)
+            .endpoints(vec![ledger_endpoint()])
+            .client_id(format!("concurrent-test-{vault_id}"))
+            .namespace_id(ledger_namespace_id())
+            .vault_id(vault_id)
             .build()
             .expect("valid config");
 
@@ -280,18 +280,18 @@ async fn test_ledger_vault_isolation() {
     let vault_b = unique_vault_id();
 
     let config_a = LedgerBackendConfig::builder()
-        .with_endpoint(ledger_endpoint())
-        .with_client_id(format!("vault-a-{vault_a}"))
-        .with_namespace_id(ledger_namespace_id())
-        .with_vault_id(vault_a)
+        .endpoints(vec![ledger_endpoint()])
+        .client_id(format!("vault-a-{vault_a}"))
+        .namespace_id(ledger_namespace_id())
+        .vault_id(vault_a)
         .build()
         .unwrap();
 
     let config_b = LedgerBackendConfig::builder()
-        .with_endpoint(ledger_endpoint())
-        .with_client_id(format!("vault-b-{vault_b}"))
-        .with_namespace_id(ledger_namespace_id())
-        .with_vault_id(vault_b)
+        .endpoints(vec![ledger_endpoint()])
+        .client_id(format!("vault-b-{vault_b}"))
+        .namespace_id(ledger_namespace_id())
+        .vault_id(vault_b)
         .build()
         .unwrap();
 

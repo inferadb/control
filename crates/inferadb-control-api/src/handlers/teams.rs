@@ -107,8 +107,12 @@ pub async fn create_team(
 
     // Generate ID and create team
     let team_id = IdGenerator::next_id();
-    let team =
-        OrganizationTeam::new(team_id, org_ctx.organization_id, payload.name, payload.description)?;
+    let team = OrganizationTeam::builder()
+        .id(team_id)
+        .organization_id(org_ctx.organization_id)
+        .name(payload.name)
+        .maybe_description(payload.description)
+        .build()?;
 
     // Store team
     repos.org_team.create(team.clone()).await?;

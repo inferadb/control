@@ -244,7 +244,12 @@ mod tests {
     }
 
     fn create_test_client(id: i64, org_id: i64, name: &str) -> Result<Client> {
-        Client::new(id, org_id, None, name.to_string(), None, 999)
+        Client::builder()
+            .id(id)
+            .organization_id(org_id)
+            .name(name.to_string())
+            .created_by_user_id(999)
+            .build()
     }
 
     #[tokio::test]

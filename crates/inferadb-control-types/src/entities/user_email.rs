@@ -1,3 +1,4 @@
+use bon::bon;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +26,7 @@ pub struct UserEmail {
     pub created_at: DateTime<Utc>,
 }
 
+#[bon]
 impl UserEmail {
     /// Create a new unverified email
     ///
@@ -42,6 +44,7 @@ impl UserEmail {
     /// # Errors
     ///
     /// Returns an error if email validation fails
+    #[builder]
     pub fn new(id: i64, user_id: i64, email: String, primary: bool) -> Result<Self> {
         let normalized_email = Self::normalize_email(&email)?;
 
@@ -111,7 +114,13 @@ mod tests {
 
     #[test]
     fn test_create_email() {
-        let email = UserEmail::new(1, 100, "Test@Example.COM".to_string(), true).unwrap();
+        let email = UserEmail::builder()
+            .id(1)
+            .user_id(100)
+            .email("Test@Example.COM".to_string())
+            .primary(true)
+            .build()
+            .unwrap();
         assert_eq!(email.id, 1);
         assert_eq!(email.user_id, 100);
         assert_eq!(email.email, "test@example.com"); // Normalized to lowercase
@@ -145,7 +154,13 @@ mod tests {
 
     #[test]
     fn test_verify() {
-        let mut email = UserEmail::new(1, 100, "test@example.com".to_string(), true).unwrap();
+        let mut email = UserEmail::builder()
+            .id(1)
+            .user_id(100)
+            .email("test@example.com".to_string())
+            .primary(true)
+            .build()
+            .unwrap();
         assert!(!email.is_verified());
 
         email.verify();
@@ -159,7 +174,13 @@ mod tests {
 
     #[test]
     fn test_set_primary() {
-        let mut email = UserEmail::new(1, 100, "test@example.com".to_string(), false).unwrap();
+        let mut email = UserEmail::builder()
+            .id(1)
+            .user_id(100)
+            .email("test@example.com".to_string())
+            .primary(false)
+            .build()
+            .unwrap();
         assert!(!email.primary);
 
         email.set_primary(true);

@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
+use bon::Builder;
 use inferadb_control_const::auth::{SESSION_COOKIE_MAX_AGE, SESSION_COOKIE_NAME};
 use inferadb_control_core::{
     IdGenerator, RepositoryContext, UserPasswordResetToken, error::Error as CoreError,
@@ -28,126 +29,41 @@ use inferadb_control_types::{
 use time;
 
 /// Application state shared across handlers
-#[derive(Clone)]
+#[derive(Clone, Builder)]
+#[builder(on(Arc<_>, into))]
 pub struct AppState {
     pub storage: Arc<Backend>,
     pub config: Arc<inferadb_control_core::ControlConfig>,
     pub worker_id: u16,
+    #[builder(default = std::time::SystemTime::now())]
     pub start_time: std::time::SystemTime,
     pub leader: Option<Arc<inferadb_control_core::LeaderElection<Backend>>>,
     pub email_service: Option<Arc<inferadb_control_core::EmailService>>,
     pub control_identity: Option<Arc<inferadb_control_types::ControlIdentity>>,
 }
 
-/// Builder for AppState to avoid too many function parameters
-pub struct AppStateBuilder {
-    storage: Arc<Backend>,
-    config: Arc<inferadb_control_core::ControlConfig>,
-    worker_id: u16,
-    leader: Option<Arc<inferadb_control_core::LeaderElection<Backend>>>,
-    email_service: Option<Arc<inferadb_control_core::EmailService>>,
-    control_identity: Option<Arc<inferadb_control_types::ControlIdentity>>,
-}
-
-impl AppStateBuilder {
-    /// Create a new AppStateBuilder with required parameters
-    pub fn new(
-        storage: Arc<Backend>,
-        config: Arc<inferadb_control_core::ControlConfig>,
-        worker_id: u16,
-    ) -> Self {
-        Self {
-            storage,
-            config,
-            worker_id,
-            leader: None,
-            email_service: None,
-            control_identity: None,
-        }
-    }
-
-    /// Set leader election component (optional)
-    pub fn leader(mut self, leader: Arc<inferadb_control_core::LeaderElection<Backend>>) -> Self {
-        self.leader = Some(leader);
-        self
-    }
-
-    /// Set email service (optional)
-    pub fn email_service(
-        mut self,
-        email_service: Arc<inferadb_control_core::EmailService>,
-    ) -> Self {
-        self.email_service = Some(email_service);
-        self
-    }
-
-    /// Set control identity (optional)
-    pub fn control_identity(
-        mut self,
-        control_identity: Arc<inferadb_control_types::ControlIdentity>,
-    ) -> Self {
-        self.control_identity = Some(control_identity);
-        self
-    }
-
-    /// Build the AppState
-    pub fn build(self) -> AppState {
-        AppState {
-            storage: self.storage,
-            config: self.config,
-            worker_id: self.worker_id,
-            start_time: std::time::SystemTime::now(),
-            leader: self.leader,
-            email_service: self.email_service,
-            control_identity: self.control_identity,
-        }
-    }
-}
-
 impl AppState {
-    /// Create AppState using the builder pattern
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let state = AppState::builder(storage, config, worker_id)
-    ///     .email_service(email_service)
-    ///     .build();
-    /// ```
-    pub fn builder(
-        storage: Arc<Backend>,
-        config: Arc<inferadb_control_core::ControlConfig>,
-        worker_id: u16,
-    ) -> AppStateBuilder {
-        AppStateBuilder::new(storage, config, worker_id)
-    }
-
     /// Create AppState for testing with default configuration
     /// This is used by both unit tests and integration tests
-    #[allow(clippy::field_reassign_with_default)]
     pub fn new_test(storage: Arc<Backend>) -> Self {
         use inferadb_control_core::ControlConfig;
 
-        // Create a minimal test config using default and overriding necessary fields
-        let mut config = ControlConfig::default();
-        // Use a temporary key file for tests - MasterKey will auto-generate it
-        config.key_file = Some("/tmp/test-master.key".to_string());
-        config.webauthn.party = "localhost".to_string();
-        config.webauthn.origin = "http://localhost:3000".to_string();
+        // Create a minimal test config using builder pattern
+        // WebAuthnConfig defaults to localhost which is correct for tests
+        let config = ControlConfig::builder()
+            .maybe_key_file(Some("/tmp/test-master.key".to_string()))
+            .build();
 
         // Create mock email service for testing
         let email_sender = Box::new(inferadb_control_core::MockEmailSender::new());
         let email_service = inferadb_control_core::EmailService::new(email_sender);
 
-        Self {
-            storage,
-            config: Arc::new(config),
-            worker_id: 0,
-            start_time: std::time::SystemTime::now(),
-            leader: None,
-            email_service: Some(Arc::new(email_service)),
-            control_identity: None,
-        }
+        Self::builder()
+            .storage(storage)
+            .config(Arc::new(config))
+            .worker_id(0)
+            .email_service(Arc::new(email_service))
+            .build()
     }
 }
 
@@ -234,18 +150,31 @@ pub async fn register(
     let session_id = IdGenerator::next_id();
 
     // Create user
-    let mut user = User::new(user_id, payload.name.clone(), Some(password_hash))?;
+    let mut user = User::builder()
+        .id(user_id)
+        .name(payload.name.clone())
+        .password_hash(password_hash)
+        .build()?;
     user.accept_tos(); // Auto-accept TOS on registration
     repos.user.create(user).await?;
 
     // Create email (unverified)
-    let email = UserEmail::new(email_id, user_id, payload.email.clone(), true)?;
+    let email = UserEmail::builder()
+        .id(email_id)
+        .user_id(user_id)
+        .email(payload.email.clone())
+        .primary(true)
+        .build()?;
     repos.user_email.create(email.clone()).await?;
 
     // Create email verification token
     let token_id = IdGenerator::next_id();
     let token_string = UserEmailVerificationToken::generate_token();
-    let verification_token = UserEmailVerificationToken::new(token_id, email_id, token_string)?;
+    let verification_token = UserEmailVerificationToken::builder()
+        .id(token_id)
+        .user_email_id(email_id)
+        .token(token_string)
+        .build()?;
     repos.user_email_verification_token.create(verification_token.clone()).await?;
 
     // Send verification email (fire-and-forget - don't block registration)
@@ -287,15 +216,22 @@ pub async fn register(
     }
 
     // Create session
-    let session = UserSession::new(session_id, user_id, SessionType::Web, None, None);
+    let session = UserSession::builder()
+        .id(session_id)
+        .user_id(user_id)
+        .session_type(SessionType::Web)
+        .build();
     repos.user_session.create(session).await?;
 
     // Create default organization with same name as user
     let org_id = IdGenerator::next_id();
     let member_id = IdGenerator::next_id();
 
-    let organization =
-        Organization::new(org_id, payload.name.clone(), OrganizationTier::TierDevV1)?;
+    let organization = Organization::builder()
+        .id(org_id)
+        .name(payload.name.clone())
+        .tier(OrganizationTier::TierDevV1)
+        .build()?;
     repos.org.create(organization).await?;
 
     // Create organization member (owner role)
@@ -361,7 +297,11 @@ pub async fn login(
 
     // Create session
     let session_id = IdGenerator::next_id();
-    let session = UserSession::new(session_id, user.id, SessionType::Web, None, None);
+    let session = UserSession::builder()
+        .id(session_id)
+        .user_id(user.id)
+        .session_type(SessionType::Web)
+        .build();
     repos.user_session.create(session).await?;
 
     // Set session cookie
@@ -494,7 +434,11 @@ pub async fn request_password_reset(
     // Generate password reset token
     let token_id = IdGenerator::next_id();
     let token_string = UserPasswordResetToken::generate_token();
-    let reset_token = UserPasswordResetToken::new(token_id, user.id, token_string.clone())?;
+    let reset_token = UserPasswordResetToken::builder()
+        .id(token_id)
+        .user_id(user.id)
+        .token(token_string.clone())
+        .build()?;
 
     // Store the token
     repos.user_password_reset_token.create(reset_token).await?;
@@ -629,11 +573,13 @@ mod tests {
             .uri("/register")
             .header("content-type", "application/json")
             .body(axum::body::Body::from(
-                serde_json::to_string(&RegisterRequest {
-                    name: "alice".to_string(),
-                    email: "alice@example.com".to_string(),
-                    password: "secure-password-123".to_string(),
-                })
+                serde_json::to_string(
+                    &RegisterRequest::builder()
+                        .name("alice")
+                        .email("alice@example.com")
+                        .password("secure-password-123")
+                        .build(),
+                )
                 .unwrap(),
             ))
             .unwrap();
@@ -658,11 +604,13 @@ mod tests {
             .uri("/register")
             .header("content-type", "application/json")
             .body(axum::body::Body::from(
-                serde_json::to_string(&RegisterRequest {
-                    name: "alice".to_string(),
-                    email: "alice@example.com".to_string(),
-                    password: "secure-password-123".to_string(),
-                })
+                serde_json::to_string(
+                    &RegisterRequest::builder()
+                        .name("alice")
+                        .email("alice@example.com")
+                        .password("secure-password-123")
+                        .build(),
+                )
                 .unwrap(),
             ))
             .unwrap();
@@ -676,11 +624,13 @@ mod tests {
             .uri("/register")
             .header("content-type", "application/json")
             .body(axum::body::Body::from(
-                serde_json::to_string(&RegisterRequest {
-                    name: "bob".to_string(),
-                    email: "alice@example.com".to_string(),
-                    password: "another-password-456".to_string(),
-                })
+                serde_json::to_string(
+                    &RegisterRequest::builder()
+                        .name("bob")
+                        .email("alice@example.com")
+                        .password("another-password-456")
+                        .build(),
+                )
                 .unwrap(),
             ))
             .unwrap();
@@ -699,11 +649,13 @@ mod tests {
             .uri("/register")
             .header("content-type", "application/json")
             .body(axum::body::Body::from(
-                serde_json::to_string(&RegisterRequest {
-                    name: "alice".to_string(),
-                    email: "alice@example.com".to_string(),
-                    password: "secure-password-123".to_string(),
-                })
+                serde_json::to_string(
+                    &RegisterRequest::builder()
+                        .name("alice")
+                        .email("alice@example.com")
+                        .password("secure-password-123")
+                        .build(),
+                )
                 .unwrap(),
             ))
             .unwrap();
@@ -716,10 +668,12 @@ mod tests {
             .uri("/login")
             .header("content-type", "application/json")
             .body(axum::body::Body::from(
-                serde_json::to_string(&LoginRequest {
-                    email: "alice@example.com".to_string(),
-                    password: "secure-password-123".to_string(),
-                })
+                serde_json::to_string(
+                    &LoginRequest::builder()
+                        .email("alice@example.com")
+                        .password("secure-password-123")
+                        .build(),
+                )
                 .unwrap(),
             ))
             .unwrap();
@@ -738,11 +692,13 @@ mod tests {
             .uri("/register")
             .header("content-type", "application/json")
             .body(axum::body::Body::from(
-                serde_json::to_string(&RegisterRequest {
-                    name: "alice".to_string(),
-                    email: "alice@example.com".to_string(),
-                    password: "secure-password-123".to_string(),
-                })
+                serde_json::to_string(
+                    &RegisterRequest::builder()
+                        .name("alice")
+                        .email("alice@example.com")
+                        .password("secure-password-123")
+                        .build(),
+                )
                 .unwrap(),
             ))
             .unwrap();
@@ -755,10 +711,12 @@ mod tests {
             .uri("/login")
             .header("content-type", "application/json")
             .body(axum::body::Body::from(
-                serde_json::to_string(&LoginRequest {
-                    email: "alice@example.com".to_string(),
-                    password: "wrong-password".to_string(),
-                })
+                serde_json::to_string(
+                    &LoginRequest::builder()
+                        .email("alice@example.com")
+                        .password("wrong-password")
+                        .build(),
+                )
                 .unwrap(),
             ))
             .unwrap();
@@ -786,11 +744,13 @@ mod tests {
             .uri("/register")
             .header("content-type", "application/json")
             .body(axum::body::Body::from(
-                serde_json::to_string(&RegisterRequest {
-                    name: "alice".to_string(),
-                    email: "alice@example.com".to_string(),
-                    password: "old-password-123".to_string(),
-                })
+                serde_json::to_string(
+                    &RegisterRequest::builder()
+                        .name("alice")
+                        .email("alice@example.com")
+                        .password("old-password-123")
+                        .build(),
+                )
                 .unwrap(),
             ))
             .unwrap();
@@ -848,10 +808,12 @@ mod tests {
             .uri("/login")
             .header("content-type", "application/json")
             .body(axum::body::Body::from(
-                serde_json::to_string(&LoginRequest {
-                    email: "alice@example.com".to_string(),
-                    password: "new-password-456".to_string(),
-                })
+                serde_json::to_string(
+                    &LoginRequest::builder()
+                        .email("alice@example.com")
+                        .password("new-password-456")
+                        .build(),
+                )
                 .unwrap(),
             ))
             .unwrap();
@@ -907,11 +869,13 @@ mod tests {
             .uri("/register")
             .header("content-type", "application/json")
             .body(axum::body::Body::from(
-                serde_json::to_string(&RegisterRequest {
-                    name: "alice".to_string(),
-                    email: "alice@example.com".to_string(),
-                    password: "old-password-123".to_string(),
-                })
+                serde_json::to_string(
+                    &RegisterRequest::builder()
+                        .name("alice")
+                        .email("alice@example.com")
+                        .password("old-password-123")
+                        .build(),
+                )
                 .unwrap(),
             ))
             .unwrap();
@@ -926,10 +890,16 @@ mod tests {
         repos.user_email.update(email).await.unwrap();
 
         // Create additional sessions to verify they all get revoked
-        let session2 =
-            UserSession::new(IdGenerator::next_id(), user_id, SessionType::Cli, None, None);
-        let session3 =
-            UserSession::new(IdGenerator::next_id(), user_id, SessionType::Sdk, None, None);
+        let session2 = UserSession::builder()
+            .id(IdGenerator::next_id())
+            .user_id(user_id)
+            .session_type(SessionType::Cli)
+            .build();
+        let session3 = UserSession::builder()
+            .id(IdGenerator::next_id())
+            .user_id(user_id)
+            .session_type(SessionType::Sdk)
+            .build();
         repos.user_session.create(session2.clone()).await.unwrap();
         repos.user_session.create(session3.clone()).await.unwrap();
 

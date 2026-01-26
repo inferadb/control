@@ -154,7 +154,11 @@ mod tests {
         session_id: i64,
         user_id: i64,
     ) -> UserSession {
-        let session = UserSession::new(session_id, user_id, SessionType::Web, None, None);
+        let session = UserSession::builder()
+            .id(session_id)
+            .user_id(user_id)
+            .session_type(SessionType::Web)
+            .build();
         let repos = RepositoryContext::new((*storage).clone());
         repos.user_session.create(session.clone()).await.unwrap();
         session

@@ -12,6 +12,7 @@ version.workspace = true
 [dependencies]
 # Core dependencies
 anyhow = { workspace = true }
+bon = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 parking_lot = { workspace = true }

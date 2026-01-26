@@ -226,14 +226,14 @@ mod tests {
 
     fn create_test_invitation(id: i64, org_id: i64, email: &str) -> Result<OrganizationInvitation> {
         let token = OrganizationInvitation::generate_token()?;
-        OrganizationInvitation::new(
-            id,
-            org_id,
-            999,
-            email.to_string(),
-            OrganizationRole::Member,
-            token,
-        )
+        OrganizationInvitation::builder()
+            .id(id)
+            .organization_id(org_id)
+            .invited_by_user_id(999)
+            .email(email.to_string())
+            .role(OrganizationRole::Member)
+            .token(token)
+            .build()
     }
 
     #[tokio::test]

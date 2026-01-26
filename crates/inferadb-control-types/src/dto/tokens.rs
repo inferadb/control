@@ -1,10 +1,12 @@
+use bon::Builder;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
 // Request/Response Types - Token Generation
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct GenerateVaultTokenRequest {
     /// Client ID to use for signing (optional, defaults to first active client cert)
     pub client_id: Option<i64>,
@@ -16,7 +18,8 @@ pub struct GenerateVaultTokenRequest {
     pub requested_role: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Builder)]
+#[builder(on(String, into))]
 pub struct GenerateVaultTokenResponse {
     /// Short-lived JWT access token
     pub access_token: String,
@@ -38,7 +41,8 @@ pub struct GenerateVaultTokenResponse {
 // Request/Response Types - Token Refresh
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct RefreshTokenRequest {
     /// Refresh token (hex-encoded)
     pub refresh_token: String,
@@ -46,7 +50,8 @@ pub struct RefreshTokenRequest {
     pub access_token_ttl: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Builder)]
+#[builder(on(String, into))]
 pub struct RefreshTokenResponse {
     /// New short-lived JWT access token
     pub access_token: String,
@@ -64,7 +69,8 @@ pub struct RefreshTokenResponse {
 // Request/Response Types - Client Assertion
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct ClientAssertionRequest {
     /// Must be "client_credentials"
     pub grant_type: String,
@@ -78,7 +84,8 @@ pub struct ClientAssertionRequest {
     pub requested_role: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Builder)]
+#[builder(on(String, into))]
 pub struct ClientAssertionResponse {
     /// Short-lived JWT access token
     pub access_token: String,
@@ -98,7 +105,7 @@ pub struct ClientAssertionResponse {
 // Token Revocation Endpoint
 // ============================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Builder)]
 pub struct RevokeTokensResponse {
     /// Number of tokens revoked
     pub revoked_count: usize,

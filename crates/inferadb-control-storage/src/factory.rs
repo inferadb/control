@@ -1,6 +1,7 @@
 use std::{ops::RangeBounds, sync::Arc};
 
 use async_trait::async_trait;
+use bon::Builder;
 use bytes::Bytes;
 use inferadb_storage::{
     KeyValue, StorageBackend, StorageResult, Transaction,
@@ -22,7 +23,8 @@ pub enum StorageBackendType {
 }
 
 /// Ledger-specific configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Builder)]
+#[builder(on(String, into))]
 pub struct LedgerConfig {
     /// Ledger server endpoint (e.g., "http://localhost:50051")
     pub endpoint: String,
@@ -35,7 +37,7 @@ pub struct LedgerConfig {
 }
 
 /// Storage backend configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Builder)]
 pub struct StorageConfig {
     /// Backend type
     pub backend_type: StorageBackendType,
@@ -235,17 +237,14 @@ pub async fn create_storage_backend(config: &StorageConfig) -> StorageResult<Bac
                 )
             })?;
             let backend_config = LedgerBackendConfig::builder()
-                .with_endpoint(&ledger_config.endpoint)
-                .with_client_id(&ledger_config.client_id)
-                .with_namespace_id(ledger_config.namespace_id);
-            let backend_config = if let Some(vault_id) = ledger_config.vault_id {
-                backend_config.with_vault_id(vault_id)
-            } else {
-                backend_config
-            };
-            let backend_config = backend_config.build().map_err(|e| {
-                inferadb_storage::StorageError::Internal(format!("Ledger config error: {e}"))
-            })?;
+                .endpoints(vec![&ledger_config.endpoint])
+                .client_id(&ledger_config.client_id)
+                .namespace_id(ledger_config.namespace_id)
+                .maybe_vault_id(ledger_config.vault_id)
+                .build()
+                .map_err(|e| {
+                    inferadb_storage::StorageError::Internal(format!("Ledger config error: {e}"))
+                })?;
             let backend = LedgerBackend::new(backend_config).await.map_err(|e| {
                 inferadb_storage::StorageError::Internal(format!("Ledger connection error: {e}"))
             })?;

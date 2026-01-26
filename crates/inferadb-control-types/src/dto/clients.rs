@@ -1,3 +1,4 @@
+use bon::Builder;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Helper to deserialize either string or integer as Option<i64>
@@ -69,7 +70,8 @@ where
     deserializer.deserialize_any(OptionalStringOrNumber)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct CreateClientRequest {
     pub name: String,
     pub description: Option<String>,

@@ -211,7 +211,12 @@ mod tests {
         let repo = create_test_repo().await;
 
         let token_string = UserPasswordResetToken::generate_token();
-        let token = UserPasswordResetToken::new(100, 1, token_string).unwrap();
+        let token = UserPasswordResetToken::builder()
+            .id(100)
+            .user_id(1)
+            .token(token_string)
+            .build()
+            .unwrap();
 
         repo.create(token.clone()).await.unwrap();
 
@@ -226,7 +231,12 @@ mod tests {
         let repo = create_test_repo().await;
 
         let token_string = UserPasswordResetToken::generate_token();
-        let token = UserPasswordResetToken::new(100, 1, token_string.clone()).unwrap();
+        let token = UserPasswordResetToken::builder()
+            .id(100)
+            .user_id(1)
+            .token(token_string.clone())
+            .build()
+            .unwrap();
 
         repo.create(token.clone()).await.unwrap();
 
@@ -241,13 +251,28 @@ mod tests {
         let repo = create_test_repo().await;
 
         let token1_string = UserPasswordResetToken::generate_token();
-        let token1 = UserPasswordResetToken::new(100, 1, token1_string).unwrap();
+        let token1 = UserPasswordResetToken::builder()
+            .id(100)
+            .user_id(1)
+            .token(token1_string)
+            .build()
+            .unwrap();
 
         let token2_string = UserPasswordResetToken::generate_token();
-        let token2 = UserPasswordResetToken::new(101, 1, token2_string).unwrap();
+        let token2 = UserPasswordResetToken::builder()
+            .id(101)
+            .user_id(1)
+            .token(token2_string)
+            .build()
+            .unwrap();
 
         let token3_string = UserPasswordResetToken::generate_token();
-        let token3 = UserPasswordResetToken::new(102, 2, token3_string).unwrap();
+        let token3 = UserPasswordResetToken::builder()
+            .id(102)
+            .user_id(2)
+            .token(token3_string)
+            .build()
+            .unwrap();
 
         repo.create(token1.clone()).await.unwrap();
         repo.create(token2.clone()).await.unwrap();
@@ -266,7 +291,12 @@ mod tests {
         let repo = create_test_repo().await;
 
         let token_string = UserPasswordResetToken::generate_token();
-        let mut token = UserPasswordResetToken::new(100, 1, token_string).unwrap();
+        let mut token = UserPasswordResetToken::builder()
+            .id(100)
+            .user_id(1)
+            .token(token_string)
+            .build()
+            .unwrap();
 
         repo.create(token.clone()).await.unwrap();
 
@@ -284,7 +314,12 @@ mod tests {
         let repo = create_test_repo().await;
 
         let token_string = UserPasswordResetToken::generate_token();
-        let token = UserPasswordResetToken::new(100, 1, token_string.clone()).unwrap();
+        let token = UserPasswordResetToken::builder()
+            .id(100)
+            .user_id(1)
+            .token(token_string.clone())
+            .build()
+            .unwrap();
 
         repo.create(token).await.unwrap();
 

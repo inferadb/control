@@ -1,5 +1,6 @@
 use std::{cmp::Ordering, fmt, str::FromStr};
 
+use bon::bon;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -142,8 +143,10 @@ pub struct VaultSchema {
     pub deactivated_at: Option<DateTime<Utc>>,
 }
 
+#[bon]
 impl VaultSchema {
     /// Create a new schema version
+    #[builder]
     pub fn new(
         id: i64,
         vault_id: i64,
@@ -318,16 +321,15 @@ mod tests {
 
     #[test]
     fn test_create_vault_schema() {
-        let schema = VaultSchema::new(
-            1,
-            100,
-            SchemaVersion::initial(),
-            "entity User {}".to_string(),
-            999,
-            "Initial schema".to_string(),
-            None,
-        )
-        .unwrap();
+        let schema = VaultSchema::builder()
+            .id(1)
+            .vault_id(100)
+            .version(SchemaVersion::initial())
+            .definition("entity User {}".to_string())
+            .author_user_id(999)
+            .description("Initial schema".to_string())
+            .build()
+            .unwrap();
 
         assert_eq!(schema.id, 1);
         assert_eq!(schema.vault_id, 100);
@@ -362,16 +364,15 @@ mod tests {
 
     #[test]
     fn test_schema_lifecycle() {
-        let mut schema = VaultSchema::new(
-            1,
-            100,
-            SchemaVersion::initial(),
-            "entity User {}".to_string(),
-            999,
-            "Initial schema".to_string(),
-            None,
-        )
-        .unwrap();
+        let mut schema = VaultSchema::builder()
+            .id(1)
+            .vault_id(100)
+            .version(SchemaVersion::initial())
+            .definition("entity User {}".to_string())
+            .author_user_id(999)
+            .description("Initial schema".to_string())
+            .build()
+            .unwrap();
 
         assert_eq!(schema.status, SchemaDeploymentStatus::Validating);
         assert!(!schema.is_active());
@@ -396,16 +397,15 @@ mod tests {
 
     #[test]
     fn test_schema_failure() {
-        let mut schema = VaultSchema::new(
-            1,
-            100,
-            SchemaVersion::initial(),
-            "entity User {}".to_string(),
-            999,
-            "Initial schema".to_string(),
-            None,
-        )
-        .unwrap();
+        let mut schema = VaultSchema::builder()
+            .id(1)
+            .vault_id(100)
+            .version(SchemaVersion::initial())
+            .definition("entity User {}".to_string())
+            .author_user_id(999)
+            .description("Initial schema".to_string())
+            .build()
+            .unwrap();
 
         schema.mark_failed("Syntax error on line 5".to_string());
         assert_eq!(schema.status, SchemaDeploymentStatus::Failed);
@@ -415,16 +415,15 @@ mod tests {
 
     #[test]
     fn test_schema_rollback() {
-        let mut schema = VaultSchema::new(
-            1,
-            100,
-            SchemaVersion::initial(),
-            "entity User {}".to_string(),
-            999,
-            "Initial schema".to_string(),
-            None,
-        )
-        .unwrap();
+        let mut schema = VaultSchema::builder()
+            .id(1)
+            .vault_id(100)
+            .version(SchemaVersion::initial())
+            .definition("entity User {}".to_string())
+            .author_user_id(999)
+            .description("Initial schema".to_string())
+            .build()
+            .unwrap();
 
         schema.mark_deployed();
         schema.activate();

@@ -360,15 +360,15 @@ mod tests {
         org_id: i64,
         name: &str,
     ) -> Result<ClientCertificate> {
-        ClientCertificate::new(
-            id,
-            client_id,
-            org_id,
-            "public_key_base64".to_string(),
-            "encrypted_private_key_base64".to_string(),
-            name.to_string(),
-            999,
-        )
+        ClientCertificate::builder()
+            .id(id)
+            .client_id(client_id)
+            .organization_id(org_id)
+            .public_key("public_key_base64".to_string())
+            .private_key_encrypted("encrypted_private_key_base64".to_string())
+            .name(name.to_string())
+            .created_by_user_id(999)
+            .build()
     }
 
     #[tokio::test]

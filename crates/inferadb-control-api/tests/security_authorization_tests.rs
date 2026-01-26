@@ -2,6 +2,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use bon::Builder;
 use inferadb_control_api::{AppState, create_router_with_state};
 use inferadb_control_core::{
     IdGenerator, OrganizationMemberRepository, OrganizationRepository, UserRepository,
@@ -15,25 +16,37 @@ use inferadb_control_test_fixtures::create_test_state;
 use serde_json::json;
 use tower::ServiceExt;
 
-/// Helper to setup a user with a specific role in an organization
-#[allow(clippy::too_many_arguments)]
-async fn setup_user_with_role(
-    state: &AppState,
+/// Parameters for setting up a user with a specific role in an organization
+#[derive(Builder)]
+#[builder(on(String, into))]
+struct SetupUserParams<'a> {
+    state: &'a AppState,
     user_id: i64,
     session_id: i64,
     org_id: i64,
     member_id: i64,
-    username: &str,
+    username: String,
     role: OrganizationRole,
     is_owner: bool,
+}
+
+/// Helper to setup a user with a specific role in an organization
+async fn setup_user_with_role(
+    params: SetupUserParams<'_>,
 ) -> (User, UserSession, Organization, OrganizationMember) {
+    let SetupUserParams { state, user_id, session_id, org_id, member_id, username, role, is_owner } =
+        params;
     // Create user
-    let user = User::new(user_id, username.to_string(), None).unwrap();
+    let user = User::builder().id(user_id).name(username.to_string()).build().unwrap();
     let user_repo = UserRepository::new((*state.storage).clone());
     user_repo.create(user.clone()).await.unwrap();
 
     // Create session
-    let session = UserSession::new(session_id, user_id, SessionType::Web, None, None);
+    let session = UserSession::builder()
+        .id(session_id)
+        .user_id(user_id)
+        .session_type(SessionType::Web)
+        .build();
     let session_repo = UserSessionRepository::new((*state.storage).clone());
     session_repo.create(session.clone()).await.unwrap();
 
@@ -42,8 +55,12 @@ async fn setup_user_with_role(
     let org = if let Some(existing) = org_repo.get(org_id).await.unwrap() {
         existing
     } else {
-        let new_org =
-            Organization::new(org_id, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+        let new_org = Organization::builder()
+            .id(org_id)
+            .name("Test Org".to_string())
+            .tier(OrganizationTier::TierDevV1)
+            .build()
+            .unwrap();
         org_repo.create(new_org.clone()).await.unwrap();
         new_org
     };
@@ -66,20 +83,32 @@ async fn test_member_cannot_escalate_to_admin() {
     let state = create_test_state();
 
     // Setup owner
-    let (_, _session_owner, org, _) =
-        setup_user_with_role(&state, 100, 1, 1000, 10000, "owner", OrganizationRole::Owner, true)
-            .await;
+    let (_, _session_owner, org, _) = setup_user_with_role(
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(100)
+            .session_id(1)
+            .org_id(1000)
+            .member_id(10000)
+            .username("owner")
+            .role(OrganizationRole::Owner)
+            .is_owner(true)
+            .build(),
+    )
+    .await;
 
     // Setup member (non-admin)
     let (_, session_member, _, member) = setup_user_with_role(
-        &state,
-        200,
-        2,
-        org.id,
-        20000,
-        "member",
-        OrganizationRole::Member,
-        false,
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(200)
+            .session_id(2)
+            .org_id(org.id)
+            .member_id(20000)
+            .username("member")
+            .role(OrganizationRole::Member)
+            .is_owner(false)
+            .build(),
     )
     .await;
 
@@ -114,20 +143,32 @@ async fn test_admin_cannot_escalate_to_owner() {
     let state = create_test_state();
 
     // Setup owner
-    let (_, _session_owner, org, _) =
-        setup_user_with_role(&state, 100, 1, 1000, 10000, "owner", OrganizationRole::Owner, true)
-            .await;
+    let (_, _session_owner, org, _) = setup_user_with_role(
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(100)
+            .session_id(1)
+            .org_id(1000)
+            .member_id(10000)
+            .username("owner")
+            .role(OrganizationRole::Owner)
+            .is_owner(true)
+            .build(),
+    )
+    .await;
 
     // Setup admin
     let (_, session_admin, _, admin_member) = setup_user_with_role(
-        &state,
-        200,
-        2,
-        org.id,
-        20000,
-        "admin",
-        OrganizationRole::Admin,
-        false,
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(200)
+            .session_id(2)
+            .org_id(org.id)
+            .member_id(20000)
+            .username("admin")
+            .role(OrganizationRole::Admin)
+            .is_owner(false)
+            .build(),
     )
     .await;
 
@@ -167,20 +208,32 @@ async fn test_member_cannot_create_vault() {
     let state = create_test_state();
 
     // Setup owner
-    let (_, _session_owner, org, _) =
-        setup_user_with_role(&state, 100, 1, 1000, 10000, "owner", OrganizationRole::Owner, true)
-            .await;
+    let (_, _session_owner, org, _) = setup_user_with_role(
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(100)
+            .session_id(1)
+            .org_id(1000)
+            .member_id(10000)
+            .username("owner")
+            .role(OrganizationRole::Owner)
+            .is_owner(true)
+            .build(),
+    )
+    .await;
 
     // Setup member
     let (_, session_member, ..) = setup_user_with_role(
-        &state,
-        200,
-        2,
-        org.id,
-        20000,
-        "member",
-        OrganizationRole::Member,
-        false,
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(200)
+            .session_id(2)
+            .org_id(org.id)
+            .member_id(20000)
+            .username("member")
+            .role(OrganizationRole::Member)
+            .is_owner(false)
+            .build(),
     )
     .await;
 
@@ -215,20 +268,32 @@ async fn test_member_cannot_delete_organization() {
     let state = create_test_state();
 
     // Setup owner
-    let (_, _session_owner, org, _) =
-        setup_user_with_role(&state, 100, 1, 1000, 10000, "owner", OrganizationRole::Owner, true)
-            .await;
+    let (_, _session_owner, org, _) = setup_user_with_role(
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(100)
+            .session_id(1)
+            .org_id(1000)
+            .member_id(10000)
+            .username("owner")
+            .role(OrganizationRole::Owner)
+            .is_owner(true)
+            .build(),
+    )
+    .await;
 
     // Setup member
     let (_, session_member, ..) = setup_user_with_role(
-        &state,
-        200,
-        2,
-        org.id,
-        20000,
-        "member",
-        OrganizationRole::Member,
-        false,
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(200)
+            .session_id(2)
+            .org_id(org.id)
+            .member_id(20000)
+            .username("member")
+            .role(OrganizationRole::Member)
+            .is_owner(false)
+            .build(),
     )
     .await;
 
@@ -262,20 +327,32 @@ async fn test_admin_cannot_delete_organization() {
     let state = create_test_state();
 
     // Setup owner
-    let (_, _session_owner, org, _) =
-        setup_user_with_role(&state, 100, 1, 1000, 10000, "owner", OrganizationRole::Owner, true)
-            .await;
+    let (_, _session_owner, org, _) = setup_user_with_role(
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(100)
+            .session_id(1)
+            .org_id(1000)
+            .member_id(10000)
+            .username("owner")
+            .role(OrganizationRole::Owner)
+            .is_owner(true)
+            .build(),
+    )
+    .await;
 
     // Setup admin
     let (_, session_admin, ..) = setup_user_with_role(
-        &state,
-        200,
-        2,
-        org.id,
-        20000,
-        "admin",
-        OrganizationRole::Admin,
-        false,
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(200)
+            .session_id(2)
+            .org_id(org.id)
+            .member_id(20000)
+            .username("admin")
+            .role(OrganizationRole::Admin)
+            .is_owner(false)
+            .build(),
     )
     .await;
 
@@ -304,33 +381,47 @@ async fn test_member_cannot_remove_other_members() {
     let state = create_test_state();
 
     // Setup owner
-    let (_, _session_owner, org, _) =
-        setup_user_with_role(&state, 100, 1, 1000, 10000, "owner", OrganizationRole::Owner, true)
-            .await;
+    let (_, _session_owner, org, _) = setup_user_with_role(
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(100)
+            .session_id(1)
+            .org_id(1000)
+            .member_id(10000)
+            .username("owner")
+            .role(OrganizationRole::Owner)
+            .is_owner(true)
+            .build(),
+    )
+    .await;
 
     // Setup member1
     let (_, session_member1, ..) = setup_user_with_role(
-        &state,
-        200,
-        2,
-        org.id,
-        20000,
-        "member1",
-        OrganizationRole::Member,
-        false,
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(200)
+            .session_id(2)
+            .org_id(org.id)
+            .member_id(20000)
+            .username("member1")
+            .role(OrganizationRole::Member)
+            .is_owner(false)
+            .build(),
     )
     .await;
 
     // Setup member2
     let (_, _session_member2, _, member2) = setup_user_with_role(
-        &state,
-        300,
-        3,
-        org.id,
-        30000,
-        "member2",
-        OrganizationRole::Member,
-        false,
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(300)
+            .session_id(3)
+            .org_id(org.id)
+            .member_id(30000)
+            .username("member2")
+            .role(OrganizationRole::Member)
+            .is_owner(false)
+            .build(),
     )
     .await;
 
@@ -364,19 +455,21 @@ async fn test_cannot_use_other_users_session() {
     let state = create_test_state();
 
     // Setup User A
-    let user_a = User::new(100, "userA".to_string(), None).unwrap();
+    let user_a = User::builder().id(100).name("userA".to_string()).build().unwrap();
     let user_repo = UserRepository::new((*state.storage).clone());
     user_repo.create(user_a.clone()).await.unwrap();
 
-    let session_a = UserSession::new(1, user_a.id, SessionType::Web, None, None);
+    let session_a =
+        UserSession::builder().id(1).user_id(user_a.id).session_type(SessionType::Web).build();
     let session_repo = UserSessionRepository::new((*state.storage).clone());
     session_repo.create(session_a.clone()).await.unwrap();
 
     // Setup User B
-    let user_b = User::new(200, "userB".to_string(), None).unwrap();
+    let user_b = User::builder().id(200).name("userB".to_string()).build().unwrap();
     user_repo.create(user_b.clone()).await.unwrap();
 
-    let session_b = UserSession::new(2, user_b.id, SessionType::Web, None, None);
+    let session_b =
+        UserSession::builder().id(2).user_id(user_b.id).session_type(SessionType::Web).build();
     session_repo.create(session_b.clone()).await.unwrap();
 
     // User B tries to use User A's session to access profile
@@ -411,20 +504,32 @@ async fn test_member_cannot_update_organization_settings() {
     let state = create_test_state();
 
     // Setup owner
-    let (_, _session_owner, org, _) =
-        setup_user_with_role(&state, 100, 1, 1000, 10000, "owner", OrganizationRole::Owner, true)
-            .await;
+    let (_, _session_owner, org, _) = setup_user_with_role(
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(100)
+            .session_id(1)
+            .org_id(1000)
+            .member_id(10000)
+            .username("owner")
+            .role(OrganizationRole::Owner)
+            .is_owner(true)
+            .build(),
+    )
+    .await;
 
     // Setup member
     let (_, session_member, ..) = setup_user_with_role(
-        &state,
-        200,
-        2,
-        org.id,
-        20000,
-        "member",
-        OrganizationRole::Member,
-        false,
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(200)
+            .session_id(2)
+            .org_id(org.id)
+            .member_id(20000)
+            .username("member")
+            .role(OrganizationRole::Member)
+            .is_owner(false)
+            .build(),
     )
     .await;
 
@@ -459,20 +564,32 @@ async fn test_member_cannot_create_team() {
     let state = create_test_state();
 
     // Setup owner
-    let (_, _session_owner, org, _) =
-        setup_user_with_role(&state, 100, 1, 1000, 10000, "owner", OrganizationRole::Owner, true)
-            .await;
+    let (_, _session_owner, org, _) = setup_user_with_role(
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(100)
+            .session_id(1)
+            .org_id(1000)
+            .member_id(10000)
+            .username("owner")
+            .role(OrganizationRole::Owner)
+            .is_owner(true)
+            .build(),
+    )
+    .await;
 
     // Setup member
     let (_, session_member, ..) = setup_user_with_role(
-        &state,
-        200,
-        2,
-        org.id,
-        20000,
-        "member",
-        OrganizationRole::Member,
-        false,
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(200)
+            .session_id(2)
+            .org_id(org.id)
+            .member_id(20000)
+            .username("member")
+            .role(OrganizationRole::Member)
+            .is_owner(false)
+            .build(),
     )
     .await;
 
@@ -507,25 +624,43 @@ async fn test_member_cannot_delete_vault() {
     let state = create_test_state();
 
     // Setup owner
-    let (_, _session_owner, org, _) =
-        setup_user_with_role(&state, 100, 1, 1000, 10000, "owner", OrganizationRole::Owner, true)
-            .await;
+    let (_, _session_owner, org, _) = setup_user_with_role(
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(100)
+            .session_id(1)
+            .org_id(1000)
+            .member_id(10000)
+            .username("owner")
+            .role(OrganizationRole::Owner)
+            .is_owner(true)
+            .build(),
+    )
+    .await;
 
     // Create a vault
     let vault_repo = VaultRepository::new((*state.storage).clone());
-    let vault = Vault::new(5000, org.id, "Test Vault".to_string(), None, 100).unwrap();
+    let vault = Vault::builder()
+        .id(5000)
+        .organization_id(org.id)
+        .name("Test Vault".to_string())
+        .created_by_user_id(100)
+        .build()
+        .unwrap();
     vault_repo.create(vault.clone()).await.unwrap();
 
     // Setup member
     let (_, session_member, ..) = setup_user_with_role(
-        &state,
-        200,
-        2,
-        org.id,
-        20000,
-        "member",
-        OrganizationRole::Member,
-        false,
+        SetupUserParams::builder()
+            .state(&state)
+            .user_id(200)
+            .session_id(2)
+            .org_id(org.id)
+            .member_id(20000)
+            .username("member")
+            .role(OrganizationRole::Member)
+            .is_owner(false)
+            .build(),
     )
     .await;
 

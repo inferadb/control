@@ -1,3 +1,4 @@
+use bon::Builder;
 use serde::{Deserialize, Serialize};
 
 /// API error response
@@ -9,7 +10,8 @@ pub struct ErrorResponse {
 }
 
 /// Request body for user registration
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct RegisterRequest {
     /// User's display name
     pub name: String,
@@ -35,7 +37,8 @@ pub struct RegisterResponse {
 }
 
 /// Request body for password login
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct LoginRequest {
     /// Email address
     pub email: String,

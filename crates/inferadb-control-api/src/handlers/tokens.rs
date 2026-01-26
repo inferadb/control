@@ -135,24 +135,29 @@ pub async fn generate_vault_token(
     let signer = JwtSigner::new(encryptor);
 
     // Create access token claims
-    // Note: issuer and audience are hardcoded in VaultTokenClaims::new
+    // Note: issuer and audience are hardcoded in VaultTokenClaims::builder()
     let access_ttl = req.access_token_ttl.unwrap_or(300); // Default 5 minutes (per spec)
-    let claims =
-        VaultTokenClaims::new(org_ctx.organization_id, client.id, vault_id, vault_role, access_ttl);
+    let claims = VaultTokenClaims::builder()
+        .organization_id(org_ctx.organization_id)
+        .client_id(client.id)
+        .vault_id(vault_id)
+        .vault_role(vault_role)
+        .ttl_seconds(access_ttl)
+        .build();
 
     // Sign the access token
     let access_token = signer.sign_vault_token(&claims, &certificate)?;
 
     // Generate refresh token
     let refresh_token_id = IdGenerator::next_id();
-    let refresh_token = VaultRefreshToken::new_for_session(
-        refresh_token_id,
-        vault_id,
-        org_ctx.organization_id,
-        vault_role,
-        session_ctx.session_id,
-        req.refresh_token_ttl,
-    )?;
+    let refresh_token = VaultRefreshToken::new_for_session()
+        .id(refresh_token_id)
+        .vault_id(vault_id)
+        .organization_id(org_ctx.organization_id)
+        .vault_role(vault_role)
+        .user_session_id(session_ctx.session_id)
+        .maybe_ttl_seconds(req.refresh_token_ttl)
+        .call()?;
 
     // Store refresh token
     repos.vault_refresh_token.create(refresh_token.clone()).await?;
@@ -269,38 +274,36 @@ pub async fn refresh_vault_token(
     let signer = JwtSigner::new(encryptor);
 
     // Create new access token
-    // Note: issuer and audience are hardcoded in VaultTokenClaims::new
+    // Note: issuer and audience are hardcoded in VaultTokenClaims::builder()
     let access_ttl = req.access_token_ttl.unwrap_or(300); // Default 5 minutes (per spec)
-    let claims = VaultTokenClaims::new(
-        old_token.organization_id,
-        client.id,
-        old_token.vault_id,
-        old_token.vault_role,
-        access_ttl,
-    );
+    let claims = VaultTokenClaims::builder()
+        .organization_id(old_token.organization_id)
+        .client_id(client.id)
+        .vault_id(old_token.vault_id)
+        .vault_role(old_token.vault_role)
+        .ttl_seconds(access_ttl)
+        .build();
 
     let access_token = signer.sign_vault_token(&claims, &certificate)?;
 
     // Generate new refresh token (rotation)
     let new_token_id = IdGenerator::next_id();
     let new_token = if let Some(session_id) = old_token.user_session_id {
-        VaultRefreshToken::new_for_session(
-            new_token_id,
-            old_token.vault_id,
-            old_token.organization_id,
-            old_token.vault_role,
-            session_id,
-            None, // Use default TTL
-        )?
+        VaultRefreshToken::new_for_session()
+            .id(new_token_id)
+            .vault_id(old_token.vault_id)
+            .organization_id(old_token.organization_id)
+            .vault_role(old_token.vault_role)
+            .user_session_id(session_id)
+            .call()?
     } else if let Some(client_id) = old_token.org_api_key_id {
-        VaultRefreshToken::new_for_client(
-            new_token_id,
-            old_token.vault_id,
-            old_token.organization_id,
-            old_token.vault_role,
-            client_id,
-            None, // Use default TTL
-        )?
+        VaultRefreshToken::new_for_client()
+            .id(new_token_id)
+            .vault_id(old_token.vault_id)
+            .organization_id(old_token.organization_id)
+            .vault_role(old_token.vault_role)
+            .org_api_key_id(client_id)
+            .call()?
     } else {
         return Err(CoreError::Internal("Invalid refresh token state".to_string()).into());
     };
@@ -537,28 +540,27 @@ pub async fn client_assertion_authenticate(
     let signer = JwtSigner::new(encryptor);
 
     // Generate vault-scoped JWT (5 minutes default per spec)
-    // Note: issuer and audience are hardcoded in VaultTokenClaims::new
+    // Note: issuer and audience are hardcoded in VaultTokenClaims::builder()
     let access_ttl = 300;
-    let vault_claims = VaultTokenClaims::new(
-        client.organization_id,
-        client.id,
-        vault_id,
-        requested_role,
-        access_ttl,
-    );
+    let vault_claims = VaultTokenClaims::builder()
+        .organization_id(client.organization_id)
+        .client_id(client.id)
+        .vault_id(vault_id)
+        .vault_role(requested_role)
+        .ttl_seconds(access_ttl)
+        .build();
 
     let access_token = signer.sign_vault_token(&vault_claims, &certificate)?;
 
     // Generate refresh token (7 days for clients)
     let refresh_token_id = IdGenerator::next_id();
-    let refresh_token = VaultRefreshToken::new_for_client(
-        refresh_token_id,
-        vault_id,
-        client.organization_id,
-        requested_role,
-        client.id,
-        None, // Use default TTL (7 days)
-    )?;
+    let refresh_token = VaultRefreshToken::new_for_client()
+        .id(refresh_token_id)
+        .vault_id(vault_id)
+        .organization_id(client.organization_id)
+        .vault_role(requested_role)
+        .org_api_key_id(client.id)
+        .call()?;
 
     repos.vault_refresh_token.create(refresh_token.clone()).await?;
 

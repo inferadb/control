@@ -19,6 +19,57 @@
 //!     // Use session cookie for authenticated requests...
 //! }
 //! ```
+//!
+//! # Entity Builders
+//!
+//! When constructing entities directly in tests (e.g., for repository tests), use the
+//! `bon` builder pattern. All entity types support builders via `Type::builder()`:
+//!
+//! ```rust,no_run
+//! use inferadb_control_types::{User, Organization, Vault, Client};
+//!
+//! // User with builder (fallible - returns Result)
+//! let user = User::builder()
+//!     .name("Alice")
+//!     .build()
+//!     .unwrap();
+//!
+//! // Organization with builder
+//! let org = Organization::builder()
+//!     .name("Acme Corp")
+//!     .owner_id(user.id)
+//!     .build()
+//!     .unwrap();
+//!
+//! // Vault with builder
+//! let vault = Vault::builder()
+//!     .name("production")
+//!     .organization_id(org.id)
+//!     .build()
+//!     .unwrap();
+//!
+//! // Client with builder
+//! let client = Client::builder()
+//!     .name("api-client")
+//!     .vault_id(vault.id)
+//!     .build()
+//!     .unwrap();
+//! ```
+//!
+//! For optional fields, use `.maybe_field()` to pass `Option<T>` values directly,
+//! or omit the call entirely for `None`:
+//!
+//! ```rust,no_run
+//! use inferadb_control_types::AuditLog;
+//!
+//! let log = AuditLog::builder()
+//!     .user_id(user_id)
+//!     .action("login")
+//!     .resource_type("session")
+//!     .maybe_ip_address(request_ip)  // Pass Option<String> directly
+//!     .maybe_user_agent(user_agent)  // Optional field
+//!     .build();
+//! ```
 
 #![deny(unsafe_code)]
 

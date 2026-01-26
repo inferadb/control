@@ -179,8 +179,12 @@ mod tests {
     async fn test_create_and_get_audit_log() {
         let storage = MemoryBackend::new();
         let repo = AuditLogRepository::new(storage);
-        let log = AuditLog::new(AuditEventType::UserLogin, Some(1), Some(100))
-            .with_ip_address("192.168.1.1");
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::UserLogin)
+            .organization_id(1)
+            .user_id(100)
+            .ip_address("192.168.1.1")
+            .build();
         repo.create(log.clone()).await.unwrap();
         let retrieved = repo.get(log.id).await.unwrap();
         assert!(retrieved.is_some());

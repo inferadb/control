@@ -102,13 +102,13 @@ pub async fn create_vault(
     let vault_id = IdGenerator::next_id();
 
     // Create vault entity (starts with PENDING sync status)
-    let mut vault = Vault::new(
-        vault_id,
-        org_ctx.organization_id,
-        payload.name,
-        payload.description.clone(),
-        org_ctx.member.user_id,
-    )?;
+    let mut vault = Vault::builder()
+        .id(vault_id)
+        .organization_id(org_ctx.organization_id)
+        .name(payload.name)
+        .maybe_description(payload.description.clone())
+        .created_by_user_id(org_ctx.member.user_id)
+        .build()?;
 
     // Mark as synced immediately - Ledger is the source of truth
     vault.mark_synced();

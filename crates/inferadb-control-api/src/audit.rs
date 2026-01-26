@@ -1,5 +1,4 @@
 use inferadb_control_core::{
-    IdGenerator,
     entities::{AuditEventType, AuditLog, AuditResourceType},
     repository::AuditLogRepository,
 };
@@ -28,19 +27,17 @@ pub async fn log_audit_event(
     event_type: AuditEventType,
     params: AuditEventParams,
 ) {
-    let audit_log = AuditLog {
-        id: IdGenerator::next_id(),
-        organization_id: params.organization_id,
-        user_id: params.user_id,
-        client_id: params.client_id,
-        event_type,
-        resource_type: params.resource_type,
-        resource_id: params.resource_id,
-        event_data: params.event_data,
-        ip_address: params.ip_address,
-        user_agent: params.user_agent,
-        created_at: chrono::Utc::now(),
-    };
+    let audit_log = AuditLog::builder()
+        .event_type(event_type)
+        .maybe_organization_id(params.organization_id)
+        .maybe_user_id(params.user_id)
+        .maybe_client_id(params.client_id)
+        .maybe_resource_type(params.resource_type)
+        .maybe_resource_id(params.resource_id)
+        .maybe_event_data(params.event_data)
+        .maybe_ip_address(params.ip_address)
+        .maybe_user_agent(params.user_agent)
+        .build();
 
     let repo = AuditLogRepository::new((*state.storage).clone());
 

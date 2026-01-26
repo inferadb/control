@@ -1,3 +1,4 @@
+use bon::Builder;
 use serde::{Deserialize, Serialize};
 
 use crate::entities::{VaultRole, VaultSyncStatus};
@@ -6,7 +7,8 @@ use crate::entities::{VaultRole, VaultSyncStatus};
 // Request/Response Types - Vault Management
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct CreateVaultRequest {
     pub name: String,
     pub description: Option<String>,

@@ -16,6 +16,7 @@ inferadb-storage-ledger = { path = "../../../common/crates/inferadb-storage-ledg
 
 # External dependencies
 anyhow = { workspace = true }
+bon = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 

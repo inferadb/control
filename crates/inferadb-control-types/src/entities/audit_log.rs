@@ -1,3 +1,4 @@
+use bon::Builder;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -120,9 +121,11 @@ pub enum AuditResourceType {
 ///
 /// - Free tier: 90 days
 /// - Paid tier: 1 year
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct AuditLog {
     /// Unique identifier
+    #[builder(default = IdGenerator::next_id())]
     pub id: i64,
 
     /// Organization ID (if applicable)
@@ -153,68 +156,11 @@ pub struct AuditLog {
     pub user_agent: Option<String>,
 
     /// Timestamp when the event occurred
+    #[builder(default = Utc::now())]
     pub created_at: DateTime<Utc>,
 }
 
 impl AuditLog {
-    /// Create a new audit log entry
-    ///
-    /// # Arguments
-    ///
-    /// * `event_type` - Type of event
-    /// * `organization_id` - Organization ID (if applicable)
-    /// * `user_id` - User ID who performed the action (if applicable)
-    pub fn new(
-        event_type: AuditEventType,
-        organization_id: Option<i64>,
-        user_id: Option<i64>,
-    ) -> Self {
-        Self {
-            id: IdGenerator::next_id(),
-            organization_id,
-            user_id,
-            client_id: None,
-            event_type,
-            resource_type: None,
-            resource_id: None,
-            event_data: None,
-            ip_address: None,
-            user_agent: None,
-            created_at: Utc::now(),
-        }
-    }
-
-    /// Set the client ID
-    pub fn with_client_id(mut self, client_id: i64) -> Self {
-        self.client_id = Some(client_id);
-        self
-    }
-
-    /// Set the resource information
-    pub fn with_resource(mut self, resource_type: AuditResourceType, resource_id: i64) -> Self {
-        self.resource_type = Some(resource_type);
-        self.resource_id = Some(resource_id);
-        self
-    }
-
-    /// Set the event data
-    pub fn with_data(mut self, data: JsonValue) -> Self {
-        self.event_data = Some(data);
-        self
-    }
-
-    /// Set the IP address
-    pub fn with_ip_address(mut self, ip: impl Into<String>) -> Self {
-        self.ip_address = Some(ip.into());
-        self
-    }
-
-    /// Set the user agent
-    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
-        self.user_agent = Some(user_agent.into());
-        self
-    }
-
     /// Validate the audit log entry
     pub fn validate(&self) -> Result<()> {
         // At least one of organization_id, user_id, or client_id must be set
@@ -236,7 +182,11 @@ mod tests {
 
     #[test]
     fn test_create_audit_log() {
-        let log = AuditLog::new(AuditEventType::UserLogin, Some(1), Some(100));
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::UserLogin)
+            .organization_id(1)
+            .user_id(100)
+            .build();
 
         assert_eq!(log.event_type, AuditEventType::UserLogin);
         assert_eq!(log.organization_id, Some(1));
@@ -246,8 +196,13 @@ mod tests {
 
     #[test]
     fn test_audit_log_with_resource() {
-        let log = AuditLog::new(AuditEventType::VaultCreated, Some(1), Some(100))
-            .with_resource(AuditResourceType::Vault, 500);
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::VaultCreated)
+            .organization_id(1)
+            .user_id(100)
+            .resource_type(AuditResourceType::Vault)
+            .resource_id(500)
+            .build();
 
         assert_eq!(log.resource_type, Some(AuditResourceType::Vault));
         assert_eq!(log.resource_id, Some(500));
@@ -255,20 +210,28 @@ mod tests {
 
     #[test]
     fn test_audit_log_with_data() {
-        let log = AuditLog::new(AuditEventType::OrganizationMemberRoleChanged, Some(1), Some(100))
-            .with_data(json!({
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::OrganizationMemberRoleChanged)
+            .organization_id(1)
+            .user_id(100)
+            .event_data(json!({
                 "old_role": "member",
                 "new_role": "admin"
-            }));
+            }))
+            .build();
 
         assert!(log.event_data.is_some());
     }
 
     #[test]
     fn test_audit_log_with_ip_and_user_agent() {
-        let log = AuditLog::new(AuditEventType::UserLogin, Some(1), Some(100))
-            .with_ip_address("192.168.1.1")
-            .with_user_agent("Mozilla/5.0");
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::UserLogin)
+            .organization_id(1)
+            .user_id(100)
+            .ip_address("192.168.1.1")
+            .user_agent("Mozilla/5.0")
+            .build();
 
         assert_eq!(log.ip_address, Some("192.168.1.1".to_string()));
         assert_eq!(log.user_agent, Some("Mozilla/5.0".to_string()));
@@ -276,19 +239,7 @@ mod tests {
 
     #[test]
     fn test_audit_log_validation() {
-        let log = AuditLog {
-            id: 1,
-            organization_id: None,
-            user_id: None,
-            client_id: None,
-            event_type: AuditEventType::UserLogin,
-            resource_type: None,
-            resource_id: None,
-            event_data: None,
-            ip_address: None,
-            user_agent: None,
-            created_at: Utc::now(),
-        };
+        let log = AuditLog::builder().event_type(AuditEventType::UserLogin).build();
 
         assert!(log.validate().is_err());
     }

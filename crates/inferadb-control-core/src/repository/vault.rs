@@ -697,7 +697,12 @@ mod tests {
     }
 
     fn create_test_vault(id: i64, org_id: i64, name: &str) -> Result<Vault> {
-        Vault::new(id, org_id, name.to_string(), None, 999)
+        Vault::builder()
+            .id(id)
+            .organization_id(org_id)
+            .name(name.to_string())
+            .created_by_user_id(999)
+            .build()
     }
 
     #[tokio::test]

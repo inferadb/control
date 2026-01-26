@@ -1,3 +1,4 @@
+use bon::bon;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -27,8 +28,10 @@ pub struct Client {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+#[bon]
 impl Client {
     /// Create a new client
+    #[builder]
     pub fn new(
         id: i64,
         organization_id: i64,
@@ -119,9 +122,10 @@ pub struct ClientCertificate {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+#[bon]
 impl ClientCertificate {
     /// Create a new client certificate
-    #[allow(clippy::too_many_arguments)]
+    #[builder]
     pub fn new(
         id: i64,
         client_id: i64,
@@ -206,7 +210,13 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = Client::new(1, 100, None, "Test Client".to_string(), None, 999).unwrap();
+        let client = Client::builder()
+            .id(1)
+            .organization_id(100)
+            .name("Test Client".to_string())
+            .created_by_user_id(999)
+            .build()
+            .unwrap();
         assert_eq!(client.id, 1);
         assert_eq!(client.organization_id, 100);
         assert_eq!(client.name, "Test Client");
@@ -223,7 +233,13 @@ mod tests {
 
     #[test]
     fn test_client_soft_delete() {
-        let mut client = Client::new(1, 100, None, "Test Client".to_string(), None, 999).unwrap();
+        let mut client = Client::builder()
+            .id(1)
+            .organization_id(100)
+            .name("Test Client".to_string())
+            .created_by_user_id(999)
+            .build()
+            .unwrap();
         assert!(!client.is_deleted());
 
         client.mark_deleted();
@@ -233,16 +249,16 @@ mod tests {
 
     #[test]
     fn test_certificate_creation() {
-        let cert = ClientCertificate::new(
-            1,
-            100,
-            200,
-            "public_key_base64".to_string(),
-            "encrypted_private_key_base64".to_string(),
-            "Test Certificate".to_string(),
-            999,
-        )
-        .unwrap();
+        let cert = ClientCertificate::builder()
+            .id(1)
+            .client_id(100)
+            .organization_id(200)
+            .public_key("public_key_base64".to_string())
+            .private_key_encrypted("encrypted_private_key_base64".to_string())
+            .name("Test Certificate".to_string())
+            .created_by_user_id(999)
+            .build()
+            .unwrap();
 
         assert_eq!(cert.id, 1);
         assert_eq!(cert.client_id, 100);
@@ -268,16 +284,16 @@ mod tests {
 
     #[test]
     fn test_certificate_revocation() {
-        let mut cert = ClientCertificate::new(
-            1,
-            100,
-            200,
-            "public_key".to_string(),
-            "private_key".to_string(),
-            "Test Cert".to_string(),
-            999,
-        )
-        .unwrap();
+        let mut cert = ClientCertificate::builder()
+            .id(1)
+            .client_id(100)
+            .organization_id(200)
+            .public_key("public_key".to_string())
+            .private_key_encrypted("private_key".to_string())
+            .name("Test Cert".to_string())
+            .created_by_user_id(999)
+            .build()
+            .unwrap();
 
         assert!(cert.is_active());
         assert!(!cert.is_revoked());
@@ -290,16 +306,16 @@ mod tests {
 
     #[test]
     fn test_certificate_deletion() {
-        let mut cert = ClientCertificate::new(
-            1,
-            100,
-            200,
-            "public_key".to_string(),
-            "private_key".to_string(),
-            "Test Cert".to_string(),
-            999,
-        )
-        .unwrap();
+        let mut cert = ClientCertificate::builder()
+            .id(1)
+            .client_id(100)
+            .organization_id(200)
+            .public_key("public_key".to_string())
+            .private_key_encrypted("private_key".to_string())
+            .name("Test Cert".to_string())
+            .created_by_user_id(999)
+            .build()
+            .unwrap();
 
         assert!(cert.is_active());
         assert!(!cert.is_deleted());
@@ -311,16 +327,16 @@ mod tests {
 
     #[test]
     fn test_certificate_mark_used() {
-        let mut cert = ClientCertificate::new(
-            1,
-            100,
-            200,
-            "public_key".to_string(),
-            "private_key".to_string(),
-            "Test Cert".to_string(),
-            999,
-        )
-        .unwrap();
+        let mut cert = ClientCertificate::builder()
+            .id(1)
+            .client_id(100)
+            .organization_id(200)
+            .public_key("public_key".to_string())
+            .private_key_encrypted("private_key".to_string())
+            .name("Test Cert".to_string())
+            .created_by_user_id(999)
+            .build()
+            .unwrap();
 
         assert!(cert.last_used_at.is_none());
 

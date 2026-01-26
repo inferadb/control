@@ -314,7 +314,13 @@ mod tests {
     use super::*;
 
     async fn create_test_email(id: i64, user_id: i64, email: &str, primary: bool) -> UserEmail {
-        UserEmail::new(id, user_id, email.to_string(), primary).unwrap()
+        UserEmail::builder()
+            .id(id)
+            .user_id(user_id)
+            .email(email.to_string())
+            .primary(primary)
+            .build()
+            .unwrap()
     }
 
     #[tokio::test]

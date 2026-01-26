@@ -17,6 +17,7 @@ inferadb-control-storage = { path = "../inferadb-control-storage" }
 
 # External dependencies
 anyhow = { workspace = true }
+bon = { workspace = true }
 axum = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

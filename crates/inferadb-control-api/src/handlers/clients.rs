@@ -83,14 +83,14 @@ pub async fn create_client(
     let client_id = IdGenerator::next_id();
 
     // Create client entity
-    let client = Client::new(
-        client_id,
-        org_ctx.organization_id,
-        payload.vault_id,
-        payload.name,
-        payload.description,
-        org_ctx.member.user_id,
-    )?;
+    let client = Client::builder()
+        .id(client_id)
+        .organization_id(org_ctx.organization_id)
+        .maybe_vault_id(payload.vault_id)
+        .name(payload.name)
+        .maybe_description(payload.description)
+        .created_by_user_id(org_ctx.member.user_id)
+        .build()?;
 
     // Save to repository
     repos.client.create(client.clone()).await?;
@@ -306,15 +306,15 @@ pub async fn create_certificate(
     let cert_id = IdGenerator::next_id();
 
     // Create certificate entity
-    let cert = ClientCertificate::new(
-        cert_id,
-        client_id,
-        org_ctx.organization_id,
-        public_key_base64.clone(),
-        private_key_encrypted,
-        payload.name,
-        org_ctx.member.user_id,
-    )?;
+    let cert = ClientCertificate::builder()
+        .id(cert_id)
+        .client_id(client_id)
+        .organization_id(org_ctx.organization_id)
+        .public_key(public_key_base64.clone())
+        .private_key_encrypted(private_key_encrypted)
+        .name(payload.name)
+        .created_by_user_id(org_ctx.member.user_id)
+        .build()?;
 
     tracing::debug!(
         cert_id = cert.id,
@@ -694,15 +694,15 @@ pub async fn rotate_certificate(
     let new_cert_id = IdGenerator::next_id();
 
     // Create new certificate entity
-    let new_cert = ClientCertificate::new(
-        new_cert_id,
-        client_id,
-        org_ctx.organization_id,
-        public_key_base64.clone(),
-        private_key_encrypted,
-        payload.name,
-        org_ctx.member.user_id,
-    )?;
+    let new_cert = ClientCertificate::builder()
+        .id(new_cert_id)
+        .client_id(client_id)
+        .organization_id(org_ctx.organization_id)
+        .public_key(public_key_base64.clone())
+        .private_key_encrypted(private_key_encrypted)
+        .name(payload.name)
+        .created_by_user_id(org_ctx.member.user_id)
+        .build()?;
 
     tracing::debug!(
         new_cert_id = new_cert.id,

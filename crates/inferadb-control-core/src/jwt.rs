@@ -2,6 +2,7 @@ use base64::{
     Engine,
     engine::general_purpose::{STANDARD as PEM_BASE64, URL_SAFE_NO_PAD},
 };
+use bon::bon;
 use chrono::{DateTime, Duration, Utc};
 use inferadb_control_const::auth::{REQUIRED_AUDIENCE, REQUIRED_ISSUER};
 use inferadb_control_types::{
@@ -39,6 +40,7 @@ pub struct VaultTokenClaims {
     pub scope: String,
 }
 
+#[bon]
 impl VaultTokenClaims {
     /// Create new vault token claims
     ///
@@ -51,6 +53,7 @@ impl VaultTokenClaims {
     ///
     /// Note: issuer and audience are hardcoded to REQUIRED_ISSUER and REQUIRED_AUDIENCE
     /// since we own the entire experience end-to-end.
+    #[builder]
     pub fn new(
         organization_id: i64,
         client_id: i64,
@@ -271,21 +274,27 @@ mod tests {
         let (public_key, private_key_bytes) = keypair::generate();
         let private_key_encrypted = encryptor.encrypt(&private_key_bytes).unwrap();
 
-        ClientCertificate::new(
-            1,
-            100,
-            200,
-            public_key,
-            private_key_encrypted,
-            "Test Certificate".to_string(),
-            999,
-        )
-        .unwrap()
+        ClientCertificate::builder()
+            .id(1)
+            .client_id(100)
+            .organization_id(200)
+            .public_key(public_key)
+            .private_key_encrypted(private_key_encrypted)
+            .name("Test Certificate".to_string())
+            .created_by_user_id(999)
+            .build()
+            .unwrap()
     }
 
     #[test]
     fn test_vault_token_claims_creation() {
-        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
+        let claims = VaultTokenClaims::builder()
+            .organization_id(123)
+            .client_id(789)
+            .vault_id(456)
+            .vault_role(VaultRole::Reader)
+            .ttl_seconds(3600)
+            .build();
 
         assert_eq!(claims.iss, REQUIRED_ISSUER);
         assert_eq!(claims.sub, "client:789");
@@ -302,28 +311,52 @@ mod tests {
 
     #[test]
     fn test_vault_token_scopes() {
-        let reader = VaultTokenClaims::new(1, 2, 3, VaultRole::Reader, 3600);
+        let reader = VaultTokenClaims::builder()
+            .organization_id(1)
+            .client_id(2)
+            .vault_id(3)
+            .vault_role(VaultRole::Reader)
+            .ttl_seconds(3600)
+            .build();
         assert_eq!(
             reader.scope,
             "inferadb.check inferadb.read inferadb.expand inferadb.list inferadb.list-relationships inferadb.list-subjects inferadb.list-resources"
         );
         assert_eq!(reader.vault_role, "read");
 
-        let writer = VaultTokenClaims::new(1, 2, 3, VaultRole::Writer, 3600);
+        let writer = VaultTokenClaims::builder()
+            .organization_id(1)
+            .client_id(2)
+            .vault_id(3)
+            .vault_role(VaultRole::Writer)
+            .ttl_seconds(3600)
+            .build();
         assert_eq!(
             writer.scope,
             "inferadb.check inferadb.read inferadb.write inferadb.expand inferadb.list inferadb.list-relationships inferadb.list-subjects inferadb.list-resources"
         );
         assert_eq!(writer.vault_role, "write");
 
-        let manager = VaultTokenClaims::new(1, 2, 3, VaultRole::Manager, 3600);
+        let manager = VaultTokenClaims::builder()
+            .organization_id(1)
+            .client_id(2)
+            .vault_id(3)
+            .vault_role(VaultRole::Manager)
+            .ttl_seconds(3600)
+            .build();
         assert_eq!(
             manager.scope,
             "inferadb.check inferadb.read inferadb.write inferadb.expand inferadb.list inferadb.list-relationships inferadb.list-subjects inferadb.list-resources inferadb.vault.manage"
         );
         assert_eq!(manager.vault_role, "manage");
 
-        let admin = VaultTokenClaims::new(1, 2, 3, VaultRole::Admin, 3600);
+        let admin = VaultTokenClaims::builder()
+            .organization_id(1)
+            .client_id(2)
+            .vault_id(3)
+            .vault_role(VaultRole::Admin)
+            .ttl_seconds(3600)
+            .build();
         assert_eq!(
             admin.scope,
             "inferadb.check inferadb.read inferadb.write inferadb.expand inferadb.list inferadb.list-relationships inferadb.list-subjects inferadb.list-resources inferadb.vault.manage inferadb.admin"
@@ -334,11 +367,23 @@ mod tests {
     #[test]
     fn test_vault_token_expiration() {
         // Create an expired token (TTL = -1 second)
-        let expired = VaultTokenClaims::new(1, 2, 3, VaultRole::Reader, -1);
+        let expired = VaultTokenClaims::builder()
+            .organization_id(1)
+            .client_id(2)
+            .vault_id(3)
+            .vault_role(VaultRole::Reader)
+            .ttl_seconds(-1)
+            .build();
         assert!(expired.is_expired());
 
         // Create a valid token
-        let valid = VaultTokenClaims::new(1, 2, 3, VaultRole::Reader, 3600);
+        let valid = VaultTokenClaims::builder()
+            .organization_id(1)
+            .client_id(2)
+            .vault_id(3)
+            .vault_role(VaultRole::Reader)
+            .ttl_seconds(3600)
+            .build();
         assert!(!valid.is_expired());
     }
 
@@ -348,7 +393,13 @@ mod tests {
         let certificate = create_test_certificate(&encryptor);
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Writer, 3600);
+        let claims = VaultTokenClaims::builder()
+            .organization_id(123)
+            .client_id(789)
+            .vault_id(456)
+            .vault_role(VaultRole::Writer)
+            .ttl_seconds(3600)
+            .build();
 
         // Sign the token
         let token = signer.sign_vault_token(&claims, &certificate).unwrap();
@@ -370,7 +421,13 @@ mod tests {
         let certificate = create_test_certificate(&encryptor);
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
+        let claims = VaultTokenClaims::builder()
+            .organization_id(123)
+            .client_id(789)
+            .vault_id(456)
+            .vault_role(VaultRole::Reader)
+            .ttl_seconds(3600)
+            .build();
         let token = signer.sign_vault_token(&claims, &certificate).unwrap();
 
         // Decode header to check kid
@@ -387,7 +444,13 @@ mod tests {
         let cert2 = create_test_certificate(&encryptor); // Different certificate
         let signer = JwtSigner::new(encryptor);
 
-        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
+        let claims = VaultTokenClaims::builder()
+            .organization_id(123)
+            .client_id(789)
+            .vault_id(456)
+            .vault_role(VaultRole::Reader)
+            .ttl_seconds(3600)
+            .build();
         let token = signer.sign_vault_token(&claims, &cert1).unwrap();
 
         // Verification with wrong certificate should fail
@@ -397,7 +460,13 @@ mod tests {
 
     #[test]
     fn test_vault_token_datetime_conversion() {
-        let claims = VaultTokenClaims::new(123, 789, 456, VaultRole::Reader, 3600);
+        let claims = VaultTokenClaims::builder()
+            .organization_id(123)
+            .client_id(789)
+            .vault_id(456)
+            .vault_role(VaultRole::Reader)
+            .ttl_seconds(3600)
+            .build();
 
         let issued_at = claims.issued_at();
         let expires_at = claims.expires_at();

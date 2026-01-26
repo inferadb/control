@@ -12,6 +12,7 @@ version.workspace = true
 [dependencies]
 # Core dependencies
 anyhow = { workspace = true }
+bon = { workspace = true }
 chrono = { workspace = true }
 hostname = "0.4"
 serde = { workspace = true }

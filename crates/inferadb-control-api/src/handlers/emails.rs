@@ -46,15 +46,23 @@ pub async fn add_email(
     }
 
     let email_id = IdGenerator::next_id();
-    let user_email = UserEmail::new(email_id, ctx.user_id, payload.email.clone(), false)?;
+    let user_email = UserEmail::builder()
+        .id(email_id)
+        .user_id(ctx.user_id)
+        .email(payload.email.clone())
+        .primary(false)
+        .build()?;
 
     repos.user_email.create(user_email.clone()).await?;
 
     // Generate verification token
     let token_id = IdGenerator::next_id();
     let token_string = UserEmailVerificationToken::generate_token();
-    let verification_token =
-        UserEmailVerificationToken::new(token_id, email_id, token_string.clone())?;
+    let verification_token = UserEmailVerificationToken::builder()
+        .id(token_id)
+        .user_email_id(email_id)
+        .token(token_string.clone())
+        .build()?;
 
     repos.user_email_verification_token.create(verification_token).await?;
 
@@ -224,8 +232,11 @@ pub async fn resend_verification(
     // Generate new verification token
     let token_id = IdGenerator::next_id();
     let token_string = UserEmailVerificationToken::generate_token();
-    let verification_token =
-        UserEmailVerificationToken::new(token_id, email_id, token_string.clone())?;
+    let verification_token = UserEmailVerificationToken::builder()
+        .id(token_id)
+        .user_email_id(email_id)
+        .token(token_string.clone())
+        .build()?;
 
     repos.user_email_verification_token.create(verification_token).await?;
 
@@ -314,11 +325,15 @@ mod tests {
         user_id: i64,
         session_id: i64,
     ) -> (User, UserSession) {
-        let user = User::new(user_id, "testuser".to_string(), None).unwrap();
+        let user = User::builder().id(user_id).name("testuser".to_string()).build().unwrap();
         let user_repo = UserRepository::new((*storage).clone());
         user_repo.create(user.clone()).await.unwrap();
 
-        let session = UserSession::new(session_id, user_id, SessionType::Web, None, None);
+        let session = UserSession::builder()
+            .id(session_id)
+            .user_id(user_id)
+            .session_type(SessionType::Web)
+            .build();
         let session_repo = UserSessionRepository::new((*storage).clone());
         session_repo.create(session.clone()).await.unwrap();
 
@@ -362,7 +377,13 @@ mod tests {
 
         // Add an email first
         let repos = RepositoryContext::new((*storage).clone());
-        let email = UserEmail::new(200, 100, "test@example.com".to_string(), true).unwrap();
+        let email = UserEmail::builder()
+            .id(200)
+            .user_id(100)
+            .email("test@example.com".to_string())
+            .primary(true)
+            .build()
+            .unwrap();
         repos.user_email.create(email).await.unwrap();
 
         let app = create_test_app(storage.clone());
@@ -391,7 +412,13 @@ mod tests {
 
         // Add a non-primary email
         let repos = RepositoryContext::new((*storage).clone());
-        let email = UserEmail::new(200, 100, "delete@example.com".to_string(), false).unwrap();
+        let email = UserEmail::builder()
+            .id(200)
+            .user_id(100)
+            .email("delete@example.com".to_string())
+            .primary(false)
+            .build()
+            .unwrap();
         repos.user_email.create(email).await.unwrap();
 
         let app = create_test_app(storage.clone());
@@ -418,7 +445,13 @@ mod tests {
 
         // Add a primary email
         let repos = RepositoryContext::new((*storage).clone());
-        let email = UserEmail::new(200, 100, "primary@example.com".to_string(), true).unwrap();
+        let email = UserEmail::builder()
+            .id(200)
+            .user_id(100)
+            .email("primary@example.com".to_string())
+            .primary(true)
+            .build()
+            .unwrap();
         repos.user_email.create(email).await.unwrap();
 
         let app = create_test_app(storage.clone());

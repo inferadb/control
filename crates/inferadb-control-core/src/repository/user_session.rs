@@ -287,7 +287,7 @@ mod tests {
     use super::*;
 
     async fn create_test_session(id: i64, user_id: i64, session_type: SessionType) -> UserSession {
-        UserSession::new(id, user_id, session_type, None, None)
+        UserSession::builder().id(id).user_id(user_id).session_type(session_type).build()
     }
 
     #[tokio::test]

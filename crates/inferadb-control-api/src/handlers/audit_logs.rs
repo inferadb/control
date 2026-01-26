@@ -29,27 +29,17 @@ pub async fn create_audit_log(
     let repos = RepositoryContext::new((*state.storage).clone());
 
     // Build audit log entry
-    let mut log = AuditLog::new(payload.event_type, payload.organization_id, payload.user_id);
-
-    if let Some(client_id) = payload.client_id {
-        log = log.with_client_id(client_id);
-    }
-
-    if let (Some(resource_type), Some(resource_id)) = (payload.resource_type, payload.resource_id) {
-        log = log.with_resource(resource_type, resource_id);
-    }
-
-    if let Some(data) = payload.event_data {
-        log = log.with_data(data);
-    }
-
-    if let Some(ip) = payload.ip_address {
-        log = log.with_ip_address(ip);
-    }
-
-    if let Some(ua) = payload.user_agent {
-        log = log.with_user_agent(ua);
-    }
+    let log = AuditLog::builder()
+        .event_type(payload.event_type)
+        .maybe_organization_id(payload.organization_id)
+        .maybe_user_id(payload.user_id)
+        .maybe_client_id(payload.client_id)
+        .maybe_resource_type(payload.resource_type)
+        .maybe_resource_id(payload.resource_id)
+        .maybe_event_data(payload.event_data)
+        .maybe_ip_address(payload.ip_address)
+        .maybe_user_agent(payload.user_agent)
+        .build();
 
     match repos.audit_log.create(log).await {
         Ok(_) => {

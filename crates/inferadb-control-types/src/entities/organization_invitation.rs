@@ -1,3 +1,4 @@
+use bon::bon;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +31,7 @@ pub struct OrganizationInvitation {
     pub expires_at: DateTime<Utc>,
 }
 
+#[bon]
 impl OrganizationInvitation {
     /// Default invitation expiry duration (7 days)
     const EXPIRY_DURATION_DAYS: i64 = 7;
@@ -48,6 +50,7 @@ impl OrganizationInvitation {
     /// # Errors
     ///
     /// Returns an error if validation fails
+    #[builder]
     pub fn new(
         id: i64,
         organization_id: i64,
@@ -150,15 +153,15 @@ mod tests {
     #[test]
     fn test_new_invitation() {
         let token = OrganizationInvitation::generate_token().unwrap();
-        let invitation = OrganizationInvitation::new(
-            1,
-            100,
-            200,
-            "test@example.com".to_string(),
-            OrganizationRole::Member,
-            token,
-        )
-        .unwrap();
+        let invitation = OrganizationInvitation::builder()
+            .id(1)
+            .organization_id(100)
+            .invited_by_user_id(200)
+            .email("test@example.com".to_string())
+            .role(OrganizationRole::Member)
+            .token(token)
+            .build()
+            .unwrap();
 
         assert_eq!(invitation.id, 1);
         assert_eq!(invitation.organization_id, 100);
@@ -203,15 +206,15 @@ mod tests {
     #[test]
     fn test_email_normalized() {
         let token = OrganizationInvitation::generate_token().unwrap();
-        let invitation = OrganizationInvitation::new(
-            1,
-            100,
-            200,
-            "  Test@Example.COM  ".to_string(),
-            OrganizationRole::Member,
-            token,
-        )
-        .unwrap();
+        let invitation = OrganizationInvitation::builder()
+            .id(1)
+            .organization_id(100)
+            .invited_by_user_id(200)
+            .email("  Test@Example.COM  ".to_string())
+            .role(OrganizationRole::Member)
+            .token(token)
+            .build()
+            .unwrap();
 
         assert_eq!(invitation.email, "test@example.com");
     }

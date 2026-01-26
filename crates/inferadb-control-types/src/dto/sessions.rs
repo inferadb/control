@@ -1,7 +1,9 @@
+use bon::Builder;
 use serde::{Deserialize, Serialize};
 
 /// Session information response
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct SessionInfo {
     /// Session ID
     pub session_id: i64,

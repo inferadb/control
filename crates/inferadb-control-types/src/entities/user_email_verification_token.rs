@@ -1,3 +1,4 @@
+use bon::bon;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +29,7 @@ pub struct UserEmailVerificationToken {
     pub used_at: Option<DateTime<Utc>>,
 }
 
+#[bon]
 impl UserEmailVerificationToken {
     /// Create a new email verification token
     ///
@@ -40,6 +42,7 @@ impl UserEmailVerificationToken {
     /// # Returns
     ///
     /// A new UserEmailVerificationToken instance or an error if token is invalid
+    #[builder]
     pub fn new(id: i64, user_email_id: i64, token: String) -> Result<Self> {
         // Validate token format (must be 64 hex characters)
         if token.len() != 64 {
@@ -103,7 +106,8 @@ mod tests {
     #[test]
     fn test_create_token() {
         let token = UserEmailVerificationToken::generate_token();
-        let result = UserEmailVerificationToken::new(1, 100, token);
+        let result =
+            UserEmailVerificationToken::builder().id(1).user_email_id(100).token(token).build();
         assert!(result.is_ok());
 
         let token_entity = result.unwrap();
@@ -116,7 +120,11 @@ mod tests {
 
     #[test]
     fn test_token_validation_length() {
-        let result = UserEmailVerificationToken::new(1, 100, "short".to_string());
+        let result = UserEmailVerificationToken::builder()
+            .id(1)
+            .user_email_id(100)
+            .token("short".to_string())
+            .build();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::Validation(_)));
     }
@@ -124,7 +132,11 @@ mod tests {
     #[test]
     fn test_token_validation_hex() {
         let invalid_token = "z".repeat(64);
-        let result = UserEmailVerificationToken::new(1, 100, invalid_token);
+        let result = UserEmailVerificationToken::builder()
+            .id(1)
+            .user_email_id(100)
+            .token(invalid_token)
+            .build();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::Validation(_)));
     }
@@ -143,7 +155,12 @@ mod tests {
     #[test]
     fn test_mark_used() {
         let token = UserEmailVerificationToken::generate_token();
-        let mut token_entity = UserEmailVerificationToken::new(1, 100, token).unwrap();
+        let mut token_entity = UserEmailVerificationToken::builder()
+            .id(1)
+            .user_email_id(100)
+            .token(token)
+            .build()
+            .unwrap();
 
         assert!(!token_entity.is_used());
         assert!(token_entity.is_valid());
@@ -157,7 +174,12 @@ mod tests {
     #[test]
     fn test_time_until_expiry() {
         let token = UserEmailVerificationToken::generate_token();
-        let token_entity = UserEmailVerificationToken::new(1, 100, token).unwrap();
+        let token_entity = UserEmailVerificationToken::builder()
+            .id(1)
+            .user_email_id(100)
+            .token(token)
+            .build()
+            .unwrap();
 
         let time_left = token_entity.time_until_expiry();
         assert!(time_left > Duration::hours(23));

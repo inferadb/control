@@ -1,3 +1,4 @@
+use bon::bon;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +27,7 @@ pub struct User {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+#[bon]
 impl User {
     /// Create a new user
     ///
@@ -42,6 +44,7 @@ impl User {
     /// # Errors
     ///
     /// Returns an error if validation fails
+    #[builder]
     pub fn new(id: i64, name: String, password_hash: Option<String>) -> Result<Self> {
         Self::validate_name(&name)?;
 
@@ -125,7 +128,12 @@ mod tests {
 
     #[test]
     fn test_create_user() {
-        let user = User::new(1, "Test User".to_string(), Some("hash".to_string())).unwrap();
+        let user = User::builder()
+            .id(1)
+            .name("Test User".to_string())
+            .password_hash("hash".to_string())
+            .build()
+            .unwrap();
         assert_eq!(user.id, 1);
         assert_eq!(user.name, "Test User");
         assert!(user.has_password());
@@ -154,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_accept_tos() {
-        let mut user = User::new(1, "Test".to_string(), None).unwrap();
+        let mut user = User::builder().id(1).name("Test".to_string()).build().unwrap();
         assert!(!user.has_accepted_tos());
 
         user.accept_tos();
@@ -168,7 +176,7 @@ mod tests {
 
     #[test]
     fn test_soft_delete() {
-        let mut user = User::new(1, "Test".to_string(), None).unwrap();
+        let mut user = User::builder().id(1).name("Test".to_string()).build().unwrap();
         assert!(!user.is_deleted());
 
         user.soft_delete();
@@ -177,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_set_name() {
-        let mut user = User::new(1, "Original".to_string(), None).unwrap();
+        let mut user = User::builder().id(1).name("Original".to_string()).build().unwrap();
         user.set_name("Updated".to_string()).unwrap();
         assert_eq!(user.name, "Updated");
 

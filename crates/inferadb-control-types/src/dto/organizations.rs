@@ -1,3 +1,4 @@
+use bon::Builder;
 use serde::{Deserialize, Serialize};
 
 use crate::entities::OrganizationRole;
@@ -18,7 +19,8 @@ pub struct OrganizationResponse {
 }
 
 /// Request body for creating an organization
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct CreateOrganizationRequest {
     /// Organization name
     pub name: String,

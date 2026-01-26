@@ -1,4 +1,54 @@
-// REST API handlers and routes
+//! # InferaDB Control API
+//!
+//! REST API handlers and routes for the InferaDB Control Plane.
+//!
+//! ## Request/Response Builders
+//!
+//! API request and response types use [`bon::Builder`] for ergonomic construction,
+//! particularly useful in tests:
+//!
+//! ```no_run
+//! use inferadb_control_types::dto::{RegisterRequest, LoginRequest, CreateVaultRequest};
+//!
+//! // Registration request with all required fields
+//! let register = RegisterRequest::builder()
+//!     .email("user@example.com")
+//!     .password("secure_password")
+//!     .name("Alice")
+//!     .build();
+//!
+//! // Login request
+//! let login = LoginRequest::builder()
+//!     .email("user@example.com")
+//!     .password("secure_password")
+//!     .build();
+//!
+//! // Vault creation with optional description
+//! let vault = CreateVaultRequest::builder()
+//!     .name("my-vault")
+//!     .maybe_description(Some("Production policies".to_string()))
+//!     .build();
+//! ```
+//!
+//! ## AppState Builder
+//!
+//! The [`AppState`] struct uses a builder for server initialization:
+//!
+//! ```no_run
+//! use std::sync::Arc;
+//! use inferadb_control_api::AppState;
+//!
+//! # async fn example(storage: Arc<inferadb_control_storage::Backend>, config: Arc<inferadb_control_config::ControlConfig>) {
+//! let state = AppState::builder()
+//!     .storage(storage)
+//!     .config(config)
+//!     .worker_id(1)
+//!     .maybe_leader(None)           // Optional leader election
+//!     .maybe_email_service(None)    // Optional email service
+//!     .maybe_control_identity(None) // Optional control identity
+//!     .build();
+//! # }
+//! ```
 
 #![deny(unsafe_code)]
 
@@ -72,19 +122,14 @@ pub async fn serve(
     services: ServicesConfig,
 ) -> anyhow::Result<()> {
     // Create AppState with services using the builder pattern
-    let mut builder = AppState::builder(storage.clone(), config.clone(), worker_id);
-
-    if let Some(leader) = services.leader {
-        builder = builder.leader(leader);
-    }
-    if let Some(email_service) = services.email_service {
-        builder = builder.email_service(email_service);
-    }
-    if let Some(control_identity) = services.control_identity {
-        builder = builder.control_identity(control_identity);
-    }
-
-    let state = builder.build();
+    let state = AppState::builder()
+        .storage(storage.clone())
+        .config(config.clone())
+        .worker_id(worker_id)
+        .maybe_leader(services.leader)
+        .maybe_email_service(services.email_service)
+        .maybe_control_identity(services.control_identity)
+        .build();
 
     // Create router
     let router = routes::create_router_with_state(state.clone());

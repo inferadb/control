@@ -30,6 +30,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use bon::Builder;
 use bytes::Bytes;
 // Re-export shared batch types from inferadb-storage
 pub use inferadb_storage::batch::{
@@ -45,13 +46,16 @@ use crate::{
 };
 
 /// Configuration for read caching
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Builder)]
 pub struct CacheConfig {
     /// Maximum number of entries in cache
+    #[builder(default = 10_000)]
     pub max_entries: usize,
     /// TTL for cache entries (in seconds)
+    #[builder(default = 60)]
     pub ttl_secs: u64,
     /// Enable cache (can be disabled for testing)
+    #[builder(default = true)]
     pub enabled: bool,
 }
 

@@ -1,3 +1,4 @@
+use bon::bon;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -127,8 +128,10 @@ pub struct OrganizationTeamPermission {
     pub granted_at: DateTime<Utc>,
 }
 
+#[bon]
 impl OrganizationTeam {
     /// Create a new organization team
+    #[builder]
     pub fn new(
         id: i64,
         organization_id: i64,
@@ -222,7 +225,12 @@ mod tests {
 
     #[test]
     fn test_create_team() {
-        let team = OrganizationTeam::new(1, 100, "Engineering Team".to_string(), None).unwrap();
+        let team = OrganizationTeam::builder()
+            .id(1)
+            .organization_id(100)
+            .name("Engineering Team".to_string())
+            .build()
+            .unwrap();
         assert_eq!(team.id, 1);
         assert_eq!(team.organization_id, 100);
         assert_eq!(team.name, "Engineering Team");
@@ -241,7 +249,12 @@ mod tests {
 
     #[test]
     fn test_set_team_name() {
-        let mut team = OrganizationTeam::new(1, 100, "Old Name".to_string(), None).unwrap();
+        let mut team = OrganizationTeam::builder()
+            .id(1)
+            .organization_id(100)
+            .name("Old Name".to_string())
+            .build()
+            .unwrap();
 
         team.set_name("New Name".to_string()).unwrap();
         assert_eq!(team.name, "New Name");
@@ -252,7 +265,12 @@ mod tests {
 
     #[test]
     fn test_team_soft_delete() {
-        let mut team = OrganizationTeam::new(1, 100, "Test Team".to_string(), None).unwrap();
+        let mut team = OrganizationTeam::builder()
+            .id(1)
+            .organization_id(100)
+            .name("Test Team".to_string())
+            .build()
+            .unwrap();
 
         assert!(!team.is_deleted());
         team.mark_deleted();

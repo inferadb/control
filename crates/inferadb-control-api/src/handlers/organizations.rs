@@ -78,7 +78,11 @@ pub async fn create_organization(
     let member_id = IdGenerator::next_id();
 
     // Create organization with TIER_DEV_V1
-    let organization = Organization::new(org_id, payload.name, OrganizationTier::TierDevV1)?;
+    let organization = Organization::builder()
+        .id(org_id)
+        .name(payload.name)
+        .tier(OrganizationTier::TierDevV1)
+        .build()?;
 
     // Create organization
     repos.org.create(organization.clone()).await?;
@@ -694,14 +698,14 @@ pub async fn create_invitation(
     // Generate invitation
     let invitation_id = IdGenerator::next_id();
     let token = OrganizationInvitation::generate_token()?;
-    let invitation = OrganizationInvitation::new(
-        invitation_id,
-        org_ctx.organization_id,
-        org_ctx.member.user_id,
-        payload.email,
-        payload.role,
-        token.clone(),
-    )?;
+    let invitation = OrganizationInvitation::builder()
+        .id(invitation_id)
+        .organization_id(org_ctx.organization_id)
+        .invited_by_user_id(org_ctx.member.user_id)
+        .email(payload.email)
+        .role(payload.role)
+        .token(token.clone())
+        .build()?;
 
     // Create invitation
     repos.org_invitation.create(invitation.clone()).await?;

@@ -17,10 +17,15 @@ async fn test_audit_log_creation() {
 
     // Create an audit log directly
     let repo = AuditLogRepository::new((*state.storage).clone());
-    let log = AuditLog::new(AuditEventType::UserLogin, Some(1), Some(100))
-        .with_resource(AuditResourceType::User, 100)
-        .with_ip_address("127.0.0.1")
-        .with_user_agent("test-agent");
+    let log = AuditLog::builder()
+        .event_type(AuditEventType::UserLogin)
+        .organization_id(1)
+        .user_id(100)
+        .resource_type(AuditResourceType::User)
+        .resource_id(100)
+        .ip_address("127.0.0.1")
+        .user_agent("test-agent")
+        .build();
 
     // Create the log
     repo.create(log.clone()).await.unwrap();
@@ -48,23 +53,25 @@ async fn test_audit_log_list_by_organization() {
 
     // Create multiple audit logs for different organizations
     for i in 0..10 {
-        let log = AuditLog::new(
-            AuditEventType::UserLogin,
-            Some(1), // All for org 1
-            Some(100 + i),
-        )
-        .with_resource(AuditResourceType::User, 100 + i);
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::UserLogin)
+            .organization_id(1) // All for org 1
+            .user_id(100 + i)
+            .resource_type(AuditResourceType::User)
+            .resource_id(100 + i)
+            .build();
         repo.create(log).await.unwrap();
     }
 
     // Create logs for another organization
     for i in 0..5 {
-        let log = AuditLog::new(
-            AuditEventType::UserLogin,
-            Some(2), // Org 2
-            Some(200 + i),
-        )
-        .with_resource(AuditResourceType::User, 200 + i);
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::UserLogin)
+            .organization_id(2) // Org 2
+            .user_id(200 + i)
+            .resource_type(AuditResourceType::User)
+            .resource_id(200 + i)
+            .build();
         repo.create(log).await.unwrap();
     }
 
@@ -88,16 +95,31 @@ async fn test_audit_log_filtering() {
     let repo = AuditLogRepository::new((*state.storage).clone());
 
     // Create logs with different event types
-    let log1 = AuditLog::new(AuditEventType::UserLogin, Some(1), Some(100))
-        .with_resource(AuditResourceType::User, 100);
+    let log1 = AuditLog::builder()
+        .event_type(AuditEventType::UserLogin)
+        .organization_id(1)
+        .user_id(100)
+        .resource_type(AuditResourceType::User)
+        .resource_id(100)
+        .build();
     repo.create(log1).await.unwrap();
 
-    let log2 = AuditLog::new(AuditEventType::UserLogout, Some(1), Some(100))
-        .with_resource(AuditResourceType::User, 100);
+    let log2 = AuditLog::builder()
+        .event_type(AuditEventType::UserLogout)
+        .organization_id(1)
+        .user_id(100)
+        .resource_type(AuditResourceType::User)
+        .resource_id(100)
+        .build();
     repo.create(log2).await.unwrap();
 
-    let log3 = AuditLog::new(AuditEventType::VaultCreated, Some(1), Some(100))
-        .with_resource(AuditResourceType::Vault, 200);
+    let log3 = AuditLog::builder()
+        .event_type(AuditEventType::VaultCreated)
+        .organization_id(1)
+        .user_id(100)
+        .resource_type(AuditResourceType::Vault)
+        .resource_id(200)
+        .build();
     repo.create(log3).await.unwrap();
 
     // Filter by event type
@@ -129,8 +151,13 @@ async fn test_audit_log_pagination() {
 
     // Create 25 audit logs
     for i in 0..25 {
-        let log = AuditLog::new(AuditEventType::UserLogin, Some(1), Some(100 + i))
-            .with_resource(AuditResourceType::User, 100 + i);
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::UserLogin)
+            .organization_id(1)
+            .user_id(100 + i)
+            .resource_type(AuditResourceType::User)
+            .resource_id(100 + i)
+            .build();
         repo.create(log).await.unwrap();
     }
 
@@ -184,8 +211,13 @@ async fn test_audit_log_query_endpoint() {
     // Create some audit logs for this organization
     let repo = AuditLogRepository::new((*state.storage).clone());
     for i in 0..5 {
-        let log = AuditLog::new(AuditEventType::UserLogin, Some(org_id), Some(100 + i))
-            .with_resource(AuditResourceType::User, 100 + i);
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::UserLogin)
+            .organization_id(org_id)
+            .user_id(100 + i)
+            .resource_type(AuditResourceType::User)
+            .resource_id(100 + i)
+            .build();
         repo.create(log).await.unwrap();
     }
 
@@ -226,17 +258,26 @@ async fn test_audit_log_retention_cleanup() {
     // Create old audit logs (older than 90 days)
     let old_date = chrono::Utc::now() - Duration::days(100);
     for i in 0..5 {
-        let mut log = AuditLog::new(AuditEventType::UserLogin, Some(1), Some(100 + i))
-            .with_resource(AuditResourceType::User, 100 + i);
-        // Manually set the created_at to old date
-        log.created_at = old_date;
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::UserLogin)
+            .organization_id(1)
+            .user_id(100 + i)
+            .resource_type(AuditResourceType::User)
+            .resource_id(100 + i)
+            .created_at(old_date)
+            .build();
         repo.create(log).await.unwrap();
     }
 
     // Create recent audit logs (within 90 days)
     for i in 0..5 {
-        let log = AuditLog::new(AuditEventType::UserLogout, Some(1), Some(200 + i))
-            .with_resource(AuditResourceType::User, 200 + i);
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::UserLogout)
+            .organization_id(1)
+            .user_id(200 + i)
+            .resource_type(AuditResourceType::User)
+            .resource_id(200 + i)
+            .build();
         repo.create(log).await.unwrap();
     }
 

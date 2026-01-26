@@ -1,3 +1,4 @@
+use bon::bon;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +61,7 @@ pub struct UserSession {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+#[bon]
 impl UserSession {
     /// Create a new session
     ///
@@ -74,6 +76,7 @@ impl UserSession {
     /// # Returns
     ///
     /// A new UserSession instance
+    #[builder]
     pub fn new(
         id: i64,
         user_id: i64,
@@ -148,13 +151,13 @@ mod tests {
 
     #[test]
     fn test_create_session() {
-        let session = UserSession::new(
-            1,
-            100,
-            SessionType::Web,
-            Some("127.0.0.1".to_string()),
-            Some("Mozilla/5.0".to_string()),
-        );
+        let session = UserSession::builder()
+            .id(1)
+            .user_id(100)
+            .session_type(SessionType::Web)
+            .ip_address("127.0.0.1".to_string())
+            .user_agent("Mozilla/5.0".to_string())
+            .build();
 
         assert_eq!(session.id, 1);
         assert_eq!(session.user_id, 100);
@@ -166,7 +169,8 @@ mod tests {
 
     #[test]
     fn test_session_expiry() {
-        let mut session = UserSession::new(1, 100, SessionType::Web, None, None);
+        let mut session =
+            UserSession::builder().id(1).user_id(100).session_type(SessionType::Web).build();
 
         // Manually set expiry to the past
         session.expires_at = Utc::now() - Duration::seconds(1);
@@ -177,7 +181,8 @@ mod tests {
 
     #[test]
     fn test_update_activity() {
-        let mut session = UserSession::new(1, 100, SessionType::Web, None, None);
+        let mut session =
+            UserSession::builder().id(1).user_id(100).session_type(SessionType::Web).build();
         let original_expires_at = session.expires_at;
 
         // Wait a bit and update activity
@@ -191,7 +196,8 @@ mod tests {
 
     #[test]
     fn test_revoke_session() {
-        let mut session = UserSession::new(1, 100, SessionType::Web, None, None);
+        let mut session =
+            UserSession::builder().id(1).user_id(100).session_type(SessionType::Web).build();
         assert!(!session.is_deleted());
         assert!(session.is_active());
 
@@ -202,11 +208,13 @@ mod tests {
 
     #[test]
     fn test_time_until_expiry() {
-        let session = UserSession::new(1, 100, SessionType::Web, None, None);
+        let session =
+            UserSession::builder().id(1).user_id(100).session_type(SessionType::Web).build();
         let time_left = session.time_until_expiry();
         assert!(time_left.is_some());
 
-        let mut expired_session = UserSession::new(1, 100, SessionType::Web, None, None);
+        let mut expired_session =
+            UserSession::builder().id(1).user_id(100).session_type(SessionType::Web).build();
         expired_session.expires_at = Utc::now() - Duration::seconds(1);
         assert!(expired_session.time_until_expiry().is_none());
     }

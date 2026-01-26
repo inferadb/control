@@ -241,7 +241,12 @@ mod tests {
 
         // Create a team with a permission
         let team_repo = OrganizationTeamRepository::new(memory.clone());
-        let team = OrganizationTeam::new(1, 1, "Test Team".to_string(), None).unwrap();
+        let team = OrganizationTeam::builder()
+            .id(1)
+            .organization_id(1)
+            .name("Test Team".to_string())
+            .build()
+            .unwrap();
         team_repo.create(team).await.unwrap();
 
         // Add user to team
@@ -291,7 +296,12 @@ mod tests {
 
         // Create a team with CLIENT_MANAGE permission
         let team_repo = OrganizationTeamRepository::new(memory.clone());
-        let team = OrganizationTeam::new(1, 1, "Test Team".to_string(), None).unwrap();
+        let team = OrganizationTeam::builder()
+            .id(1)
+            .organization_id(1)
+            .name("Test Team".to_string())
+            .build()
+            .unwrap();
         team_repo.create(team).await.unwrap();
 
         let member_repo = OrganizationTeamMemberRepository::new(memory.clone());

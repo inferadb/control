@@ -386,15 +386,14 @@ mod tests {
         version: SchemaVersion,
         definition: &str,
     ) -> Result<VaultSchema> {
-        VaultSchema::new(
-            id,
-            vault_id,
-            version,
-            definition.to_string(),
-            999, // author_user_id
-            "Test schema".to_string(),
-            None,
-        )
+        VaultSchema::builder()
+            .id(id)
+            .vault_id(vault_id)
+            .version(version)
+            .definition(definition.to_string())
+            .author_user_id(999)
+            .description("Test schema".to_string())
+            .build()
     }
 
     #[tokio::test]

@@ -80,15 +80,15 @@ pub async fn deploy_schema(
     let schema_id = IdGenerator::next_id();
 
     // Create schema entity
-    let mut schema = VaultSchema::new(
-        schema_id,
-        vault_id,
-        version,
-        payload.definition,
-        org_ctx.member.user_id,
-        payload.description,
-        parent_version_id,
-    )?;
+    let mut schema = VaultSchema::builder()
+        .id(schema_id)
+        .vault_id(vault_id)
+        .version(version)
+        .definition(payload.definition)
+        .author_user_id(org_ctx.member.user_id)
+        .description(payload.description)
+        .maybe_parent_version_id(parent_version_id)
+        .build()?;
 
     // Schema validation is performed by the Engine when loaded; mark as deployed
     schema.mark_deployed();

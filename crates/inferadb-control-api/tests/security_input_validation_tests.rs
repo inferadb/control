@@ -23,16 +23,24 @@ async fn setup_user_and_org(
     org_id: i64,
     member_id: i64,
 ) -> (User, UserSession, Organization) {
-    let user = User::new(user_id, "testuser".to_string(), None).unwrap();
+    let user = User::builder().id(user_id).name("testuser".to_string()).build().unwrap();
     let user_repo = UserRepository::new((*state.storage).clone());
     user_repo.create(user.clone()).await.unwrap();
 
-    let session = UserSession::new(session_id, user_id, SessionType::Web, None, None);
+    let session = UserSession::builder()
+        .id(session_id)
+        .user_id(user_id)
+        .session_type(SessionType::Web)
+        .build();
     let session_repo = UserSessionRepository::new((*state.storage).clone());
     session_repo.create(session.clone()).await.unwrap();
 
-    let org =
-        Organization::new(org_id, "Test Org".to_string(), OrganizationTier::TierDevV1).unwrap();
+    let org = Organization::builder()
+        .id(org_id)
+        .name("Test Org".to_string())
+        .tier(OrganizationTier::TierDevV1)
+        .build()
+        .unwrap();
     let org_repo = OrganizationRepository::new((*state.storage).clone());
     org_repo.create(org.clone()).await.unwrap();
 

@@ -25,6 +25,54 @@
 //!
 //! The control service reads its configuration from the `control:` section. Any `engine:` section
 //! is ignored by control (and vice versa when engine reads the same file).
+//!
+//! ## Builder Pattern for Configuration
+//!
+//! All configuration structs use [`bon::Builder`] for programmatic construction. Builder
+//! defaults match serde defaults, so both file-based and programmatic configs behave
+//! identically:
+//!
+//! ```no_run
+//! use inferadb_control_config::{ControlConfig, ListenConfig};
+//!
+//! // Build a custom configuration programmatically
+//! let config = ControlConfig::builder()
+//!     .threads(8)
+//!     .logging("debug")  // &str accepted via Into<String>
+//!     .listen(
+//!         ListenConfig::builder()
+//!             .http("0.0.0.0:9090")
+//!             .grpc("0.0.0.0:9091")
+//!             .build()
+//!     )
+//!     .build();
+//!
+//! // Use defaults for most fields
+//! let minimal = ControlConfig::builder().build();
+//! assert_eq!(minimal.logging, "info");  // serde default
+//! ```
+//!
+//! ### Default Values
+//!
+//! Configuration fields have sensible defaults aligned between serde and builder:
+//!
+//! | Field | Default |
+//! |-------|---------|
+//! | `threads` | Number of CPU cores |
+//! | `logging` | `"info"` |
+//! | `listen.http` | `"127.0.0.1:9090"` |
+//! | `listen.grpc` | `"127.0.0.1:9091"` |
+//!
+//! Optional fields (`Option<T>`) can be set using `.maybe_*()` methods:
+//!
+//! ```no_run
+//! use inferadb_control_config::ControlConfig;
+//!
+//! let config = ControlConfig::builder()
+//!     .maybe_pem(Some("-----BEGIN PRIVATE KEY-----...".to_string()))
+//!     .maybe_key_file(None)  // explicitly None
+//!     .build();
+//! ```
 
 #![deny(unsafe_code)]
 
@@ -32,6 +80,7 @@ pub mod refresh;
 
 use std::path::Path;
 
+use bon::Builder;
 use inferadb_control_types::error::{Error, Result};
 pub use refresh::ConfigRefresher;
 use serde::{Deserialize, Serialize};
@@ -52,23 +101,27 @@ use serde::{Deserialize, Serialize};
 ///     http: "127.0.0.1:9090"
 ///   # ... control config
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Builder)]
 pub struct RootConfig {
     /// Control-specific configuration
     #[serde(default)]
+    #[builder(default)]
     pub control: ControlConfig,
     // Note: `engine` section may exist in the file but is ignored by control
 }
 
 /// Configuration for the Control API
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct ControlConfig {
     /// Number of worker threads for the async runtime
     #[serde(default = "default_threads")]
+    #[builder(default = num_cpus::get())]
     pub threads: usize,
 
     /// Log level (trace, debug, info, warn, error)
     #[serde(default = "default_logging")]
+    #[builder(default = "info".to_string())]
     pub logging: String,
 
     /// Ed25519 private key in PEM format (optional - will auto-generate if not provided for
@@ -94,49 +147,69 @@ pub struct ControlConfig {
     pub key_file: Option<String>,
 
     #[serde(default = "default_storage")]
+    #[builder(default = "ledger".to_string())]
     pub storage: String,
     /// Ledger backend configuration (required when storage = "ledger")
     #[serde(default)]
+    #[builder(default)]
     pub ledger: LedgerConfig,
     #[serde(default)]
+    #[builder(default)]
     pub listen: ListenConfig,
     #[serde(default)]
+    #[builder(default)]
     pub webauthn: WebAuthnConfig,
     #[serde(default)]
+    #[builder(default)]
     pub email: EmailConfig,
     #[serde(default)]
+    #[builder(default)]
     pub limits: LimitsConfig,
     #[serde(default)]
+    #[builder(default)]
     pub webhook: WebhookConfig,
     #[serde(default)]
+    #[builder(default)]
     pub frontend: FrontendConfig,
 }
 
 /// Listen address configuration for API servers
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct ListenConfig {
     /// Client-facing HTTP/REST API server address
     /// Format: "host:port" (e.g., "127.0.0.1:9090")
     #[serde(default = "default_http")]
+    #[builder(default = "127.0.0.1:9090".to_string())]
     pub http: String,
 
     /// Client-facing gRPC API server address
     /// Format: "host:port" (e.g., "127.0.0.1:9091")
     #[serde(default = "default_grpc")]
+    #[builder(default = "127.0.0.1:9091".to_string())]
     pub grpc: String,
 }
 
+impl Default for ListenConfig {
+    fn default() -> Self {
+        Self { http: default_http(), grpc: default_grpc() }
+    }
+}
+
 /// WebAuthn configuration for passkey authentication
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct WebAuthnConfig {
     /// Relying Party ID (domain)
     /// e.g., "inferadb.com" for production or "localhost" for development
     #[serde(default = "default_webauthn_party")]
+    #[builder(default = "localhost".to_string())]
     pub party: String,
 
     /// Origin URL for WebAuthn
     /// e.g., "https://app.inferadb.com" or "http://localhost:3000"
     #[serde(default = "default_webauthn_origin")]
+    #[builder(default = "http://localhost:3000".to_string())]
     pub origin: String,
 }
 
@@ -155,13 +228,16 @@ fn default_webauthn_origin() -> String {
 }
 
 /// Email configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct EmailConfig {
     /// SMTP host
+    #[builder(default = "localhost".to_string())]
     pub host: String,
 
     /// SMTP port
     #[serde(default = "default_email_port")]
+    #[builder(default = 587)]
     pub port: u16,
 
     /// SMTP username
@@ -171,10 +247,12 @@ pub struct EmailConfig {
     pub password: Option<String>,
 
     /// From email address
+    #[builder(default = "noreply@inferadb.com".to_string())]
     pub address: String,
 
     /// From display name
     #[serde(default = "default_email_name")]
+    #[builder(default = "InferaDB".to_string())]
     pub name: String,
 
     /// Allow insecure (unencrypted) SMTP connections.
@@ -182,35 +260,67 @@ pub struct EmailConfig {
     /// **WARNING**: Only enable this for local development/testing with tools like Mailpit.
     /// Never enable in production as it transmits credentials in plain text.
     #[serde(default)]
+    #[builder(default)]
     pub insecure: bool,
 }
 
+impl Default for EmailConfig {
+    fn default() -> Self {
+        Self {
+            host: "localhost".to_string(),
+            port: default_email_port(),
+            username: None,
+            password: None,
+            address: "noreply@inferadb.com".to_string(),
+            name: default_email_name(),
+            insecure: false,
+        }
+    }
+}
+
 /// Rate limits configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct LimitsConfig {
     /// Login attempts per IP per hour
     #[serde(default = "default_login_attempts_per_ip_per_hour")]
+    #[builder(default = 100)]
     pub login_attempts_per_ip_per_hour: u32,
 
     /// Registrations per IP per day
     #[serde(default = "default_registrations_per_ip_per_day")]
+    #[builder(default = 5)]
     pub registrations_per_ip_per_day: u32,
 
     /// Email verification tokens per email per hour
     #[serde(default = "default_email_verification_tokens_per_hour")]
+    #[builder(default = 5)]
     pub email_verification_tokens_per_hour: u32,
 
     /// Password reset tokens per user per hour
     #[serde(default = "default_password_reset_tokens_per_hour")]
+    #[builder(default = 3)]
     pub password_reset_tokens_per_hour: u32,
 }
 
+impl Default for LimitsConfig {
+    fn default() -> Self {
+        Self {
+            login_attempts_per_ip_per_hour: default_login_attempts_per_ip_per_hour(),
+            registrations_per_ip_per_day: default_registrations_per_ip_per_day(),
+            email_verification_tokens_per_hour: default_email_verification_tokens_per_hour(),
+            password_reset_tokens_per_hour: default_password_reset_tokens_per_hour(),
+        }
+    }
+}
+
 /// Frontend configuration for web UI
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct FrontendConfig {
     /// Base URL for email links (verification, password reset)
     /// Example: "https://app.inferadb.com" or "http://localhost:3000"
     #[serde(default = "default_frontend_url")]
+    #[builder(default = "http://localhost:3000".to_string())]
     pub url: String,
 }
 
@@ -221,14 +331,16 @@ impl Default for FrontendConfig {
 }
 
 /// Webhook configuration for cache invalidation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct WebhookConfig {
     /// Webhook request timeout in milliseconds
     #[serde(default = "default_webhook_timeout")]
+    #[builder(default = 5000)]
     pub timeout: u64,
 
     /// Number of retry attempts on webhook failure
     #[serde(default = "default_webhook_retries")]
+    #[builder(default = 0)]
     pub retries: u8,
 }
 
@@ -239,7 +351,8 @@ impl Default for WebhookConfig {
 }
 
 /// Ledger storage backend configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Builder)]
+#[builder(on(String, into))]
 pub struct LedgerConfig {
     /// Ledger server endpoint URL
     /// e.g., "http://localhost:50051" or "https://ledger.inferadb.com:50051"
@@ -600,5 +713,80 @@ mod tests {
 
         config.ledger.namespace_id = Some(1);
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_builder_defaults_match_serde_defaults() {
+        // Build using bon builder
+        let built = ControlConfig::builder().build();
+
+        // Build using serde default
+        let serde_default = ControlConfig::default();
+
+        // Verify all defaults match
+        assert_eq!(built.threads, serde_default.threads);
+        assert_eq!(built.logging, serde_default.logging);
+        assert_eq!(built.storage, serde_default.storage);
+        assert_eq!(built.listen.http, serde_default.listen.http);
+        assert_eq!(built.listen.grpc, serde_default.listen.grpc);
+        assert_eq!(built.webauthn.party, serde_default.webauthn.party);
+        assert_eq!(built.webauthn.origin, serde_default.webauthn.origin);
+        assert_eq!(built.email.host, serde_default.email.host);
+        assert_eq!(built.email.port, serde_default.email.port);
+        assert_eq!(built.email.address, serde_default.email.address);
+        assert_eq!(built.email.name, serde_default.email.name);
+        assert_eq!(built.email.insecure, serde_default.email.insecure);
+        assert_eq!(
+            built.limits.login_attempts_per_ip_per_hour,
+            serde_default.limits.login_attempts_per_ip_per_hour
+        );
+        assert_eq!(
+            built.limits.registrations_per_ip_per_day,
+            serde_default.limits.registrations_per_ip_per_day
+        );
+        assert_eq!(
+            built.limits.email_verification_tokens_per_hour,
+            serde_default.limits.email_verification_tokens_per_hour
+        );
+        assert_eq!(
+            built.limits.password_reset_tokens_per_hour,
+            serde_default.limits.password_reset_tokens_per_hour
+        );
+        assert_eq!(built.frontend.url, serde_default.frontend.url);
+        assert_eq!(built.webhook.timeout, serde_default.webhook.timeout);
+        assert_eq!(built.webhook.retries, serde_default.webhook.retries);
+    }
+
+    #[test]
+    fn test_nested_config_builders() {
+        // Verify nested configs can also be built with bon builders
+        let listen = ListenConfig::builder().build();
+        assert_eq!(listen.http, "127.0.0.1:9090");
+        assert_eq!(listen.grpc, "127.0.0.1:9091");
+
+        let webauthn = WebAuthnConfig::builder().build();
+        assert_eq!(webauthn.party, "localhost");
+        assert_eq!(webauthn.origin, "http://localhost:3000");
+
+        let email = EmailConfig::builder().build();
+        assert_eq!(email.host, "localhost");
+        assert_eq!(email.port, 587);
+        assert_eq!(email.address, "noreply@inferadb.com");
+        assert_eq!(email.name, "InferaDB");
+
+        let limits = LimitsConfig::builder().build();
+        assert_eq!(limits.login_attempts_per_ip_per_hour, 100);
+        assert_eq!(limits.registrations_per_ip_per_day, 5);
+
+        let frontend = FrontendConfig::builder().build();
+        assert_eq!(frontend.url, "http://localhost:3000");
+
+        let webhook = WebhookConfig::builder().build();
+        assert_eq!(webhook.timeout, 5000);
+        assert_eq!(webhook.retries, 0);
+
+        let ledger = LedgerConfig::builder().build();
+        assert!(ledger.endpoint.is_none());
+        assert!(ledger.client_id.is_none());
     }
 }

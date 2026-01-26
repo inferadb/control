@@ -123,13 +123,12 @@ pub async fn cli_token_exchange(
     let cli_session_id = IdGenerator::next_id();
 
     // Create CLI session
-    let cli_session = UserSession::new(
-        cli_session_id,
-        original_session.user_id,
-        inferadb_control_core::SessionType::Cli,
-        None, // No IP for CLI sessions
-        Some("InferaDB CLI".to_string()),
-    );
+    let cli_session = UserSession::builder()
+        .id(cli_session_id)
+        .user_id(original_session.user_id)
+        .session_type(inferadb_control_core::SessionType::Cli)
+        .user_agent("InferaDB CLI".to_string())
+        .build();
 
     // Store CLI session
     repos.user_session.create(cli_session.clone()).await.map_err(|e| {
