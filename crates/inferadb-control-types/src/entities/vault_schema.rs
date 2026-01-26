@@ -59,20 +59,20 @@ impl FromStr for SchemaVersion {
     fn from_str(s: &str) -> Result<Self> {
         let parts: Vec<&str> = s.split('.').collect();
         if parts.len() != 3 {
-            return Err(Error::Validation(
+            return Err(Error::validation(
                 "Schema version must be in format major.minor.patch (e.g., 1.0.0)".to_string(),
             ));
         }
 
         let major = parts[0]
             .parse::<u32>()
-            .map_err(|_| Error::Validation("Invalid major version number".to_string()))?;
+            .map_err(|_| Error::validation("Invalid major version number".to_string()))?;
         let minor = parts[1]
             .parse::<u32>()
-            .map_err(|_| Error::Validation("Invalid minor version number".to_string()))?;
+            .map_err(|_| Error::validation("Invalid minor version number".to_string()))?;
         let patch = parts[2]
             .parse::<u32>()
-            .map_err(|_| Error::Validation("Invalid patch version number".to_string()))?;
+            .map_err(|_| Error::validation("Invalid patch version number".to_string()))?;
 
         Ok(Self::new(major, minor, patch))
     }
@@ -178,12 +178,12 @@ impl VaultSchema {
     /// Validate schema definition
     pub fn validate_definition(definition: &str) -> Result<()> {
         if definition.trim().is_empty() {
-            return Err(Error::Validation("Schema definition cannot be empty".to_string()));
+            return Err(Error::validation("Schema definition cannot be empty".to_string()));
         }
 
         // Basic size limit (1MB)
         if definition.len() > 1_048_576 {
-            return Err(Error::Validation("Schema definition cannot exceed 1MB".to_string()));
+            return Err(Error::validation("Schema definition cannot exceed 1MB".to_string()));
         }
 
         Ok(())
@@ -192,7 +192,7 @@ impl VaultSchema {
     /// Validate description
     pub fn validate_description(description: &str) -> Result<()> {
         if description.len() > 2000 {
-            return Err(Error::Validation(
+            return Err(Error::validation(
                 "Schema description cannot exceed 2000 characters".to_string(),
             ));
         }

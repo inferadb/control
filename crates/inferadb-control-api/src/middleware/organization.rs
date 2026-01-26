@@ -3,10 +3,10 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use inferadb_control_core::{
-    OrganizationMemberRepository, OrganizationRepository,
+use inferadb_control_core::{OrganizationMemberRepository, OrganizationRepository};
+use inferadb_control_types::{
+    Error as CoreError,
     entities::{OrganizationMember, OrganizationRole},
-    error::Error as CoreError,
 };
 
 use crate::{
@@ -69,9 +69,9 @@ pub async fn require_organization_member(
     {
         segments[4]
             .parse::<i64>()
-            .map_err(|_| CoreError::Validation("Invalid organization ID in path".to_string()))?
+            .map_err(|_| CoreError::validation("Invalid organization ID in path".to_string()))?
     } else {
-        return Err(CoreError::Internal(
+        return Err(CoreError::internal(
             "Organization middleware applied to invalid route".to_string(),
         )
         .into());
@@ -79,7 +79,7 @@ pub async fn require_organization_member(
 
     // Get session context (should be set by require_session middleware)
     let session_ctx = request.extensions().get::<SessionContext>().cloned().ok_or_else(|| {
-        CoreError::Internal("Session context not found in request extensions".to_string())
+        CoreError::internal("Session context not found in request extensions".to_string())
     })?;
 
     // Check if user is a member of the organization
@@ -87,17 +87,17 @@ pub async fn require_organization_member(
     let member = member_repo
         .get_by_org_and_user(org_id, session_ctx.user_id)
         .await?
-        .ok_or_else(|| CoreError::Authz("You are not a member of this organization".to_string()))?;
+        .ok_or_else(|| CoreError::authz("You are not a member of this organization".to_string()))?;
 
     // Verify organization exists and is not deleted
     let org_repo = OrganizationRepository::new((*state.storage).clone());
     let org = org_repo
         .get(org_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     if org.is_deleted() {
-        return Err(CoreError::NotFound("Organization not found".to_string()).into());
+        return Err(CoreError::not_found("Organization not found".to_string()).into());
     }
 
     // Attach organization context to request extensions
@@ -111,7 +111,7 @@ pub async fn require_organization_member(
 /// Returns the organization context if the user is a member, otherwise returns an error.
 pub fn require_member(org_ctx: &OrganizationContext) -> Result<(), ApiError> {
     if !org_ctx.is_member() {
-        return Err(CoreError::Authz("Member role required".to_string()).into());
+        return Err(CoreError::authz("Member role required".to_string()).into());
     }
     Ok(())
 }
@@ -121,7 +121,7 @@ pub fn require_member(org_ctx: &OrganizationContext) -> Result<(), ApiError> {
 /// Returns the organization context if the user has admin permissions, otherwise returns an error.
 pub fn require_admin_or_owner(org_ctx: &OrganizationContext) -> Result<(), ApiError> {
     if !org_ctx.is_admin_or_owner() {
-        return Err(CoreError::Authz("Admin or owner role required".to_string()).into());
+        return Err(CoreError::authz("Admin or owner role required".to_string()).into());
     }
     Ok(())
 }
@@ -131,7 +131,7 @@ pub fn require_admin_or_owner(org_ctx: &OrganizationContext) -> Result<(), ApiEr
 /// Returns the organization context if the user is an owner, otherwise returns an error.
 pub fn require_owner(org_ctx: &OrganizationContext) -> Result<(), ApiError> {
     if !org_ctx.is_owner() {
-        return Err(CoreError::Authz("Owner role required".to_string()).into());
+        return Err(CoreError::authz("Owner role required".to_string()).into());
     }
     Ok(())
 }

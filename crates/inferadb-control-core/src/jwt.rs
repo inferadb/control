@@ -160,7 +160,7 @@ impl JwtSigner {
     /// Convert Ed25519 public key (32 bytes) to SPKI PEM format
     fn ed25519_public_to_pem(&self, public_key: &[u8]) -> Result<Vec<u8>> {
         if public_key.len() != 32 {
-            return Err(Error::Internal("Public key must be 32 bytes".to_string()));
+            return Err(Error::internal("Public key must be 32 bytes".to_string()));
         }
 
         // SubjectPublicKeyInfo structure for Ed25519:
@@ -202,12 +202,12 @@ impl JwtSigner {
         // Create Ed25519 signing key
         let signing_key_array: [u8; 32] = private_key_bytes
             .try_into()
-            .map_err(|_| Error::Internal("Invalid private key length".to_string()))?;
+            .map_err(|_| Error::internal("Invalid private key length".to_string()))?;
 
         // Create encoding key for jsonwebtoken using raw Ed25519 key bytes
         // jsonwebtoken expects the seed (32 bytes) for EdDSA
         let encoding_key = EncodingKey::from_ed_pem(&self.ed25519_to_pem(&signing_key_array)?)
-            .map_err(|e| Error::Internal(format!("Failed to create encoding key: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to create encoding key: {e}")))?;
 
         // Create header with kid (key ID)
         let mut header = Header::new(Algorithm::EdDSA);
@@ -215,7 +215,7 @@ impl JwtSigner {
 
         // Encode the JWT
         let token = encode(&header, claims, &encoding_key)
-            .map_err(|e| Error::Internal(format!("Failed to sign JWT: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to sign JWT: {e}")))?;
 
         Ok(token)
     }
@@ -233,10 +233,10 @@ impl JwtSigner {
         // Decode the public key (JWK uses URL-safe base64)
         let public_key_bytes = URL_SAFE_NO_PAD
             .decode(&certificate.public_key)
-            .map_err(|e| Error::Internal(format!("Failed to decode public key: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to decode public key: {e}")))?;
 
         if public_key_bytes.len() != 32 {
-            return Err(Error::Internal(
+            return Err(Error::internal(
                 "Invalid public key length (expected 32 bytes)".to_string(),
             ));
         }
@@ -244,7 +244,7 @@ impl JwtSigner {
         // Create decoding key from PEM
         let public_key_pem = self.ed25519_public_to_pem(&public_key_bytes)?;
         let decoding_key = DecodingKey::from_ed_pem(&public_key_pem)
-            .map_err(|e| Error::Internal(format!("Failed to create decoding key: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to create decoding key: {e}")))?;
 
         // Set up validation
         let mut validation = Validation::new(Algorithm::EdDSA);
@@ -254,7 +254,7 @@ impl JwtSigner {
 
         // Decode and verify
         let token_data = decode::<VaultTokenClaims>(token, &decoding_key, &validation)
-            .map_err(|e| Error::Internal(format!("Failed to verify JWT: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to verify JWT: {e}")))?;
 
         Ok(token_data.claims)
     }

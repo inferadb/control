@@ -3,8 +3,9 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
 };
-use inferadb_control_core::{Error as CoreError, IdGenerator, RepositoryContext};
+use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_types::{
+    Error as CoreError,
     dto::{
         ActivateSchemaResponse, DeploySchemaRequest, DeploySchemaResponse, GetSchemaResponse,
         ListSchemasQuery, ListSchemasResponse, RollbackSchemaRequest, RollbackSchemaResponse,
@@ -43,14 +44,14 @@ pub async fn deploy_schema(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     if vault.is_deleted() {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Determine version number
@@ -67,7 +68,7 @@ pub async fn deploy_schema(
 
     // Check if version already exists
     if repos.vault_schema.get_by_version(vault_id, &version).await?.is_some() {
-        return Err(CoreError::AlreadyExists(format!(
+        return Err(CoreError::already_exists(format!(
             "Schema version {version} already exists for this vault"
         ))
         .into());
@@ -119,10 +120,10 @@ pub async fn list_schemas(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Get schemas, optionally filtered by status
@@ -168,10 +169,10 @@ pub async fn get_schema(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Parse and find the schema version
@@ -180,7 +181,7 @@ pub async fn get_schema(
         .vault_schema
         .get_by_version(vault_id, &schema_version)
         .await?
-        .ok_or_else(|| CoreError::NotFound(format!("Schema version {version} not found")))?;
+        .ok_or_else(|| CoreError::not_found(format!("Schema version {version} not found")))?;
 
     Ok(Json(GetSchemaResponse { schema: SchemaDetail::from(&schema) }))
 }
@@ -204,17 +205,17 @@ pub async fn get_current_schema(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     let schema = repos
         .vault_schema
         .get_active(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("No active schema found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("No active schema found".to_string()))?;
 
     Ok(Json(GetSchemaResponse { schema: SchemaDetail::from(&schema) }))
 }
@@ -238,10 +239,10 @@ pub async fn activate_schema(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Parse and find the schema version
@@ -250,7 +251,7 @@ pub async fn activate_schema(
         .vault_schema
         .get_by_version(vault_id, &schema_version)
         .await?
-        .ok_or_else(|| CoreError::NotFound(format!("Schema version {version} not found")))?;
+        .ok_or_else(|| CoreError::not_found(format!("Schema version {version} not found")))?;
 
     // Activate the schema (Engine observes schema changes via Ledger watch)
     let activated_schema = repos.vault_schema.activate(schema.id).await?;
@@ -281,30 +282,30 @@ pub async fn rollback_schema(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Get current active schema
     let current_active =
         repos.vault_schema.get_active(vault_id).await?.ok_or_else(|| {
-            CoreError::Validation("No active schema to rollback from".to_string())
+            CoreError::validation("No active schema to rollback from".to_string())
         })?;
 
     // Parse and find the target schema version
     let target_version: SchemaVersion = payload.target_version.parse()?;
     let target_schema =
         repos.vault_schema.get_by_version(vault_id, &target_version).await?.ok_or_else(|| {
-            CoreError::NotFound(format!(
+            CoreError::not_found(format!(
                 "Target schema version {} not found",
                 payload.target_version
             ))
         })?;
 
     if target_schema.id == current_active.id {
-        return Err(CoreError::Validation(
+        return Err(CoreError::validation(
             "Cannot rollback to the currently active schema".to_string(),
         )
         .into());
@@ -346,10 +347,10 @@ pub async fn diff_schemas(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Parse and find both schema versions
@@ -358,14 +359,13 @@ pub async fn diff_schemas(
 
     let _from_schema =
         repos.vault_schema.get_by_version(vault_id, &from_version).await?.ok_or_else(|| {
-            CoreError::NotFound(format!("Schema version {} not found", query.from))
+            CoreError::not_found(format!("Schema version {} not found", query.from))
         })?;
 
-    let _to_schema = repos
-        .vault_schema
-        .get_by_version(vault_id, &to_version)
-        .await?
-        .ok_or_else(|| CoreError::NotFound(format!("Schema version {} not found", query.to)))?;
+    let _to_schema =
+        repos.vault_schema.get_by_version(vault_id, &to_version).await?.ok_or_else(|| {
+            CoreError::not_found(format!("Schema version {} not found", query.to))
+        })?;
 
     // Schema diff comparison (returns structural diff; IPL parsing done by Engine)
     Ok(Json(SchemaDiffResponse {
@@ -389,6 +389,6 @@ fn parse_deployment_status(status_str: &str) -> Result<SchemaDeploymentStatus> {
         "FAILED" => Ok(SchemaDeploymentStatus::Failed),
         "SUPERSEDED" => Ok(SchemaDeploymentStatus::Superseded),
         "ROLLED_BACK" => Ok(SchemaDeploymentStatus::RolledBack),
-        _ => Err(CoreError::Validation(format!("Invalid status: {status_str}")).into()),
+        _ => Err(CoreError::validation(format!("Invalid status: {status_str}")).into()),
     }
 }

@@ -67,11 +67,11 @@ impl User {
         let trimmed = name.trim();
 
         if trimmed.is_empty() {
-            return Err(Error::Validation("Name cannot be empty or only whitespace".to_string()));
+            return Err(Error::validation("Name cannot be empty or only whitespace".to_string()));
         }
 
         if trimmed.len() > 100 {
-            return Err(Error::Validation(format!(
+            return Err(Error::validation(format!(
                 "Name must be 100 characters or less, got {}",
                 trimmed.len()
             )));

@@ -155,16 +155,16 @@ impl OrganizationTeam {
         let trimmed = name.trim();
 
         if trimmed.is_empty() {
-            return Err(Error::Validation("Team name cannot be empty".to_string()));
+            return Err(Error::validation("Team name cannot be empty".to_string()));
         }
 
         if trimmed.len() > 100 {
-            return Err(Error::Validation("Team name must be 100 characters or less".to_string()));
+            return Err(Error::validation("Team name must be 100 characters or less".to_string()));
         }
 
         // Must be alphanumeric, hyphens, underscores, spaces
         if !trimmed.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ' ') {
-            return Err(Error::Validation(
+            return Err(Error::validation(
                 "Team name must contain only alphanumeric characters, hyphens, underscores, and spaces".to_string(),
             ));
         }

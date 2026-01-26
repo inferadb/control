@@ -54,7 +54,8 @@
 
 use std::sync::Arc;
 
-use inferadb_control_core::{ControlConfig, startup};
+use inferadb_control_config::ControlConfig;
+use inferadb_control_core::startup;
 use inferadb_control_storage::Backend;
 use tracing::info;
 

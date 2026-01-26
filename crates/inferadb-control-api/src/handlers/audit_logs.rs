@@ -136,8 +136,8 @@ pub async fn list_audit_logs(
 mod tests {
     use std::sync::Arc;
 
-    use inferadb_control_core::AuditEventType;
     use inferadb_control_storage::Backend;
+    use inferadb_control_types::entities::AuditEventType;
 
     use super::*;
 

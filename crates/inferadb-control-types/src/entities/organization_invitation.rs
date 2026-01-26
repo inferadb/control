@@ -86,16 +86,16 @@ impl OrganizationInvitation {
         let trimmed = email.trim();
 
         if trimmed.is_empty() {
-            return Err(Error::Validation("Email cannot be empty".to_string()));
+            return Err(Error::validation("Email cannot be empty".to_string()));
         }
 
         // Basic email validation
         if !trimmed.contains('@') || !trimmed.contains('.') {
-            return Err(Error::Validation("Invalid email format".to_string()));
+            return Err(Error::validation("Invalid email format".to_string()));
         }
 
         if trimmed.len() > 255 {
-            return Err(Error::Validation("Email must be 255 characters or less".to_string()));
+            return Err(Error::validation("Email must be 255 characters or less".to_string()));
         }
 
         Ok(())
@@ -108,19 +108,19 @@ impl OrganizationInvitation {
     /// Returns an error if the token is invalid
     pub fn validate_token(token: &str) -> Result<()> {
         if token.is_empty() {
-            return Err(Error::Validation("Token cannot be empty".to_string()));
+            return Err(Error::validation("Token cannot be empty".to_string()));
         }
 
         // Expecting 32 bytes hex-encoded = 64 characters
         if token.len() != 64 {
-            return Err(Error::Validation(
+            return Err(Error::validation(
                 "Token must be 64 characters (32 bytes hex-encoded)".to_string(),
             ));
         }
 
         // Verify it's valid hex
         if !token.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::Validation("Token must be hex-encoded".to_string()));
+            return Err(Error::validation("Token must be hex-encoded".to_string()));
         }
 
         Ok(())

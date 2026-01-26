@@ -3,9 +3,10 @@ use std::sync::Arc;
 use anyhow::Result;
 use clap::Parser;
 use inferadb_control_api::ControlIdentity;
+use inferadb_control_config::ControlConfig;
 use inferadb_control_core::{
-    ControlConfig, EmailService, IdGenerator, SmtpConfig, SmtpEmailService, WorkerRegistry,
-    acquire_worker_id, logging, startup,
+    EmailService, IdGenerator, SmtpConfig, SmtpEmailService, WorkerRegistry, acquire_worker_id,
+    logging, startup,
 };
 use inferadb_control_storage::{
     LedgerConfig as StorageLedgerConfig,

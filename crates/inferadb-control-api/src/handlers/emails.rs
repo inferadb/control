@@ -2,8 +2,9 @@ use axum::{
     Extension, Json,
     extract::{Path, State},
 };
-use inferadb_control_core::{IdGenerator, RepositoryContext, error::Error as CoreError};
+use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_types::{
+    Error as CoreError,
     dto::{
         AddEmailRequest, AddEmailResponse, EmailOperationResponse, ListEmailsResponse,
         ResendVerificationResponse, SetPrimaryEmailRequest, UserEmailInfo, VerifyEmailRequest,
@@ -42,7 +43,7 @@ pub async fn add_email(
 
     // Check if email already exists
     if repos.user_email.get_by_email(&payload.email).await?.is_some() {
-        return Err(CoreError::Validation("Email address already in use".to_string()).into());
+        return Err(CoreError::validation("Email address already in use".to_string()).into());
     }
 
     let email_id = IdGenerator::next_id();
@@ -108,17 +109,17 @@ pub async fn update_email(
         .user_email
         .get(email_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Email not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Email not found".to_string()))?;
 
     // Verify ownership
     if email.user_id != ctx.user_id {
-        return Err(CoreError::Auth("Not authorized to modify this email".to_string()).into());
+        return Err(CoreError::auth("Not authorized to modify this email".to_string()).into());
     }
 
     if payload.is_primary {
         // Only allow setting verified emails as primary
         if !email.is_verified() {
-            return Err(CoreError::Validation(
+            return Err(CoreError::validation(
                 "Cannot set unverified email as primary".to_string(),
             )
             .into());
@@ -131,7 +132,7 @@ pub async fn update_email(
 
         Ok(Json(EmailOperationResponse { message: "Email set as primary".to_string() }))
     } else {
-        Err(CoreError::Validation("Can only set emails as primary".to_string()).into())
+        Err(CoreError::validation("Can only set emails as primary".to_string()).into())
     }
 }
 
@@ -149,17 +150,17 @@ pub async fn verify_email(
     // Get the token
     let mut token =
         repos.user_email_verification_token.get_by_token(&payload.token).await?.ok_or_else(
-            || CoreError::Validation("Invalid or expired verification token".to_string()),
+            || CoreError::validation("Invalid or expired verification token".to_string()),
         )?;
 
     // Check if token is valid (not expired and not used)
     if token.is_expired() {
-        return Err(CoreError::Validation("Verification token has expired".to_string()).into());
+        return Err(CoreError::validation("Verification token has expired".to_string()).into());
     }
 
     if token.is_used() {
         return Err(
-            CoreError::Validation("Verification token has already been used".to_string()).into()
+            CoreError::validation("Verification token has already been used".to_string()).into()
         );
     }
 
@@ -172,7 +173,7 @@ pub async fn verify_email(
         .user_email
         .get(token.user_email_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Email not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Email not found".to_string()))?;
 
     if email.is_verified() {
         return Ok(Json(VerifyEmailResponse {
@@ -208,11 +209,11 @@ pub async fn resend_verification(
         .user_email
         .get(email_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Email not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Email not found".to_string()))?;
 
     // Verify ownership
     if email.user_id != ctx.user_id {
-        return Err(CoreError::Auth(
+        return Err(CoreError::auth(
             "Not authorized to resend verification for this email".to_string(),
         )
         .into());
@@ -220,7 +221,7 @@ pub async fn resend_verification(
 
     // Check if already verified
     if email.is_verified() {
-        return Err(CoreError::Validation("Email is already verified".to_string()).into());
+        return Err(CoreError::validation("Email is already verified".to_string()).into());
     }
 
     // Delete any existing tokens for this email
@@ -265,16 +266,16 @@ pub async fn delete_email(
         .user_email
         .get(email_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Email not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Email not found".to_string()))?;
 
     // Verify ownership
     if email.user_id != ctx.user_id {
-        return Err(CoreError::Auth("Not authorized to delete this email".to_string()).into());
+        return Err(CoreError::auth("Not authorized to delete this email".to_string()).into());
     }
 
     // Cannot delete primary email
     if email.primary {
-        return Err(CoreError::Validation(
+        return Err(CoreError::validation(
             "Cannot delete primary email. Set another email as primary first.".to_string(),
         )
         .into());
@@ -296,11 +297,9 @@ mod tests {
         routing::{delete, get, patch, post},
     };
     use inferadb_control_const::auth::SESSION_COOKIE_NAME;
-    use inferadb_control_core::{
-        UserRepository, UserSessionRepository,
-        entities::{SessionType, User, UserSession},
-    };
+    use inferadb_control_core::{UserRepository, UserSessionRepository};
     use inferadb_control_storage::Backend;
+    use inferadb_control_types::entities::{SessionType, User, UserSession};
     use tower::ServiceExt;
 
     use super::*;

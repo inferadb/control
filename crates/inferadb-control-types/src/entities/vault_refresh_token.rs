@@ -154,17 +154,17 @@ impl VaultRefreshToken {
     /// - Token has been revoked
     pub fn validate_for_refresh(&self) -> Result<()> {
         if self.is_revoked() {
-            return Err(Error::Authz("Refresh token has been revoked".to_string()));
+            return Err(Error::authz("Refresh token has been revoked".to_string()));
         }
 
         if self.is_used() {
-            return Err(Error::Authz(
+            return Err(Error::authz(
                 "Refresh token has already been used (replay attack detected)".to_string(),
             ));
         }
 
         if self.is_expired() {
-            return Err(Error::Authz("Refresh token has expired".to_string()));
+            return Err(Error::authz("Refresh token has expired".to_string()));
         }
 
         Ok(())
@@ -183,7 +183,7 @@ impl VaultRefreshToken {
             (Some(token_session_id), None) => {
                 // Token is session-bound
                 if user_session_id != Some(token_session_id) {
-                    return Err(Error::Authz(
+                    return Err(Error::authz(
                         "Refresh token is bound to a different session".to_string(),
                     ));
                 }
@@ -191,13 +191,13 @@ impl VaultRefreshToken {
             (None, Some(token_client_id)) => {
                 // Token is client-bound
                 if org_api_key_id != Some(token_client_id) {
-                    return Err(Error::Authz(
+                    return Err(Error::authz(
                         "Refresh token is bound to a different client".to_string(),
                     ));
                 }
             },
             _ => {
-                return Err(Error::Internal(
+                return Err(Error::internal(
                     "Invalid refresh token: must be bound to session or client".to_string(),
                 ));
             },

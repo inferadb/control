@@ -54,11 +54,11 @@ impl MasterKey {
     /// Load the master key from a file
     fn load_from_file(path: &Path) -> Result<Self> {
         let bytes = fs::read(path).map_err(|e| {
-            Error::Config(format!("Failed to read master key file '{}': {}", path.display(), e))
+            Error::config(format!("Failed to read master key file '{}': {}", path.display(), e))
         })?;
 
         if bytes.len() != 32 {
-            return Err(Error::Config(format!(
+            return Err(Error::config(format!(
                 "Master key file '{}' has invalid length: {} bytes (expected 32)",
                 path.display(),
                 bytes.len()
@@ -79,13 +79,13 @@ impl MasterKey {
             && !parent.exists()
         {
             fs::create_dir_all(parent).map_err(|e| {
-                Error::Config(format!("Failed to create directory '{}': {}", parent.display(), e))
+                Error::config(format!("Failed to create directory '{}': {}", parent.display(), e))
             })?;
         }
 
         // Write the key file
         fs::write(path, self.0).map_err(|e| {
-            Error::Config(format!("Failed to write master key file '{}': {}", path.display(), e))
+            Error::config(format!("Failed to write master key file '{}': {}", path.display(), e))
         })?;
 
         // Set restrictive permissions on Unix
@@ -94,7 +94,7 @@ impl MasterKey {
             use std::os::unix::fs::PermissionsExt;
             let perms = fs::Permissions::from_mode(0o600);
             fs::set_permissions(path, perms).map_err(|e| {
-                Error::Config(format!("Failed to set permissions on '{}': {}", path.display(), e))
+                Error::config(format!("Failed to set permissions on '{}': {}", path.display(), e))
             })?;
         }
 
@@ -130,7 +130,7 @@ impl PrivateKeyEncryptor {
     /// secure random data, typically loaded via `MasterKey::load_or_generate()`.
     pub fn new(master_key: &[u8; 32]) -> Result<Self> {
         let cipher = Aes256Gcm::new_from_slice(master_key)
-            .map_err(|e| Error::Internal(format!("Failed to initialize cipher: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to initialize cipher: {e}")))?;
 
         Ok(Self { cipher })
     }
@@ -145,7 +145,7 @@ impl PrivateKeyEncryptor {
     /// Returns base64-encoded ciphertext with nonce prepended (12 bytes nonce + ciphertext)
     pub fn encrypt(&self, private_key: &[u8]) -> Result<String> {
         if private_key.len() != 32 {
-            return Err(Error::Validation("Private key must be 32 bytes (Ed25519)".to_string()));
+            return Err(Error::validation("Private key must be 32 bytes (Ed25519)".to_string()));
         }
 
         // Generate a random 96-bit nonce (12 bytes)
@@ -155,7 +155,7 @@ impl PrivateKeyEncryptor {
         let ciphertext = self
             .cipher
             .encrypt(&nonce, private_key)
-            .map_err(|e| Error::Internal(format!("Failed to encrypt private key: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to encrypt private key: {e}")))?;
 
         // Combine nonce + ciphertext for storage
         let mut combined = nonce.to_vec();
@@ -175,11 +175,11 @@ impl PrivateKeyEncryptor {
         // Decode from base64
         let combined = BASE64_STANDARD
             .decode(encrypted_base64)
-            .map_err(|e| Error::Internal(format!("Failed to decode encrypted key: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to decode encrypted key: {e}")))?;
 
         // Split nonce and ciphertext (first 12 bytes are nonce)
         if combined.len() < 12 {
-            return Err(Error::Internal("Encrypted data too short (missing nonce)".to_string()));
+            return Err(Error::internal("Encrypted data too short (missing nonce)".to_string()));
         }
 
         let (nonce_bytes, ciphertext) = combined.split_at(12);
@@ -189,11 +189,11 @@ impl PrivateKeyEncryptor {
         let plaintext = self
             .cipher
             .decrypt(nonce, ciphertext)
-            .map_err(|e| Error::Internal(format!("Failed to decrypt private key: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to decrypt private key: {e}")))?;
 
         // Verify it's 32 bytes (Ed25519 private key)
         if plaintext.len() != 32 {
-            return Err(Error::Internal(format!(
+            return Err(Error::internal(format!(
                 "Decrypted key has invalid length: {} bytes (expected 32)",
                 plaintext.len()
             )));

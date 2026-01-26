@@ -103,11 +103,11 @@ impl Organization {
         let trimmed = name.trim();
 
         if trimmed.is_empty() {
-            return Err(Error::Validation("Organization name cannot be empty".to_string()));
+            return Err(Error::validation("Organization name cannot be empty".to_string()));
         }
 
         if trimmed.len() > 100 {
-            return Err(Error::Validation(
+            return Err(Error::validation(
                 "Organization name must be 100 characters or less".to_string(),
             ));
         }

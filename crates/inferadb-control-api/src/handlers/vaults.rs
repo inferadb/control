@@ -3,8 +3,9 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use inferadb_control_core::{Error as CoreError, IdGenerator, RepositoryContext};
+use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_types::{
+    Error as CoreError,
     dto::{
         CreateTeamGrantRequest, CreateTeamGrantResponse, CreateUserGrantRequest,
         CreateUserGrantResponse, CreateVaultRequest, CreateVaultResponse, DeleteTeamGrantResponse,
@@ -84,13 +85,13 @@ pub async fn create_vault(
         .org
         .get(org_ctx.organization_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Check tier limits
     let current_count = repos.vault.count_active_by_organization(org_ctx.organization_id).await?;
 
     if current_count >= organization.tier.max_vaults() {
-        return Err(CoreError::TierLimit(format!(
+        return Err(CoreError::tier_limit(format!(
             "Vault limit reached for tier {:?}. Maximum: {}",
             organization.tier,
             organization.tier.max_vaults()
@@ -195,16 +196,16 @@ pub async fn get_vault(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     // Verify vault belongs to this organization
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Don't return deleted vaults
     if vault.is_deleted() {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     Ok(Json(vault_to_response(vault)))
@@ -227,11 +228,11 @@ pub async fn get_vault_by_id(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     // Don't return deleted vaults
     if vault.is_deleted() {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     Ok(Json(vault_to_response(vault)))
@@ -255,11 +256,11 @@ pub async fn update_vault(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     // Verify vault belongs to this organization
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Validate and update name
@@ -308,11 +309,11 @@ pub async fn delete_vault(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     // Verify vault belongs to this organization
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // VALIDATION: Check for active refresh tokens before allowing deletion
@@ -320,7 +321,7 @@ pub async fn delete_vault(
     let active_token_count = tokens.iter().filter(|t| !t.is_expired() && !t.is_revoked()).count();
 
     if active_token_count > 0 {
-        return Err(CoreError::Validation(format!(
+        return Err(CoreError::validation(format!(
             "Cannot delete vault with {} active refresh token{}. Please revoke all tokens first.",
             active_token_count,
             if active_token_count == 1 { "" } else { "s" }
@@ -370,10 +371,10 @@ pub async fn create_user_grant(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Generate ID for the grant
@@ -424,10 +425,10 @@ pub async fn list_user_grants(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     let grants = repos.vault_user_grant.list_by_vault(vault_id).await?;
@@ -456,10 +457,10 @@ pub async fn update_user_grant(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Get grant
@@ -467,11 +468,11 @@ pub async fn update_user_grant(
         .vault_user_grant
         .get(grant_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Grant not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
 
     // Verify grant belongs to this vault
     if grant.vault_id != vault_id {
-        return Err(CoreError::NotFound("Grant not found".to_string()).into());
+        return Err(CoreError::not_found("Grant not found".to_string()).into());
     }
 
     // Update role
@@ -499,10 +500,10 @@ pub async fn delete_user_grant(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Get grant by user_id
@@ -510,7 +511,7 @@ pub async fn delete_user_grant(
         .vault_user_grant
         .get_by_vault_and_user(vault_id, user_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Grant not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
 
     // Delete the grant
     repos.vault_user_grant.delete(grant.id).await?;
@@ -541,10 +542,10 @@ pub async fn create_team_grant(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Generate ID for the grant
@@ -595,10 +596,10 @@ pub async fn list_team_grants(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     let grants = repos.vault_team_grant.list_by_vault(vault_id).await?;
@@ -627,10 +628,10 @@ pub async fn update_team_grant(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Get grant
@@ -638,11 +639,11 @@ pub async fn update_team_grant(
         .vault_team_grant
         .get(grant_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Grant not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
 
     // Verify grant belongs to this vault
     if grant.vault_id != vault_id {
-        return Err(CoreError::NotFound("Grant not found".to_string()).into());
+        return Err(CoreError::not_found("Grant not found".to_string()).into());
     }
 
     // Update role
@@ -670,10 +671,10 @@ pub async fn delete_team_grant(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Get grant
@@ -681,11 +682,11 @@ pub async fn delete_team_grant(
         .vault_team_grant
         .get(grant_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Grant not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
 
     // Verify grant belongs to this vault
     if grant.vault_id != vault_id {
-        return Err(CoreError::NotFound("Grant not found".to_string()).into());
+        return Err(CoreError::not_found("Grant not found".to_string()).into());
     }
 
     // Delete the grant

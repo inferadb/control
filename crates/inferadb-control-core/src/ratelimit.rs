@@ -132,14 +132,14 @@ impl<S: StorageBackend> RateLimiter<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get rate limit counter: {e}")))?
+            .map_err(|e| Error::internal(format!("Failed to get rate limit counter: {e}")))?
         {
             Some(bytes) => {
                 let count_str = String::from_utf8(bytes.to_vec())
-                    .map_err(|e| Error::Internal(format!("Invalid counter value: {e}")))?;
+                    .map_err(|e| Error::internal(format!("Invalid counter value: {e}")))?;
                 count_str
                     .parse::<u32>()
-                    .map_err(|e| Error::Internal(format!("Failed to parse counter value: {e}")))?
+                    .map_err(|e| Error::internal(format!("Failed to parse counter value: {e}")))?
             },
             None => 0,
         };
@@ -156,7 +156,7 @@ impl<S: StorageBackend> RateLimiter<S> {
         self.storage
             .set_with_ttl(key, new_count.to_string().into_bytes(), ttl_seconds)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to set rate limit counter: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to set rate limit counter: {e}")))?;
 
         Ok(true)
     }
@@ -179,14 +179,14 @@ impl<S: StorageBackend> RateLimiter<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get rate limit counter: {e}")))?
+            .map_err(|e| Error::internal(format!("Failed to get rate limit counter: {e}")))?
         {
             Some(bytes) => {
                 let count_str = String::from_utf8(bytes.to_vec())
-                    .map_err(|e| Error::Internal(format!("Invalid counter value: {e}")))?;
+                    .map_err(|e| Error::internal(format!("Invalid counter value: {e}")))?;
                 count_str
                     .parse::<u32>()
-                    .map_err(|e| Error::Internal(format!("Failed to parse counter value: {e}")))?
+                    .map_err(|e| Error::internal(format!("Failed to parse counter value: {e}")))?
             },
             None => 0,
         };

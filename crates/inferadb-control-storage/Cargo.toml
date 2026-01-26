@@ -15,16 +15,14 @@ inferadb-storage = { path = "../../../common/crates/inferadb-storage" }
 inferadb-storage-ledger = { path = "../../../common/crates/inferadb-storage-ledger" }
 
 # External dependencies
-anyhow = { workspace = true }
 bon = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
-
 futures = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
+snafu = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 

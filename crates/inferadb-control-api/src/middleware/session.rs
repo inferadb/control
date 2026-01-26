@@ -6,7 +6,8 @@ use axum::{
 };
 use axum_extra::extract::cookie::CookieJar;
 use inferadb_control_const::auth::SESSION_COOKIE_NAME;
-use inferadb_control_core::{UserSessionRepository, error::Error as CoreError};
+use inferadb_control_core::UserSessionRepository;
+use inferadb_control_types::Error as CoreError;
 
 use crate::handlers::auth::{ApiError, AppState};
 
@@ -32,24 +33,24 @@ pub async fn require_session(
         cookie
             .value()
             .parse::<i64>()
-            .map_err(|_| CoreError::Auth("Invalid session cookie".to_string()))?
+            .map_err(|_| CoreError::auth("Invalid session cookie".to_string()))?
     } else if let Some(auth_header) = request.headers().get("authorization") {
         let auth_str = auth_header
             .to_str()
-            .map_err(|_| CoreError::Auth("Invalid authorization header".to_string()))?;
+            .map_err(|_| CoreError::auth("Invalid authorization header".to_string()))?;
 
         // Support "Bearer <session_id>" format
         if let Some(token) = auth_str.strip_prefix("Bearer ") {
             token
                 .parse::<i64>()
-                .map_err(|_| CoreError::Auth("Invalid session token".to_string()))?
+                .map_err(|_| CoreError::auth("Invalid session token".to_string()))?
         } else {
             return Err(
-                CoreError::Auth("Missing or invalid authorization header".to_string()).into()
+                CoreError::auth("Missing or invalid authorization header".to_string()).into()
             );
         }
     } else {
-        return Err(CoreError::Auth("No session token provided".to_string()).into());
+        return Err(CoreError::auth("No session token provided".to_string()).into());
     };
 
     // Get session from repository
@@ -57,7 +58,7 @@ pub async fn require_session(
     let session = session_repo
         .get(session_id)
         .await?
-        .ok_or_else(|| CoreError::Auth("Session not found or expired".to_string()))?;
+        .ok_or_else(|| CoreError::auth("Session not found or expired".to_string()))?;
 
     // Update activity (sliding window expiry)
     session_repo.update_activity(session_id).await?;
@@ -75,7 +76,7 @@ pub async fn require_session(
 /// This should only be called from handlers that are wrapped with require_session middleware
 pub fn extract_session_context(request: &Request) -> Result<SessionContext, ApiError> {
     request.extensions().get::<SessionContext>().cloned().ok_or_else(|| {
-        CoreError::Internal("Session context not found in request extensions".to_string()).into()
+        CoreError::internal("Session context not found in request extensions".to_string()).into()
     })
 }
 

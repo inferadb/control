@@ -32,7 +32,7 @@ bon = "3.8"
 
 # Error handling
 anyhow = "1.0"
-thiserror = "2.0"
+snafu = { version = "0.8", features = ["backtrace"] }
 
 # System
 num_cpus = "1.16"

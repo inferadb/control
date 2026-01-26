@@ -6,9 +6,10 @@ use axum::{
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use chrono::{Duration, Utc};
 use inferadb_control_core::{
-    Error as CoreError, IdGenerator, MasterKey, PrivateKeyEncryptor, RepositoryContext, keypair,
+    IdGenerator, MasterKey, PrivateKeyEncryptor, RepositoryContext, keypair,
 };
 use inferadb_control_types::{
+    Error as CoreError,
     dto::{
         CertificateDetail, CertificateInfo, ClientDetail, ClientInfo, CreateCertificateRequest,
         CreateCertificateResponse, CreateClientRequest, CreateClientResponse, DeleteClientResponse,
@@ -77,7 +78,7 @@ pub async fn create_client(
         .org
         .get(org_ctx.organization_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Generate ID for the client
     let client_id = IdGenerator::next_id();
@@ -164,11 +165,11 @@ pub async fn get_client(
         .client
         .get(client_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
     // Verify client belongs to this organization
     if client.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Client not found".to_string()).into());
+        return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
     Ok(Json(GetClientResponse { client: client_to_detail(client) }))
@@ -192,11 +193,11 @@ pub async fn update_client(
         .client
         .get(client_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
     // Verify client belongs to this organization
     if client.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Client not found".to_string()).into());
+        return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
     // Update fields if provided
@@ -233,11 +234,11 @@ pub async fn delete_client(
         .client
         .get(client_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
     // Verify client belongs to this organization
     if client.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Client not found".to_string()).into());
+        return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
     // Soft delete
@@ -276,14 +277,14 @@ pub async fn create_certificate(
         .client
         .get(client_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
     if client.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Client not found".to_string()).into());
+        return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
     if client.is_deleted() {
-        return Err(CoreError::Validation(
+        return Err(CoreError::validation(
             "Cannot create certificate for deleted client".to_string(),
         )
         .into());
@@ -366,7 +367,7 @@ pub async fn create_certificate(
             kid = %cert.kid,
             "Failed to write public signing key to Ledger"
         );
-        CoreError::Internal(format!("Failed to register signing key in Ledger: {e}"))
+        CoreError::internal(format!("Failed to register signing key in Ledger: {e}"))
     })?;
     let ledger_duration = ledger_start.elapsed().as_secs_f64();
 
@@ -436,10 +437,10 @@ pub async fn list_certificates(
         .client
         .get(client_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
     if client.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Client not found".to_string()).into());
+        return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
     let certs = repos.client_certificate.list_by_client(client_id).await?;
@@ -467,10 +468,10 @@ pub async fn get_certificate(
         .client
         .get(client_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
     if client.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Client not found".to_string()).into());
+        return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
     // Get certificate
@@ -478,11 +479,11 @@ pub async fn get_certificate(
         .client_certificate
         .get(cert_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Certificate not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Certificate not found".to_string()))?;
 
     // Verify certificate belongs to this client
     if cert.client_id != client_id {
-        return Err(CoreError::NotFound("Certificate not found".to_string()).into());
+        return Err(CoreError::not_found("Certificate not found".to_string()).into());
     }
 
     Ok(Json(GetCertificateResponse { certificate: cert_to_detail(cert) }))
@@ -514,10 +515,10 @@ pub async fn revoke_certificate(
         .client
         .get(client_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
     if client.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Client not found".to_string()).into());
+        return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
     // Get certificate
@@ -525,15 +526,15 @@ pub async fn revoke_certificate(
         .client_certificate
         .get(cert_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Certificate not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Certificate not found".to_string()))?;
 
     // Verify certificate belongs to this client
     if cert.client_id != client_id {
-        return Err(CoreError::NotFound("Certificate not found".to_string()).into());
+        return Err(CoreError::not_found("Certificate not found".to_string()).into());
     }
 
     if cert.is_revoked() {
-        return Err(CoreError::Validation("Certificate is already revoked".to_string()).into());
+        return Err(CoreError::validation("Certificate is already revoked".to_string()).into());
     }
 
     // Revoke the certificate in Control's database
@@ -562,7 +563,7 @@ pub async fn revoke_certificate(
                 kid = %cert.kid,
                 "Failed to revoke public signing key in Ledger"
             );
-            CoreError::Internal(format!("Failed to revoke signing key in Ledger: {e}"))
+            CoreError::internal(format!("Failed to revoke signing key in Ledger: {e}"))
         })?;
     let ledger_duration = ledger_start.elapsed().as_secs_f64();
 
@@ -647,14 +648,14 @@ pub async fn rotate_certificate(
         .client
         .get(client_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
     if client.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Client not found".to_string()).into());
+        return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
     if client.is_deleted() {
-        return Err(CoreError::Validation(
+        return Err(CoreError::validation(
             "Cannot rotate certificate for deleted client".to_string(),
         )
         .into());
@@ -665,16 +666,16 @@ pub async fn rotate_certificate(
         .client_certificate
         .get(cert_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Certificate not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Certificate not found".to_string()))?;
 
     // Verify certificate belongs to this client
     if old_cert.client_id != client_id {
-        return Err(CoreError::NotFound("Certificate not found".to_string()).into());
+        return Err(CoreError::not_found("Certificate not found".to_string()).into());
     }
 
     // Cannot rotate a revoked certificate
     if old_cert.is_revoked() {
-        return Err(CoreError::Validation("Cannot rotate a revoked certificate".to_string()).into());
+        return Err(CoreError::validation("Cannot rotate a revoked certificate".to_string()).into());
     }
 
     // Generate new Ed25519 key pair
@@ -759,7 +760,7 @@ pub async fn rotate_certificate(
             kid = %new_cert.kid,
             "Failed to write rotated public signing key to Ledger"
         );
-        CoreError::Internal(format!("Failed to register signing key in Ledger: {e}"))
+        CoreError::internal(format!("Failed to register signing key in Ledger: {e}"))
     })?;
     let ledger_duration = ledger_start.elapsed().as_secs_f64();
 

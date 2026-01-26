@@ -5,9 +5,9 @@ use axum::{
 };
 use inferadb_control_core::{
     IdGenerator, JwtSigner, MasterKey, PrivateKeyEncryptor, RepositoryContext, VaultTokenClaims,
-    error::Error as CoreError,
 };
 use inferadb_control_types::{
+    Error as CoreError,
     dto::{
         ClientAssertionRequest, ClientAssertionResponse, GenerateVaultTokenRequest,
         GenerateVaultTokenResponse, RefreshTokenRequest, RefreshTokenResponse,
@@ -46,16 +46,16 @@ pub async fn generate_vault_token(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Get user's maximum vault role (their actual permission level)
     let max_vault_role = get_user_vault_role(&state, vault_id, org_ctx.member.user_id)
         .await?
-        .ok_or_else(|| CoreError::Authz("You do not have access to this vault".to_string()))?;
+        .ok_or_else(|| CoreError::authz("You do not have access to this vault".to_string()))?;
 
     // Determine the role to grant in the token
     let vault_role = if let Some(requested_role_str) = &req.requested_role {
@@ -65,7 +65,7 @@ pub async fn generate_vault_token(
             "write" => VaultRole::Writer,
             "admin" => VaultRole::Admin,
             _ => {
-                return Err(CoreError::Validation(
+                return Err(CoreError::validation(
                     "Invalid role. Must be one of: read, write, admin".to_string(),
                 )
                 .into());
@@ -74,7 +74,7 @@ pub async fn generate_vault_token(
 
         // Verify requested role doesn't exceed user's actual permission level
         if requested_role > max_vault_role {
-            return Err(CoreError::Validation(format!(
+            return Err(CoreError::validation(format!(
                 "Requested role '{}' exceeds your permission level '{}'",
                 requested_role_str,
                 match max_vault_role {
@@ -101,11 +101,11 @@ pub async fn generate_vault_token(
             .client
             .get(client_id)
             .await?
-            .ok_or_else(|| CoreError::NotFound("Client not found".to_string()))?;
+            .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
         // Verify client belongs to this organization
         if c.organization_id != org_ctx.organization_id {
-            return Err(CoreError::NotFound("Client not found".to_string()).into());
+            return Err(CoreError::not_found("Client not found".to_string()).into());
         }
 
         c
@@ -114,7 +114,7 @@ pub async fn generate_vault_token(
         let clients = repos.client.list_by_organization(org_ctx.organization_id).await?;
 
         clients.into_iter().find(|c| !c.is_deleted()).ok_or_else(|| {
-            CoreError::NotFound(
+            CoreError::not_found(
                 "No active clients found. Create a client first to generate tokens.".to_string(),
             )
         })?
@@ -124,7 +124,7 @@ pub async fn generate_vault_token(
     let certificates = repos.client_certificate.list_by_client(client.id).await?;
     let certificate =
         certificates.into_iter().find(|cert| !cert.is_revoked()).ok_or_else(|| {
-            CoreError::NotFound(
+            CoreError::not_found(
                 "No active certificates found for client. Create a certificate first.".to_string(),
             )
         })?;
@@ -207,7 +207,7 @@ pub async fn refresh_vault_token(
         .vault_refresh_token
         .get_by_token(&req.refresh_token)
         .await?
-        .ok_or_else(|| CoreError::Authz("Invalid refresh token".to_string()))?;
+        .ok_or_else(|| CoreError::authz("Invalid refresh token".to_string()))?;
 
     // Validate refresh token (checks expiration, used, revoked)
     old_token.validate_for_refresh()?;
@@ -222,10 +222,10 @@ pub async fn refresh_vault_token(
             .user_session
             .get(session_id)
             .await?
-            .ok_or_else(|| CoreError::Authz("Session expired or revoked".to_string()))?;
+            .ok_or_else(|| CoreError::authz("Session expired or revoked".to_string()))?;
 
         if session.is_expired() {
-            return Err(CoreError::Authz("Session expired".to_string()).into());
+            return Err(CoreError::authz("Session expired".to_string()).into());
         }
     }
 
@@ -234,7 +234,7 @@ pub async fn refresh_vault_token(
         .vault
         .get(old_token.vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault no longer exists".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault no longer exists".to_string()))?;
 
     // Get a client and certificate for signing
 
@@ -244,10 +244,10 @@ pub async fn refresh_vault_token(
             .client
             .get(client_id)
             .await?
-            .ok_or_else(|| CoreError::Authz("Client no longer exists".to_string()))?;
+            .ok_or_else(|| CoreError::authz("Client no longer exists".to_string()))?;
 
         if c.is_deleted() {
-            return Err(CoreError::Authz("Client has been deleted".to_string()).into());
+            return Err(CoreError::authz("Client has been deleted".to_string()).into());
         }
 
         c
@@ -258,7 +258,7 @@ pub async fn refresh_vault_token(
         clients
             .into_iter()
             .find(|c| !c.is_deleted())
-            .ok_or_else(|| CoreError::Authz("No active clients available".to_string()))?
+            .ok_or_else(|| CoreError::authz("No active clients available".to_string()))?
     };
 
     // Get an active certificate
@@ -266,7 +266,7 @@ pub async fn refresh_vault_token(
     let certificate = certificates
         .into_iter()
         .find(|cert| !cert.is_revoked())
-        .ok_or_else(|| CoreError::Authz("No active certificates available".to_string()))?;
+        .ok_or_else(|| CoreError::authz("No active certificates available".to_string()))?;
 
     // Create JWT signer
     let master_key = MasterKey::load_or_generate(state.config.key_file.as_deref())?;
@@ -305,7 +305,7 @@ pub async fn refresh_vault_token(
             .org_api_key_id(client_id)
             .create()?
     } else {
-        return Err(CoreError::Internal("Invalid refresh token state".to_string()).into());
+        return Err(CoreError::internal("Invalid refresh token state".to_string()).into());
     };
 
     // Store new refresh token
@@ -332,18 +332,17 @@ pub async fn refresh_vault_token(
 
 /// Client assertion JWT claims (RFC 7523)
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct ClientAssertionClaims {
     /// Issuer: client ID
     iss: String,
     /// Subject: client ID
     sub: String,
-    /// Audience: token endpoint URL
-    aud: String,
+    /// Audience: token endpoint URL (validated by JWT library)
+    _aud: String,
     /// Expiration time (Unix timestamp)
     exp: i64,
-    /// Issued at (Unix timestamp)
-    iat: i64,
+    /// Issued at (Unix timestamp, not used after deserialization)
+    _iat: i64,
     /// JWT ID (for replay protection)
     jti: String,
 }
@@ -366,13 +365,13 @@ pub async fn client_assertion_authenticate(
     // Validate grant_type
     if req.grant_type != "client_credentials" {
         return Err(
-            CoreError::Validation("grant_type must be 'client_credentials'".to_string()).into()
+            CoreError::validation("grant_type must be 'client_credentials'".to_string()).into()
         );
     }
 
     // Validate client_assertion_type
     if req.client_assertion_type != "urn:ietf:params:oauth:client-assertion-type:jwt-bearer" {
-        return Err(CoreError::Validation(
+        return Err(CoreError::validation(
             "client_assertion_type must be 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'"
                 .to_string(),
         )
@@ -383,7 +382,7 @@ pub async fn client_assertion_authenticate(
     let vault_id = req
         .vault_id
         .parse::<i64>()
-        .map_err(|_| CoreError::Validation("invalid vault_id".to_string()))?;
+        .map_err(|_| CoreError::validation("invalid vault_id".to_string()))?;
 
     // Parse requested role (default to Reader for least privilege)
     let requested_role = if let Some(role_str) = &req.requested_role {
@@ -392,7 +391,7 @@ pub async fn client_assertion_authenticate(
             "write" => VaultRole::Writer,
             "admin" => VaultRole::Admin,
             _ => {
-                return Err(CoreError::Validation(
+                return Err(CoreError::validation(
                     "invalid role (must be read, write, or admin)".to_string(),
                 )
                 .into());
@@ -405,10 +404,10 @@ pub async fn client_assertion_authenticate(
     // Decode JWT header to extract kid (key ID)
     use jsonwebtoken::decode_header;
     let header = decode_header(&req.client_assertion)
-        .map_err(|e| CoreError::Auth(format!("Invalid client assertion JWT: {e}")))?;
+        .map_err(|e| CoreError::auth(format!("Invalid client assertion JWT: {e}")))?;
 
     let kid = header.kid.ok_or_else(|| {
-        CoreError::Auth("client assertion JWT missing 'kid' in header".to_string())
+        CoreError::auth("client assertion JWT missing 'kid' in header".to_string())
     })?;
 
     // Lookup certificate by kid
@@ -422,33 +421,33 @@ pub async fn client_assertion_authenticate(
         || kid_parts[2] != "client"
         || kid_parts[4] != "cert"
     {
-        return Err(CoreError::Auth(format!("Invalid kid format: {kid}")).into());
+        return Err(CoreError::auth(format!("Invalid kid format: {kid}")).into());
     }
 
     let _org_id = kid_parts[1]
         .parse::<i64>()
-        .map_err(|_| CoreError::Auth("Invalid org_id in kid".to_string()))?;
+        .map_err(|_| CoreError::auth("Invalid org_id in kid".to_string()))?;
     let _client_id = kid_parts[3]
         .parse::<i64>()
-        .map_err(|_| CoreError::Auth("Invalid client_id in kid".to_string()))?;
+        .map_err(|_| CoreError::auth("Invalid client_id in kid".to_string()))?;
     let cert_id = kid_parts[5]
         .parse::<i64>()
-        .map_err(|_| CoreError::Auth("Invalid cert_id in kid".to_string()))?;
+        .map_err(|_| CoreError::auth("Invalid cert_id in kid".to_string()))?;
 
     // Get the certificate
     let certificate = repos
         .client_certificate
         .get(cert_id)
         .await?
-        .ok_or_else(|| CoreError::Auth(format!("No certificate found with kid: {kid}")))?;
+        .ok_or_else(|| CoreError::auth(format!("No certificate found with kid: {kid}")))?;
 
     // Verify kid matches
     if certificate.kid != kid {
-        return Err(CoreError::Auth("Certificate kid mismatch".to_string()).into());
+        return Err(CoreError::auth("Certificate kid mismatch".to_string()).into());
     }
 
     if certificate.is_revoked() {
-        return Err(CoreError::Auth("Certificate has been revoked".to_string()).into());
+        return Err(CoreError::auth("Certificate has been revoked".to_string()).into());
     }
 
     // Verify JWT signature using certificate public key
@@ -457,10 +456,10 @@ pub async fn client_assertion_authenticate(
 
     let public_key_bytes = BASE64
         .decode(&certificate.public_key)
-        .map_err(|e| CoreError::Internal(format!("Failed to decode public key: {e}")))?;
+        .map_err(|e| CoreError::internal(format!("Failed to decode public key: {e}")))?;
 
     if public_key_bytes.len() != 32 {
-        return Err(CoreError::Internal("Invalid public key length".to_string()).into());
+        return Err(CoreError::internal("Invalid public key length".to_string()).into());
     }
 
     // Convert public key to PEM (same as in jwt.rs)
@@ -478,7 +477,7 @@ pub async fn client_assertion_authenticate(
     );
 
     let decoding_key = DecodingKey::from_ed_pem(public_key_pem.as_bytes())
-        .map_err(|e| CoreError::Internal(format!("Failed to create decoding key: {e}")))?;
+        .map_err(|e| CoreError::internal(format!("Failed to create decoding key: {e}")))?;
 
     // Set up validation - expect token endpoint as audience
     let mut validation = Validation::new(Algorithm::EdDSA);
@@ -487,7 +486,7 @@ pub async fn client_assertion_authenticate(
     // Decode and verify JWT
     let token_data =
         decode::<ClientAssertionClaims>(&req.client_assertion, &decoding_key, &validation)
-            .map_err(|e| CoreError::Auth(format!("Failed to verify client assertion: {e}")))?;
+            .map_err(|e| CoreError::auth(format!("Failed to verify client assertion: {e}")))?;
 
     let claims = token_data.claims;
 
@@ -496,7 +495,7 @@ pub async fn client_assertion_authenticate(
     let expected_client_id = certificate.client_id.to_string();
     if claims.iss != expected_client_id || claims.sub != expected_client_id {
         return Err(
-            CoreError::Auth("client assertion iss/sub must match client_id".to_string()).into()
+            CoreError::auth("client assertion iss/sub must match client_id".to_string()).into()
         );
     }
 
@@ -511,10 +510,10 @@ pub async fn client_assertion_authenticate(
         .client
         .get(certificate.client_id)
         .await?
-        .ok_or_else(|| CoreError::Auth("Client not found".to_string()))?;
+        .ok_or_else(|| CoreError::auth("Client not found".to_string()))?;
 
     if client.is_deleted() {
-        return Err(CoreError::Auth("Client has been deleted".to_string()).into());
+        return Err(CoreError::auth("Client has been deleted".to_string()).into());
     }
 
     // Verify vault exists
@@ -523,14 +522,14 @@ pub async fn client_assertion_authenticate(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     // Verify client has permission for requested role on this vault
     // Note: This is a simplified check. In production, you'd verify client has appropriate grants.
     // For now, we just verify the vault belongs to the same organization as the client.
     if vault.organization_id != client.organization_id {
         return Err(
-            CoreError::Authz("Client does not have access to this vault".to_string()).into()
+            CoreError::authz("Client does not have access to this vault".to_string()).into()
         );
     }
 
@@ -612,10 +611,10 @@ pub async fn revoke_vault_tokens(
         .user_session
         .get(session_ctx.session_id)
         .await?
-        .ok_or_else(|| CoreError::Auth("Session not found".to_string()))?;
+        .ok_or_else(|| CoreError::auth("Session not found".to_string()))?;
 
     if session.is_expired() {
-        return Err(CoreError::Auth("Session expired".to_string()).into());
+        return Err(CoreError::auth("Session expired".to_string()).into());
     }
 
     // Verify vault exists
@@ -623,17 +622,17 @@ pub async fn revoke_vault_tokens(
         .vault
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     // Verify user has access to this vault (must be admin or have vault access)
     let user_id = session.user_id;
     let vault_role = get_user_vault_role(&state, vault_id, user_id)
         .await?
-        .ok_or_else(|| CoreError::Authz("You do not have access to this vault".to_string()))?;
+        .ok_or_else(|| CoreError::authz("You do not have access to this vault".to_string()))?;
 
     // Only admins can revoke tokens
     if vault_role != VaultRole::Admin {
-        return Err(CoreError::Authz("Only vault admins can revoke tokens".to_string()).into());
+        return Err(CoreError::authz("Only vault admins can revoke tokens".to_string()).into());
     }
 
     // Revoke all refresh tokens for this vault

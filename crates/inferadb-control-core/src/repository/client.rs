@@ -39,14 +39,14 @@ impl<S: StorageBackend> ClientRepository<S> {
     pub async fn create(&self, client: Client) -> Result<()> {
         // Serialize client
         let client_data = serde_json::to_vec(&client)
-            .map_err(|e| Error::Internal(format!("Failed to serialize client: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize client: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Check for duplicate name within organization
         let name_key = Self::client_name_index_key(client.organization_id, &client.name);
@@ -54,10 +54,10 @@ impl<S: StorageBackend> ClientRepository<S> {
             .storage
             .get(&name_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check duplicate client name: {e}")))?
+            .map_err(|e| Error::internal(format!("Failed to check duplicate client name: {e}")))?
             .is_some()
         {
-            return Err(Error::AlreadyExists(format!(
+            return Err(Error::already_exists(format!(
                 "A client named '{}' already exists in this organization",
                 client.name
             )));
@@ -78,7 +78,7 @@ impl<S: StorageBackend> ClientRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit client creation: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit client creation: {e}")))?;
 
         Ok(())
     }
@@ -90,12 +90,12 @@ impl<S: StorageBackend> ClientRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get client: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get client: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let client: Client = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize client: {e}")))?;
+                    .map_err(|e| Error::internal(format!("Failed to deserialize client: {e}")))?;
                 Ok(Some(client))
             },
             None => Ok(None),
@@ -112,7 +112,7 @@ impl<S: StorageBackend> ClientRepository<S> {
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get organization clients: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get organization clients: {e}")))?;
 
         let mut clients = Vec::new();
         for kv in kvs {
@@ -140,18 +140,18 @@ impl<S: StorageBackend> ClientRepository<S> {
         let existing = self
             .get(client.id)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Client {} not found", client.id)))?;
+            .ok_or_else(|| Error::not_found(format!("Client {} not found", client.id)))?;
 
         // Serialize updated client
         let client_data = serde_json::to_vec(&client)
-            .map_err(|e| Error::Internal(format!("Failed to serialize client: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize client: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // If name changed, update name index
         if existing.name != client.name {
@@ -165,11 +165,11 @@ impl<S: StorageBackend> ClientRepository<S> {
                 .get(&new_name_key)
                 .await
                 .map_err(|e| {
-                    Error::Internal(format!("Failed to check duplicate client name: {e}"))
+                    Error::internal(format!("Failed to check duplicate client name: {e}"))
                 })?
                 .is_some()
             {
-                return Err(Error::AlreadyExists(format!(
+                return Err(Error::already_exists(format!(
                     "A client named '{}' already exists in this organization",
                     client.name
                 )));
@@ -185,7 +185,7 @@ impl<S: StorageBackend> ClientRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit client update: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit client update: {e}")))?;
 
         Ok(())
     }
@@ -193,15 +193,17 @@ impl<S: StorageBackend> ClientRepository<S> {
     /// Delete a client (removes all indexes)
     pub async fn delete(&self, id: i64) -> Result<()> {
         // Get the client first to clean up indexes
-        let client =
-            self.get(id).await?.ok_or_else(|| Error::NotFound(format!("Client {id} not found")))?;
+        let client = self
+            .get(id)
+            .await?
+            .ok_or_else(|| Error::not_found(format!("Client {id} not found")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete client record
         txn.delete(Self::client_key(id));
@@ -215,7 +217,7 @@ impl<S: StorageBackend> ClientRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit client deletion: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit client deletion: {e}")))?;
 
         Ok(())
     }
@@ -273,7 +275,7 @@ mod tests {
 
         let result = repo.create(client2).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::AlreadyExists(_)));
+        assert!(matches!(result.unwrap_err(), Error::AlreadyExists { .. }));
     }
 
     #[tokio::test]
@@ -321,7 +323,7 @@ mod tests {
         client2.name = "Client 1".to_string();
         let result = repo.update(client2).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::AlreadyExists(_)));
+        assert!(matches!(result.unwrap_err(), Error::AlreadyExists { .. }));
     }
 
     #[tokio::test]

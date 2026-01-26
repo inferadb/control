@@ -21,10 +21,7 @@ num_cpus = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-# Dynamic config refresh
-notify = "8.2.0"
-parking_lot = { workspace = true }
-tokio = { workspace = true }
+# Logging
 tracing = { workspace = true }
 
 # Error types from types crate

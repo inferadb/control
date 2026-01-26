@@ -2,8 +2,12 @@ use axum::{
     Json,
     extract::{Path, Request, State},
 };
-use inferadb_control_core::{RepositoryContext, SessionType, error::Error as CoreError};
-use inferadb_control_types::dto::{ListSessionsResponse, RevokeSessionResponse, SessionInfo};
+use inferadb_control_core::RepositoryContext;
+use inferadb_control_types::{
+    Error as CoreError,
+    dto::{ListSessionsResponse, RevokeSessionResponse, SessionInfo},
+    entities::SessionType,
+};
 
 use crate::{
     handlers::auth::{AppState, Result},
@@ -73,11 +77,11 @@ pub async fn revoke_session(
         .user_session
         .get(session_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Session not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Session not found".to_string()))?;
 
     // Verify the session belongs to the current user
     if session.user_id != ctx.user_id {
-        return Err(CoreError::Authz("Cannot revoke another user's session".to_string()).into());
+        return Err(CoreError::authz("Cannot revoke another user's session".to_string()).into());
     }
 
     // Revoke the session
@@ -125,11 +129,9 @@ mod tests {
         routing::{delete, get, post},
     };
     use inferadb_control_const::auth::SESSION_COOKIE_NAME;
-    use inferadb_control_core::{
-        IdGenerator,
-        entities::{SessionType, UserSession},
-    };
+    use inferadb_control_core::IdGenerator;
     use inferadb_control_storage::Backend;
+    use inferadb_control_types::entities::{SessionType, UserSession};
     use tower::ServiceExt;
 
     use super::*;

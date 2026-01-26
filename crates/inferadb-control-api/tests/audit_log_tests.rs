@@ -2,12 +2,9 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use inferadb_control_core::{
-    IdGenerator,
-    entities::{AuditEventType, AuditLog, AuditResourceType},
-    repository::AuditLogRepository,
-};
+use inferadb_control_core::{IdGenerator, repository::AuditLogRepository};
 use inferadb_control_test_fixtures::{create_test_app, create_test_state, register_user};
+use inferadb_control_types::entities::{AuditEventType, AuditLog, AuditResourceType};
 use tower::ServiceExt;
 
 #[tokio::test]

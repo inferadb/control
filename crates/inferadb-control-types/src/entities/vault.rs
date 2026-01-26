@@ -107,16 +107,16 @@ impl Vault {
     /// Validate vault name
     pub fn validate_name(name: &str) -> Result<()> {
         if name.is_empty() {
-            return Err(Error::Validation("Vault name cannot be empty".to_string()));
+            return Err(Error::validation("Vault name cannot be empty".to_string()));
         }
 
         if name.len() > 100 {
-            return Err(Error::Validation("Vault name cannot exceed 100 characters".to_string()));
+            return Err(Error::validation("Vault name cannot exceed 100 characters".to_string()));
         }
 
         // Must be alphanumeric, hyphens, underscores, spaces
         if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ' ') {
-            return Err(Error::Validation(
+            return Err(Error::validation(
                 "Vault name must contain only alphanumeric characters, hyphens, underscores, and spaces".to_string(),
             ));
         }

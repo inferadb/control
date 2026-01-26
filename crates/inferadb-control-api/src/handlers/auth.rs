@@ -9,12 +9,10 @@ use axum::{
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use bon::Builder;
 use inferadb_control_const::auth::{SESSION_COOKIE_MAX_AGE, SESSION_COOKIE_NAME};
-use inferadb_control_core::{
-    IdGenerator, RepositoryContext, UserPasswordResetToken, error::Error as CoreError,
-    hash_password, verify_password,
-};
+use inferadb_control_core::{IdGenerator, RepositoryContext, hash_password, verify_password};
 use inferadb_control_storage::Backend;
 use inferadb_control_types::{
+    Error as CoreError,
     dto::{
         AuthVerifyEmailRequest, AuthVerifyEmailResponse, ErrorResponse, LoginRequest,
         LoginResponse, LogoutResponse, PasswordResetConfirmRequest, PasswordResetConfirmResponse,
@@ -23,7 +21,7 @@ use inferadb_control_types::{
     },
     entities::{
         Organization, OrganizationMember, OrganizationRole, OrganizationTier, SessionType, User,
-        UserEmail, UserEmailVerificationToken, UserSession,
+        UserEmail, UserEmailVerificationToken, UserPasswordResetToken, UserSession,
     },
 };
 use time;
@@ -33,7 +31,7 @@ use time;
 #[builder(on(Arc<_>, into))]
 pub struct AppState {
     pub storage: Arc<Backend>,
-    pub config: Arc<inferadb_control_core::ControlConfig>,
+    pub config: Arc<inferadb_control_config::ControlConfig>,
     pub worker_id: u16,
     #[builder(default = std::time::SystemTime::now())]
     pub start_time: std::time::SystemTime,
@@ -46,7 +44,7 @@ impl AppState {
     /// Create AppState for testing with default configuration
     /// This is used by both unit tests and integration tests
     pub fn new_test(storage: Arc<Backend>) -> Self {
-        use inferadb_control_core::ControlConfig;
+        use inferadb_control_config::ControlConfig;
 
         // Create a minimal test config using builder pattern
         // WebAuthnConfig defaults to localhost which is correct for tests
@@ -79,23 +77,9 @@ impl From<CoreError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, error_message) = match self.0 {
-            CoreError::Config(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            CoreError::Storage(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            CoreError::Auth(msg) => (StatusCode::UNAUTHORIZED, msg),
-            CoreError::Authz(msg) => (StatusCode::FORBIDDEN, msg),
-            CoreError::Validation(msg) => (StatusCode::BAD_REQUEST, msg),
-            CoreError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-            CoreError::AlreadyExists(msg) => (StatusCode::CONFLICT, msg),
-            CoreError::RateLimit(msg) => (StatusCode::TOO_MANY_REQUESTS, msg),
-            CoreError::TierLimit(msg) => (StatusCode::PAYMENT_REQUIRED, msg),
-            CoreError::TooManyPasskeys { max } => {
-                (StatusCode::BAD_REQUEST, format!("Too many passkeys registered (maximum: {max})"))
-            },
-            CoreError::External(msg) => (StatusCode::BAD_GATEWAY, msg),
-            CoreError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            CoreError::Other(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
-        };
+        let status =
+            StatusCode::from_u16(self.0.status_code()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let error_message = self.0.to_string();
 
         // Log errors at appropriate levels
         if status.is_server_error() {
@@ -127,17 +111,17 @@ pub async fn register(
 
     // Validate inputs
     if payload.name.trim().is_empty() {
-        return Err(CoreError::Validation("Name cannot be empty".to_string()).into());
+        return Err(CoreError::validation("Name cannot be empty".to_string()).into());
     }
 
     if payload.email.trim().is_empty() {
-        return Err(CoreError::Validation("Email cannot be empty".to_string()).into());
+        return Err(CoreError::validation("Email cannot be empty".to_string()).into());
     }
 
     // Check if email is already in use
     if repos.user_email.is_email_in_use(&payload.email).await? {
         return Err(
-            CoreError::Validation(format!("Email '{}' is already in use", payload.email)).into()
+            CoreError::validation(format!("Email '{}' is already in use", payload.email)).into()
         );
     }
 
@@ -279,19 +263,19 @@ pub async fn login(
         .user_email
         .get_by_email(&payload.email)
         .await?
-        .ok_or_else(|| CoreError::Auth("Invalid email or password".to_string()))?;
+        .ok_or_else(|| CoreError::auth("Invalid email or password".to_string()))?;
 
     // Get user
     let user = repos
         .user
         .get(email.user_id)
         .await?
-        .ok_or_else(|| CoreError::Auth("Invalid email or password".to_string()))?;
+        .ok_or_else(|| CoreError::auth("Invalid email or password".to_string()))?;
 
     // Verify password
     let password_hash = user
         .password_hash
-        .ok_or_else(|| CoreError::Auth("Password login not available for this user".to_string()))?;
+        .ok_or_else(|| CoreError::auth("Password login not available for this user".to_string()))?;
 
     verify_password(&payload.password, &password_hash)?;
 
@@ -357,13 +341,13 @@ pub async fn verify_email(
     // Get token
     let mut token =
         repos.user_email_verification_token.get_by_token(&payload.token).await?.ok_or_else(
-            || CoreError::Validation("Invalid or expired verification token".to_string()),
+            || CoreError::validation("Invalid or expired verification token".to_string()),
         )?;
 
     // Check if token is valid (not expired and not used)
     if !token.is_valid() {
         return Err(
-            CoreError::Validation("Invalid or expired verification token".to_string()).into()
+            CoreError::validation("Invalid or expired verification token".to_string()).into()
         );
     }
 
@@ -372,7 +356,7 @@ pub async fn verify_email(
         .user_email
         .get(token.user_email_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Email not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Email not found".to_string()))?;
 
     // Check if already verified
     if email.is_verified() {
@@ -410,13 +394,13 @@ pub async fn request_password_reset(
     // Find the email
     let email = repos.user_email.get_by_email(&payload.email).await?.ok_or_else(|| {
         // Don't reveal whether email exists for security
-        CoreError::Validation("If the email exists, a reset link will be sent".to_string())
+        CoreError::validation("If the email exists, a reset link will be sent".to_string())
     })?;
 
     // Verify the email is verified and primary
     if !email.is_verified() {
         return Err(
-            CoreError::Validation("Email must be verified to reset password".to_string()).into()
+            CoreError::validation("Email must be verified to reset password".to_string()).into()
         );
     }
 
@@ -425,10 +409,10 @@ pub async fn request_password_reset(
         .user
         .get(email.user_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("User not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("User not found".to_string()))?;
 
     if user.is_deleted() {
-        return Err(CoreError::Validation("User account is deleted".to_string()).into());
+        return Err(CoreError::validation("User account is deleted".to_string()).into());
     }
 
     // Generate password reset token
@@ -494,7 +478,7 @@ pub async fn confirm_password_reset(
 ) -> Result<Json<PasswordResetConfirmResponse>> {
     // Validate new password
     if payload.new_password.len() < 12 || payload.new_password.len() > 128 {
-        return Err(CoreError::Validation(
+        return Err(CoreError::validation(
             "Password must be between 12 and 128 characters".to_string(),
         )
         .into());
@@ -507,11 +491,11 @@ pub async fn confirm_password_reset(
         .user_password_reset_token
         .get_by_token(&payload.token)
         .await?
-        .ok_or_else(|| CoreError::Validation("Invalid or expired reset token".to_string()))?;
+        .ok_or_else(|| CoreError::validation("Invalid or expired reset token".to_string()))?;
 
     // Check if token is valid (not expired and not used)
     if !token.is_valid() {
-        return Err(CoreError::Validation("Invalid or expired reset token".to_string()).into());
+        return Err(CoreError::validation("Invalid or expired reset token".to_string()).into());
     }
 
     // Get the user
@@ -519,10 +503,10 @@ pub async fn confirm_password_reset(
         .user
         .get(token.user_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("User not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("User not found".to_string()))?;
 
     if user.is_deleted() {
-        return Err(CoreError::Validation("User account is deleted".to_string()).into());
+        return Err(CoreError::validation("User account is deleted".to_string()).into());
     }
 
     // Hash the new password

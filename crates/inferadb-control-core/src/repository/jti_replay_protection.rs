@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use inferadb_control_storage::StorageBackend;
-use inferadb_control_types::error::Result;
+use inferadb_control_types::{Error, Result};
 
 /// Repository for JTI (JWT ID) replay protection
 ///
@@ -27,7 +27,7 @@ impl<S: StorageBackend> JtiReplayProtectionRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| crate::error::Error::Internal(format!("Failed to check JTI: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to check JTI: {e}")))?;
         Ok(result.is_some())
     }
 
@@ -44,14 +44,16 @@ impl<S: StorageBackend> JtiReplayProtectionRepository<S> {
         let ttl_seconds = (expires_at - now).num_seconds();
 
         if ttl_seconds > 0 {
-            self.storage.set_with_ttl(key, value, ttl_seconds as u64).await.map_err(|e| {
-                crate::error::Error::Internal(format!("Failed to mark JTI as used: {e}"))
-            })?;
+            self.storage
+                .set_with_ttl(key, value, ttl_seconds as u64)
+                .await
+                .map_err(|e| Error::internal(format!("Failed to mark JTI as used: {e}")))?;
         } else {
             // If already expired, still set it with 1 second TTL to prevent race conditions
-            self.storage.set_with_ttl(key, value, 1).await.map_err(|e| {
-                crate::error::Error::Internal(format!("Failed to mark JTI as used: {e}"))
-            })?;
+            self.storage
+                .set_with_ttl(key, value, 1)
+                .await
+                .map_err(|e| Error::internal(format!("Failed to mark JTI as used: {e}")))?;
         }
 
         Ok(())
@@ -63,7 +65,7 @@ impl<S: StorageBackend> JtiReplayProtectionRepository<S> {
     /// Returns Err if JTI was already used (replay attack detected).
     pub async fn check_and_mark_jti(&self, jti: &str, expires_at: DateTime<Utc>) -> Result<()> {
         if self.is_jti_used(jti).await? {
-            return Err(crate::error::Error::Authz(
+            return Err(Error::authz(
                 "JWT ID (jti) has already been used - replay attack detected".to_string(),
             ));
         }

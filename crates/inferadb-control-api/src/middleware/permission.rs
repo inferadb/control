@@ -1,6 +1,9 @@
 use inferadb_control_core::{
-    Error as CoreError, OrganizationPermission, OrganizationRole, OrganizationTeamMemberRepository,
-    OrganizationTeamPermissionRepository,
+    OrganizationTeamMemberRepository, OrganizationTeamPermissionRepository,
+};
+use inferadb_control_types::{
+    Error as CoreError,
+    entities::{OrganizationPermission, OrganizationRole},
 };
 
 use crate::{AppState, handlers::auth::ApiError, middleware::OrganizationContext};
@@ -62,7 +65,7 @@ pub async fn require_organization_permission(
     required_permission: OrganizationPermission,
 ) -> Result<(), ApiError> {
     if !has_organization_permission(state, org_ctx, required_permission).await? {
-        return Err(CoreError::Authz(format!(
+        return Err(CoreError::authz(format!(
             "Missing required permission: {required_permission:?}"
         ))
         .into());
@@ -155,11 +158,14 @@ mod tests {
     use std::sync::Arc;
 
     use inferadb_control_core::{
-        OrganizationMember, OrganizationPermission, OrganizationRole, OrganizationTeam,
-        OrganizationTeamMember, OrganizationTeamMemberRepository, OrganizationTeamPermission,
-        OrganizationTeamPermissionRepository, OrganizationTeamRepository,
+        OrganizationTeamMemberRepository, OrganizationTeamPermissionRepository,
+        OrganizationTeamRepository,
     };
     use inferadb_control_storage::Backend;
+    use inferadb_control_types::entities::{
+        OrganizationMember, OrganizationPermission, OrganizationRole, OrganizationTeam,
+        OrganizationTeamMember, OrganizationTeamPermission,
+    };
 
     use super::*;
     use crate::{handlers::auth::AppState, middleware::OrganizationContext};

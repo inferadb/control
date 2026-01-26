@@ -46,13 +46,13 @@ impl UserEmailVerificationToken {
     pub fn new(id: i64, user_email_id: i64, token: String) -> Result<Self> {
         // Validate token format (must be 64 hex characters)
         if token.len() != 64 {
-            return Err(Error::Validation(
+            return Err(Error::validation(
                 "Token must be exactly 64 characters (32 bytes hex-encoded)".to_string(),
             ));
         }
 
         if !token.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::Validation(
+            return Err(Error::validation(
                 "Token must contain only hexadecimal characters".to_string(),
             ));
         }
@@ -123,7 +123,7 @@ mod tests {
         let result =
             UserEmailVerificationToken::builder().id(1).user_email_id(100).token("short").create();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::Validation(_)));
+        assert!(matches!(result.unwrap_err(), Error::Validation { .. }));
     }
 
     #[test]
@@ -135,7 +135,7 @@ mod tests {
             .token(invalid_token)
             .create();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::Validation(_)));
+        assert!(matches!(result.unwrap_err(), Error::Validation { .. }));
     }
 
     #[test]

@@ -90,7 +90,7 @@ impl<S: StorageBackend + 'static> LeaderElection<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check leader status: {e}")))?
+            .map_err(|e| Error::internal(format!("Failed to check leader status: {e}")))?
         {
             // Check if it's us (we might already be leader)
             if let Ok(leader_id) = String::from_utf8(existing.to_vec())
@@ -112,7 +112,7 @@ impl<S: StorageBackend + 'static> LeaderElection<S> {
         self.storage
             .set_with_ttl(key, value.as_bytes().to_vec(), LEADER_LEASE_TTL)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to acquire leadership: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to acquire leadership: {e}")))?;
 
         // Mark ourselves as leader
         let mut is_leader = self.is_leader.write().await;
@@ -144,7 +144,7 @@ impl<S: StorageBackend + 'static> LeaderElection<S> {
             |e| {
                 // If renewal fails, we're no longer the leader
                 tracing::error!("Failed to renew leader lease: {}", e);
-                Error::Internal(format!("Failed to renew leader lease: {e}"))
+                Error::internal(format!("Failed to renew leader lease: {e}"))
             },
         )?;
 
@@ -208,7 +208,7 @@ impl<S: StorageBackend + 'static> LeaderElection<S> {
         self.storage
             .delete(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to release leadership: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to release leadership: {e}")))?;
 
         // Mark as no longer leader
         let mut is_leader = self.is_leader.write().await;

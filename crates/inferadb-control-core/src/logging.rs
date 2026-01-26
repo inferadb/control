@@ -23,12 +23,14 @@ pub enum LogFormat {
     Json,
 }
 
+// Clippy sees only one cfg branch at a time and thinks this is derivable,
+// but we intentionally return different defaults: Full in debug, Json in release.
 #[allow(clippy::derivable_impls)]
 impl Default for LogFormat {
     fn default() -> Self {
         #[cfg(debug_assertions)]
         {
-            LogFormat::Full // Match server's default format in development
+            LogFormat::Full
         }
         #[cfg(not(debug_assertions))]
         {

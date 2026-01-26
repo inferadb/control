@@ -232,8 +232,8 @@ pub async fn create_storage_backend(config: &StorageConfig) -> StorageResult<Bac
         },
         StorageBackendType::Ledger => {
             let ledger_config = config.ledger.as_ref().ok_or_else(|| {
-                inferadb_storage::StorageError::Internal(
-                    "Ledger configuration required for Ledger backend".to_string(),
+                inferadb_storage::StorageError::internal(
+                    "Ledger configuration required for Ledger backend",
                 )
             })?;
             let backend_config = LedgerBackendConfig::builder()
@@ -243,10 +243,10 @@ pub async fn create_storage_backend(config: &StorageConfig) -> StorageResult<Bac
                 .maybe_vault_id(ledger_config.vault_id)
                 .build()
                 .map_err(|e| {
-                    inferadb_storage::StorageError::Internal(format!("Ledger config error: {e}"))
+                    inferadb_storage::StorageError::internal(format!("Ledger config error: {e}"))
                 })?;
             let backend = LedgerBackend::new(backend_config).await.map_err(|e| {
-                inferadb_storage::StorageError::Internal(format!("Ledger connection error: {e}"))
+                inferadb_storage::StorageError::internal(format!("Ledger connection error: {e}"))
             })?;
             Ok(Backend::Ledger { backend, signing_key_metrics: SigningKeyMetrics::new() })
         },

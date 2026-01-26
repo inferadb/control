@@ -45,14 +45,14 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     pub async fn create(&self, schema: VaultSchema) -> Result<()> {
         // Serialize schema
         let schema_data = serde_json::to_vec(&schema)
-            .map_err(|e| Error::Internal(format!("Failed to serialize schema: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize schema: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Check for duplicate version within vault
         let version_key = Self::vault_version_index_key(schema.vault_id, &schema.version);
@@ -60,10 +60,10 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .storage
             .get(&version_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check duplicate version: {e}")))?
+            .map_err(|e| Error::internal(format!("Failed to check duplicate version: {e}")))?
             .is_some()
         {
-            return Err(Error::AlreadyExists(format!(
+            return Err(Error::already_exists(format!(
                 "Schema version {} already exists for this vault",
                 schema.version
             )));
@@ -84,7 +84,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit schema creation: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit schema creation: {e}")))?;
 
         Ok(())
     }
@@ -96,12 +96,12 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get schema: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get schema: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let schema: VaultSchema = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize schema: {e}")))?;
+                    .map_err(|e| Error::internal(format!("Failed to deserialize schema: {e}")))?;
                 Ok(Some(schema))
             },
             None => Ok(None),
@@ -119,12 +119,12 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .storage
             .get(&index_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get schema by version: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get schema by version: {e}")))?;
 
         match data {
             Some(bytes) => {
                 if bytes.len() != 8 {
-                    return Err(Error::Internal("Invalid schema index data".to_string()));
+                    return Err(Error::internal("Invalid schema index data".to_string()));
                 }
                 let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
                 self.get(id).await
@@ -140,12 +140,12 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get active schema: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get active schema: {e}")))?;
 
         match data {
             Some(bytes) => {
                 if bytes.len() != 8 {
-                    return Err(Error::Internal("Invalid active schema index data".to_string()));
+                    return Err(Error::internal("Invalid active schema index data".to_string()));
                 }
                 let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
                 self.get(id).await
@@ -163,7 +163,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get vault schemas: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get vault schemas: {e}")))?;
 
         let mut schemas = Vec::new();
         for kv in kvs {
@@ -187,17 +187,17 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         // Verify schema exists
         self.get(schema.id)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Schema {} not found", schema.id)))?;
+            .ok_or_else(|| Error::not_found(format!("Schema {} not found", schema.id)))?;
 
         // Serialize updated schema
         let schema_data = serde_json::to_vec(&schema)
-            .map_err(|e| Error::Internal(format!("Failed to serialize schema: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize schema: {e}")))?;
 
         // Update schema record
         self.storage
             .set(Self::schema_key(schema.id), schema_data)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update schema: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to update schema: {e}")))?;
 
         Ok(())
     }
@@ -208,10 +208,10 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         let mut schema = self
             .get(schema_id)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Schema {schema_id} not found")))?;
+            .ok_or_else(|| Error::not_found(format!("Schema {schema_id} not found")))?;
 
         if !schema.can_activate() {
-            return Err(Error::Validation(format!(
+            return Err(Error::validation(format!(
                 "Schema in status {:?} cannot be activated",
                 schema.status
             )));
@@ -222,7 +222,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Deactivate the current active schema if any
         if let Some(mut current_active) = self.get_active(schema.vault_id).await?
@@ -230,14 +230,14 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         {
             current_active.mark_superseded();
             let current_data = serde_json::to_vec(&current_active)
-                .map_err(|e| Error::Internal(format!("Failed to serialize schema: {e}")))?;
+                .map_err(|e| Error::internal(format!("Failed to serialize schema: {e}")))?;
             txn.set(Self::schema_key(current_active.id), current_data);
         }
 
         // Activate the new schema
         schema.activate();
         let schema_data = serde_json::to_vec(&schema)
-            .map_err(|e| Error::Internal(format!("Failed to serialize schema: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize schema: {e}")))?;
 
         // Update schema record
         txn.set(Self::schema_key(schema.id), schema_data);
@@ -248,7 +248,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit schema activation: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit schema activation: {e}")))?;
 
         Ok(schema)
     }
@@ -259,16 +259,16 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         let schema = self
             .get(schema_id)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Schema {schema_id} not found")))?;
+            .ok_or_else(|| Error::not_found(format!("Schema {schema_id} not found")))?;
 
         // Get the current active schema
         let current_active = self
             .get_active(schema.vault_id)
             .await?
-            .ok_or_else(|| Error::Validation("No active schema to rollback from".to_string()))?;
+            .ok_or_else(|| Error::validation("No active schema to rollback from".to_string()))?;
 
         if current_active.id == schema_id {
-            return Err(Error::Validation(
+            return Err(Error::validation(
                 "Cannot rollback to the currently active schema".to_string(),
             ));
         }
@@ -278,20 +278,20 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Mark current active as rolled back
         let mut rolled_back = current_active;
         rolled_back.mark_rolled_back();
         let rolled_back_data = serde_json::to_vec(&rolled_back)
-            .map_err(|e| Error::Internal(format!("Failed to serialize schema: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize schema: {e}")))?;
         txn.set(Self::schema_key(rolled_back.id), rolled_back_data);
 
         // Reactivate the target schema
         let mut reactivated = schema;
         reactivated.activate();
         let reactivated_data = serde_json::to_vec(&reactivated)
-            .map_err(|e| Error::Internal(format!("Failed to serialize schema: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize schema: {e}")))?;
         txn.set(Self::schema_key(reactivated.id), reactivated_data.clone());
 
         // Update active schema index
@@ -303,11 +303,11 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit schema rollback: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit schema rollback: {e}")))?;
 
         // Re-deserialize to get the updated state
         let result: VaultSchema = serde_json::from_slice(&reactivated_data)
-            .map_err(|e| Error::Internal(format!("Failed to deserialize schema: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to deserialize schema: {e}")))?;
 
         Ok(result)
     }
@@ -327,12 +327,14 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     /// Delete a schema (for cleanup - normally schemas are retained for history)
     pub async fn delete(&self, id: i64) -> Result<()> {
         // Get the schema first to clean up indexes
-        let schema =
-            self.get(id).await?.ok_or_else(|| Error::NotFound(format!("Schema {id} not found")))?;
+        let schema = self
+            .get(id)
+            .await?
+            .ok_or_else(|| Error::not_found(format!("Schema {id} not found")))?;
 
         // Cannot delete active schema
         if schema.is_active() {
-            return Err(Error::Validation("Cannot delete an active schema".to_string()));
+            return Err(Error::validation("Cannot delete an active schema".to_string()));
         }
 
         // Use transaction for atomicity
@@ -340,7 +342,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete schema record
         txn.delete(Self::schema_key(id));
@@ -354,7 +356,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit schema deletion: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit schema deletion: {e}")))?;
 
         Ok(())
     }
@@ -424,7 +426,7 @@ mod tests {
 
         let result = repo.create(schema2).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::AlreadyExists(_)));
+        assert!(matches!(result.unwrap_err(), Error::AlreadyExists { .. }));
     }
 
     #[tokio::test]
@@ -574,7 +576,7 @@ mod tests {
 
         let result = repo.activate(1).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::Validation(_)));
+        assert!(matches!(result.unwrap_err(), Error::Validation { .. }));
     }
 
     #[tokio::test]
@@ -589,7 +591,7 @@ mod tests {
 
         let result = repo.delete(1).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::Validation(_)));
+        assert!(matches!(result.unwrap_err(), Error::Validation { .. }));
     }
 
     #[tokio::test]

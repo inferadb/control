@@ -64,7 +64,7 @@ impl ClockValidator {
         let within_threshold = skew_seconds <= self.max_skew_seconds;
 
         if !within_threshold {
-            return Err(Error::Config(format!(
+            return Err(Error::config(format!(
                 "Clock skew detected: {} seconds (threshold: {} seconds). System time: {}, NTP time: {}",
                 skew_seconds, self.max_skew_seconds, system_time, ntp_time
             )));
@@ -99,7 +99,7 @@ impl ClockValidator {
         }
 
         // If no NTP tools available, return error
-        Err(Error::Config(
+        Err(Error::config(
             "No NTP client available. Install chrony or ntpdate for clock skew validation."
                 .to_string(),
         ))

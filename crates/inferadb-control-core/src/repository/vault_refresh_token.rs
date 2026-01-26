@@ -51,14 +51,14 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     pub async fn create(&self, token: VaultRefreshToken) -> Result<()> {
         // Serialize token
         let token_data = serde_json::to_vec(&token)
-            .map_err(|e| Error::Internal(format!("Failed to serialize token: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize token: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Store token record
         txn.set(Self::token_key(token.id), token_data);
@@ -88,7 +88,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit token creation: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit token creation: {e}")))?;
 
         Ok(())
     }
@@ -100,12 +100,12 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get token: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get token: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let token: VaultRefreshToken = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize token: {e}")))?;
+                    .map_err(|e| Error::internal(format!("Failed to deserialize token: {e}")))?;
                 Ok(Some(token))
             },
             None => Ok(None),
@@ -119,12 +119,12 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
             .storage
             .get(&lookup_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to lookup token: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to lookup token: {e}")))?;
 
         match id_data {
             Some(bytes) => {
                 if bytes.len() != 8 {
-                    return Err(Error::Internal("Invalid token lookup data".to_string()));
+                    return Err(Error::internal("Invalid token lookup data".to_string()));
                 }
                 let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
                 self.get(id).await
@@ -136,12 +136,12 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     /// Update a token (for marking as used or revoked)
     pub async fn update(&self, token: &VaultRefreshToken) -> Result<()> {
         let token_data = serde_json::to_vec(token)
-            .map_err(|e| Error::Internal(format!("Failed to serialize token: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize token: {e}")))?;
 
         self.storage
             .set(Self::token_key(token.id), token_data)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update token: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to update token: {e}")))?;
 
         Ok(())
     }
@@ -156,7 +156,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get vault tokens: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get vault tokens: {e}")))?;
 
         let mut tokens = Vec::new();
         for kv in kvs {
@@ -182,7 +182,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get session tokens: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get session tokens: {e}")))?;
 
         let mut tokens = Vec::new();
         for kv in kvs {
@@ -208,7 +208,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get client tokens: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get client tokens: {e}")))?;
 
         let mut tokens = Vec::new();
         for kv in kvs {

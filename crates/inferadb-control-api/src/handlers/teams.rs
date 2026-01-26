@@ -3,8 +3,9 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use inferadb_control_core::{Error as CoreError, IdGenerator, RepositoryContext};
+use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_types::{
+    Error as CoreError,
     dto::{
         AddTeamMemberRequest, AddTeamMemberResponse, CreateTeamRequest, CreateTeamResponse,
         DeleteTeamResponse, GrantTeamPermissionRequest, GrantTeamPermissionResponse,
@@ -13,7 +14,9 @@ use inferadb_control_types::{
         TeamMemberResponse, TeamPermissionInfo, TeamPermissionResponse, TeamResponse,
         UpdateTeamMemberRequest, UpdateTeamMemberResponse, UpdateTeamRequest, UpdateTeamResponse,
     },
-    entities::{OrganizationTeam, OrganizationTeamMember, OrganizationTeamPermission},
+    entities::{
+        OrganizationRole, OrganizationTeam, OrganizationTeamMember, OrganizationTeamPermission,
+    },
 };
 
 use crate::{
@@ -90,14 +93,14 @@ pub async fn create_team(
         .org
         .get(org_ctx.organization_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Check tier limits
     let current_count =
         repos.org_team.count_active_by_organization(org_ctx.organization_id).await?;
 
     if current_count >= organization.tier.max_teams() {
-        return Err(CoreError::Validation(format!(
+        return Err(CoreError::validation(format!(
             "Team limit reached for tier {:?}. Maximum: {}",
             organization.tier,
             organization.tier.max_teams()
@@ -184,16 +187,16 @@ pub async fn get_team(
         .org_team
         .get(team_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
     // Verify team belongs to the organization
     if team.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     // Don't return deleted teams
     if team.is_deleted() {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     Ok(Json(team_to_response(team)))
@@ -216,19 +219,19 @@ pub async fn update_team(
         .org_team
         .get(team_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
     if team.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     if team.is_deleted() {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     // Check authorization: ADMIN/OWNER or team manager
-    let is_admin_or_owner = org_ctx.member.role == inferadb_control_core::OrganizationRole::Admin
-        || org_ctx.member.role == inferadb_control_core::OrganizationRole::Owner;
+    let is_admin_or_owner = org_ctx.member.role == OrganizationRole::Admin
+        || org_ctx.member.role == OrganizationRole::Owner;
 
     let is_team_manager = if !is_admin_or_owner {
         repos
@@ -242,7 +245,7 @@ pub async fn update_team(
     };
 
     if !is_admin_or_owner && !is_team_manager {
-        return Err(CoreError::Authz(
+        return Err(CoreError::authz(
             "Only team managers or organization admins can update teams".to_string(),
         )
         .into());
@@ -279,10 +282,10 @@ pub async fn delete_team(
         .org_team
         .get(team_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
     if team.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     // Soft delete team
@@ -319,19 +322,19 @@ pub async fn add_team_member(
         .org_team
         .get(team_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
     if team.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     if team.is_deleted() {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     // Check authorization: ADMIN/OWNER or team manager
-    let is_admin_or_owner = org_ctx.member.role == inferadb_control_core::OrganizationRole::Admin
-        || org_ctx.member.role == inferadb_control_core::OrganizationRole::Owner;
+    let is_admin_or_owner = org_ctx.member.role == OrganizationRole::Admin
+        || org_ctx.member.role == OrganizationRole::Owner;
 
     let is_team_manager = if !is_admin_or_owner {
         repos
@@ -345,7 +348,7 @@ pub async fn add_team_member(
     };
 
     if !is_admin_or_owner && !is_team_manager {
-        return Err(CoreError::Authz(
+        return Err(CoreError::authz(
             "Only team managers or organization admins can add team members".to_string(),
         )
         .into());
@@ -357,7 +360,7 @@ pub async fn add_team_member(
         .get_by_org_and_user(org_ctx.organization_id, payload.user_id)
         .await?
         .ok_or_else(|| {
-            CoreError::Validation("User is not a member of this organization".to_string())
+            CoreError::validation("User is not a member of this organization".to_string())
         })?;
 
     // Create team member
@@ -399,14 +402,14 @@ pub async fn list_team_members(
         .org_team
         .get(team_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
     if team.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     if team.is_deleted() {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     // Get team members
@@ -434,19 +437,19 @@ pub async fn update_team_member(
         .org_team
         .get(team_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
     if team.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     if team.is_deleted() {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     // Check authorization: ADMIN/OWNER or team manager
-    let is_admin_or_owner = org_ctx.member.role == inferadb_control_core::OrganizationRole::Admin
-        || org_ctx.member.role == inferadb_control_core::OrganizationRole::Owner;
+    let is_admin_or_owner = org_ctx.member.role == OrganizationRole::Admin
+        || org_ctx.member.role == OrganizationRole::Owner;
 
     let is_team_manager = if !is_admin_or_owner {
         repos
@@ -460,7 +463,7 @@ pub async fn update_team_member(
     };
 
     if !is_admin_or_owner && !is_team_manager {
-        return Err(CoreError::Authz(
+        return Err(CoreError::authz(
             "Only team managers or organization admins can update team members".to_string(),
         )
         .into());
@@ -471,10 +474,10 @@ pub async fn update_team_member(
         .org_team_member
         .get(member_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team member not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team member not found".to_string()))?;
 
     if member.team_id != team_id {
-        return Err(CoreError::NotFound("Team member not found".to_string()).into());
+        return Err(CoreError::not_found("Team member not found".to_string()).into());
     }
 
     member.set_manager(payload.manager);
@@ -499,19 +502,19 @@ pub async fn remove_team_member(
         .org_team
         .get(team_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
     if team.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     if team.is_deleted() {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     // Check authorization: ADMIN/OWNER or team manager
-    let is_admin_or_owner = org_ctx.member.role == inferadb_control_core::OrganizationRole::Admin
-        || org_ctx.member.role == inferadb_control_core::OrganizationRole::Owner;
+    let is_admin_or_owner = org_ctx.member.role == OrganizationRole::Admin
+        || org_ctx.member.role == OrganizationRole::Owner;
 
     let is_team_manager = if !is_admin_or_owner {
         repos
@@ -525,7 +528,7 @@ pub async fn remove_team_member(
     };
 
     if !is_admin_or_owner && !is_team_manager {
-        return Err(CoreError::Authz(
+        return Err(CoreError::authz(
             "Only team managers or organization admins can remove team members".to_string(),
         )
         .into());
@@ -536,10 +539,10 @@ pub async fn remove_team_member(
         .org_team_member
         .get(member_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team member not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team member not found".to_string()))?;
 
     if member.team_id != team_id {
-        return Err(CoreError::NotFound("Team member not found".to_string()).into());
+        return Err(CoreError::not_found("Team member not found".to_string()).into());
     }
 
     repos.org_team_member.delete(member_id).await?;
@@ -571,14 +574,14 @@ pub async fn grant_team_permission(
         .org_team
         .get(team_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
     if team.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     if team.is_deleted() {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     // Create team permission
@@ -622,19 +625,19 @@ pub async fn list_team_permissions(
         .org_team
         .get(team_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
     if team.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     if team.is_deleted() {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     // Check authorization: ADMIN/OWNER or team member
-    let is_admin_or_owner = org_ctx.member.role == inferadb_control_core::OrganizationRole::Admin
-        || org_ctx.member.role == inferadb_control_core::OrganizationRole::Owner;
+    let is_admin_or_owner = org_ctx.member.role == OrganizationRole::Admin
+        || org_ctx.member.role == OrganizationRole::Owner;
 
     let is_team_member = if !is_admin_or_owner {
         repos.org_team_member.get_by_team_and_user(team_id, org_ctx.member.user_id).await?.is_some()
@@ -643,7 +646,7 @@ pub async fn list_team_permissions(
     };
 
     if !is_admin_or_owner && !is_team_member {
-        return Err(CoreError::Authz(
+        return Err(CoreError::authz(
             "Only team members or organization admins can view team permissions".to_string(),
         )
         .into());
@@ -676,14 +679,14 @@ pub async fn revoke_team_permission(
         .org_team
         .get(team_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
     if team.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     if team.is_deleted() {
-        return Err(CoreError::NotFound("Team not found".to_string()).into());
+        return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
     // Get and delete permission
@@ -691,10 +694,10 @@ pub async fn revoke_team_permission(
         .org_team_permission
         .get(permission_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Team permission not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Team permission not found".to_string()))?;
 
     if permission.team_id != team_id {
-        return Err(CoreError::NotFound("Team permission not found".to_string()).into());
+        return Err(CoreError::not_found("Team permission not found".to_string()).into());
     }
 
     repos.org_team_permission.delete(permission_id).await?;

@@ -57,10 +57,10 @@ impl Client {
     /// Validate client name
     pub fn validate_name(name: &str) -> Result<()> {
         if name.is_empty() {
-            return Err(Error::Validation("Client name cannot be empty".to_string()));
+            return Err(Error::validation("Client name cannot be empty".to_string()));
         }
         if name.len() > 100 {
-            return Err(Error::Validation("Client name cannot exceed 100 characters".to_string()));
+            return Err(Error::validation("Client name cannot exceed 100 characters".to_string()));
         }
         Ok(())
     }
@@ -162,10 +162,10 @@ impl ClientCertificate {
     /// Validate certificate name
     pub fn validate_name(name: &str) -> Result<()> {
         if name.is_empty() {
-            return Err(Error::Validation("Certificate name cannot be empty".to_string()));
+            return Err(Error::validation("Certificate name cannot be empty".to_string()));
         }
         if name.len() > 100 {
-            return Err(Error::Validation(
+            return Err(Error::validation(
                 "Certificate name cannot exceed 100 characters".to_string(),
             ));
         }

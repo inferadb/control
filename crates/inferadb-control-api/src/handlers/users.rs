@@ -1,8 +1,11 @@
 use axum::{Extension, Json, extract::State};
-use inferadb_control_core::{RepositoryContext, error::Error as CoreError};
-use inferadb_control_types::dto::{
-    DeleteUserResponse, GetUserProfileResponse, UpdateProfileRequest, UpdateProfileResponse,
-    UserProfile,
+use inferadb_control_core::RepositoryContext;
+use inferadb_control_types::{
+    Error as CoreError,
+    dto::{
+        DeleteUserResponse, GetUserProfileResponse, UpdateProfileRequest, UpdateProfileResponse,
+        UserProfile,
+    },
 };
 
 use crate::{
@@ -26,7 +29,7 @@ pub async fn get_profile(
         .user
         .get(ctx.user_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("User not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("User not found".to_string()))?;
 
     Ok(Json(GetUserProfileResponse {
         user: UserProfile {
@@ -55,7 +58,7 @@ pub async fn update_profile(
         .user
         .get(ctx.user_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("User not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("User not found".to_string()))?;
 
     // Update name if provided
     if let Some(name) = payload.name {
@@ -96,13 +99,13 @@ pub async fn delete_user(
     let memberships = repos.org_member.get_by_user(ctx.user_id).await?;
 
     for membership in &memberships {
-        if membership.role == inferadb_control_core::entities::OrganizationRole::Owner {
+        if membership.role == inferadb_control_types::entities::OrganizationRole::Owner {
             // Check if this user is the only owner
             let owner_count = repos.org_member.count_owners(membership.organization_id).await?;
             if owner_count <= 1
                 && let Some(org) = repos.org.get(membership.organization_id).await?
             {
-                return Err(CoreError::Validation(format!(
+                return Err(CoreError::validation(format!(
                     "Cannot delete account while being the only owner of organization '{}'. Please transfer ownership or delete the organization first.",
                     org.name
                 ))
@@ -116,7 +119,7 @@ pub async fn delete_user(
         .user
         .get(ctx.user_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("User not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("User not found".to_string()))?;
 
     // CASCADE DELETE: Revoke all user sessions
     let sessions = repos.user_session.get_user_sessions(ctx.user_id).await?;
@@ -126,7 +129,7 @@ pub async fn delete_user(
 
     // CASCADE DELETE: Remove organization memberships (only if not owner)
     for membership in memberships {
-        if membership.role != inferadb_control_core::entities::OrganizationRole::Owner {
+        if membership.role != inferadb_control_types::entities::OrganizationRole::Owner {
             repos.org_member.delete(membership.id).await?;
         }
     }
@@ -170,11 +173,9 @@ mod tests {
         routing::{delete, get, patch},
     };
     use inferadb_control_const::auth::SESSION_COOKIE_NAME;
-    use inferadb_control_core::{
-        IdGenerator, RepositoryContext,
-        entities::{SessionType, User, UserSession},
-    };
+    use inferadb_control_core::{IdGenerator, RepositoryContext};
     use inferadb_control_storage::Backend;
+    use inferadb_control_types::entities::{SessionType, User, UserSession};
     use tower::ServiceExt;
 
     use super::*;

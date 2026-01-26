@@ -6,14 +6,13 @@ use inferadb_control_api::{AppState, create_router_with_state};
 use inferadb_control_core::{
     ClientCertificateRepository, ClientRepository, IdGenerator, OrganizationMemberRepository,
     OrganizationRepository, OrganizationTeamRepository, PrivateKeyEncryptor, UserRepository,
-    UserSessionRepository, VaultRepository,
-    entities::{
-        Client, ClientCertificate, Organization, OrganizationMember, OrganizationRole,
-        OrganizationTeam, OrganizationTier, SessionType, User, UserSession, Vault,
-    },
-    keypair,
+    UserSessionRepository, VaultRepository, keypair,
 };
 use inferadb_control_test_fixtures::create_test_state;
+use inferadb_control_types::entities::{
+    Client, ClientCertificate, Organization, OrganizationMember, OrganizationRole,
+    OrganizationTeam, OrganizationTier, SessionType, User, UserSession, Vault,
+};
 use serde_json::json;
 use tower::ServiceExt;
 

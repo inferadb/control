@@ -6,12 +6,12 @@ use inferadb_control_api::{AppState, create_router_with_state};
 use inferadb_control_core::{
     IdGenerator, OrganizationMemberRepository, OrganizationRepository, UserRepository,
     UserSessionRepository,
-    entities::{
-        Organization, OrganizationMember, OrganizationRole, OrganizationTier, SessionType, User,
-        UserSession,
-    },
 };
 use inferadb_control_test_fixtures::create_test_state;
+use inferadb_control_types::entities::{
+    Organization, OrganizationMember, OrganizationRole, OrganizationTier, SessionType, User,
+    UserSession,
+};
 use serde_json::json;
 use tower::ServiceExt;
 

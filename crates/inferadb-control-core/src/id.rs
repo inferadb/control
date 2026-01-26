@@ -51,10 +51,10 @@ impl<S: StorageBackend + 'static> WorkerRegistry<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to check worker registration: {e}")))?)
+            .map_err(|e| Error::internal(format!("Failed to check worker registration: {e}")))?)
         .is_some()
         {
-            return Err(Error::Config(format!(
+            return Err(Error::config(format!(
                 "Worker ID {} is already in use by another instance",
                 self.worker_id
             )));
@@ -65,7 +65,7 @@ impl<S: StorageBackend + 'static> WorkerRegistry<S> {
         self.storage
             .set_with_ttl(key, timestamp.as_bytes().to_vec(), WORKER_HEARTBEAT_TTL)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to register worker: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to register worker: {e}")))?;
 
         Ok(())
     }
@@ -78,7 +78,7 @@ impl<S: StorageBackend + 'static> WorkerRegistry<S> {
         self.storage
             .set_with_ttl(key, timestamp.as_bytes().to_vec(), WORKER_HEARTBEAT_TTL)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update worker heartbeat: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to update worker heartbeat: {e}")))?;
 
         Ok(())
     }
@@ -129,7 +129,7 @@ impl<S: StorageBackend + 'static> WorkerRegistry<S> {
         self.storage
             .delete(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to cleanup worker registration: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to cleanup worker registration: {e}")))?;
 
         Ok(())
     }
@@ -174,7 +174,7 @@ pub async fn acquire_worker_id<S: StorageBackend + 'static>(
     // If an explicit ID is provided, use it directly
     if let Some(id) = explicit_id {
         if id > MAX_WORKER_ID {
-            return Err(Error::Config(format!(
+            return Err(Error::config(format!(
                 "Worker ID must be between 0 and {MAX_WORKER_ID}, got {id}"
             )));
         }
@@ -244,7 +244,7 @@ async fn acquire_random_worker_id<S: StorageBackend>(storage: &S) -> Result<u16>
             }
             // If we've tried all IDs, give up
             if attempted.len() > MAX_WORKER_ID as usize {
-                return Err(Error::Config(
+                return Err(Error::config(
                     "All worker IDs have been attempted without success".to_string(),
                 ));
             }
@@ -299,7 +299,7 @@ async fn acquire_random_worker_id<S: StorageBackend>(storage: &S) -> Result<u16>
         }
     }
 
-    Err(Error::Config(format!(
+    Err(Error::config(format!(
         "Failed to acquire worker ID after {MAX_WORKER_ID_ATTEMPTS} attempts. All attempted IDs were in use."
     )))
 }
@@ -321,7 +321,7 @@ impl IdGenerator {
     /// Returns an error if worker_id is out of range or initialization fails
     pub fn init(worker_id: u16) -> Result<()> {
         if worker_id > 1023 {
-            return Err(Error::Config(format!(
+            return Err(Error::config(format!(
                 "Worker ID must be between 0 and 1023, got {worker_id}"
             )));
         }

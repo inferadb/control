@@ -69,21 +69,21 @@ impl UserEmail {
         let trimmed = email.trim();
 
         if trimmed.is_empty() {
-            return Err(Error::Validation("Email cannot be empty".to_string()));
+            return Err(Error::validation("Email cannot be empty".to_string()));
         }
 
         // Basic email validation
         if !trimmed.contains('@') {
-            return Err(Error::Validation("Email must contain @ symbol".to_string()));
+            return Err(Error::validation("Email must contain @ symbol".to_string()));
         }
 
         let parts: Vec<&str> = trimmed.split('@').collect();
         if parts.len() != 2 {
-            return Err(Error::Validation("Invalid email format".to_string()));
+            return Err(Error::validation("Invalid email format".to_string()));
         }
 
         if parts[0].is_empty() || parts[1].is_empty() {
-            return Err(Error::Validation("Invalid email format".to_string()));
+            return Err(Error::validation("Invalid email format".to_string()));
         }
 
         // Normalize to lowercase

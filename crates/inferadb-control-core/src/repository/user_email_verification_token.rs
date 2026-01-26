@@ -41,7 +41,7 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
     pub async fn create(&self, token: UserEmailVerificationToken) -> Result<()> {
         // Serialize token
         let token_data = serde_json::to_vec(&token)
-            .map_err(|e| Error::Internal(format!("Failed to serialize token: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize token: {e}")))?;
 
         // Expired tokens are filtered out in get() since transactions don't support TTL
 
@@ -50,7 +50,7 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Store token record
         txn.set(Self::token_key(token.id), token_data);
@@ -67,7 +67,7 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit token creation: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit token creation: {e}")))?;
 
         Ok(())
     }
@@ -81,12 +81,12 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get token: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get token: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let token: UserEmailVerificationToken = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize token: {e}")))?;
+                    .map_err(|e| Error::internal(format!("Failed to deserialize token: {e}")))?;
 
                 Ok(Some(token))
             },
@@ -103,12 +103,12 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
             .storage
             .get(&index_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get token by string: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get token by string: {e}")))?;
 
         match data {
             Some(bytes) => {
                 if bytes.len() != 8 {
-                    return Err(Error::Internal("Invalid token index data".to_string()));
+                    return Err(Error::internal("Invalid token index data".to_string()));
                 }
                 let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
                 self.get(id).await
@@ -133,7 +133,7 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
             .storage
             .get_range(start..end)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get email tokens: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get email tokens: {e}")))?;
 
         let mut tokens = Vec::new();
         for kv in kvs {
@@ -153,14 +153,14 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
     pub async fn update(&self, token: UserEmailVerificationToken) -> Result<()> {
         // Serialize token
         let token_data = serde_json::to_vec(&token)
-            .map_err(|e| Error::Internal(format!("Failed to serialize token: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize token: {e}")))?;
 
         // Update token record
         let token_key = Self::token_key(token.id);
         self.storage
             .set(token_key, token_data)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to update token: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to update token: {e}")))?;
 
         Ok(())
     }
@@ -169,14 +169,14 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
     pub async fn delete(&self, id: i64) -> Result<()> {
         // Get the token first to get the token string and email ID for index cleanup
         let token =
-            self.get(id).await?.ok_or_else(|| Error::NotFound(format!("Token {id} not found")))?;
+            self.get(id).await?.ok_or_else(|| Error::not_found(format!("Token {id} not found")))?;
 
         // Use transaction to delete all related keys atomically
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Delete main token record
         txn.delete(Self::token_key(id));
@@ -190,7 +190,7 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit token deletion: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit token deletion: {e}")))?;
 
         Ok(())
     }

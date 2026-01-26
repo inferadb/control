@@ -44,7 +44,7 @@ impl UserPasswordResetToken {
     pub fn new(id: i64, user_id: i64, token: String) -> Result<Self> {
         // Validate token format (64 hex characters = 32 bytes)
         if token.len() != 64 || !token.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::Validation("Token must be 64 hexadecimal characters".to_string()));
+            return Err(Error::validation("Token must be 64 hexadecimal characters".to_string()));
         }
 
         let now = Utc::now();

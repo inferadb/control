@@ -3,9 +3,8 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use inferadb_control_core::{
-    VaultRepository, VaultUserGrantRepository, entities::VaultRole, error::Error as CoreError,
-};
+use inferadb_control_core::{VaultRepository, VaultUserGrantRepository};
+use inferadb_control_types::{Error as CoreError, entities::VaultRole};
 
 use crate::{
     handlers::auth::{ApiError, AppState},
@@ -64,7 +63,7 @@ pub async fn require_vault_access(
 ) -> Result<Response, ApiError> {
     // Get organization context (should be set by require_organization_member middleware)
     let org_ctx = request.extensions().get::<OrganizationContext>().cloned().ok_or_else(|| {
-        CoreError::Internal("Organization context not found in request extensions".to_string())
+        CoreError::internal("Organization context not found in request extensions".to_string())
     })?;
 
     // Extract vault_id from the URI path manually
@@ -81,10 +80,10 @@ pub async fn require_vault_access(
     {
         segments[6]
             .parse::<i64>()
-            .map_err(|_| CoreError::Validation("Invalid vault ID in path".to_string()))?
+            .map_err(|_| CoreError::validation("Invalid vault ID in path".to_string()))?
     } else {
         return Err(
-            CoreError::Internal("Vault middleware applied to invalid route".to_string()).into()
+            CoreError::internal("Vault middleware applied to invalid route".to_string()).into()
         );
     };
 
@@ -93,21 +92,21 @@ pub async fn require_vault_access(
     let vault = vault_repo
         .get(vault_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Vault not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     if vault.is_deleted() {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     if vault.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Vault not found".to_string()).into());
+        return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Resolve user's vault role
     let role = get_user_vault_role(&state, vault_id, org_ctx.member.user_id).await?;
 
     let role =
-        role.ok_or_else(|| CoreError::Authz("You do not have access to this vault".to_string()))?;
+        role.ok_or_else(|| CoreError::authz("You do not have access to this vault".to_string()))?;
 
     // Attach vault context to request extensions
     request.extensions_mut().insert(VaultContext {
@@ -167,7 +166,7 @@ pub async fn get_user_vault_role(
 /// Require user to be a reader or higher
 pub fn require_reader(vault_ctx: &VaultContext) -> Result<(), ApiError> {
     if !vault_ctx.is_reader() {
-        return Err(CoreError::Authz("Reader role or higher required".to_string()).into());
+        return Err(CoreError::authz("Reader role or higher required".to_string()).into());
     }
     Ok(())
 }
@@ -175,7 +174,7 @@ pub fn require_reader(vault_ctx: &VaultContext) -> Result<(), ApiError> {
 /// Require user to be a writer or higher
 pub fn require_writer(vault_ctx: &VaultContext) -> Result<(), ApiError> {
     if !vault_ctx.is_writer() {
-        return Err(CoreError::Authz("Writer role or higher required".to_string()).into());
+        return Err(CoreError::authz("Writer role or higher required".to_string()).into());
     }
     Ok(())
 }
@@ -183,7 +182,7 @@ pub fn require_writer(vault_ctx: &VaultContext) -> Result<(), ApiError> {
 /// Require user to be a manager or higher
 pub fn require_manager(vault_ctx: &VaultContext) -> Result<(), ApiError> {
     if !vault_ctx.is_manager() {
-        return Err(CoreError::Authz("Manager role or higher required".to_string()).into());
+        return Err(CoreError::authz("Manager role or higher required".to_string()).into());
     }
     Ok(())
 }
@@ -191,7 +190,7 @@ pub fn require_manager(vault_ctx: &VaultContext) -> Result<(), ApiError> {
 /// Require user to be an admin
 pub fn require_admin(vault_ctx: &VaultContext) -> Result<(), ApiError> {
     if !vault_ctx.is_admin() {
-        return Err(CoreError::Authz("Admin role required".to_string()).into());
+        return Err(CoreError::authz("Admin role required".to_string()).into());
     }
     Ok(())
 }

@@ -9,7 +9,7 @@ use chrono::Utc;
 use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_types::{
     dto::{CliAuthorizeRequest, CliAuthorizeResponse, CliTokenRequest, CliTokenResponse},
-    entities::{AuthorizationCode, UserSession},
+    entities::{AuthorizationCode, SessionType, UserSession},
 };
 
 use crate::{handlers::AppState, middleware::session::SessionContext};
@@ -126,7 +126,7 @@ pub async fn cli_token_exchange(
     let cli_session = UserSession::builder()
         .id(cli_session_id)
         .user_id(original_session.user_id)
-        .session_type(inferadb_control_core::SessionType::Cli)
+        .session_type(SessionType::Cli)
         .user_agent("InferaDB CLI")
         .create();
 

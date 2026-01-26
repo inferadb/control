@@ -76,13 +76,10 @@
 
 #![deny(unsafe_code)]
 
-pub mod refresh;
-
 use std::path::Path;
 
 use bon::Builder;
 use inferadb_control_types::error::{Error, Result};
-pub use refresh::ConfigRefresher;
 use serde::{Deserialize, Serialize};
 
 /// Root configuration wrapper for unified config file support.
@@ -506,12 +503,12 @@ impl ControlConfig {
         );
 
         let config =
-            builder.build().map_err(|e| Error::Config(format!("Failed to build config: {e}")))?;
+            builder.build().map_err(|e| Error::config(format!("Failed to build config: {e}")))?;
 
         // Deserialize as RootConfig and extract the control section
         let root: RootConfig = config
             .try_deserialize()
-            .map_err(|e| Error::Config(format!("Failed to deserialize config: {e}")))?;
+            .map_err(|e| Error::config(format!("Failed to deserialize config: {e}")))?;
 
         Ok(root.control)
     }
@@ -543,10 +540,10 @@ impl ControlConfig {
     pub fn validate(&self) -> Result<()> {
         // Validate listen addresses are parseable
         self.listen.http.parse::<std::net::SocketAddr>().map_err(|e| {
-            Error::Config(format!("listen.http '{}' is not valid: {}", self.listen.http, e))
+            Error::config(format!("listen.http '{}' is not valid: {}", self.listen.http, e))
         })?;
         self.listen.grpc.parse::<std::net::SocketAddr>().map_err(|e| {
-            Error::Config(format!("listen.grpc '{}' is not valid: {}", self.listen.grpc, e))
+            Error::config(format!("listen.grpc '{}' is not valid: {}", self.listen.grpc, e))
         })?;
 
         // Validate storage backend
@@ -555,30 +552,30 @@ impl ControlConfig {
             "ledger" => {
                 // Validate required ledger fields
                 if self.ledger.endpoint.is_none() {
-                    return Err(Error::Config(
+                    return Err(Error::config(
                         "ledger.endpoint is required when using Ledger backend".to_string(),
                     ));
                 }
                 if self.ledger.client_id.is_none() {
-                    return Err(Error::Config(
+                    return Err(Error::config(
                         "ledger.client_id is required when using Ledger backend".to_string(),
                     ));
                 }
                 if self.ledger.namespace_id.is_none() {
-                    return Err(Error::Config(
+                    return Err(Error::config(
                         "ledger.namespace_id is required when using Ledger backend".to_string(),
                     ));
                 }
                 // Validate endpoint format
                 let endpoint = self.ledger.endpoint.as_ref().unwrap();
                 if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
-                    return Err(Error::Config(format!(
+                    return Err(Error::config(format!(
                         "ledger.endpoint must start with http:// or https://, got: {endpoint}"
                     )));
                 }
             },
             _ => {
-                return Err(Error::Config(format!(
+                return Err(Error::config(format!(
                     "Invalid storage backend: '{}'. Supported: 'memory', 'ledger'",
                     self.storage
                 )));
@@ -590,13 +587,13 @@ impl ControlConfig {
 
         // Validate frontend.url format
         if !self.frontend.url.starts_with("http://") && !self.frontend.url.starts_with("https://") {
-            return Err(Error::Config(
+            return Err(Error::config(
                 "frontend.url must start with http:// or https://".to_string(),
             ));
         }
 
         if self.frontend.url.ends_with('/') {
-            return Err(Error::Config("frontend.url must not end with trailing slash".to_string()));
+            return Err(Error::config("frontend.url must not end with trailing slash".to_string()));
         }
 
         // Warn about localhost in production-like environments
@@ -609,7 +606,7 @@ impl ControlConfig {
 
         // Validate webhook.timeout is reasonable
         if self.webhook.timeout == 0 {
-            return Err(Error::Config("webhook.timeout must be greater than 0".to_string()));
+            return Err(Error::config("webhook.timeout must be greater than 0".to_string()));
         }
         if self.webhook.timeout > 60000 {
             tracing::warn!(
@@ -620,15 +617,15 @@ impl ControlConfig {
 
         // Validate WebAuthn configuration
         if self.webauthn.party.is_empty() {
-            return Err(Error::Config("webauthn.party cannot be empty".to_string()));
+            return Err(Error::config("webauthn.party cannot be empty".to_string()));
         }
         if self.webauthn.origin.is_empty() {
-            return Err(Error::Config("webauthn.origin cannot be empty".to_string()));
+            return Err(Error::config("webauthn.origin cannot be empty".to_string()));
         }
         if !self.webauthn.origin.starts_with("http://")
             && !self.webauthn.origin.starts_with("https://")
         {
-            return Err(Error::Config(
+            return Err(Error::config(
                 "webauthn.origin must start with http:// or https://".to_string(),
             ));
         }

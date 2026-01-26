@@ -3,8 +3,9 @@ use axum::{
     extract::{Path, State},
 };
 use inferadb_control_const::limits::{GLOBAL_ORGANIZATION_LIMIT, PER_USER_ORGANIZATION_LIMIT};
-use inferadb_control_core::{IdGenerator, RepositoryContext, error::Error as CoreError};
+use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_types::{
+    Error as CoreError,
     dto::{
         AcceptInvitationRequest, AcceptInvitationResponse, CreateInvitationRequest,
         CreateInvitationResponse, CreateOrganizationRequest, CreateOrganizationResponse,
@@ -47,7 +48,7 @@ pub async fn create_organization(
     let has_verified_email = user_emails.iter().any(|e| e.verified_at.is_some());
 
     if !has_verified_email {
-        return Err(CoreError::Validation(
+        return Err(CoreError::validation(
             "You must verify your email before creating an organization".to_string(),
         )
         .into());
@@ -57,7 +58,7 @@ pub async fn create_organization(
     let user_org_count = repos.org_member.get_user_organization_count(ctx.user_id).await?;
 
     if user_org_count >= PER_USER_ORGANIZATION_LIMIT {
-        return Err(CoreError::TierLimit(format!(
+        return Err(CoreError::tier_limit(format!(
             "You have reached the maximum number of organizations ({PER_USER_ORGANIZATION_LIMIT})"
         ))
         .into());
@@ -67,7 +68,7 @@ pub async fn create_organization(
     let total_org_count = repos.org.get_total_count().await?;
 
     if total_org_count >= GLOBAL_ORGANIZATION_LIMIT {
-        return Err(CoreError::TierLimit(
+        return Err(CoreError::tier_limit(
             "Global organization limit reached. Please contact support.".to_string(),
         )
         .into());
@@ -188,11 +189,11 @@ pub async fn get_organization(
         .org
         .get(org_ctx.organization_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Check if deleted
     if org.is_deleted() {
-        return Err(CoreError::NotFound("Organization not found".to_string()).into());
+        return Err(CoreError::not_found("Organization not found".to_string()).into());
     }
 
     Ok(Json(GetOrganizationResponse {
@@ -228,7 +229,7 @@ pub async fn get_organization_by_id(
         .org
         .get(org_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Determine status: Deleted > Suspended > Active
     let status = if org.is_deleted() {
@@ -262,11 +263,11 @@ pub async fn update_organization(
         .org
         .get(org_ctx.organization_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Check if deleted
     if org.is_deleted() {
-        return Err(CoreError::NotFound("Organization not found".to_string()).into());
+        return Err(CoreError::not_found("Organization not found".to_string()).into());
     }
 
     // Update name
@@ -310,7 +311,7 @@ pub async fn delete_organization(
     let active_vault_count = vaults.iter().filter(|v| !v.is_deleted()).count();
 
     if active_vault_count > 0 {
-        return Err(CoreError::Validation(format!(
+        return Err(CoreError::validation(format!(
             "Cannot delete organization with {} active vault{}. Please delete all vaults first.",
             active_vault_count,
             if active_vault_count == 1 { "" } else { "s" }
@@ -374,16 +375,16 @@ pub async fn suspend_organization(
         .org
         .get(org_ctx.organization_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Check if deleted
     if org.is_deleted() {
-        return Err(CoreError::NotFound("Organization not found".to_string()).into());
+        return Err(CoreError::not_found("Organization not found".to_string()).into());
     }
 
     // Check if already suspended
     if org.is_suspended() {
-        return Err(CoreError::Validation("Organization is already suspended".to_string()).into());
+        return Err(CoreError::validation("Organization is already suspended".to_string()).into());
     }
 
     // Suspend the organization
@@ -415,16 +416,16 @@ pub async fn resume_organization(
         .org
         .get(org_ctx.organization_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Check if deleted
     if org.is_deleted() {
-        return Err(CoreError::NotFound("Organization not found".to_string()).into());
+        return Err(CoreError::not_found("Organization not found".to_string()).into());
     }
 
     // Check if not suspended
     if !org.is_suspended() {
-        return Err(CoreError::Validation("Organization is not suspended".to_string()).into());
+        return Err(CoreError::validation("Organization is not suspended".to_string()).into());
     }
 
     // Resume the organization
@@ -489,11 +490,13 @@ pub async fn update_member_role(
         .org_member
         .get(member_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Member not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Member not found".to_string()))?;
 
     // Verify the member belongs to this organization
     if target_member.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Member not found in this organization".to_string()).into());
+        return Err(
+            CoreError::not_found("Member not found in this organization".to_string()).into()
+        );
     }
 
     // Parse new role
@@ -502,7 +505,7 @@ pub async fn update_member_role(
         "ADMIN" => OrganizationRole::Admin,
         "OWNER" => OrganizationRole::Owner,
         _ => {
-            return Err(CoreError::Validation(format!(
+            return Err(CoreError::validation(format!(
                 "Invalid role '{}'. Must be MEMBER, ADMIN, or OWNER",
                 payload.role
             ))
@@ -513,7 +516,7 @@ pub async fn update_member_role(
     // Only owners can promote someone to OWNER
     if new_role == OrganizationRole::Owner && org_ctx.member.role != OrganizationRole::Owner {
         return Err(
-            CoreError::Authz("Only owners can promote members to OWNER role".to_string()).into()
+            CoreError::authz("Only owners can promote members to OWNER role".to_string()).into()
         );
     }
 
@@ -521,7 +524,7 @@ pub async fn update_member_role(
     if target_member.role == OrganizationRole::Owner && new_role != OrganizationRole::Owner {
         let owner_count = repos.org_member.count_owners(org_ctx.organization_id).await?;
         if owner_count <= 1 {
-            return Err(CoreError::Validation(
+            return Err(CoreError::validation(
                 "Cannot demote the last owner. Promote another member to OWNER first.".to_string(),
             )
             .into());
@@ -563,18 +566,20 @@ pub async fn remove_member(
         .org_member
         .get(member_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Member not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Member not found".to_string()))?;
 
     // Verify the member belongs to this organization
     if target_member.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Member not found in this organization".to_string()).into());
+        return Err(
+            CoreError::not_found("Member not found in this organization".to_string()).into()
+        );
     }
 
     // If removing an owner, check if there are other owners
     if target_member.role == OrganizationRole::Owner {
         let owner_count = repos.org_member.count_owners(org_ctx.organization_id).await?;
         if owner_count <= 1 {
-            return Err(CoreError::Validation(
+            return Err(CoreError::validation(
                 "Cannot remove the last owner. Transfer ownership first or delete the organization."
                     .to_string(),
             )
@@ -605,7 +610,7 @@ pub async fn leave_organization(
     if org_ctx.member.role == OrganizationRole::Owner {
         let owner_count = repos.org_member.count_owners(org_ctx.organization_id).await?;
         if owner_count <= 1 {
-            return Err(CoreError::Validation(
+            return Err(CoreError::validation(
                 "Cannot leave as the last owner. Promote another member to owner first or delete the organization."
                     .to_string(),
             )
@@ -658,13 +663,13 @@ pub async fn create_invitation(
         .org
         .get(org_ctx.organization_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Check member count against tier limit
     let member_count = repos.org_member.count_by_organization(org_ctx.organization_id).await?;
 
     if member_count >= org.tier.max_members() {
-        return Err(CoreError::TierLimit(format!(
+        return Err(CoreError::tier_limit(format!(
             "Organization has reached the maximum number of members ({}) for tier {:?}",
             org.tier.max_members(),
             org.tier
@@ -680,7 +685,7 @@ pub async fn create_invitation(
             .await?
             .is_some()
     {
-        return Err(CoreError::AlreadyExists(
+        return Err(CoreError::already_exists(
             "User is already a member of this organization".to_string(),
         )
         .into());
@@ -689,7 +694,7 @@ pub async fn create_invitation(
     // Check for existing invitation
     if repos.org_invitation.exists_for_email_in_org(&payload.email, org_ctx.organization_id).await?
     {
-        return Err(CoreError::AlreadyExists(
+        return Err(CoreError::already_exists(
             "An invitation for this email already exists".to_string(),
         )
         .into());
@@ -758,10 +763,10 @@ pub async fn delete_invitation(
         .org_invitation
         .get(invitation_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Invitation not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Invitation not found".to_string()))?;
 
     if invitation.organization_id != org_ctx.organization_id {
-        return Err(CoreError::NotFound("Invitation not found".to_string()).into());
+        return Err(CoreError::not_found("Invitation not found".to_string()).into());
     }
 
     // Delete invitation
@@ -790,13 +795,13 @@ pub async fn accept_invitation(
         .org_invitation
         .get_by_token(&payload.token)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Invalid or expired invitation".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Invalid or expired invitation".to_string()))?;
 
     // Check if invitation has expired
     if invitation.is_expired() {
         // Clean up expired invitation
         repos.org_invitation.delete(invitation.id).await?;
-        return Err(CoreError::NotFound("Invalid or expired invitation".to_string()).into());
+        return Err(CoreError::not_found("Invalid or expired invitation".to_string()).into());
     }
 
     // Get user's email to verify it matches
@@ -805,7 +810,7 @@ pub async fn accept_invitation(
         user_emails.iter().any(|e| e.email.to_lowercase() == invitation.email.to_lowercase());
 
     if !has_matching_email {
-        return Err(CoreError::Validation(
+        return Err(CoreError::validation(
             "This invitation was sent to a different email address".to_string(),
         )
         .into());
@@ -820,7 +825,7 @@ pub async fn accept_invitation(
     {
         // Delete invitation and return success
         repos.org_invitation.delete(invitation.id).await?;
-        return Err(CoreError::AlreadyExists(
+        return Err(CoreError::already_exists(
             "You are already a member of this organization".to_string(),
         )
         .into());
@@ -831,11 +836,11 @@ pub async fn accept_invitation(
         .org
         .get(invitation.organization_id)
         .await?
-        .ok_or_else(|| CoreError::NotFound("Organization not found".to_string()))?;
+        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     let member_count = repos.org_member.count_by_organization(invitation.organization_id).await?;
     if member_count >= org.tier.max_members() {
-        return Err(CoreError::TierLimit(
+        return Err(CoreError::tier_limit(
             "Organization has reached the maximum number of members".to_string(),
         )
         .into());

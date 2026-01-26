@@ -36,14 +36,14 @@ impl<S: StorageBackend> UserRepository<S> {
     pub async fn create(&self, user: User) -> Result<()> {
         // Serialize user
         let user_data = serde_json::to_vec(&user)
-            .map_err(|e| Error::Internal(format!("Failed to serialize user: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize user: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Store user record
         txn.set(Self::user_key(user.id), user_data);
@@ -55,7 +55,7 @@ impl<S: StorageBackend> UserRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit user creation: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit user creation: {e}")))?;
 
         Ok(())
     }
@@ -67,12 +67,12 @@ impl<S: StorageBackend> UserRepository<S> {
             .storage
             .get(&key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to get user: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to get user: {e}")))?;
 
         match data {
             Some(bytes) => {
                 let user: User = serde_json::from_slice(&bytes)
-                    .map_err(|e| Error::Internal(format!("Failed to deserialize user: {e}")))?;
+                    .map_err(|e| Error::internal(format!("Failed to deserialize user: {e}")))?;
 
                 // Filter out soft-deleted users
                 if user.deleted_at.is_some() { Ok(None) } else { Ok(Some(user)) }
@@ -88,12 +88,12 @@ impl<S: StorageBackend> UserRepository<S> {
             .storage
             .get(&name_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to lookup user by name: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to lookup user by name: {e}")))?;
 
         match id_data {
             Some(bytes) => {
                 if bytes.len() != 8 {
-                    return Err(Error::Internal("Invalid user ID in name index".to_string()));
+                    return Err(Error::internal("Invalid user ID in name index".to_string()));
                 }
                 let id = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
                 self.get(id).await
@@ -108,20 +108,20 @@ impl<S: StorageBackend> UserRepository<S> {
     pub async fn update(&self, user: User) -> Result<()> {
         // Get existing user to check if name changed
         let existing = self.get(user.id).await?;
-        let existing = existing.ok_or_else(|| Error::NotFound("User not found".to_string()))?;
+        let existing = existing.ok_or_else(|| Error::not_found("User not found".to_string()))?;
 
         let name_changed = existing.name != user.name;
 
         // Serialize user
         let user_data = serde_json::to_vec(&user)
-            .map_err(|e| Error::Internal(format!("Failed to serialize user: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize user: {e}")))?;
 
         // Use transaction for atomicity
         let mut txn = self
             .storage
             .transaction()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Update user record
         txn.set(Self::user_key(user.id), user_data);
@@ -137,7 +137,7 @@ impl<S: StorageBackend> UserRepository<S> {
         // Commit transaction
         txn.commit()
             .await
-            .map_err(|e| Error::Internal(format!("Failed to commit user update: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to commit user update: {e}")))?;
 
         Ok(())
     }
@@ -145,7 +145,7 @@ impl<S: StorageBackend> UserRepository<S> {
     /// Soft delete a user
     pub async fn soft_delete(&self, id: i64) -> Result<()> {
         let mut user =
-            self.get(id).await?.ok_or_else(|| Error::NotFound("User not found".to_string()))?;
+            self.get(id).await?.ok_or_else(|| Error::not_found("User not found".to_string()))?;
 
         user.soft_delete();
         self.update(user).await
@@ -163,7 +163,7 @@ impl<S: StorageBackend> UserRepository<S> {
                 .storage
                 .transaction()
                 .await
-                .map_err(|e| Error::Internal(format!("Failed to start transaction: {e}")))?;
+                .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
             // Delete user record
             txn.delete(Self::user_key(id));
@@ -174,7 +174,7 @@ impl<S: StorageBackend> UserRepository<S> {
             // Commit transaction
             txn.commit()
                 .await
-                .map_err(|e| Error::Internal(format!("Failed to commit user deletion: {e}")))?;
+                .map_err(|e| Error::internal(format!("Failed to commit user deletion: {e}")))?;
         }
 
         Ok(())

@@ -165,7 +165,7 @@ impl AuditLog {
     pub fn validate(&self) -> Result<()> {
         // At least one of organization_id, user_id, or client_id must be set
         if self.organization_id.is_none() && self.user_id.is_none() && self.client_id.is_none() {
-            return Err(Error::Validation(
+            return Err(Error::validation(
                 "At least one of organization_id, user_id, or client_id must be set".to_string(),
             ));
         }

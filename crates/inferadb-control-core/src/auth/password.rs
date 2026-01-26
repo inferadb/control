@@ -45,7 +45,7 @@ impl PasswordHasher {
         let password_hash = self
             .argon2
             .hash_password(password.as_bytes(), &salt)
-            .map_err(|e| Error::Internal(format!("Failed to hash password: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to hash password: {e}")))?;
 
         Ok(password_hash.to_string())
     }
@@ -62,11 +62,11 @@ impl PasswordHasher {
     /// Ok(()) if password matches, Err otherwise
     pub fn verify(&self, password: &str, hash: &str) -> Result<()> {
         let parsed_hash = PasswordHash::new(hash)
-            .map_err(|e| Error::Auth(format!("Invalid password hash: {e}")))?;
+            .map_err(|e| Error::auth(format!("Invalid password hash: {e}")))?;
 
         self.argon2
             .verify_password(password.as_bytes(), &parsed_hash)
-            .map_err(|_| Error::Auth("Invalid password".to_string()))?;
+            .map_err(|_| Error::auth("Invalid password".to_string()))?;
 
         Ok(())
     }
@@ -79,13 +79,13 @@ impl PasswordHasher {
     /// - No complexity requirements (letters, numbers, symbols not required)
     pub fn validate_password(password: &str) -> Result<()> {
         if password.len() < MIN_PASSWORD_LENGTH {
-            return Err(Error::Validation(format!(
+            return Err(Error::validation(format!(
                 "Password must be at least {MIN_PASSWORD_LENGTH} characters long"
             )));
         }
 
         if password.len() > 128 {
-            return Err(Error::Validation("Password must be 128 characters or less".to_string()));
+            return Err(Error::validation("Password must be 128 characters or less".to_string()));
         }
 
         Ok(())

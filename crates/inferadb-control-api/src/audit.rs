@@ -1,7 +1,5 @@
-use inferadb_control_core::{
-    entities::{AuditEventType, AuditLog, AuditResourceType},
-    repository::AuditLogRepository,
-};
+use inferadb_control_core::repository::AuditLogRepository;
+use inferadb_control_types::entities::{AuditEventType, AuditLog, AuditResourceType};
 use serde_json::Value as JsonValue;
 
 use crate::handlers::AppState;

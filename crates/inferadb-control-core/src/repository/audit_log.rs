@@ -6,9 +6,6 @@ use inferadb_control_types::{
 };
 
 const PREFIX_AUDIT_LOG: &[u8] = b"audit_log:";
-// For future index implementation
-#[allow(dead_code)]
-const PREFIX_AUDIT_LOG_BY_ORG: &[u8] = b"audit_log_by_org:";
 
 /// Query filters for audit logs
 #[derive(Debug, Clone, Default)]
@@ -39,11 +36,11 @@ impl<S: StorageBackend> AuditLogRepository<S> {
         log.validate()?;
         let key = Self::key(log.id);
         let value = serde_json::to_vec(&log)
-            .map_err(|e| Error::Internal(format!("Failed to serialize audit log: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to serialize audit log: {e}")))?;
         self.storage
             .set(key, value)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to write audit log: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to write audit log: {e}")))?;
         Ok(())
     }
 
@@ -52,12 +49,12 @@ impl<S: StorageBackend> AuditLogRepository<S> {
         match self.storage.get(&key).await {
             Ok(Some(value)) => {
                 let log = serde_json::from_slice(&value).map_err(|e| {
-                    Error::Internal(format!("Failed to deserialize audit log: {e}"))
+                    Error::internal(format!("Failed to deserialize audit log: {e}"))
                 })?;
                 Ok(Some(log))
             },
             Ok(None) => Ok(None),
-            Err(e) => Err(Error::Internal(format!("Failed to get audit log: {e}"))),
+            Err(e) => Err(Error::internal(format!("Failed to get audit log: {e}"))),
         }
     }
 
@@ -87,7 +84,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
             .storage
             .get_range(start_key..end_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to scan audit logs: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to scan audit logs: {e}")))?;
 
         let mut all_logs: Vec<AuditLog> =
             kvs.into_iter().filter_map(|kv| serde_json::from_slice(&kv.value).ok()).collect();
@@ -144,7 +141,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
             .storage
             .get_range(start_key..end_key)
             .await
-            .map_err(|e| Error::Internal(format!("Failed to scan audit logs: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to scan audit logs: {e}")))?;
 
         let mut deleted_count = 0;
 
@@ -155,7 +152,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
                 self.storage
                     .delete(&kv.key)
                     .await
-                    .map_err(|e| Error::Internal(format!("Failed to delete audit log: {e}")))?;
+                    .map_err(|e| Error::internal(format!("Failed to delete audit log: {e}")))?;
                 deleted_count += 1;
             }
         }
