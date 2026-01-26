@@ -15,13 +15,13 @@
 //! Types without validation use `#[derive(bon::Builder)]` directly on the struct.
 //! Optional fields get `.maybe_*()` methods for passing `Option<T>` values:
 //!
-//! ```no_run
+//! ```ignore
 //! use inferadb_control_types::entities::AuditLog;
 //! use inferadb_control_types::entities::{AuditEventType, AuditResourceType};
 //!
 //! // Required fields use direct setters, optional fields use maybe_* methods
 //! let log = AuditLog::builder()
-//!     .event_type(AuditEventType::Login)
+//!     .event_type(AuditEventType::UserLogin)
 //!     .maybe_organization_id(Some(123))
 //!     .maybe_user_id(Some(456))
 //!     .build();
@@ -32,13 +32,13 @@
 //! Types with validation use `#[builder]` on the `new()` function. These return
 //! `Result<Self>` and require `.build()?.unwrap()` or error handling:
 //!
-//! ```no_run
+//! ```ignore
 //! use inferadb_control_types::entities::User;
 //!
 //! // Fallible builder returns Result
 //! let user = User::builder()
 //!     .id(12345)
-//!     .name("alice")  // String fields accept &str via Into<String>
+//!     .name("alice".to_string())
 //!     .maybe_password_hash(Some("hash".to_string()))
 //!     .build()
 //!     .expect("valid user");

@@ -44,7 +44,7 @@ impl User {
     /// # Errors
     ///
     /// Returns an error if validation fails
-    #[builder]
+    #[builder(on(String, into), finish_fn = create)]
     pub fn new(id: i64, name: String, password_hash: Option<String>) -> Result<Self> {
         Self::validate_name(&name)?;
 
@@ -132,7 +132,7 @@ mod tests {
             .id(1)
             .name("Test User".to_string())
             .password_hash("hash".to_string())
-            .build()
+            .create()
             .unwrap();
         assert_eq!(user.id, 1);
         assert_eq!(user.name, "Test User");
@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_accept_tos() {
-        let mut user = User::builder().id(1).name("Test".to_string()).build().unwrap();
+        let mut user = User::builder().id(1).name("Test".to_string()).create().unwrap();
         assert!(!user.has_accepted_tos());
 
         user.accept_tos();
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn test_soft_delete() {
-        let mut user = User::builder().id(1).name("Test".to_string()).build().unwrap();
+        let mut user = User::builder().id(1).name("Test".to_string()).create().unwrap();
         assert!(!user.is_deleted());
 
         user.soft_delete();
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_set_name() {
-        let mut user = User::builder().id(1).name("Original".to_string()).build().unwrap();
+        let mut user = User::builder().id(1).name("Original".to_string()).create().unwrap();
         user.set_name("Updated".to_string()).unwrap();
         assert_eq!(user.name, "Updated");
 

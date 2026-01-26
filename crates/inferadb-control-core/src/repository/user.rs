@@ -198,7 +198,7 @@ mod tests {
     use super::*;
 
     async fn create_test_user(id: i64, name: &str) -> User {
-        User::builder().id(id).name(name.to_string()).build().unwrap()
+        User::builder().id(id).name(name.to_string()).create().unwrap()
     }
 
     #[tokio::test]

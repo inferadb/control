@@ -44,7 +44,7 @@ impl UserEmail {
     /// # Errors
     ///
     /// Returns an error if email validation fails
-    #[builder]
+    #[builder(on(String, into), finish_fn = create)]
     pub fn new(id: i64, user_id: i64, email: String, primary: bool) -> Result<Self> {
         let normalized_email = Self::normalize_email(&email)?;
 
@@ -119,7 +119,7 @@ mod tests {
             .user_id(100)
             .email("Test@Example.COM".to_string())
             .primary(true)
-            .build()
+            .create()
             .unwrap();
         assert_eq!(email.id, 1);
         assert_eq!(email.user_id, 100);
@@ -159,7 +159,7 @@ mod tests {
             .user_id(100)
             .email("test@example.com".to_string())
             .primary(true)
-            .build()
+            .create()
             .unwrap();
         assert!(!email.is_verified());
 
@@ -179,7 +179,7 @@ mod tests {
             .user_id(100)
             .email("test@example.com".to_string())
             .primary(false)
-            .build()
+            .create()
             .unwrap();
         assert!(!email.primary);
 

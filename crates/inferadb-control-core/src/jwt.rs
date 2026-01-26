@@ -282,7 +282,7 @@ mod tests {
             .private_key_encrypted(private_key_encrypted)
             .name("Test Certificate".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap()
     }
 

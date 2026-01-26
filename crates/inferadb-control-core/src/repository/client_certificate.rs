@@ -368,7 +368,7 @@ mod tests {
             .private_key_encrypted("encrypted_private_key_base64".to_string())
             .name(name.to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
     }
 
     #[tokio::test]

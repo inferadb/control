@@ -88,7 +88,7 @@ pub async fn deploy_schema(
         .author_user_id(org_ctx.member.user_id)
         .description(payload.description)
         .maybe_parent_version_id(parent_version_id)
-        .build()?;
+        .create()?;
 
     // Schema validation is performed by the Engine when loaded; mark as deployed
     schema.mark_deployed();

@@ -42,7 +42,7 @@ impl UserEmailVerificationToken {
     /// # Returns
     ///
     /// A new UserEmailVerificationToken instance or an error if token is invalid
-    #[builder]
+    #[builder(on(String, into), finish_fn = create)]
     pub fn new(id: i64, user_email_id: i64, token: String) -> Result<Self> {
         // Validate token format (must be 64 hex characters)
         if token.len() != 64 {
@@ -107,7 +107,7 @@ mod tests {
     fn test_create_token() {
         let token = UserEmailVerificationToken::generate_token();
         let result =
-            UserEmailVerificationToken::builder().id(1).user_email_id(100).token(token).build();
+            UserEmailVerificationToken::builder().id(1).user_email_id(100).token(token).create();
         assert!(result.is_ok());
 
         let token_entity = result.unwrap();
@@ -124,7 +124,7 @@ mod tests {
             .id(1)
             .user_email_id(100)
             .token("short".to_string())
-            .build();
+            .create();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::Validation(_)));
     }
@@ -136,7 +136,7 @@ mod tests {
             .id(1)
             .user_email_id(100)
             .token(invalid_token)
-            .build();
+            .create();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::Validation(_)));
     }
@@ -159,7 +159,7 @@ mod tests {
             .id(1)
             .user_email_id(100)
             .token(token)
-            .build()
+            .create()
             .unwrap();
 
         assert!(!token_entity.is_used());
@@ -178,7 +178,7 @@ mod tests {
             .id(1)
             .user_email_id(100)
             .token(token)
-            .build()
+            .create()
             .unwrap();
 
         let time_left = token_entity.time_until_expiry();

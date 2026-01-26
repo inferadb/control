@@ -108,7 +108,7 @@ pub async fn create_vault(
         .name(payload.name)
         .maybe_description(payload.description.clone())
         .created_by_user_id(org_ctx.member.user_id)
-        .build()?;
+        .create()?;
 
     // Mark as synced immediately - Ledger is the source of truth
     vault.mark_synced();

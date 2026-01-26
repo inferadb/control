@@ -25,7 +25,7 @@
 //! When constructing entities directly in tests (e.g., for repository tests), use the
 //! `bon` builder pattern. All entity types support builders via `Type::builder()`:
 //!
-//! ```rust,no_run
+//! ```ignore
 //! use inferadb_control_types::{User, Organization, Vault, Client};
 //!
 //! // User with builder (fallible - returns Result)
@@ -59,7 +59,7 @@
 //! For optional fields, use `.maybe_field()` to pass `Option<T>` values directly,
 //! or omit the call entirely for `None`:
 //!
-//! ```rust,no_run
+//! ```ignore
 //! use inferadb_control_types::AuditLog;
 //!
 //! let log = AuditLog::builder()

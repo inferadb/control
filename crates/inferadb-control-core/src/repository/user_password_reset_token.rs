@@ -215,7 +215,7 @@ mod tests {
             .id(100)
             .user_id(1)
             .token(token_string)
-            .build()
+            .create()
             .unwrap();
 
         repo.create(token.clone()).await.unwrap();
@@ -235,7 +235,7 @@ mod tests {
             .id(100)
             .user_id(1)
             .token(token_string.clone())
-            .build()
+            .create()
             .unwrap();
 
         repo.create(token.clone()).await.unwrap();
@@ -255,7 +255,7 @@ mod tests {
             .id(100)
             .user_id(1)
             .token(token1_string)
-            .build()
+            .create()
             .unwrap();
 
         let token2_string = UserPasswordResetToken::generate_token();
@@ -263,7 +263,7 @@ mod tests {
             .id(101)
             .user_id(1)
             .token(token2_string)
-            .build()
+            .create()
             .unwrap();
 
         let token3_string = UserPasswordResetToken::generate_token();
@@ -271,7 +271,7 @@ mod tests {
             .id(102)
             .user_id(2)
             .token(token3_string)
-            .build()
+            .create()
             .unwrap();
 
         repo.create(token1.clone()).await.unwrap();
@@ -295,7 +295,7 @@ mod tests {
             .id(100)
             .user_id(1)
             .token(token_string)
-            .build()
+            .create()
             .unwrap();
 
         repo.create(token.clone()).await.unwrap();
@@ -318,7 +318,7 @@ mod tests {
             .id(100)
             .user_id(1)
             .token(token_string.clone())
-            .build()
+            .create()
             .unwrap();
 
         repo.create(token).await.unwrap();

@@ -154,7 +154,7 @@ pub async fn register(
         .id(user_id)
         .name(payload.name.clone())
         .password_hash(password_hash)
-        .build()?;
+        .create()?;
     user.accept_tos(); // Auto-accept TOS on registration
     repos.user.create(user).await?;
 
@@ -164,7 +164,7 @@ pub async fn register(
         .user_id(user_id)
         .email(payload.email.clone())
         .primary(true)
-        .build()?;
+        .create()?;
     repos.user_email.create(email.clone()).await?;
 
     // Create email verification token
@@ -174,7 +174,7 @@ pub async fn register(
         .id(token_id)
         .user_email_id(email_id)
         .token(token_string)
-        .build()?;
+        .create()?;
     repos.user_email_verification_token.create(verification_token.clone()).await?;
 
     // Send verification email (fire-and-forget - don't block registration)
@@ -220,7 +220,7 @@ pub async fn register(
         .id(session_id)
         .user_id(user_id)
         .session_type(SessionType::Web)
-        .build();
+        .create();
     repos.user_session.create(session).await?;
 
     // Create default organization with same name as user
@@ -231,7 +231,7 @@ pub async fn register(
         .id(org_id)
         .name(payload.name.clone())
         .tier(OrganizationTier::TierDevV1)
-        .build()?;
+        .create()?;
     repos.org.create(organization).await?;
 
     // Create organization member (owner role)
@@ -301,7 +301,7 @@ pub async fn login(
         .id(session_id)
         .user_id(user.id)
         .session_type(SessionType::Web)
-        .build();
+        .create();
     repos.user_session.create(session).await?;
 
     // Set session cookie
@@ -438,7 +438,7 @@ pub async fn request_password_reset(
         .id(token_id)
         .user_id(user.id)
         .token(token_string.clone())
-        .build()?;
+        .create()?;
 
     // Store the token
     repos.user_password_reset_token.create(reset_token).await?;
@@ -894,12 +894,12 @@ mod tests {
             .id(IdGenerator::next_id())
             .user_id(user_id)
             .session_type(SessionType::Cli)
-            .build();
+            .create();
         let session3 = UserSession::builder()
             .id(IdGenerator::next_id())
             .user_id(user_id)
             .session_type(SessionType::Sdk)
-            .build();
+            .create();
         repos.user_session.create(session2.clone()).await.unwrap();
         repos.user_session.create(session3.clone()).await.unwrap();
 

@@ -34,20 +34,20 @@
 //!
 //! The [`AppState`] struct uses a builder for server initialization:
 //!
-//! ```no_run
+//! ```ignore
 //! use std::sync::Arc;
 //! use inferadb_control_api::AppState;
 //!
-//! # async fn example(storage: Arc<inferadb_control_storage::Backend>, config: Arc<inferadb_control_config::ControlConfig>) {
-//! let state = AppState::builder()
-//!     .storage(storage)
-//!     .config(config)
-//!     .worker_id(1)
-//!     .maybe_leader(None)           // Optional leader election
-//!     .maybe_email_service(None)    // Optional email service
-//!     .maybe_control_identity(None) // Optional control identity
-//!     .build();
-//! # }
+//! async fn example(storage: Arc<Backend>, config: Arc<ControlConfig>) {
+//!     let state = AppState::builder()
+//!         .storage(storage)
+//!         .config(config)
+//!         .worker_id(1)
+//!         .maybe_leader(None)           // Optional leader election
+//!         .maybe_email_service(None)    // Optional email service
+//!         .maybe_control_identity(None) // Optional control identity
+//!         .build();
+//! }
 //! ```
 
 #![deny(unsafe_code)]

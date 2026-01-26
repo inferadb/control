@@ -304,7 +304,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .call()
+            .create()
             .unwrap();
 
         repo.create(token.clone()).await.unwrap();
@@ -322,7 +322,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
-            .call()
+            .create()
             .unwrap();
 
         repo.create(token.clone()).await.unwrap();
@@ -340,7 +340,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .call()
+            .create()
             .unwrap();
 
         let token_str = token.token.clone();
@@ -366,7 +366,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .call()
+            .create()
             .unwrap();
 
         repo.create(token.clone()).await.unwrap();
@@ -389,7 +389,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .call()
+            .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_client()
             .id(2)
@@ -397,7 +397,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
-            .call()
+            .create()
             .unwrap();
         let token3 = VaultRefreshToken::new_for_session()
             .id(3)
@@ -405,7 +405,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .call()
+            .create()
             .unwrap();
 
         repo.create(token1).await.unwrap();
@@ -429,7 +429,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .call()
+            .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_session()
             .id(2)
@@ -437,7 +437,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .call()
+            .create()
             .unwrap();
         let token3 = VaultRefreshToken::new_for_session()
             .id(3)
@@ -445,7 +445,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(999)
-            .call()
+            .create()
             .unwrap();
 
         repo.create(token1).await.unwrap();
@@ -469,7 +469,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
-            .call()
+            .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_client()
             .id(2)
@@ -477,7 +477,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
-            .call()
+            .create()
             .unwrap();
         let token3 = VaultRefreshToken::new_for_client()
             .id(3)
@@ -485,7 +485,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Writer)
             .org_api_key_id(999)
-            .call()
+            .create()
             .unwrap();
 
         repo.create(token1).await.unwrap();
@@ -509,7 +509,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .call()
+            .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_session()
             .id(2)
@@ -517,7 +517,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .call()
+            .create()
             .unwrap();
 
         repo.create(token1).await.unwrap();
@@ -542,7 +542,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
-            .call()
+            .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_client()
             .id(2)
@@ -550,7 +550,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
-            .call()
+            .create()
             .unwrap();
 
         repo.create(token1).await.unwrap();
@@ -575,7 +575,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .call()
+            .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_client()
             .id(2)
@@ -583,7 +583,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
-            .call()
+            .create()
             .unwrap();
 
         repo.create(token1).await.unwrap();

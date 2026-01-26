@@ -483,7 +483,7 @@ mod tests {
             .id(100)
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
         repo.create(org.clone()).await.unwrap();
 
@@ -501,7 +501,7 @@ mod tests {
             .id(100)
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
         repo.create(org).await.unwrap();
 
@@ -523,7 +523,7 @@ mod tests {
             .id(100)
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
         repo.create(org1).await.unwrap();
 
@@ -531,7 +531,7 @@ mod tests {
             .id(101)
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
         let result = repo.create(org2).await;
         // Duplicate names are now allowed
@@ -551,7 +551,7 @@ mod tests {
             .id(100)
             .name("Old Name".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
         repo.create(org.clone()).await.unwrap();
 
@@ -576,7 +576,7 @@ mod tests {
             .id(100)
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
         repo.create(org).await.unwrap();
 
@@ -597,7 +597,7 @@ mod tests {
             .id(100)
             .name("Org 1".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
         repo.create(org1).await.unwrap();
         assert_eq!(repo.get_total_count().await.unwrap(), 1);
@@ -606,7 +606,7 @@ mod tests {
             .id(101)
             .name("Org 2".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
         repo.create(org2).await.unwrap();
         assert_eq!(repo.get_total_count().await.unwrap(), 2);

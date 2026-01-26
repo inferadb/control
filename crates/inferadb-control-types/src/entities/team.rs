@@ -131,7 +131,7 @@ pub struct OrganizationTeamPermission {
 #[bon]
 impl OrganizationTeam {
     /// Create a new organization team
-    #[builder]
+    #[builder(on(String, into), finish_fn = create)]
     pub fn new(
         id: i64,
         organization_id: i64,
@@ -229,7 +229,7 @@ mod tests {
             .id(1)
             .organization_id(100)
             .name("Engineering Team".to_string())
-            .build()
+            .create()
             .unwrap();
         assert_eq!(team.id, 1);
         assert_eq!(team.organization_id, 100);
@@ -253,7 +253,7 @@ mod tests {
             .id(1)
             .organization_id(100)
             .name("Old Name".to_string())
-            .build()
+            .create()
             .unwrap();
 
         team.set_name("New Name".to_string()).unwrap();
@@ -269,7 +269,7 @@ mod tests {
             .id(1)
             .organization_id(100)
             .name("Test Team".to_string())
-            .build()
+            .create()
             .unwrap();
 
         assert!(!team.is_deleted());

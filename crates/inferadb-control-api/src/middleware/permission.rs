@@ -245,7 +245,7 @@ mod tests {
             .id(1)
             .organization_id(1)
             .name("Test Team".to_string())
-            .build()
+            .create()
             .unwrap();
         team_repo.create(team).await.unwrap();
 
@@ -300,7 +300,7 @@ mod tests {
             .id(1)
             .organization_id(1)
             .name("Test Team".to_string())
-            .build()
+            .create()
             .unwrap();
         team_repo.create(team).await.unwrap();
 

@@ -127,8 +127,8 @@ pub async fn cli_token_exchange(
         .id(cli_session_id)
         .user_id(original_session.user_id)
         .session_type(inferadb_control_core::SessionType::Cli)
-        .user_agent("InferaDB CLI".to_string())
-        .build();
+        .user_agent("InferaDB CLI")
+        .create();
 
     // Store CLI session
     repos.user_session.create(cli_session.clone()).await.map_err(|e| {

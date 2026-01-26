@@ -50,7 +50,7 @@ impl VaultRefreshToken {
     pub const CLIENT_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
 
     /// Create a new refresh token for a user session
-    #[builder]
+    #[builder(finish_fn = create)]
     pub fn new_for_session(
         id: i64,
         vault_id: i64,
@@ -80,7 +80,7 @@ impl VaultRefreshToken {
     }
 
     /// Create a new refresh token for a client
-    #[builder]
+    #[builder(finish_fn = create)]
     pub fn new_for_client(
         id: i64,
         vault_id: i64,
@@ -236,7 +236,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .call()
+            .create()
             .unwrap();
 
         assert_eq!(token.id, 1);
@@ -259,7 +259,7 @@ mod tests {
             .organization_id(200)
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
-            .call()
+            .create()
             .unwrap();
 
         assert_eq!(token.id, 1);
@@ -284,7 +284,7 @@ mod tests {
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .ttl_seconds(-1)
-            .call()
+            .create()
             .unwrap();
 
         assert!(token.is_expired());
@@ -300,7 +300,7 @@ mod tests {
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .maybe_ttl_seconds(None)
-            .call()
+            .create()
             .unwrap();
 
         assert!(!token.is_used());
@@ -320,7 +320,7 @@ mod tests {
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .maybe_ttl_seconds(None)
-            .call()
+            .create()
             .unwrap();
 
         assert!(!token.is_revoked());
@@ -340,7 +340,7 @@ mod tests {
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .maybe_ttl_seconds(None)
-            .call()
+            .create()
             .unwrap();
 
         assert!(token.validate_for_refresh().is_ok());
@@ -355,7 +355,7 @@ mod tests {
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .ttl_seconds(-1)
-            .call()
+            .create()
             .unwrap();
 
         let result = token.validate_for_refresh();
@@ -372,7 +372,7 @@ mod tests {
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .maybe_ttl_seconds(None)
-            .call()
+            .create()
             .unwrap();
 
         token.mark_used();
@@ -390,7 +390,7 @@ mod tests {
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .maybe_ttl_seconds(None)
-            .call()
+            .create()
             .unwrap();
 
         token.mark_revoked();
@@ -408,7 +408,7 @@ mod tests {
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .maybe_ttl_seconds(None)
-            .call()
+            .create()
             .unwrap();
 
         // Correct session
@@ -430,7 +430,7 @@ mod tests {
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
             .maybe_ttl_seconds(None)
-            .call()
+            .create()
             .unwrap();
 
         // Correct client

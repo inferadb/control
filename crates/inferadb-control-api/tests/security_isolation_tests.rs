@@ -27,7 +27,7 @@ async fn setup_user_and_org(
     username: &str,
 ) -> (User, UserSession, Organization, OrganizationMember) {
     // Create user
-    let user = User::builder().id(user_id).name(username.to_string()).build().unwrap();
+    let user = User::builder().id(user_id).name(username).create().unwrap();
     let user_repo = UserRepository::new((*state.storage).clone());
     user_repo.create(user.clone()).await.unwrap();
 
@@ -36,7 +36,7 @@ async fn setup_user_and_org(
         .id(session_id)
         .user_id(user_id)
         .session_type(SessionType::Web)
-        .build();
+        .create();
     let session_repo = UserSessionRepository::new((*state.storage).clone());
     session_repo.create(session.clone()).await.unwrap();
 
@@ -45,7 +45,7 @@ async fn setup_user_and_org(
         .id(org_id)
         .name(format!("{username}'s Org"))
         .tier(OrganizationTier::TierDevV1)
-        .build()
+        .create()
         .unwrap();
     let org_repo = OrganizationRepository::new((*state.storage).clone());
     org_repo.create(org.clone()).await.unwrap();
@@ -76,7 +76,7 @@ async fn test_cross_organization_vault_access_denied() {
         .organization_id(org_b.id)
         .name("Vault B".to_string())
         .created_by_user_id(200)
-        .build()
+        .create()
         .unwrap();
     vault_repo.create(vault_b.clone()).await.unwrap();
 
@@ -119,7 +119,7 @@ async fn test_cross_organization_client_access_denied() {
         .organization_id(org_b.id)
         .name("Client B".to_string())
         .created_by_user_id(200)
-        .build()
+        .create()
         .unwrap();
     client_repo.create(client_b.clone()).await.unwrap();
 
@@ -159,7 +159,7 @@ async fn test_cross_organization_team_access_denied() {
         .id(7000)
         .organization_id(org_b.id)
         .name("Team B".to_string())
-        .build()
+        .create()
         .unwrap();
     team_repo.create(team_b.clone()).await.unwrap();
 
@@ -200,7 +200,7 @@ async fn test_cannot_modify_other_organization_resources() {
         .organization_id(org_b.id)
         .name("Vault B".to_string())
         .created_by_user_id(200)
-        .build()
+        .create()
         .unwrap();
     vault_repo.create(vault_b.clone()).await.unwrap();
 
@@ -247,7 +247,7 @@ async fn test_cannot_delete_other_organization_resources() {
         .organization_id(org_b.id)
         .name("Client B".to_string())
         .created_by_user_id(200)
-        .build()
+        .create()
         .unwrap();
     client_repo.create(client_b.clone()).await.unwrap();
 
@@ -319,7 +319,7 @@ async fn test_vault_jwt_isolation() {
         .organization_id(org_a.id)
         .name("Vault A".to_string())
         .created_by_user_id(100)
-        .build()
+        .create()
         .unwrap();
     vault_repo.create(vault_a.clone()).await.unwrap();
 
@@ -331,7 +331,7 @@ async fn test_vault_jwt_isolation() {
         .organization_id(org_b.id)
         .name("Vault B".to_string())
         .created_by_user_id(200)
-        .build()
+        .create()
         .unwrap();
     vault_repo.create(vault_b.clone()).await.unwrap();
 
@@ -342,7 +342,7 @@ async fn test_vault_jwt_isolation() {
         .organization_id(org_a.id)
         .name("Client A".to_string())
         .created_by_user_id(100)
-        .build()
+        .create()
         .unwrap();
     client_repo.create(client_a.clone()).await.unwrap();
 
@@ -361,7 +361,7 @@ async fn test_vault_jwt_isolation() {
         .private_key_encrypted(private_key_encrypted)
         .name("Test Cert".to_string())
         .created_by_user_id(100)
-        .build()
+        .create()
         .unwrap();
     cert_repo.create(cert.clone()).await.unwrap();
 

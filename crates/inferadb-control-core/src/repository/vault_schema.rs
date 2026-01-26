@@ -393,7 +393,7 @@ mod tests {
             .definition(definition.to_string())
             .author_user_id(999)
             .description("Test schema".to_string())
-            .build()
+            .create()
     }
 
     #[tokio::test]

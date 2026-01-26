@@ -80,7 +80,7 @@ impl Organization {
     /// # Errors
     ///
     /// Returns an error if validation fails
-    #[builder]
+    #[builder(on(String, into), finish_fn = create)]
     pub fn new(id: i64, name: String, tier: OrganizationTier) -> Result<Self> {
         Self::validate_name(&name)?;
 
@@ -226,7 +226,7 @@ mod tests {
             .id(1)
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build();
+            .create();
         assert!(org.is_ok());
 
         let org = org.unwrap();
@@ -242,22 +242,25 @@ mod tests {
             .id(1)
             .name("".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build();
+            .create();
         assert!(result.is_err());
 
         let result = Organization::builder()
             .id(1)
             .name("   ".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build();
+            .create();
         assert!(result.is_err());
     }
 
     #[test]
     fn test_validate_name_too_long() {
         let long_name = "a".repeat(101);
-        let result =
-            Organization::builder().id(1).name(long_name).tier(OrganizationTier::TierDevV1).build();
+        let result = Organization::builder()
+            .id(1)
+            .name(long_name)
+            .tier(OrganizationTier::TierDevV1)
+            .create();
         assert!(result.is_err());
     }
 
@@ -267,7 +270,7 @@ mod tests {
             .id(1)
             .name("Old Name".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
 
         org.set_name("New Name".to_string()).unwrap();
@@ -283,7 +286,7 @@ mod tests {
             .id(1)
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
 
         assert!(!org.is_deleted());
@@ -366,7 +369,7 @@ mod tests {
             .id(1)
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
 
         assert!(!org.is_suspended());
@@ -382,7 +385,7 @@ mod tests {
             .id(1)
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
 
         org.suspend();

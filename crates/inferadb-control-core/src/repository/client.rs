@@ -249,7 +249,7 @@ mod tests {
             .organization_id(org_id)
             .name(name.to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
     }
 
     #[tokio::test]

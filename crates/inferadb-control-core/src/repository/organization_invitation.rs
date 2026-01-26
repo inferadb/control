@@ -233,7 +233,7 @@ mod tests {
             .email(email.to_string())
             .role(OrganizationRole::Member)
             .token(token)
-            .build()
+            .create()
     }
 
     #[tokio::test]

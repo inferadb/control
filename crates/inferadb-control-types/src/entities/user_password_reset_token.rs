@@ -40,7 +40,7 @@ impl UserPasswordResetToken {
     /// # Errors
     ///
     /// Returns an error if the token format is invalid
-    #[builder]
+    #[builder(on(String, into), finish_fn = create)]
     pub fn new(id: i64, user_id: i64, token: String) -> Result<Self> {
         // Validate token format (64 hex characters = 32 bytes)
         if token.len() != 64 || !token.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -106,7 +106,7 @@ mod tests {
             .id(1)
             .user_id(100)
             .token(token_string.clone())
-            .build();
+            .create();
 
         assert!(token.is_ok());
         let token = token.unwrap();
@@ -119,8 +119,11 @@ mod tests {
     #[test]
     fn test_invalid_token_format() {
         // Too short
-        let result =
-            UserPasswordResetToken::builder().id(1).user_id(100).token("short".to_string()).build();
+        let result = UserPasswordResetToken::builder()
+            .id(1)
+            .user_id(100)
+            .token("short".to_string())
+            .create();
         assert!(result.is_err());
 
         // Not hex
@@ -128,7 +131,7 @@ mod tests {
             .id(1)
             .user_id(100)
             .token("gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg".to_string())
-            .build();
+            .create();
         assert!(result.is_err());
 
         // Correct length but not all hex
@@ -136,7 +139,7 @@ mod tests {
             .id(1)
             .user_id(100)
             .token("abcdef123456789012345678901234567890123456789012345678901234567g".to_string())
-            .build();
+            .create();
         assert!(result.is_err());
     }
 
@@ -147,7 +150,7 @@ mod tests {
             .id(1)
             .user_id(100)
             .token(token_string)
-            .build()
+            .create()
             .unwrap();
 
         // Should not be expired initially
@@ -167,7 +170,7 @@ mod tests {
             .id(1)
             .user_id(100)
             .token(token_string)
-            .build()
+            .create()
             .unwrap();
 
         // Should not be used initially
@@ -188,7 +191,7 @@ mod tests {
             .id(1)
             .user_id(100)
             .token(token_string)
-            .build()
+            .create()
             .unwrap();
 
         let duration = token.expires_at - token.created_at;

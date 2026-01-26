@@ -82,7 +82,7 @@ pub async fn create_organization(
         .id(org_id)
         .name(payload.name)
         .tier(OrganizationTier::TierDevV1)
-        .build()?;
+        .create()?;
 
     // Create organization
     repos.org.create(organization.clone()).await?;
@@ -705,7 +705,7 @@ pub async fn create_invitation(
         .email(payload.email)
         .role(payload.role)
         .token(token.clone())
-        .build()?;
+        .create()?;
 
     // Create invitation
     repos.org_invitation.create(invitation.clone()).await?;

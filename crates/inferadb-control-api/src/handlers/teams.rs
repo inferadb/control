@@ -112,7 +112,7 @@ pub async fn create_team(
         .organization_id(org_ctx.organization_id)
         .name(payload.name)
         .maybe_description(payload.description)
-        .build()?;
+        .create()?;
 
     // Store team
     repos.org_team.create(team.clone()).await?;

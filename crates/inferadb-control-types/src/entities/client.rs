@@ -31,7 +31,7 @@ pub struct Client {
 #[bon]
 impl Client {
     /// Create a new client
-    #[builder]
+    #[builder(on(String, into), finish_fn = create)]
     pub fn new(
         id: i64,
         organization_id: i64,
@@ -125,7 +125,7 @@ pub struct ClientCertificate {
 #[bon]
 impl ClientCertificate {
     /// Create a new client certificate
-    #[builder]
+    #[builder(on(String, into), finish_fn = create)]
     pub fn new(
         id: i64,
         client_id: i64,
@@ -215,7 +215,7 @@ mod tests {
             .organization_id(100)
             .name("Test Client".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap();
         assert_eq!(client.id, 1);
         assert_eq!(client.organization_id, 100);
@@ -238,7 +238,7 @@ mod tests {
             .organization_id(100)
             .name("Test Client".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap();
         assert!(!client.is_deleted());
 
@@ -257,7 +257,7 @@ mod tests {
             .private_key_encrypted("encrypted_private_key_base64".to_string())
             .name("Test Certificate".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap();
 
         assert_eq!(cert.id, 1);
@@ -292,7 +292,7 @@ mod tests {
             .private_key_encrypted("private_key".to_string())
             .name("Test Cert".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap();
 
         assert!(cert.is_active());
@@ -314,7 +314,7 @@ mod tests {
             .private_key_encrypted("private_key".to_string())
             .name("Test Cert".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap();
 
         assert!(cert.is_active());
@@ -335,7 +335,7 @@ mod tests {
             .private_key_encrypted("private_key".to_string())
             .name("Test Cert".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap();
 
         assert!(cert.last_used_at.is_none());

@@ -81,7 +81,7 @@ pub struct VaultTeamGrant {
 #[bon]
 impl Vault {
     /// Create a new vault
-    #[builder]
+    #[builder(on(String, into), finish_fn = create)]
     pub fn new(
         id: i64,
         organization_id: i64,
@@ -193,7 +193,7 @@ mod tests {
             .name("Test Vault".to_string())
             .description("Test description".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap();
         assert_eq!(vault.id, 1);
         assert_eq!(vault.organization_id, 100);
@@ -211,7 +211,7 @@ mod tests {
             .organization_id(100)
             .name("Test Vault".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap();
         assert_eq!(vault.description, "");
     }
@@ -232,7 +232,7 @@ mod tests {
             .organization_id(100)
             .name("Test".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap();
         vault.mark_synced();
         assert_eq!(vault.sync_status, VaultSyncStatus::Synced);
@@ -246,7 +246,7 @@ mod tests {
             .organization_id(100)
             .name("Test".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap();
         vault.mark_sync_failed("Connection error".to_string());
         assert_eq!(vault.sync_status, VaultSyncStatus::Failed);
@@ -260,7 +260,7 @@ mod tests {
             .organization_id(100)
             .name("Test".to_string())
             .created_by_user_id(999)
-            .build()
+            .create()
             .unwrap();
         assert!(!vault.is_deleted());
         vault.mark_deleted();

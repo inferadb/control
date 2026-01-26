@@ -90,7 +90,7 @@ pub async fn create_client(
         .name(payload.name)
         .maybe_description(payload.description)
         .created_by_user_id(org_ctx.member.user_id)
-        .build()?;
+        .create()?;
 
     // Save to repository
     repos.client.create(client.clone()).await?;
@@ -314,7 +314,7 @@ pub async fn create_certificate(
         .private_key_encrypted(private_key_encrypted)
         .name(payload.name)
         .created_by_user_id(org_ctx.member.user_id)
-        .build()?;
+        .create()?;
 
     tracing::debug!(
         cert_id = cert.id,
@@ -702,7 +702,7 @@ pub async fn rotate_certificate(
         .private_key_encrypted(private_key_encrypted)
         .name(payload.name)
         .created_by_user_id(org_ctx.member.user_id)
-        .build()?;
+        .create()?;
 
     tracing::debug!(
         new_cert_id = new_cert.id,

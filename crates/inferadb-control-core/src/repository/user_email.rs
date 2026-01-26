@@ -319,7 +319,7 @@ mod tests {
             .user_id(user_id)
             .email(email.to_string())
             .primary(primary)
-            .build()
+            .create()
             .unwrap()
     }
 

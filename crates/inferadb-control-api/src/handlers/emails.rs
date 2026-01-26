@@ -51,7 +51,7 @@ pub async fn add_email(
         .user_id(ctx.user_id)
         .email(payload.email.clone())
         .primary(false)
-        .build()?;
+        .create()?;
 
     repos.user_email.create(user_email.clone()).await?;
 
@@ -62,7 +62,7 @@ pub async fn add_email(
         .id(token_id)
         .user_email_id(email_id)
         .token(token_string.clone())
-        .build()?;
+        .create()?;
 
     repos.user_email_verification_token.create(verification_token).await?;
 
@@ -236,7 +236,7 @@ pub async fn resend_verification(
         .id(token_id)
         .user_email_id(email_id)
         .token(token_string.clone())
-        .build()?;
+        .create()?;
 
     repos.user_email_verification_token.create(verification_token).await?;
 
@@ -325,7 +325,7 @@ mod tests {
         user_id: i64,
         session_id: i64,
     ) -> (User, UserSession) {
-        let user = User::builder().id(user_id).name("testuser".to_string()).build().unwrap();
+        let user = User::builder().id(user_id).name("testuser".to_string()).create().unwrap();
         let user_repo = UserRepository::new((*storage).clone());
         user_repo.create(user.clone()).await.unwrap();
 
@@ -333,7 +333,7 @@ mod tests {
             .id(session_id)
             .user_id(user_id)
             .session_type(SessionType::Web)
-            .build();
+            .create();
         let session_repo = UserSessionRepository::new((*storage).clone());
         session_repo.create(session.clone()).await.unwrap();
 
@@ -382,7 +382,7 @@ mod tests {
             .user_id(100)
             .email("test@example.com".to_string())
             .primary(true)
-            .build()
+            .create()
             .unwrap();
         repos.user_email.create(email).await.unwrap();
 
@@ -417,7 +417,7 @@ mod tests {
             .user_id(100)
             .email("delete@example.com".to_string())
             .primary(false)
-            .build()
+            .create()
             .unwrap();
         repos.user_email.create(email).await.unwrap();
 
@@ -450,7 +450,7 @@ mod tests {
             .user_id(100)
             .email("primary@example.com".to_string())
             .primary(true)
-            .build()
+            .create()
             .unwrap();
         repos.user_email.create(email).await.unwrap();
 

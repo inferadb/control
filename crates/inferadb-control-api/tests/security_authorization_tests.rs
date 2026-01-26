@@ -37,7 +37,7 @@ async fn setup_user_with_role(
     let SetupUserParams { state, user_id, session_id, org_id, member_id, username, role, is_owner } =
         params;
     // Create user
-    let user = User::builder().id(user_id).name(username.to_string()).build().unwrap();
+    let user = User::builder().id(user_id).name(username.to_string()).create().unwrap();
     let user_repo = UserRepository::new((*state.storage).clone());
     user_repo.create(user.clone()).await.unwrap();
 
@@ -46,7 +46,7 @@ async fn setup_user_with_role(
         .id(session_id)
         .user_id(user_id)
         .session_type(SessionType::Web)
-        .build();
+        .create();
     let session_repo = UserSessionRepository::new((*state.storage).clone());
     session_repo.create(session.clone()).await.unwrap();
 
@@ -59,7 +59,7 @@ async fn setup_user_with_role(
             .id(org_id)
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
-            .build()
+            .create()
             .unwrap();
         org_repo.create(new_org.clone()).await.unwrap();
         new_org
@@ -455,21 +455,21 @@ async fn test_cannot_use_other_users_session() {
     let state = create_test_state();
 
     // Setup User A
-    let user_a = User::builder().id(100).name("userA".to_string()).build().unwrap();
+    let user_a = User::builder().id(100).name("userA".to_string()).create().unwrap();
     let user_repo = UserRepository::new((*state.storage).clone());
     user_repo.create(user_a.clone()).await.unwrap();
 
     let session_a =
-        UserSession::builder().id(1).user_id(user_a.id).session_type(SessionType::Web).build();
+        UserSession::builder().id(1).user_id(user_a.id).session_type(SessionType::Web).create();
     let session_repo = UserSessionRepository::new((*state.storage).clone());
     session_repo.create(session_a.clone()).await.unwrap();
 
     // Setup User B
-    let user_b = User::builder().id(200).name("userB".to_string()).build().unwrap();
+    let user_b = User::builder().id(200).name("userB".to_string()).create().unwrap();
     user_repo.create(user_b.clone()).await.unwrap();
 
     let session_b =
-        UserSession::builder().id(2).user_id(user_b.id).session_type(SessionType::Web).build();
+        UserSession::builder().id(2).user_id(user_b.id).session_type(SessionType::Web).create();
     session_repo.create(session_b.clone()).await.unwrap();
 
     // User B tries to use User A's session to access profile
@@ -645,7 +645,7 @@ async fn test_member_cannot_delete_vault() {
         .organization_id(org.id)
         .name("Test Vault".to_string())
         .created_by_user_id(100)
-        .build()
+        .create()
         .unwrap();
     vault_repo.create(vault.clone()).await.unwrap();
 

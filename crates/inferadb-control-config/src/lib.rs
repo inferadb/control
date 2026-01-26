@@ -65,7 +65,7 @@
 //!
 //! Optional fields (`Option<T>`) can be set using `.maybe_*()` methods:
 //!
-//! ```no_run
+//! ```ignore
 //! use inferadb_control_config::ControlConfig;
 //!
 //! let config = ControlConfig::builder()

@@ -50,7 +50,7 @@ impl OrganizationInvitation {
     /// # Errors
     ///
     /// Returns an error if validation fails
-    #[builder]
+    #[builder(on(String, into), finish_fn = create)]
     pub fn new(
         id: i64,
         organization_id: i64,
@@ -160,7 +160,7 @@ mod tests {
             .email("test@example.com".to_string())
             .role(OrganizationRole::Member)
             .token(token)
-            .build()
+            .create()
             .unwrap();
 
         assert_eq!(invitation.id, 1);
@@ -213,7 +213,7 @@ mod tests {
             .email("  Test@Example.COM  ".to_string())
             .role(OrganizationRole::Member)
             .token(token)
-            .build()
+            .create()
             .unwrap();
 
         assert_eq!(invitation.email, "test@example.com");

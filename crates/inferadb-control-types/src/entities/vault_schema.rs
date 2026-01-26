@@ -146,7 +146,7 @@ pub struct VaultSchema {
 #[bon]
 impl VaultSchema {
     /// Create a new schema version
-    #[builder]
+    #[builder(on(String, into), finish_fn = create)]
     pub fn new(
         id: i64,
         vault_id: i64,
@@ -328,7 +328,7 @@ mod tests {
             .definition("entity User {}".to_string())
             .author_user_id(999)
             .description("Initial schema".to_string())
-            .build()
+            .create()
             .unwrap();
 
         assert_eq!(schema.id, 1);
@@ -371,7 +371,7 @@ mod tests {
             .definition("entity User {}".to_string())
             .author_user_id(999)
             .description("Initial schema".to_string())
-            .build()
+            .create()
             .unwrap();
 
         assert_eq!(schema.status, SchemaDeploymentStatus::Validating);
@@ -404,7 +404,7 @@ mod tests {
             .definition("entity User {}".to_string())
             .author_user_id(999)
             .description("Initial schema".to_string())
-            .build()
+            .create()
             .unwrap();
 
         schema.mark_failed("Syntax error on line 5".to_string());
@@ -422,7 +422,7 @@ mod tests {
             .definition("entity User {}".to_string())
             .author_user_id(999)
             .description("Initial schema".to_string())
-            .build()
+            .create()
             .unwrap();
 
         schema.mark_deployed();

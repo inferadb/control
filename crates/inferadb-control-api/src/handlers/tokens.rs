@@ -157,7 +157,7 @@ pub async fn generate_vault_token(
         .vault_role(vault_role)
         .user_session_id(session_ctx.session_id)
         .maybe_ttl_seconds(req.refresh_token_ttl)
-        .call()?;
+        .create()?;
 
     // Store refresh token
     repos.vault_refresh_token.create(refresh_token.clone()).await?;
@@ -295,7 +295,7 @@ pub async fn refresh_vault_token(
             .organization_id(old_token.organization_id)
             .vault_role(old_token.vault_role)
             .user_session_id(session_id)
-            .call()?
+            .create()?
     } else if let Some(client_id) = old_token.org_api_key_id {
         VaultRefreshToken::new_for_client()
             .id(new_token_id)
@@ -303,7 +303,7 @@ pub async fn refresh_vault_token(
             .organization_id(old_token.organization_id)
             .vault_role(old_token.vault_role)
             .org_api_key_id(client_id)
-            .call()?
+            .create()?
     } else {
         return Err(CoreError::Internal("Invalid refresh token state".to_string()).into());
     };
@@ -560,7 +560,7 @@ pub async fn client_assertion_authenticate(
         .organization_id(client.organization_id)
         .vault_role(requested_role)
         .org_api_key_id(client.id)
-        .call()?;
+        .create()?;
 
     repos.vault_refresh_token.create(refresh_token.clone()).await?;
 

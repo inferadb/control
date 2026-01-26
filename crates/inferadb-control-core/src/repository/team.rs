@@ -693,7 +693,7 @@ mod tests {
             .id(1)
             .organization_id(100)
             .name("Engineering".to_string())
-            .build()
+            .create()
             .unwrap();
         repo.create(team.clone()).await.unwrap();
 
@@ -712,7 +712,7 @@ mod tests {
             .id(1)
             .organization_id(100)
             .name("Engineering".to_string())
-            .build()
+            .create()
             .unwrap();
         repo.create(team1).await.unwrap();
 
@@ -720,7 +720,7 @@ mod tests {
             .id(2)
             .organization_id(100)
             .name("Engineering".to_string())
-            .build()
+            .create()
             .unwrap();
         let result = repo.create(team2).await;
         assert!(result.is_err());
@@ -735,19 +735,19 @@ mod tests {
             .id(1)
             .organization_id(100)
             .name("Engineering".to_string())
-            .build()
+            .create()
             .unwrap();
         let team2 = OrganizationTeam::builder()
             .id(2)
             .organization_id(100)
             .name("Sales".to_string())
-            .build()
+            .create()
             .unwrap();
         let team3 = OrganizationTeam::builder()
             .id(3)
             .organization_id(200)
             .name("Other".to_string())
-            .build()
+            .create()
             .unwrap();
 
         repo.create(team1).await.unwrap();
@@ -767,7 +767,7 @@ mod tests {
             .id(1)
             .organization_id(100)
             .name("Old Name".to_string())
-            .build()
+            .create()
             .unwrap();
         repo.create(team.clone()).await.unwrap();
 
@@ -787,7 +787,7 @@ mod tests {
             .id(1)
             .organization_id(100)
             .name("Engineering".to_string())
-            .build()
+            .create()
             .unwrap();
         repo.create(team).await.unwrap();
 
