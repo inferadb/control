@@ -1,7 +1,7 @@
 //! In-memory storage backend re-export.
 //!
 //! This module re-exports [`MemoryBackend`] from the shared
-//! [`inferadb_storage`] crate. The implementation provides:
+//! [`inferadb_common_storage`] crate. The implementation provides:
 //!
 //! - Thread-safe concurrent access via RwLock
 //! - Ordered key-value storage with range queries
@@ -21,7 +21,7 @@
 //! ```
 
 // Re-export MemoryBackend from the shared crate
-pub use inferadb_storage::MemoryBackend;
+pub use inferadb_common_storage::MemoryBackend;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]

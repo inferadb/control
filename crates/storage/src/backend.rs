@@ -1,7 +1,7 @@
 //! Storage backend re-exports from shared crate.
 //!
 //! This module re-exports the core storage traits and types from
-//! [`inferadb_storage`], ensuring Control uses the same interfaces
+//! [`inferadb_common_storage`], ensuring Control uses the same interfaces
 //! as other InferaDB services.
 //!
 //! # Types
@@ -13,4 +13,6 @@
 //! - [`KeyValue`] - Key-value pair for range query results
 
 // Re-export all storage types from the shared crate
-pub use inferadb_storage::{KeyValue, StorageBackend, StorageError, StorageResult, Transaction};
+pub use inferadb_common_storage::{
+    KeyValue, StorageBackend, StorageError, StorageResult, Transaction,
+};

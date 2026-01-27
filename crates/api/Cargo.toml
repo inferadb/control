@@ -11,12 +11,12 @@ version.workspace = true
 
 [dependencies]
 # Workspace crates
-inferadb-control-config = { path = "../inferadb-control-config" }
-inferadb-control-const = { path = "../inferadb-control-const" }
-inferadb-control-core = { path = "../inferadb-control-core" }
-inferadb-control-storage = { path = "../inferadb-control-storage" }
-inferadb-control-types = { path = "../inferadb-control-types" }
-inferadb-storage = { path = "../../../common/crates/inferadb-storage" }
+inferadb-control-config = { path = "../config" }
+inferadb-control-const = { path = "../const" }
+inferadb-control-core = { path = "../core" }
+inferadb-control-storage = { path = "../storage" }
+inferadb-control-types = { path = "../types" }
+inferadb-common-storage = { path = "../../../common/crates/storage" }
 
 # External dependencies
 anyhow = { workspace = true }
@@ -40,8 +40,8 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-inferadb-control-test-fixtures = { path = "../inferadb-control-test-fixtures" }
-inferadb-engine-auth = { path = "../../../engine/crates/inferadb-engine-auth" }
+inferadb-control-test-fixtures = { path = "../test-fixtures" }
+inferadb-engine-auth = { path = "../../../engine/crates/auth" }
 rand_core = { version = "0.6", features = ["getrandom"] }
 
 [lints]

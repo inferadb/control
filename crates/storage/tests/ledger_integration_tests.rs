@@ -20,8 +20,8 @@ use std::{
 };
 
 use bytes::Bytes;
+use inferadb_common_storage_ledger::{LedgerBackend, LedgerBackendConfig};
 use inferadb_control_storage::backend::StorageBackend;
-use inferadb_storage_ledger::{LedgerBackend, LedgerBackendConfig};
 use tokio::time::sleep;
 
 // ============================================================================

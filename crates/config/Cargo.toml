@@ -25,7 +25,7 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 
 # Error types from types crate
-inferadb-control-types = { path = "../inferadb-control-types" }
+inferadb-control-types = { path = "../types" }
 
 [lints]
 workspace = true

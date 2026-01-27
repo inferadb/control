@@ -24,7 +24,7 @@ tracing-subscriber = { workspace = true }
 unicode-width = { workspace = true }
 
 # Constants
-inferadb-control-const = { path = "../inferadb-control-const" }
+inferadb-control-const = { path = "../const" }
 
 # Cryptography
 aes-gcm = { workspace = true }
@@ -53,10 +53,10 @@ url = { workspace = true }
 metrics = { workspace = true }
 
 # Internal dependencies
-inferadb-control-types = { path = "../inferadb-control-types" }
+inferadb-control-types = { path = "../types" }
 
 # Storage
-inferadb-control-storage = { path = "../inferadb-control-storage" }
+inferadb-control-storage = { path = "../storage" }
 
 uuid = { workspace = true }
 

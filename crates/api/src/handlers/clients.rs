@@ -5,6 +5,7 @@ use axum::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use chrono::{Duration, Utc};
+use inferadb_common_storage::auth::PublicSigningKey;
 use inferadb_control_core::{
     IdGenerator, MasterKey, PrivateKeyEncryptor, RepositoryContext, keypair,
 };
@@ -19,7 +20,6 @@ use inferadb_control_types::{
     },
     entities::{AuditEventType, AuditResourceType, Client, ClientCertificate},
 };
-use inferadb_storage::auth::PublicSigningKey;
 use serde_json::json;
 
 use crate::{

@@ -15,11 +15,11 @@ path = "src/main.rs"
 
 [dependencies]
 # Workspace crates
-inferadb-control-api = { path = "../inferadb-control-api" }
-inferadb-control-config = { path = "../inferadb-control-config" }
-inferadb-control-core = { path = "../inferadb-control-core" }
-inferadb-control-storage = { path = "../inferadb-control-storage" }
-inferadb-control-types = { path = "../inferadb-control-types" }
+inferadb-control-api = { path = "../api" }
+inferadb-control-config = { path = "../config" }
+inferadb-control-core = { path = "../core" }
+inferadb-control-storage = { path = "../storage" }
+inferadb-control-types = { path = "../types" }
 
 # External dependencies (anyhow at application level, snafu in libraries)
 anyhow = { workspace = true }

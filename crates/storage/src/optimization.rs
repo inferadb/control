@@ -33,7 +33,7 @@ use async_trait::async_trait;
 use bon::Builder;
 use bytes::Bytes;
 // Re-export shared batch types from inferadb-storage
-pub use inferadb_storage::batch::{
+pub use inferadb_common_storage::batch::{
     BatchConfig, BatchFlushStats, BatchOperation, DEFAULT_MAX_BATCH_BYTES, DEFAULT_MAX_BATCH_SIZE,
     TRANSACTION_SIZE_LIMIT,
 };
@@ -161,17 +161,17 @@ impl LruCache {
 
 /// Batch writer with cache invalidation support
 ///
-/// This wraps the shared `inferadb_storage::BatchWriter` and adds cache invalidation
+/// This wraps the shared `inferadb_common_storage::BatchWriter` and adds cache invalidation
 /// on flush. This ensures cache consistency when using batch operations.
 pub struct BatchWriter<B: StorageBackend> {
-    inner: inferadb_storage::BatchWriter<B>,
+    inner: inferadb_common_storage::BatchWriter<B>,
     cache: Option<Arc<Mutex<LruCache>>>,
 }
 
 impl<B: StorageBackend + Clone> BatchWriter<B> {
     /// Create a new batch writer with optional cache
     pub fn new(backend: B, config: BatchConfig, cache: Option<Arc<Mutex<LruCache>>>) -> Self {
-        Self { inner: inferadb_storage::BatchWriter::new(backend, config), cache }
+        Self { inner: inferadb_common_storage::BatchWriter::new(backend, config), cache }
     }
 
     /// Add a set operation to the batch

@@ -47,9 +47,9 @@ graph TD
     API --> Core[inferadb-control-core]
     Core --> Config
     Core --> Storage[inferadb-control-storage]
-    Storage --> SharedStorage[inferadb-storage]
+    Storage --> SharedStorage[inferadb-common-storage]
     SharedStorage --> Memory[(Memory)]
-    SharedStorage --> StorageLedger[inferadb-storage-ledger]
+    SharedStorage --> StorageLedger[inferadb-common-storage-ledger]
     StorageLedger --> Ledger[(InferaDB Ledger)]
 ```
 
