@@ -20,7 +20,7 @@ use crate::crypto::PrivateKeyEncryptor;
 /// Format matches the Engine specification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultTokenClaims {
-    /// Issuer: Management API URL (https://api.inferadb.com)
+    /// Issuer: Management API URL (<https://api.inferadb.com>)
     pub iss: String,
     /// Subject: Format "client:<client_id>" for service accounts
     pub sub: String,

@@ -243,9 +243,11 @@ impl<S: StorageBackend + Clone + Send + Sync + 'static> BackgroundJobs<S> {
     }
 
     /// Cleanup expired email verification and password reset tokens
+    ///
+    /// Token cleanup is handled by TTL on the storage layer, so this method
+    /// is intentionally a no-op. The storage backend automatically expires
+    /// tokens based on their TTL settings.
     async fn cleanup_expired_tokens(_storage: S) -> Result<()> {
-        // Token cleanup is handled by TTL on the storage layer
-        // This is a placeholder for future detailed cleanup if needed
         tracing::debug!("Token cleanup skipped (TTL-based expiry in storage layer)");
         Ok(())
     }

@@ -1,51 +1,42 @@
 # Contributing to InferaDB
 
-Thank you for your interest in contributing to [InferaDB](https://inferadb.com)! We welcome contributions from the community and are grateful for any help you can provide.
+We welcome contributions! By participating, you agree to uphold the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## Code of Conduct
+## Reporting Issues
 
-This project and everyone participating in it is governed by the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to [open@inferadb.com](mailto:open@inferadb.com).
+- **Bugs**: Search existing issues first. Include version, steps to reproduce, expected vs actual behavior.
+- **Features**: Describe the use case and proposed solution.
+- **Security**: Email [security@inferadb.com](mailto:security@inferadb.com) — do not open public issues.
 
-## How to Contribute
+## Pull Requests
 
-### Reporting Issues
+1. Fork and branch from `main`
+2. Run `just ci` to verify tests, linting, and formatting pass
+3. Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit messages
+4. Update documentation if changing public APIs
+5. Submit PR with clear description
 
-- **Bug Reports**: Search existing issues first to avoid duplicates. Include version information, steps to reproduce, expected vs actual behavior, and relevant logs.
-- **Feature Requests**: Describe the use case, proposed solution, and alternatives considered.
-- **Security Issues**: Do **not** open public issues for security vulnerabilities. Instead, email [security@inferadb.com](mailto:security@inferadb.com).
+## Development
 
-### Pull Requests
+```bash
+mise trust && mise install  # Setup tooling
+just ci                     # Run all checks before submitting
+```
 
-1. **Fork the repository** and create your branch from `main`
-2. **Follow the development workflow** documented in the repository's [README.md](README.md)
-3. **Write clear commit messages** following [Conventional Commits](https://www.conventionalcommits.org/)
-4. **Ensure all tests pass** before submitting
-5. **Update documentation** if your changes affect public APIs or user-facing behavior
-6. **Submit a pull request** with a clear description of your changes
-
-### Development Setup
-
-Each repository has its own development setup and workflow. See the repository's [README.md](README.md) for prerequisites, build commands, and development workflow.
+See [README.md](README.md) for full development setup.
 
 ## Review Process
 
-1. **Automated Checks**: CI will run tests, linters, and formatters
-2. **Peer Review**: At least one maintainer will review your contribution
-3. **Feedback**: Address any review comments
-4. **Approval**: Once approved, a maintainer will merge your contribution
+1. CI runs automated checks
+2. Maintainer reviews code
+3. Address feedback
+4. Maintainer merges on approval
 
 ## License
 
-By contributing to [InferaDB](https://github.com/inferadb), you agree that your contributions will be dual-licensed under:
-
-- [Apache License, Version 2.0](LICENSE-APACHE)
-- [MIT License](LICENSE-MIT)
+Contributions are dual-licensed under [MIT](LICENSE-MIT) and [Apache 2.0](LICENSE-APACHE).
 
 ## Questions?
 
-If you have questions or need help:
-
-- Join our [Discord server](https://discord.gg/inferadb) to chat with the community
-- Email us at [open@inferadb.com](mailto:open@inferadb.com)
-
-Thank you for helping make InferaDB better!
+- [Discord](https://discord.gg/inferadb)
+- [open@inferadb.com](mailto:open@inferadb.com)

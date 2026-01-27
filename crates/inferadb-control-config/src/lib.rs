@@ -204,7 +204,7 @@ pub struct WebAuthnConfig {
     pub party: String,
 
     /// Origin URL for WebAuthn
-    /// e.g., "https://app.inferadb.com" or "http://localhost:3000"
+    /// e.g., `https://app.inferadb.com` or `http://localhost:3000`
     #[serde(default = "default_webauthn_origin")]
     #[builder(default = "http://localhost:3000".to_string())]
     pub origin: String,
@@ -315,7 +315,7 @@ impl Default for LimitsConfig {
 #[builder(on(String, into))]
 pub struct FrontendConfig {
     /// Base URL for email links (verification, password reset)
-    /// Example: "https://app.inferadb.com" or "http://localhost:3000"
+    /// Example: `https://app.inferadb.com` or `http://localhost:3000`
     #[serde(default = "default_frontend_url")]
     #[builder(default = "http://localhost:3000".to_string())]
     pub url: String,
@@ -352,7 +352,7 @@ impl Default for WebhookConfig {
 #[builder(on(String, into))]
 pub struct LedgerConfig {
     /// Ledger server endpoint URL
-    /// e.g., "http://localhost:50051" or "https://ledger.inferadb.com:50051"
+    /// e.g., `http://localhost:50051` or `https://ledger.inferadb.com:50051`
     pub endpoint: Option<String>,
 
     /// Client ID for idempotency tracking

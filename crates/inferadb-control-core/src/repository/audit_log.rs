@@ -5,7 +5,7 @@ use inferadb_control_types::{
     error::{Error, Result},
 };
 
-const PREFIX_AUDIT_LOG: &[u8] = b"audit_log:";
+const PREFIX_AUDIT_LOG: &str = "audit_log:";
 
 /// Query filters for audit logs
 #[derive(Debug, Clone, Default)]
@@ -72,8 +72,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
         // This is a simplified implementation that scans all logs
         // In a real implementation, we would use a secondary index on organization_id + created_at
 
-        let prefix = format!("{}{}", String::from_utf8_lossy(PREFIX_AUDIT_LOG), "");
-        let start_key = prefix.as_bytes().to_vec();
+        let start_key = PREFIX_AUDIT_LOG.as_bytes().to_vec();
         let end_key = {
             let mut key = start_key.clone();
             key.push(0xFF);
@@ -129,8 +128,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
     ///
     /// Returns the number of logs deleted
     pub async fn delete_older_than(&self, cutoff_date: DateTime<Utc>) -> Result<usize> {
-        let prefix = format!("{}{}", String::from_utf8_lossy(PREFIX_AUDIT_LOG), "");
-        let start_key = prefix.as_bytes().to_vec();
+        let start_key = PREFIX_AUDIT_LOG.as_bytes().to_vec();
         let end_key = {
             let mut key = start_key.clone();
             key.push(0xFF);
@@ -161,7 +159,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
     }
 
     fn key(id: i64) -> Vec<u8> {
-        format!("{}{}", String::from_utf8_lossy(PREFIX_AUDIT_LOG), id).into_bytes()
+        format!("{PREFIX_AUDIT_LOG}{id}").into_bytes()
     }
 }
 

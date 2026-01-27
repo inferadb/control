@@ -21,25 +21,10 @@ mise trust && mise install
 cargo run --bin inferadb-control
 ```
 
-Register and login:
-
-```bash
-# Register
-curl -X POST http://localhost:9090/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email": "alice@example.com", "password": "securepass123", "name": "Alice"}'
-
-# Login
-curl -X POST http://localhost:9090/v1/auth/login/password \
-  -H "Content-Type: application/json" \
-  -d '{"email": "alice@example.com", "password": "securepass123"}'
-```
-
 | Endpoint | URL                             |
 | -------- | ------------------------------- |
 | REST API | `http://localhost:9090`         |
 | gRPC API | `http://localhost:9091`         |
-| Mesh API | `http://localhost:9092`         |
 | Health   | `http://localhost:9090/healthz` |
 | Metrics  | `http://localhost:9090/metrics` |
 
@@ -52,18 +37,6 @@ curl -X POST http://localhost:9090/v1/auth/login/password \
 | **Vault Management** | Policy containers with access grants         |
 | **Client Auth**      | Ed25519 certificates, JWT assertions         |
 | **Token Issuance**   | Vault-scoped JWTs for Engine API             |
-
-## Key Concepts
-
-| Entity       | Description                                   |
-| ------------ | --------------------------------------------- |
-| User         | Account with auth methods (password, passkey) |
-| Organization | Workspace with members and roles              |
-| Vault        | Authorization policy container                |
-| Client       | Service identity with Ed25519 certs           |
-| Team         | Group-based vault access                      |
-
-**Auth Flow:** User → Session → Vault access → JWT → Engine API
 
 ## Architecture
 
@@ -78,84 +51,48 @@ graph TD
     SharedStorage --> Memory[(Memory)]
     SharedStorage --> StorageLedger[inferadb-storage-ledger]
     StorageLedger --> Ledger[(InferaDB Ledger)]
-    Core --> Engine[inferadb-control-engine-client]
 ```
 
-| Crate                          | Purpose                        |
-| ------------------------------ | ------------------------------ |
-| inferadb-control               | Binary entrypoint              |
-| inferadb-control-api           | REST/gRPC handlers             |
-| inferadb-control-config        | Configuration loading          |
-| inferadb-control-const         | Shared constants               |
-| inferadb-control-core          | Business logic, entities       |
-| inferadb-control-storage       | Repositories + storage factory |
-| inferadb-control-types         | Shared type definitions        |
-| inferadb-control-engine-client | Engine API client              |
-
-### Shared Storage Crates
-
-| Crate                   | Purpose                                      |
-| ----------------------- | -------------------------------------------- |
-| inferadb-storage        | Generic StorageBackend trait + MemoryBackend |
-| inferadb-storage-ledger | Ledger-backed StorageBackend implementation  |
+| Crate                    | Purpose                        |
+| ------------------------ | ------------------------------ |
+| inferadb-control         | Binary entrypoint              |
+| inferadb-control-api     | REST/gRPC handlers             |
+| inferadb-control-config  | Configuration loading          |
+| inferadb-control-const   | Shared constants               |
+| inferadb-control-core    | Business logic, entities       |
+| inferadb-control-storage | Repositories + storage factory |
+| inferadb-control-types   | Shared type definitions        |
 
 ## Configuration
 
-```yaml
-control:
-  listen:
-    http: "0.0.0.0:9090"
-    grpc: "0.0.0.0:9091"
-    mesh: "0.0.0.0:9092"
-
-  # Storage: "memory" (dev) or "ledger" (production)
-  storage: "ledger"
-
-  # Ledger configuration (requires --features ledger)
-  ledger:
-    endpoint: "http://ledger.inferadb:50051"
-    client_id: "control-prod-001"
-    namespace_id: 1
-    vault_id: 1 # optional
-
-  webauthn:
-    party: "localhost"
-    origin: "http://localhost:9090"
-```
-
-### Environment Variables
-
 Environment variables use `INFERADB_CTRL__` prefix with double underscores for nesting:
 
-| Variable                              | Description                | Example               |
-| ------------------------------------- | -------------------------- | --------------------- |
-| `INFERADB_CTRL__LISTEN__HTTP`         | HTTP listen address        | `0.0.0.0:9090`        |
-| `INFERADB_CTRL__STORAGE`              | Storage backend            | `ledger`              |
-| `INFERADB_CTRL__LEDGER__ENDPOINT`     | Ledger server URL          | `http://ledger:50051` |
-| `INFERADB_CTRL__LEDGER__CLIENT_ID`    | Client ID for idempotency  | `control-001`         |
-| `INFERADB_CTRL__LEDGER__NAMESPACE_ID` | Namespace for data scoping | `1`                   |
-| `INFERADB_CTRL__LEDGER__VAULT_ID`     | Vault for finer scoping    | `1`                   |
+| Variable                              | Description                                   |
+| ------------------------------------- | --------------------------------------------- |
+| `INFERADB_CTRL__LISTEN__HTTP`         | HTTP listen address (default: `0.0.0.0:9090`) |
+| `INFERADB_CTRL__STORAGE`              | Storage backend: `memory` or `ledger`         |
+| `INFERADB_CTRL__LEDGER__ENDPOINT`     | Ledger server URL                             |
+| `INFERADB_CTRL__LEDGER__CLIENT_ID`    | Client ID for idempotency                     |
+| `INFERADB_CTRL__LEDGER__NAMESPACE_ID` | Namespace for data scoping                    |
 
 See [config.yaml](config.yaml) for all options.
 
 ## Development
 
 ```bash
-# Setup (one-time)
+# Setup
 mise trust && mise install
 
-# Run the control plane
-cargo run --bin inferadb-control
+# Common tasks (requires just)
+just test      # Run tests
+just lint      # Run clippy
+just fmt       # Format code
+just ci        # Run all checks
 
-# Run tests
-cargo test --all-targets
-
-# Format and lint
+# Manual commands
+cargo nextest run
+cargo +1.92 clippy --workspace --all-targets -- -D warnings
 cargo +nightly fmt --all
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-# Build release
-cargo build --release
 ```
 
 ## Deployment
@@ -166,19 +103,17 @@ cargo build --release
 docker run -p 9090:9090 inferadb/control:latest
 ```
 
-### Kubernetes (Helm)
+### Kubernetes
 
 ```bash
 helm install inferadb-control ./helm \
   --namespace inferadb \
   --create-namespace \
   --set config.storage=ledger \
-  --set config.ledger.endpoint=http://ledger.inferadb:50051 \
-  --set config.webauthn.party=example.com \
-  --set config.webauthn.origin=https://app.example.com
+  --set config.ledger.endpoint=http://ledger.inferadb:50051
 ```
 
-See [helm/README.md](helm/README.md) for full configuration options.
+See [helm/README.md](helm/README.md) for configuration options.
 
 ## Documentation
 
@@ -191,7 +126,7 @@ See [helm/README.md](helm/README.md) for full configuration options.
 
 ## Community
 
-Join us on [Discord](https://discord.gg/inferadb) for questions, discussions, and contributions.
+Join us on [Discord](https://discord.gg/inferadb) for questions and discussions.
 
 ## License
 
