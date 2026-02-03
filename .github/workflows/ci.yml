@@ -275,7 +275,6 @@ jobs:
           cargo nextest run \
             --package inferadb-control-storage \
             --test ledger_integration_tests \
-            --features ledger \
             --profile ci \
             --no-fail-fast
 
