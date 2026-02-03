@@ -635,9 +635,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.11.0"
+version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
+checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "cc"
@@ -699,9 +699,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.56"
+version = "4.5.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a75ca66430e33a14957acc24c5077b503e7d374151b2b4b3a10c83b4ceb4be0e"
+checksum = "6899ea499e3fb9305a65d5ebf6e3d2248c5fab291f300ad0a704fbe142eae31a"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -709,9 +709,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.56"
+version = "4.5.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793207c7fa6300a0608d1080b858e5fdbe713cdc1c8db9fb17777d8a13e63df0"
+checksum = "7b12c8b680195a62a8364d16b8447b01b6c2c8f9aaf68bee653be34d4245e238"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1098,23 +1098,23 @@ dependencies = [
 
 [[package]]
 name = "dirs"
-version = "5.0.1"
+version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44c45a9d03d6676652bcb5e724c7e988de1acad23a711b5217ab9cbecbec2225"
+checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
 dependencies = [
  "dirs-sys",
 ]
 
 [[package]]
 name = "dirs-sys"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "520f05a5cbd335fae5a99ff7a6ab8627577660ee5cfd6a94a6a929b52ff0321c"
+checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
 dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1303,9 +1303,9 @@ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 
 [[package]]
 name = "flate2"
-version = "1.1.8"
+version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b375d6465b98090a5f25b1c7703f3859783755aa9a80433b36e0379a3ec2f369"
+checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
@@ -2228,9 +2228,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-raft"
-version = "0.1.0-dev.20260203.36"
+version = "0.1.0-dev.20260203.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5800a124739506becb19d661b0355dcd165b7dcad2f206bd648e7b52c30e680"
+checksum = "656752e1e9a375be6a58f12d695dadbb087a0ff3045a00326b24c47e5b46712d"
 dependencies = [
  "base64 0.22.1",
  "bon",
@@ -2272,9 +2272,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-sdk"
-version = "0.1.0-dev.20260203.36"
+version = "0.1.0-dev.20260203.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ab46bc8e97b0b24c0ab18393835ed0f2ac9ba31f67728712be32ca613b53a5d"
+checksum = "546dfe5c5bfb73c10b144ae72ae951f43a21cba61b024678f117b8fd3c415136"
 dependencies = [
  "backon",
  "bon",
@@ -2304,9 +2304,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-state"
-version = "0.1.0-dev.20260203.36"
+version = "0.1.0-dev.20260203.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74493d5912402a65b500e8f877babc41d2f10defd3f199d0ced6c74f1c48d7ea"
+checksum = "9cc7da1ace0540930258ef22c918682763651df529c73d8954796c4f238a097a"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2331,9 +2331,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-store"
-version = "0.1.0-dev.20260203.36"
+version = "0.1.0-dev.20260203.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f88e53b18a2e098c8b68bf1535e272167e5e0beb9e4bac21569e6defd5bb2d1d"
+checksum = "58182161196d7cb3cd3958810ca8a7f3570617c44c324bd7998388f0da5a5c71"
 dependencies = [
  "arc-swap",
  "bon",
@@ -2346,9 +2346,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-types"
-version = "0.1.0-dev.20260203.36"
+version = "0.1.0-dev.20260203.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c2371c6ddd1d281c30438ff2343f8f6c28c1d317b4f4ce624c357051421bff7"
+checksum = "6c11bd381bf84d7ec575aae8843bd3fd003e38667f41a9bc4bd7ac01c6c801e5"
 dependencies = [
  "bon",
  "chrono",
@@ -3584,13 +3584,13 @@ dependencies = [
 
 [[package]]
 name = "redox_users"
-version = "0.4.6"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba009ff324d1fc1b900bd1fdb31564febe58a8ccc8a6fdbb93b543d33b13ca43"
+checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
 dependencies = [
  "getrandom 0.2.17",
  "libredox",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -3615,9 +3615,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.12.2"
+version = "1.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "843bc0191f75f3e22651ae5f1e72939ab2f72a4bc30fa80a066bd66edefc24d4"
+checksum = "e10754a14b9137dd7b1e3e5b0493cc9171fdd105e0ab477f51b72e7f3ac0e276"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -3627,9 +3627,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.13"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5276caf25ac86c8d810222b3dbb938e512c55c6831a10f3e6ed1c93b84041f1c"
+checksum = "6e1dd4122fc1595e8162618945476892eefca7b88c52820e74af6262213cae8f"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -3638,9 +3638,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.8"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
+checksum = "a96887878f22d7bad8a3b6dc5b7440e0ada9a245242924394987b21cf2210a4c"
 
 [[package]]
 name = "rend"
@@ -5543,18 +5543,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.37"
+version = "0.8.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7456cf00f0685ad319c5b1693f291a650eaf345e941d082fc4e03df8a03996ac"
+checksum = "57cf3aa6855b23711ee9852dfc97dfaa51c45feaba5b645d0c777414d494a961"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.37"
+version = "0.8.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1328722bbf2115db7e19d69ebcc15e795719e2d66b60827c6a69a117365e37a0"
+checksum = "8a616990af1a287837c4fe6596ad77ef57948f787e46ce28e166facc0cc1cb75"
 dependencies = [
  "proc-macro2",
  "quote",

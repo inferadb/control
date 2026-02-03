@@ -15,7 +15,10 @@
 use std::{
     env,
     ops::Bound,
-    sync::atomic::{AtomicI64, Ordering},
+    sync::{
+        LazyLock,
+        atomic::{AtomicI64, Ordering},
+    },
     time::Duration,
 };
 
@@ -28,7 +31,12 @@ use tokio::time::sleep;
 // Test Configuration
 // ============================================================================
 
-static VAULT_COUNTER: AtomicI64 = AtomicI64::new(30000);
+// Process-unique base to prevent vault ID collisions when nextest spawns separate processes.
+// Each process gets a unique 10000-vault range based on its PID.
+static VAULT_COUNTER: LazyLock<AtomicI64> = LazyLock::new(|| {
+    let pid = std::process::id() as i64;
+    AtomicI64::new(30000 + (pid % 1000) * 10000)
+});
 
 fn should_run() -> bool {
     env::var("RUN_LEDGER_INTEGRATION_TESTS").is_ok()
@@ -43,7 +51,7 @@ fn ledger_namespace_id() -> i64 {
 }
 
 fn unique_vault_id() -> i64 {
-    VAULT_COUNTER.fetch_add(1, Ordering::SeqCst)
+    VAULT_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
 async fn create_ledger_backend() -> LedgerBackend {
