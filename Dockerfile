@@ -25,8 +25,8 @@ RUN apt-get update && apt-get install -y \
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 
-# Build the application in release mode with Ledger support
-RUN cargo build --release --bin inferadb-control --features ledger
+# Build the application in release mode
+RUN cargo build --release --bin inferadb-control
 
 # Strip debug symbols to reduce binary size
 RUN strip /app/target/release/inferadb-control
