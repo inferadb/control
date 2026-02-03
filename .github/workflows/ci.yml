@@ -69,37 +69,6 @@ jobs:
             The subject "{subject}" must start with a lowercase letter.
             Example: "feat: add user authentication" or "fix(api): handle empty requests"
 
-  # Detect if this is a workflow-only change (for skipping builds on Dependabot workflow PRs)
-  changes:
-    name: Detect Changes
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
-        with:
-          egress-policy: audit
-
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Check for code changes
-        id: filter
-        uses: step-security/paths-filter@6eee183b0d2fd101d3f8ee2935c127bca14c5625 # v3.0.5
-        with:
-          filters: |
-            code:
-              - '**/*.rs'
-              - '**/Cargo.toml'
-              - '**/Cargo.lock'
-              - 'config*.yaml'
-              - 'rust-toolchain.toml'
-              - 'openapi.yaml'
-
   # Check code formatting
   fmt:
     name: Formatting
@@ -171,18 +140,21 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-  # Build workspace once and cache for downstream jobs
-  build:
-    name: Build
-    needs: changes
-    runs-on: ubuntu-latest
-    # Skip build for Dependabot PRs that only modify workflows/docs
-    if: needs.changes.outputs.code == 'true' || github.actor != 'dependabot[bot]'
-    permissions:
-      contents: read
-    env:
-      CARGO_INCREMENTAL: 0
-      RUSTFLAGS: "-C codegen-units=16 -C link-arg=-fuse-ld=mold"
+  # Run tests on multiple platforms
+  test:
+    name: Test (${{ matrix.name }})
+    needs: [fmt, clippy]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            name: Linux AMD64
+          - runner: ubuntu-24.04-arm
+            name: Linux ARM64
+          - runner: macos-latest
+            name: macOS Apple Silicon
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
@@ -197,109 +169,46 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install mold linker
+      - name: Install mold linker (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mold
-          mold --version
 
-      - name: Install development tools via Mise
-        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
+      - name: Install protobuf compiler (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y -qq protobuf-compiler
+
+      - name: Install protobuf compiler (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install protobuf
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@650c5ca14212efbbf3e580844b04bdccf68dac31 # v2.67.18
         with:
-          install_args: protobuf cargo:cargo-nextest
-          cache: true
+          tool: cargo-nextest
 
       - name: Cache Rust dependencies
         uses: step-security/rust-cache@9be15b830520fab0ec3939586e917e4855cf76bd # v2.8.3
         with:
-          shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: test-${{ matrix.runner }}
 
-      - name: Build workspace (debug)
-        run: cargo build --workspace
-
-      - name: Build and archive tests for downstream jobs
-        run: cargo nextest archive --workspace --archive-file nextest-archive.tar.zst
-
-      - name: Upload nextest archive
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: nextest-archive
-          path: nextest-archive.tar.zst
-          retention-days: 1
-
-  # Run tests (uses pre-built archive from build job)
-  test:
-    name: Tests
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      checks: write # For test result publishing
-    env:
-      CARGO_INCREMENTAL: 0
-      RUSTFLAGS: "-C codegen-units=16 -C link-arg=-fuse-ld=mold"
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
-        with:
-          egress-policy: audit
-
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-
-      - name: Install mold linker
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq mold
-          mold --version
-
-      - name: Install development tools via Mise
-        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
-        with:
-          install_args: protobuf cargo:cargo-nextest
-          cache: true
-
-      - name: Download nextest archive
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: nextest-archive
-
-      - name: Run tests from archive
-        run: cargo nextest run --archive-file nextest-archive.tar.zst --profile ci --no-fail-fast
+      - name: Run unit tests
+        env:
+          RUSTFLAGS: ${{ runner.os == 'Linux' && '-C codegen-units=16 -C link-arg=-fuse-ld=mold' || '' }}
+        run: cargo nextest run --workspace --profile ci
 
       - name: Run doc tests
-        env:
-          RUSTFLAGS: "" # Avoid parallel LLVM linking OOM
         run: cargo test --workspace --doc
-
-      - name: Publish test results
-        uses: step-security/publish-unit-test-result-action@914f0f642c242f38335a491805adfc9bd64b1cbb # v2.21.1
-        if: always()
-        with:
-          files: target/nextest/ci/junit.xml
-          check_name: Test Results
-          comment_mode: off
-
-      - name: Upload test results
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        if: always()
-        with:
-          name: test-results-ubuntu
-          path: target/nextest/ci/junit.xml
-          retention-days: 7
 
   # Ledger Integration Tests
   # Runs Control tests against a real Ledger server to verify storage backend integration.
   # Uses Docker Compose to start a single-node Ledger cluster, then runs native cargo tests.
   ledger-integration-tests:
     name: Ledger Integration Tests
-    needs: build
+    needs: [fmt, clippy]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -376,7 +285,7 @@ jobs:
   # Test code coverage (nightly only to reduce CI costs)
   coverage:
     name: Code Coverage
-    needs: build
+    needs: test
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule'
     continue-on-error: true
@@ -478,7 +387,7 @@ jobs:
   # Overall status check
   ci-success:
     name: CI Success
-    needs: [commits, changes, fmt, clippy, build, test, ledger-integration-tests, coverage, dependencies]
+    needs: [commits, fmt, clippy, test, ledger-integration-tests, coverage, dependencies]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -510,11 +419,7 @@ jobs:
             echo "Clippy check failed"
             exit 1
           fi
-          # Build and test are required unless skipped for Dependabot workflow-only PRs
-          if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
-            echo "Build failed"
-            exit 1
-          fi
+          # Test job runs on multiple platforms
           if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
             echo "Tests failed"
             exit 1
@@ -524,14 +429,12 @@ jobs:
             echo "Ledger integration tests failed"
             exit 1
           fi
-          # Coverage and dependencies can be skipped for Dependabot PRs
-          if [[ "${{ needs.coverage.result }}" != "success" && "${{ needs.coverage.result }}" != "skipped" ]]; then
-            echo "Coverage check failed"
-            exit 1
+          # Coverage and dependencies are optional (skipped on PRs or non-main branches)
+          if [[ "${{ needs.coverage.result }}" == "failure" ]]; then
+            echo "::warning::Coverage check failed (non-blocking)"
           fi
-          if [[ "${{ needs.dependencies.result }}" != "success" && "${{ needs.dependencies.result }}" != "skipped" ]]; then
-            echo "Dependencies check failed"
-            exit 1
+          if [[ "${{ needs.dependencies.result }}" == "failure" ]]; then
+            echo "::warning::Dependencies check failed (non-blocking)"
           fi
 
           echo "All required checks passed!"

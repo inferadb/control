@@ -128,15 +128,10 @@ jobs:
             artifact_name: inferadb-control
             asset_name: inferadb-control-linux-x86_64
 
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             artifact_name: inferadb-control
             asset_name: inferadb-control-linux-aarch64
-
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact_name: inferadb-control
-            asset_name: inferadb-control-macos-x86_64
 
           - os: macos-latest
             target: aarch64-apple-darwin
@@ -163,11 +158,6 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq mold
 
-      - name: Install cross-compilation tools
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get install -y -qq gcc-aarch64-linux-gnu
-
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
@@ -191,20 +181,10 @@ jobs:
           shared-key: release-${{ matrix.os }}-${{ matrix.target }}
 
       - name: Build release binary
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --release --target ${{ matrix.target }} --package inferadb-control
 
       - name: Strip binary
-        env:
-          TARGET: ${{ matrix.target }}
-          ARTIFACT_NAME: ${{ matrix.artifact_name }}
-        run: |
-          if [[ "$TARGET" == "aarch64-unknown-linux-gnu" ]]; then
-            aarch64-linux-gnu-strip "target/${TARGET}/release/${ARTIFACT_NAME}"
-          else
-            strip "target/${TARGET}/release/${ARTIFACT_NAME}"
-          fi
+        run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
       - name: Generate SBOM
         env:
