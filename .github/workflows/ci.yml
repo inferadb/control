@@ -341,10 +341,10 @@ jobs:
       - name: Start Ledger server
         working-directory: docker/ledger-integration-tests
         run: |
-          docker-compose up -d ledger
+          docker compose up -d ledger
           echo "Waiting for Ledger to be ready..."
           for i in {1..30}; do
-            if docker-compose exec -T ledger nc -z localhost 50051 2>/dev/null; then
+            if docker compose exec -T ledger nc -z localhost 50051 2>/dev/null; then
               echo "Ledger is ready!"
               break
             fi
@@ -352,7 +352,7 @@ jobs:
             sleep 2
           done
           # Final check
-          docker-compose exec -T ledger nc -z localhost 50051 || (docker-compose logs ledger && exit 1)
+          docker compose exec -T ledger nc -z localhost 50051 || (docker compose logs ledger && exit 1)
 
       - name: Run Ledger integration tests
         env:
@@ -371,7 +371,7 @@ jobs:
       - name: Stop Ledger server
         if: always()
         working-directory: docker/ledger-integration-tests
-        run: docker-compose down -v
+        run: docker compose down -v
 
   # Test code coverage (nightly only to reduce CI costs)
   coverage:
@@ -453,11 +453,15 @@ jobs:
         with:
           toolchain: nightly
 
-      - name: Install development tools via Mise
-        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
+      - name: Install cargo-outdated
+        uses: taiki-e/install-action@650c5ca14212efbbf3e580844b04bdccf68dac31 # v2.67.18
         with:
-          install_args: protobuf cargo:cargo-outdated cargo:cargo-udeps
-          cache: true
+          tool: cargo-outdated
+
+      - name: Install cargo-udeps
+        uses: taiki-e/install-action@650c5ca14212efbbf3e580844b04bdccf68dac31 # v2.67.18
+        with:
+          tool: cargo-udeps
 
       - name: Cache Rust dependencies
         uses: step-security/rust-cache@9be15b830520fab0ec3939586e917e4855cf76bd # v2.8.3
