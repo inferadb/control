@@ -1,0 +1,500 @@
+# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
+
+name: Release
+
+on:
+  # Called by release-please when a release PR is merged
+  workflow_call:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g., v1.0.0)"
+        type: string
+        required: true
+      version:
+        description: "Release version (e.g., 1.0.0)"
+        type: string
+        required: true
+  # Manual trigger for hotfix releases
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g., v1.0.0)"
+        required: true
+
+# Permissions for SLSA provenance and releases
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  actions: read
+
+env:
+  CARGO_TERM_COLOR: always
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Determine version from trigger source
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag_name: ${{ steps.version.outputs.tag_name }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Determine version
+        id: version
+        env:
+          CALL_VERSION: ${{ inputs.version }}
+          CALL_TAG: ${{ inputs.tag_name }}
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # Manual trigger - version includes 'v' prefix
+            VERSION="${DISPATCH_VERSION#v}"
+            TAG_NAME="v${VERSION}"
+          else
+            # Called from release-please
+            VERSION="$CALL_VERSION"
+            TAG_NAME="$CALL_TAG"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Release version: ${VERSION}, tag: ${TAG_NAME}"
+
+  # Create GitHub release (only for workflow_dispatch; release-please creates its own)
+  create-release:
+    name: Create Release
+    needs: prepare
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Create Release
+        uses: step-security/action-gh-release@d45511d7589f080cf54961ff056b9705a74fd160 # v2.5.0
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
+          name: Release ${{ needs.prepare.outputs.tag_name }}
+          draft: false
+          prerelease: false
+
+  # Update rolling latest tag
+  update-latest-tag:
+    name: Update Latest Tag
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Update latest tag
+        run: |
+          git tag -f latest
+          git push -f origin latest
+
+  # Build release binaries for multiple platforms
+  build-binaries:
+    name: Build Binaries (${{ matrix.target }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: inferadb-control
+            asset_name: inferadb-control-linux-x86_64
+
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: inferadb-control
+            asset_name: inferadb-control-linux-aarch64
+
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: inferadb-control
+            asset_name: inferadb-control-macos-x86_64
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: inferadb-control
+            asset_name: inferadb-control-macos-aarch64
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@881ba7bf39a41cda34ac9e123fb41b44ed08232f # stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install mold linker (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mold
+
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+
+      - name: Configure build environment
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            echo "RUSTFLAGS=-C codegen-units=16 -C link-arg=-fuse-ld=mold" >> "$GITHUB_ENV"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            echo "RUSTFLAGS=-C codegen-units=16" >> "$GITHUB_ENV"
+            echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Cache Rust dependencies
+        uses: step-security/rust-cache@9be15b830520fab0ec3939586e917e4855cf76bd # v2.8.3
+        with:
+          shared-key: release-${{ matrix.os }}-${{ matrix.target }}
+
+      - name: Build release binary
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target ${{ matrix.target }} --package inferadb-control
+
+      - name: Strip binary
+        env:
+          TARGET: ${{ matrix.target }}
+          ARTIFACT_NAME: ${{ matrix.artifact_name }}
+        run: |
+          if [[ "$TARGET" == "aarch64-unknown-linux-gnu" ]]; then
+            aarch64-linux-gnu-strip "target/${TARGET}/release/${ARTIFACT_NAME}"
+          else
+            strip "target/${TARGET}/release/${ARTIFACT_NAME}"
+          fi
+
+      - name: Generate SBOM
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo install cargo-sbom
+          cargo sbom --output-format spdx_json_2_3 > "sbom-${TARGET}.spdx.json"
+
+      - name: Compress binary
+        env:
+          TARGET: ${{ matrix.target }}
+          ARTIFACT_NAME: ${{ matrix.artifact_name }}
+          ASSET_NAME: ${{ matrix.asset_name }}
+        run: |
+          cd "target/${TARGET}/release"
+          tar czf "${ASSET_NAME}.tar.gz" "${ARTIFACT_NAME}"
+
+      - name: Upload binary to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.tag_name }}
+          TARGET: ${{ matrix.target }}
+          ASSET_NAME: ${{ matrix.asset_name }}
+        run: |
+          gh release upload "$VERSION" \
+            "target/${TARGET}/release/${ASSET_NAME}.tar.gz" --clobber
+
+      - name: Upload SBOM to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.tag_name }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          gh release upload "$VERSION" \
+            "sbom-${TARGET}.spdx.json" --clobber
+
+      - name: Compute hash for provenance
+        id: hash
+        env:
+          TARGET: ${{ matrix.target }}
+          ASSET_NAME: ${{ matrix.asset_name }}
+        run: |
+          cd "target/${TARGET}/release"
+          HASH=$(sha256sum "${ASSET_NAME}.tar.gz" | base64 -w0)
+          echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
+
+    outputs:
+      hash-linux-x86_64: ${{ steps.hash.outputs.hash }}
+
+  # Aggregate hashes for SLSA provenance
+  aggregate-hashes:
+    name: Aggregate Hashes
+    needs: [prepare, build-binaries]
+    runs-on: ubuntu-latest
+    outputs:
+      hashes: ${{ steps.aggregate.outputs.hashes }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: /tmp/artifacts
+
+      - name: Aggregate hashes
+        id: aggregate
+        run: |
+          # Compute hashes of all release tarballs
+          cd /tmp/artifacts || exit 0
+          # Find all tarballs and compute their hashes
+          find . -name "*.tar.gz" -exec sha256sum {} \; | base64 -w0 > hashes.txt
+          HASHES=$(cat hashes.txt)
+          echo "hashes=${HASHES}" >> "$GITHUB_OUTPUT"
+
+  # Generate SLSA provenance for binaries
+  provenance:
+    name: Generate SLSA Provenance
+    needs: [prepare, build-binaries, aggregate-hashes]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: "${{ needs.aggregate-hashes.outputs.hashes }}"
+      upload-assets: true
+      upload-tag-name: ${{ needs.prepare.outputs.tag_name }}
+
+  # Build and push Docker images to both Docker Hub and GitHub Container Registry
+  build-docker:
+    name: Build Docker (${{ matrix.platform }})
+    needs: prepare
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: step-security/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.11.2
+
+      # Login to Docker Hub
+      - name: Login to Docker Hub
+        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # Login to GitHub Container Registry
+      - name: Login to GitHub Container Registry
+        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: step-security/docker-build-push-action@e7444ec6a6b5e77e22b44fcaa75b4ce1e42d7d9e # v6.18.1
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=release-${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.suffix }}
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: digests-release-${{ matrix.suffix }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Merge platform-specific images into multi-arch manifest and push to both registries
+  merge-docker:
+    name: Create Multi-Arch Manifest
+    runs-on: ubuntu-latest
+    needs: [prepare, build-docker]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Download digests
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: /tmp/digests
+          pattern: digests-release-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: step-security/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.11.2
+
+      # Login to Docker Hub
+      - name: Login to Docker Hub
+        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # Login to GitHub Container Registry
+      - name: Login to GitHub Container Registry
+        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for GHCR
+        id: meta-ghcr
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ needs.prepare.outputs.tag_name }}
+            type=raw,value=v${{ needs.prepare.outputs.version }}
+
+      - name: Extract metadata for Docker Hub
+        id: meta-hub
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: inferadb/control
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ needs.prepare.outputs.tag_name }}
+            type=raw,value=v${{ needs.prepare.outputs.version }}
+
+      - name: Create GHCR manifest list and push
+        working-directory: /tmp/digests
+        env:
+          DOCKER_METADATA_OUTPUT_JSON: ${{ steps.meta-ghcr.outputs.json }}
+          REGISTRY: ghcr.io
+          IMAGE_NAME: ${{ github.repository }}
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${REGISTRY}/${IMAGE_NAME}@sha256:%s " *)
+
+      - name: Create Docker Hub manifest list and push
+        working-directory: /tmp/digests
+        env:
+          VERSION: ${{ needs.prepare.outputs.tag_name }}
+          REGISTRY: ghcr.io
+          IMAGE_NAME: ${{ github.repository }}
+        run: |
+          # Re-tag and push to Docker Hub
+          docker buildx imagetools create \
+            -t inferadb/control:latest \
+            -t "inferadb/control:${VERSION}" \
+            $(printf "${REGISTRY}/${IMAGE_NAME}@sha256:%s " *)
+
+      - name: Inspect images
+        env:
+          IMAGE_NAME: ${{ github.repository }}
+        run: |
+          echo "=== GHCR Image ==="
+          docker buildx imagetools inspect "ghcr.io/${IMAGE_NAME}:latest"
+          echo "=== Docker Hub Image ==="
+          docker buildx imagetools inspect inferadb/control:latest
+
+  # Generate SBOM for Docker image
+  sbom-docker:
+    name: Generate Docker SBOM
+    runs-on: ubuntu-latest
+    needs: [prepare, merge-docker]
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Login to GitHub Container Registry
+        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@deef08a0db64bfad603422135db61477b16cef56 # v0.22.1
+        env:
+          IMAGE_NAME: ${{ github.repository }}
+        with:
+          image: ghcr.io/${{ env.IMAGE_NAME }}:latest
+          artifact-name: docker-sbom.spdx.json
+          output-file: docker-sbom.spdx.json
+
+      - name: Upload SBOM to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.tag_name }}
+        run: |
+          gh release upload "$VERSION" docker-sbom.spdx.json --clobber

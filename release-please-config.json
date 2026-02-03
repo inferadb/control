@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "simple",
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
+  "include-component-in-tag": false,
+  "include-v-in-tag": true,
+  "tag-separator": "-",
+  "group-pull-request-title-pattern": "release: v${version}",
+  "pull-request-title-pattern": "release: v${version}",
+  "changelog-sections": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance" },
+    { "type": "revert", "section": "Reverts" },
+    { "type": "docs", "section": "Documentation", "hidden": true },
+    { "type": "style", "section": "Improvements", "hidden": true },
+    { "type": "chore", "section": "Improvements", "hidden": true },
+    { "type": "refactor", "section": "Improvements", "hidden": true },
+    { "type": "test", "section": "Tests", "hidden": true },
+    { "type": "build", "section": "Improvements", "hidden": true },
+    { "type": "ci", "section": "Improvements", "hidden": true },
+    { "type": "dx", "section": "Improvements" },
+    { "type": "ai", "section": "Improvements" },
+    { "type": "imp", "section": "Improvements" },
+    { "type": "release", "section": "Release", "hidden": true }
+  ],
+  "packages": {
+    ".": {
+      "package-name": "inferadb-control",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        }
+      ]
+    }
+  }
+}

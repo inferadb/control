@@ -10,9 +10,9 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-# Internal dependencies
-inferadb-common-storage = { path = "../../../common/crates/storage" }
-inferadb-common-storage-ledger = { path = "../../../common/crates/storage-ledger" }
+# Internal (uses latest from crates.io; consider using .cargo/config.toml override for local development)
+inferadb-common-storage = ">=0.1.0-0"
+inferadb-common-storage-ledger = ">=0.1.0-0"
 
 # External dependencies
 bon = { workspace = true }

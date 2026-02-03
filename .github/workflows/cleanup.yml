@@ -1,0 +1,122 @@
+# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
+
+name: Cleanup
+
+on:
+  schedule:
+    # Weekly on Sunday at 3am UTC (after nightly builds at 2am)
+    - cron: "0 3 * * 0"
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write # Required for deleting releases
+
+env:
+  # Retention settings
+  KEEP_DAYS: 7
+  MIN_KEEP: 10
+
+jobs:
+  cleanup:
+    name: Cleanup Old Pre-releases
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Delete old canary releases (>7 days)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_DAYS: "7"
+          MIN_KEEP: "10"
+        run: |
+          echo "=== Cleaning up old canary releases ==="
+
+          # Get all canary pre-releases (dev.YYYYMMDD.N format with run number)
+          # Pattern: v0.1.0-dev.20260201.123+abc1234
+          cutoff_date=$(date -d "${KEEP_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)
+
+          echo "Deleting canary releases older than $cutoff_date..."
+          echo "Will keep at least $MIN_KEEP releases regardless of age"
+
+          # Get releases matching canary pattern (has run number after date)
+          RELEASES=$(gh release list --limit 200 --json tagName,isPrerelease,createdAt \
+            | jq -r --arg cutoff "$cutoff_date" '
+                [.[]
+                | select(.isPrerelease == true)
+                | select(.tagName | test("-dev\\.[0-9]{8}\\.[0-9]+"))]
+                | sort_by(.createdAt)
+                | reverse
+              ')
+
+          TOTAL=$(echo "$RELEASES" | jq 'length')
+          echo "Found $TOTAL canary releases"
+
+          if [ "$TOTAL" -le "$MIN_KEEP" ]; then
+            echo "Only $TOTAL releases exist, keeping all (minimum: $MIN_KEEP)"
+            exit 0
+          fi
+
+          # Delete releases older than cutoff, but keep at least MIN_KEEP
+          echo "$RELEASES" | jq -r --arg cutoff "$cutoff_date" --argjson min "$MIN_KEEP" '
+              .[$min:][] | select(.createdAt < $cutoff) | .tagName
+            ' | while read -r tag; do
+              if [ -n "$tag" ]; then
+                echo "Deleting canary release: $tag"
+                gh release delete "$tag" --yes --cleanup-tag || true
+              fi
+            done
+
+          echo "=== Canary cleanup complete ==="
+
+      - name: Delete old nightly releases (keep last 7)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== Cleaning up old nightly releases ==="
+          echo "Keeping only the 7 most recent nightly releases..."
+
+          # Get all nightly pre-releases (dev.YYYYMMDD format WITHOUT run number)
+          # Pattern: v0.1.0-dev.20260201 (no .N suffix, no +sha)
+          gh release list --limit 100 --json tagName,isPrerelease,createdAt \
+            | jq -r '
+                [.[]
+                | select(.isPrerelease == true)
+                | select(.tagName | test("-dev\\.[0-9]{8}$"))]
+                | sort_by(.createdAt)
+                | reverse
+                | .[7:]
+                | .[].tagName
+              ' \
+            | while read -r tag; do
+                if [ -n "$tag" ]; then
+                  echo "Deleting old nightly release: $tag"
+                  gh release delete "$tag" --yes --cleanup-tag || true
+                fi
+              done
+
+          echo "=== Nightly cleanup complete ==="
+
+      - name: Preserve following tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== Verifying following tags are preserved ==="
+
+          # These tags should always exist and point to the latest canary/nightly
+          for TAG in canary nightly; do
+            if git rev-parse "$TAG" >/dev/null 2>&1; then
+              echo "Following tag '$TAG' exists and is preserved"
+            else
+              echo "Warning: Following tag '$TAG' does not exist"
+            fi
+          done
+
+          echo "=== Tag verification complete ==="

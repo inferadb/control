@@ -1,0 +1,477 @@
+# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
+
+name: Nightly
+
+on:
+  schedule:
+    # Run at 2am UTC daily
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+# Cancel in-progress runs when new runs are triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # GitHub Container Registry
+  GHCR_REGISTRY: ghcr.io
+  GHCR_IMAGE: ${{ github.repository }}
+  # Docker Hub
+  DOCKERHUB_IMAGE: inferadb/control
+
+jobs:
+  # Check if there are changes since the last nightly
+  check-changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes since last nightly
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find the last nightly release (matches -dev. pattern used by nightly builds)
+          LAST_NIGHTLY=$(gh release list --limit 50 | grep -E '\-dev\.' | head -1 | awk '{print $1}' || echo "")
+
+          if [ -z "$LAST_NIGHTLY" ]; then
+            echo "No previous nightly release found, will run"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Get the commit SHA for the last nightly tag
+          LAST_SHA=$(git rev-list -n 1 "$LAST_NIGHTLY" 2>/dev/null || echo "")
+
+          if [ -z "$LAST_SHA" ]; then
+            echo "Could not find commit for last nightly, will run"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check if there are commits since the last nightly
+          COMMITS_SINCE=$(git rev-list "$LAST_SHA"..HEAD --count)
+
+          if [ "$COMMITS_SINCE" -gt 0 ]; then
+            echo "Found $COMMITS_SINCE commits since last nightly, will run"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No commits since last nightly, skipping"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Compute nightly version from release-please manifest
+  version:
+    name: Version
+    needs: check-changes
+    if: needs.check-changes.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      date: ${{ steps.version.outputs.date }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Compute nightly version
+        id: version
+        run: |
+          # Read next version from release-please manifest
+          if [ -f ".release-please-manifest.json" ]; then
+            NEXT_VERSION=$(jq -r '.["." ] // .[] | select(. != null)' .release-please-manifest.json | head -1)
+          else
+            NEXT_VERSION="0.1.0"
+          fi
+
+          DATE=$(date -u +%Y%m%d)
+          # Use dev.YYYYMMDD format for chronological semver sorting
+          NIGHTLY_VERSION="${NEXT_VERSION}-dev.${DATE}"
+
+          echo "version=${NIGHTLY_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "date=${DATE}" >> "$GITHUB_OUTPUT"
+          echo "Nightly version: ${NIGHTLY_VERSION}"
+
+  # Create GitHub pre-release
+  create-release:
+    name: Release
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create Pre-Release
+        uses: step-security/action-gh-release@d45511d7589f080cf54961ff056b9705a74fd160 # v2.5.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: Nightly v${{ needs.version.outputs.version }}
+          draft: false
+          prerelease: true
+          body: |
+            🌙 **This is a nightly build for testing purposes.**
+
+            Built from commit: ${{ github.sha }}
+            Build date: ${{ needs.version.outputs.date }}
+
+            Install with Docker:
+            ```bash
+            docker pull ${{ env.DOCKERHUB_IMAGE }}:nightly
+            # or
+            docker pull ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE }}:nightly
+            ```
+
+      - name: Update nightly tag
+        run: |
+          git tag -f nightly
+          git push -f origin nightly
+
+  # Build release binaries for multiple platforms
+  build-binaries:
+    name: Build (${{ matrix.name }})
+    needs: [version, create-release]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux AMD64
+            target: x86_64-unknown-linux-gnu
+            artifact_name: inferadb-control
+            asset_name: inferadb-control-linux-x86_64
+
+          - os: ubuntu-24.04-arm
+            name: Linux ARM64
+            target: aarch64-unknown-linux-gnu
+            artifact_name: inferadb-control
+            asset_name: inferadb-control-linux-aarch64
+
+          - os: macos-latest
+            name: macOS Apple Silicon
+            target: aarch64-apple-darwin
+            artifact_name: inferadb-control
+            asset_name: inferadb-control-macos-aarch64
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mold
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+
+      - name: Configure build environment
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            echo "RUSTFLAGS=-C codegen-units=16 -C link-arg=-fuse-ld=mold" >> "$GITHUB_ENV"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            echo "RUSTFLAGS=-C codegen-units=16" >> "$GITHUB_ENV"
+            echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Cache Rust dependencies
+        uses: step-security/rust-cache@9be15b830520fab0ec3939586e917e4855cf76bd # v2.8.3
+        with:
+          shared-key: nightly-${{ matrix.os }}-${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --package inferadb-control
+
+      - name: Strip binary
+        run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+
+      - name: Generate SBOM
+        run: |
+          cargo install cargo-sbom
+          cargo sbom --output-format spdx_json_2_3 > sbom-${{ matrix.target }}.spdx.json
+
+      - name: Compress binary
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
+
+      - name: Upload binary to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          gh release upload "v${VERSION}" \
+            "target/${{ matrix.target }}/release/${{ matrix.asset_name }}.tar.gz"
+
+      - name: Upload SBOM to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          gh release upload "v${VERSION}" \
+            "sbom-${{ matrix.target }}.spdx.json"
+
+  # Build and push Docker images
+  build-docker:
+    name: Docker (${{ matrix.name }})
+    needs: [version, create-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            name: Linux AMD64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            name: Linux ARM64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: step-security/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.11.2
+
+      - name: Log in to GitHub Container Registry
+        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE }}
+          tags: |
+            type=raw,value=nightly
+            type=raw,value=nightly-${{ needs.version.outputs.date }}
+
+      - name: Build and push by digest
+        id: build
+        uses: step-security/docker-build-push-action@e7444ec6a6b5e77e22b44fcaa75b4ce1e42d7d9e # v6.18.1
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=nightly-${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=nightly-${{ matrix.suffix }}
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: digests-nightly-${{ matrix.suffix }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Merge platform-specific images into multi-arch manifest
+  merge-docker:
+    name: Docker Manifest
+    runs-on: ubuntu-latest
+    needs: [version, build-docker]
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Download digests
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: /tmp/digests
+          pattern: digests-nightly-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: step-security/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.11.2
+
+      - name: Log in to GitHub Container Registry
+        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and push manifest to ghcr.io
+        working-directory: /tmp/digests
+        env:
+          GHCR_REGISTRY: ghcr.io
+          GHCR_IMAGE: ${{ github.repository }}
+          DATE: ${{ needs.version.outputs.date }}
+        run: |
+          docker buildx imagetools create \
+            -t "${GHCR_REGISTRY}/${GHCR_IMAGE}:nightly" \
+            -t "${GHCR_REGISTRY}/${GHCR_IMAGE}:nightly-${DATE}" \
+            $(printf "${GHCR_REGISTRY}/${GHCR_IMAGE}@sha256:%s " *)
+
+      - name: Copy manifest to Docker Hub
+        env:
+          GHCR_REGISTRY: ghcr.io
+          GHCR_IMAGE: ${{ github.repository }}
+          DOCKERHUB_IMAGE: inferadb/control
+          DATE: ${{ needs.version.outputs.date }}
+        run: |
+          docker buildx imagetools create \
+            -t "${DOCKERHUB_IMAGE}:nightly" \
+            -t "${DOCKERHUB_IMAGE}:nightly-${DATE}" \
+            "${GHCR_REGISTRY}/${GHCR_IMAGE}:nightly"
+
+      - name: Inspect images
+        env:
+          GHCR_REGISTRY: ghcr.io
+          GHCR_IMAGE: ${{ github.repository }}
+          DOCKERHUB_IMAGE: inferadb/control
+        run: |
+          echo "=== ghcr.io ==="
+          docker buildx imagetools inspect "${GHCR_REGISTRY}/${GHCR_IMAGE}:nightly"
+          echo "=== Docker Hub ==="
+          docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:nightly"
+
+  # Generate SBOM for Docker image
+  sbom-docker:
+    name: Docker SBOM
+    runs-on: ubuntu-latest
+    needs: [version, merge-docker]
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Log in to GitHub Container Registry
+        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@deef08a0db64bfad603422135db61477b16cef56 # v0.22.1
+        env:
+          GHCR_REGISTRY: ghcr.io
+          GHCR_IMAGE: ${{ github.repository }}
+        with:
+          image: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE }}:nightly
+          artifact-name: docker-sbom.spdx.json
+          output-file: docker-sbom.spdx.json
+
+      - name: Upload SBOM to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          gh release upload "v${VERSION}" \
+            docker-sbom.spdx.json --clobber || true
+
+  # Cleanup old nightly releases (keep last 7)
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [sbom-docker]
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Delete old nightly releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # List all nightly releases (dev.YYYYMMDD format without run number)
+          # These are nightly builds, not canary builds which have run numbers
+          NIGHTLIES=$(gh release list --limit 100 | grep -E '\-dev\.[0-9]{8}$' | awk '{print $1}' || true)
+
+          # Keep the 7 most recent, delete the rest
+          COUNT=0
+          for TAG in $NIGHTLIES; do
+            COUNT=$((COUNT + 1))
+            if [ $COUNT -gt 7 ]; then
+              echo "Deleting old nightly release: $TAG"
+              gh release delete "$TAG" --yes --cleanup-tag || true
+            fi
+          done

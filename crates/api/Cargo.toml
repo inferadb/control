@@ -16,7 +16,8 @@ inferadb-control-const = { path = "../const" }
 inferadb-control-core = { path = "../core" }
 inferadb-control-storage = { path = "../storage" }
 inferadb-control-types = { path = "../types" }
-inferadb-common-storage = { path = "../../../common/crates/storage" }
+# Internal (uses latest from crates.io; consider using .cargo/config.toml override for local development)
+inferadb-common-storage = ">=0.1.0-0"
 
 # External dependencies
 anyhow = { workspace = true }

@@ -19,12 +19,56 @@ concurrency:
 # Default to read-only permissions
 permissions:
   contents: read
+  pull-requests: read
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
+  # Validate conventional commit messages
+  commits:
+    name: Commit Messages
+    runs-on: ubuntu-latest
+    # Only run on pull requests - push to main is already validated
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Validate PR title
+        uses: step-security/action-semantic-pull-request@bc0cf74f5be4ce34accdec1ae908dff38dc5def1 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+            dx
+            ai
+            imp
+          requireScope: false
+          subjectPattern: ^[a-z].*$
+          subjectPatternError: |
+            The subject "{subject}" must start with a lowercase letter.
+            Example: "feat: add user authentication" or "fix(api): handle empty requests"
+
   # Detect if this is a workflow-only change (for skipping builds on Dependabot workflow PRs)
   changes:
     name: Detect Changes
@@ -119,7 +163,7 @@ jobs:
           mold --version
 
       - name: Cache Rust dependencies
-        uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
+        uses: step-security/rust-cache@9be15b830520fab0ec3939586e917e4855cf76bd # v2.8.3
         with:
           shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
           save-if: false
@@ -166,7 +210,7 @@ jobs:
           cache: true
 
       - name: Cache Rust dependencies
-        uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
+        uses: step-security/rust-cache@9be15b830520fab0ec3939586e917e4855cf76bd # v2.8.3
         with:
           shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -289,7 +333,7 @@ jobs:
           cache: true
 
       - name: Cache Rust dependencies
-        uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
+        uses: step-security/rust-cache@9be15b830520fab0ec3939586e917e4855cf76bd # v2.8.3
         with:
           shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
           save-if: false
@@ -368,7 +412,7 @@ jobs:
           cache: true
 
       - name: Restore build cache
-        uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
+        uses: step-security/rust-cache@9be15b830520fab0ec3939586e917e4855cf76bd # v2.8.3
         with:
           shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
           save-if: false # Don't save, only restore from build job
@@ -416,7 +460,7 @@ jobs:
           cache: true
 
       - name: Cache Rust dependencies
-        uses: step-security/rust-cache@f8fba7098297c8c53a7c9a30575ec2ad4ad85056 # v2.8.2
+        uses: step-security/rust-cache@9be15b830520fab0ec3939586e917e4855cf76bd # v2.8.3
 
       - name: Check outdated dependencies
         run: cargo outdated --exit-code 1 || echo "Some dependencies are outdated"
@@ -430,7 +474,7 @@ jobs:
   # Overall status check
   ci-success:
     name: CI Success
-    needs: [changes, fmt, clippy, build, test, ledger-integration-tests, coverage, dependencies]
+    needs: [commits, changes, fmt, clippy, build, test, ledger-integration-tests, coverage, dependencies]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -443,6 +487,16 @@ jobs:
 
       - name: Check all jobs
         run: |
+          # Commits check is only required on PRs
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            if [[ "${{ needs.commits.result }}" != "success" ]]; then
+              echo "Commit message validation failed"
+              echo "PR title must follow Conventional Commits format:"
+              echo "  <type>(<scope>): <description>"
+              echo "  Examples: 'feat: add new feature' or 'fix(api): handle edge case'"
+              exit 1
+            fi
+          fi
           # Format and Clippy can be skipped for Dependabot PRs
           if [[ "${{ needs.fmt.result }}" != "success" && "${{ needs.fmt.result }}" != "skipped" ]]; then
             echo "Format check failed"
