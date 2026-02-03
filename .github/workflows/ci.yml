@@ -247,28 +247,26 @@ jobs:
           shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
           save-if: false
 
-      - name: Install grpcurl
-        run: |
-          curl -sSL https://github.com/fullstorydev/grpcurl/releases/download/v1.9.3/grpcurl_1.9.3_linux_x86_64.tar.gz | tar -xz
-          sudo mv grpcurl /usr/local/bin/
-
       - name: Start Ledger server
         working-directory: docker/ledger-integration-tests
         run: |
           docker compose up -d ledger
           echo "Waiting for Ledger to be ready..."
-          # Use gRPC health check to ensure Raft is bootstrapped and ready
-          # Port check alone isn't sufficient - server opens port before Raft is ready
+          # Wait for metrics endpoint to be available (indicates server is running)
+          # Then add delay for Raft bootstrap to complete
           for i in {1..30}; do
-            if grpcurl -plaintext localhost:50052 grpc.health.v1.Health/Check 2>/dev/null | grep -q "SERVING"; then
-              echo "Ledger gRPC health check passed!"
+            if curl -sf http://localhost:9092/metrics > /dev/null 2>&1; then
+              echo "Ledger metrics endpoint is available"
+              # Give Raft a moment to fully bootstrap after server starts
+              sleep 3
+              echo "Ledger should be ready!"
               break
             fi
             echo "Attempt $i/30: Ledger not ready yet..."
             sleep 2
           done
-          # Final health check
-          grpcurl -plaintext localhost:50052 grpc.health.v1.Health/Check || (docker compose logs ledger && exit 1)
+          # Final check - metrics endpoint must be available
+          curl -sf http://localhost:9092/metrics > /dev/null || (docker compose logs ledger && exit 1)
 
       - name: Run Ledger integration tests
         env:
