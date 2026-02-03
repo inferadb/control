@@ -326,18 +326,18 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Docker Buildx
-        uses: step-security/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.11.2
+        uses: step-security/setup-buildx-action@8c8aef2d414c0b66518fee2b7084e0986f82d7ac # v3.11.1
 
       # Login to Docker Hub
       - name: Login to Docker Hub
-        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        uses: step-security/docker-login-action@c3e677aae8393bc9c81cfdf9709648720ea4bd4d # v3.6.0
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       # Login to GitHub Container Registry
       - name: Login to GitHub Container Registry
-        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        uses: step-security/docker-login-action@c3e677aae8393bc9c81cfdf9709648720ea4bd4d # v3.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -345,7 +345,7 @@ jobs:
 
       - name: Build and push by digest
         id: build
-        uses: step-security/docker-build-push-action@e7444ec6a6b5e77e22b44fcaa75b4ce1e42d7d9e # v6.18.1
+        uses: step-security/docker-build-push-action@a8c3d08b23f8be6aeed43eb1a14ce6fe51284438 # v6.18.0
         with:
           context: .
           platforms: ${{ matrix.platform }}
@@ -390,18 +390,18 @@ jobs:
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        uses: step-security/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.11.2
+        uses: step-security/setup-buildx-action@8c8aef2d414c0b66518fee2b7084e0986f82d7ac # v3.11.1
 
       # Login to Docker Hub
       - name: Login to Docker Hub
-        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        uses: step-security/docker-login-action@c3e677aae8393bc9c81cfdf9709648720ea4bd4d # v3.6.0
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       # Login to GitHub Container Registry
       - name: Login to GitHub Container Registry
-        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        uses: step-security/docker-login-action@c3e677aae8393bc9c81cfdf9709648720ea4bd4d # v3.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -477,7 +477,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Login to GitHub Container Registry
-        uses: step-security/docker-login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.1
+        uses: step-security/docker-login-action@c3e677aae8393bc9c81cfdf9709648720ea4bd4d # v3.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
