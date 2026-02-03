@@ -29,12 +29,9 @@ services:
       RUST_LOG: "info,inferadb_ledger_server=debug"
     tmpfs:
       - /var/lib/ledger:uid=65532,gid=65532
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 50051 || exit 1"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
-      start_period: 10s
+    # Note: Healthcheck removed because distroless image has no shell/utilities.
+    # CI uses host-side port checking instead. For local development with
+    # docker-compose, the test-runner will retry connections automatically.
     deploy:
       resources:
         limits:
@@ -53,8 +50,7 @@ services:
     networks:
       - control-ledger-test-network
     depends_on:
-      ledger:
-        condition: service_healthy
+      - ledger
     environment:
       LEDGER_ENDPOINT: "http://ledger:50051"
       LEDGER_NAMESPACE_ID: "1"

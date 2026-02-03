@@ -252,8 +252,10 @@ jobs:
         run: |
           docker compose up -d ledger
           echo "Waiting for Ledger to be ready..."
+          # Check from host side (port 50052 is mapped to container's 50051)
+          # Distroless container doesn't have nc/shell utilities
           for i in {1..30}; do
-            if docker compose exec -T ledger nc -z localhost 50051 2>/dev/null; then
+            if nc -z localhost 50052 2>/dev/null; then
               echo "Ledger is ready!"
               break
             fi
@@ -261,7 +263,7 @@ jobs:
             sleep 2
           done
           # Final check
-          docker compose exec -T ledger nc -z localhost 50051 || (docker compose logs ledger && exit 1)
+          nc -z localhost 50052 || (docker compose logs ledger && exit 1)
 
       - name: Run Ledger integration tests
         env:
