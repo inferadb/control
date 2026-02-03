@@ -21,12 +21,12 @@ services:
     ports:
       - "50052:50051"
       - "9092:9090"
+    command: ["--single"]
     environment:
-      INFERADB__LEDGER__BOOTSTRAP_EXPECT: "1"
-      INFERADB__LEDGER__LISTEN_ADDR: "0.0.0.0:50051"
-      INFERADB__LEDGER__METRICS_ADDR: "0.0.0.0:9090"
-      INFERADB__LEDGER__DATA_DIR: "/var/lib/ledger"
-      RUST_LOG: "info,inferadb_ledger_server=debug"
+      INFERADB__LEDGER__LISTEN: "0.0.0.0:50051"
+      INFERADB__LEDGER__METRICS: "0.0.0.0:9090"
+      INFERADB__LEDGER__DATA: "/var/lib/ledger"
+      RUST_LOG: "info,inferadb_ledger=debug"
     tmpfs:
       - /var/lib/ledger:uid=65532,gid=65532
     # Note: Healthcheck removed because distroless image has no shell/utilities.
@@ -70,7 +70,6 @@ services:
       cargo test
         --package inferadb-control-storage
         --test ledger_integration_tests
-        --features ledger
         -- --test-threads=1
 
 networks:
