@@ -247,23 +247,28 @@ jobs:
           shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
           save-if: false
 
+      - name: Install grpcurl
+        run: |
+          curl -sSL https://github.com/fullstorydev/grpcurl/releases/download/v1.9.3/grpcurl_1.9.3_linux_x86_64.tar.gz | tar -xz
+          sudo mv grpcurl /usr/local/bin/
+
       - name: Start Ledger server
         working-directory: docker/ledger-integration-tests
         run: |
           docker compose up -d ledger
           echo "Waiting for Ledger to be ready..."
-          # Check from host side (port 50052 is mapped to container's 50051)
-          # Distroless container doesn't have nc/shell utilities
+          # Use gRPC health check to ensure Raft is bootstrapped and ready
+          # Port check alone isn't sufficient - server opens port before Raft is ready
           for i in {1..30}; do
-            if nc -z localhost 50052 2>/dev/null; then
-              echo "Ledger is ready!"
+            if grpcurl -plaintext localhost:50052 grpc.health.v1.Health/Check 2>/dev/null | grep -q "SERVING"; then
+              echo "Ledger gRPC health check passed!"
               break
             fi
             echo "Attempt $i/30: Ledger not ready yet..."
             sleep 2
           done
-          # Final check
-          nc -z localhost 50052 || (docker compose logs ledger && exit 1)
+          # Final health check
+          grpcurl -plaintext localhost:50052 grpc.health.v1.Health/Check || (docker compose logs ledger && exit 1)
 
       - name: Run Ledger integration tests
         env:
