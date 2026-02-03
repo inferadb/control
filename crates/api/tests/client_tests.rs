@@ -1287,7 +1287,7 @@ async fn test_engine_rejects_tokens_after_revocation() {
 
     use base64::engine::{Engine as Base64Engine, general_purpose::STANDARD as BASE64};
     use chrono::Utc;
-    use inferadb_engine_auth::{
+    use inferadb_common_authn::{
         SigningKeyCache, error::AuthError, jwt::verify_with_signing_key_cache,
     };
     use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
@@ -1388,7 +1388,7 @@ async fn test_engine_rejects_tokens_after_revocation() {
 
     // Create JWT claims
     let now = Utc::now().timestamp() as u64;
-    let claims = inferadb_engine_auth::jwt::JwtClaims {
+    let claims = inferadb_common_authn::jwt::JwtClaims {
         iss: "https://api.inferadb.com".into(),
         sub: format!("client:{client_id}"),
         aud: "https://api.inferadb.com/evaluate".into(),

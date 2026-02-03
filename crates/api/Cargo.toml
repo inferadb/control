@@ -42,7 +42,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 inferadb-control-test-fixtures = { path = "../test-fixtures" }
-inferadb-engine-auth = { path = "../../../engine/crates/auth" }
+inferadb-common-authn = ">=0.1.0-0"
 rand_core = { version = "0.6", features = ["getrandom"] }
 
 [lints]
