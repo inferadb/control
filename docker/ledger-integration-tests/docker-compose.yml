@@ -11,10 +11,9 @@
 
 services:
   # Single-node Ledger cluster for integration testing
+  # Uses pre-built canary image from GHCR (built from inferadb/ledger repo)
   ledger:
-    build:
-      context: ../../../../ledger
-      dockerfile: Dockerfile
+    image: ghcr.io/inferadb/ledger:canary
     container_name: inferadb-control-ledger-test
     hostname: ledger-server
     networks:
