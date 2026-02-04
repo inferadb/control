@@ -389,10 +389,24 @@ jobs:
           DOCKERHUB_IMAGE: inferadb/control
           DATE: ${{ needs.version.outputs.date }}
         run: |
-          docker buildx imagetools create \
-            -t "${DOCKERHUB_IMAGE}:nightly" \
-            -t "${DOCKERHUB_IMAGE}:nightly-${DATE}" \
-            "${GHCR_REGISTRY}/${GHCR_IMAGE}:nightly"
+          # Retry up to 3 times with exponential backoff (Docker Hub can be flaky)
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt of 3..."
+            if docker buildx imagetools create \
+              -t "${DOCKERHUB_IMAGE}:nightly" \
+              -t "${DOCKERHUB_IMAGE}:nightly-${DATE}" \
+              "${GHCR_REGISTRY}/${GHCR_IMAGE}:nightly"; then
+              echo "Successfully copied to Docker Hub"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep_time=$((30 * attempt))
+              echo "Failed, retrying in ${sleep_time}s..."
+              sleep "$sleep_time"
+            fi
+          done
+          echo "All attempts failed"
+          exit 1
 
       - name: Inspect images
         env:

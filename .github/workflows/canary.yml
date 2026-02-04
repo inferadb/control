@@ -345,10 +345,24 @@ jobs:
           DOCKERHUB_IMAGE: inferadb/control
           SHORT_SHA: ${{ needs.version.outputs.short_sha }}
         run: |
-          docker buildx imagetools create \
-            -t "${DOCKERHUB_IMAGE}:canary" \
-            -t "${DOCKERHUB_IMAGE}:canary-${SHORT_SHA}" \
-            "${GHCR_REGISTRY}/${GHCR_IMAGE}:canary"
+          # Retry up to 3 times with exponential backoff (Docker Hub can be flaky)
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt of 3..."
+            if docker buildx imagetools create \
+              -t "${DOCKERHUB_IMAGE}:canary" \
+              -t "${DOCKERHUB_IMAGE}:canary-${SHORT_SHA}" \
+              "${GHCR_REGISTRY}/${GHCR_IMAGE}:canary"; then
+              echo "Successfully copied to Docker Hub"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep_time=$((30 * attempt))
+              echo "Failed, retrying in ${sleep_time}s..."
+              sleep "$sleep_time"
+            fi
+          done
+          echo "All attempts failed"
+          exit 1
 
       - name: Inspect images
         env:

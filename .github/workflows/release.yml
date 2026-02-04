@@ -424,11 +424,24 @@ jobs:
           REGISTRY: ghcr.io
           IMAGE_NAME: ${{ github.repository }}
         run: |
-          # Re-tag and push to Docker Hub
-          docker buildx imagetools create \
-            -t inferadb/control:latest \
-            -t "inferadb/control:${VERSION}" \
-            $(printf "${REGISTRY}/${IMAGE_NAME}@sha256:%s " *)
+          # Retry up to 3 times with exponential backoff (Docker Hub can be flaky)
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt of 3..."
+            if docker buildx imagetools create \
+              -t inferadb/control:latest \
+              -t "inferadb/control:${VERSION}" \
+              $(printf "${REGISTRY}/${IMAGE_NAME}@sha256:%s " *); then
+              echo "Successfully pushed to Docker Hub"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep_time=$((30 * attempt))
+              echo "Failed, retrying in ${sleep_time}s..."
+              sleep "$sleep_time"
+            fi
+          done
+          echo "All attempts failed"
+          exit 1
 
       - name: Inspect images
         env:
