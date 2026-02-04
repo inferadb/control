@@ -120,7 +120,7 @@ jobs:
           components: clippy
 
       - name: Install development tools via Mise
-        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
+        uses: step-security/mise-action@d65cf9dcb78b983ae2530c89fd28e72286713505 # v3.5.1
         with:
           install_args: protobuf
           cache: true
@@ -236,7 +236,7 @@ jobs:
           sudo apt-get install -y -qq mold
 
       - name: Install development tools via Mise
-        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
+        uses: step-security/mise-action@d65cf9dcb78b983ae2530c89fd28e72286713505 # v3.5.1
         with:
           install_args: protobuf cargo:cargo-nextest
           cache: true
@@ -319,7 +319,7 @@ jobs:
           mold --version
 
       - name: Install development tools via Mise
-        uses: step-security/mise-action@2fa1b2b4fa1577588d8ac75f4dfa0f67c266d2a0 # v3.4.1
+        uses: step-security/mise-action@d65cf9dcb78b983ae2530c89fd28e72286713505 # v3.5.1
         with:
           install_args: protobuf cargo:cargo-llvm-cov
           cache: true
