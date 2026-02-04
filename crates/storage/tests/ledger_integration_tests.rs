@@ -23,7 +23,9 @@ use std::{
 };
 
 use bytes::Bytes;
-use inferadb_common_storage_ledger::{LedgerBackend, LedgerBackendConfig};
+use inferadb_common_storage_ledger::{
+    ClientConfig, LedgerBackend, LedgerBackendConfig, ServerSource,
+};
 use inferadb_control_storage::backend::StorageBackend;
 use tokio::time::sleep;
 
@@ -56,13 +58,16 @@ fn unique_vault_id() -> i64 {
 
 async fn create_ledger_backend() -> LedgerBackend {
     let vault_id = unique_vault_id();
-    let config = LedgerBackendConfig::builder()
-        .endpoints(vec![ledger_endpoint()])
+    let client_config = ClientConfig::builder()
+        .servers(ServerSource::from_static([ledger_endpoint()]))
         .client_id(format!("control-test-{vault_id}"))
+        .build()
+        .expect("valid client config");
+    let config = LedgerBackendConfig::builder()
+        .client(client_config)
         .namespace_id(ledger_namespace_id())
         .vault_id(vault_id)
-        .build()
-        .expect("valid config");
+        .build();
 
     LedgerBackend::new(config).await.expect("backend creation should succeed")
 }
@@ -251,15 +256,21 @@ async fn test_ledger_concurrent_writes() {
     let mut handles = Vec::new();
     for i in 0..10 {
         let vault_id = unique_vault_id();
-        let config = LedgerBackendConfig::builder()
-            .endpoints(vec![ledger_endpoint()])
-            .client_id(format!("concurrent-test-{vault_id}"))
-            .namespace_id(ledger_namespace_id())
-            .vault_id(vault_id)
-            .build()
-            .expect("valid config");
+        let endpoint = ledger_endpoint();
+        let namespace_id = ledger_namespace_id();
 
         handles.push(tokio::spawn(async move {
+            let client_config = ClientConfig::builder()
+                .servers(ServerSource::from_static([endpoint]))
+                .client_id(format!("concurrent-test-{vault_id}"))
+                .build()
+                .expect("valid client config");
+            let config = LedgerBackendConfig::builder()
+                .client(client_config)
+                .namespace_id(namespace_id)
+                .vault_id(vault_id)
+                .build();
+
             let backend = LedgerBackend::new(config).await.expect("backend");
             let key = format!("ctrl_concurrent_{i}");
             let value = format!("value_{i}");
@@ -287,21 +298,27 @@ async fn test_ledger_vault_isolation() {
     let vault_a = unique_vault_id();
     let vault_b = unique_vault_id();
 
-    let config_a = LedgerBackendConfig::builder()
-        .endpoints(vec![ledger_endpoint()])
+    let client_config_a = ClientConfig::builder()
+        .servers(ServerSource::from_static([ledger_endpoint()]))
         .client_id(format!("vault-a-{vault_a}"))
+        .build()
+        .unwrap();
+    let config_a = LedgerBackendConfig::builder()
+        .client(client_config_a)
         .namespace_id(ledger_namespace_id())
         .vault_id(vault_a)
+        .build();
+
+    let client_config_b = ClientConfig::builder()
+        .servers(ServerSource::from_static([ledger_endpoint()]))
+        .client_id(format!("vault-b-{vault_b}"))
         .build()
         .unwrap();
-
     let config_b = LedgerBackendConfig::builder()
-        .endpoints(vec![ledger_endpoint()])
-        .client_id(format!("vault-b-{vault_b}"))
+        .client(client_config_b)
         .namespace_id(ledger_namespace_id())
         .vault_id(vault_b)
-        .build()
-        .unwrap();
+        .build();
 
     let backend_a = LedgerBackend::new(config_a).await.unwrap();
     let backend_b = LedgerBackend::new(config_b).await.unwrap();

@@ -10,7 +10,7 @@ use inferadb_common_storage::{
     },
 };
 use inferadb_common_storage_ledger::{
-    LedgerBackend, LedgerBackendConfig, auth::LedgerSigningKeyStore,
+    ClientConfig, LedgerBackend, LedgerBackendConfig, ServerSource, auth::LedgerSigningKeyStore,
 };
 
 use crate::MemoryBackend;
@@ -238,17 +238,20 @@ pub async fn create_storage_backend(config: &StorageConfig) -> StorageResult<Bac
                     "Ledger configuration required for Ledger backend",
                 )
             })?;
-            let backend_config = LedgerBackendConfig::builder()
-                .endpoints(vec![&ledger_config.endpoint])
+            let client_config = ClientConfig::builder()
+                .servers(ServerSource::from_static([&ledger_config.endpoint]))
                 .client_id(&ledger_config.client_id)
-                .namespace_id(ledger_config.namespace_id)
-                .maybe_vault_id(ledger_config.vault_id)
                 .build()
                 .map_err(|e| {
                     inferadb_common_storage::StorageError::internal(format!(
-                        "Ledger config error: {e}"
+                        "Ledger client config error: {e}"
                     ))
                 })?;
+            let backend_config = LedgerBackendConfig::builder()
+                .client(client_config)
+                .namespace_id(ledger_config.namespace_id)
+                .maybe_vault_id(ledger_config.vault_id)
+                .build();
             let backend = LedgerBackend::new(backend_config).await.map_err(|e| {
                 inferadb_common_storage::StorageError::internal(format!(
                     "Ledger connection error: {e}"
