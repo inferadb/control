@@ -2217,9 +2217,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-raft"
-version = "0.1.0-dev.20260204"
+version = "0.1.0-dev.20260205.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98f48bc5f782b526ef9743281bd2cfb9d6fed987a05b1043d01cab9c5a02ee2c"
+checksum = "6931d0b3afd7c783e92518b5c7006fd9971ca3b09feaa0e2ce273a0341922065"
 dependencies = [
  "base64 0.22.1",
  "bon",
@@ -2261,9 +2261,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-sdk"
-version = "0.1.0-dev.20260204"
+version = "0.1.0-dev.20260205.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df0e0b7c1ed494fb2f1968461c8ae998b8919546b33669f8370a762d1a1d9235"
+checksum = "438393afb2bb9b5caa3acf416d7999da139487b84c10955d548d623e01325cbc"
 dependencies = [
  "backon",
  "bon",
@@ -2293,9 +2293,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-state"
-version = "0.1.0-dev.20260204"
+version = "0.1.0-dev.20260205.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2928fa522aa2da34e656debb4c63f7d1e23f685b9440708cca362c7adece2dd6"
+checksum = "2f14b6eab5351fe3591f9a0ae80fa1586bdf5726de028804b40bcd1699284c03"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2320,9 +2320,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-store"
-version = "0.1.0-dev.20260204"
+version = "0.1.0-dev.20260205.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d8fcbb9445437e815fb3b719f6f7859aa6db92600930d10b948379a60bf8736"
+checksum = "c4f5b2ae9ff5a8539385bdc212ca749110c099181ca8fd3202dc410343fac8f4"
 dependencies = [
  "arc-swap",
  "bon",
@@ -2335,9 +2335,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-types"
-version = "0.1.0-dev.20260204"
+version = "0.1.0-dev.20260205.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f219d016b1b681c3b7e81f101aa4b10006e4e6adc454c1cbd0f9f53a11a8374f"
+checksum = "719e1d679d773b981dbadc332df71a0de93c2d36d0a142fb029c35d42b5aead3"
 dependencies = [
  "bon",
  "chrono",
