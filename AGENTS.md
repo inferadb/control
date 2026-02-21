@@ -41,6 +41,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 - Write tests before implementation, target 90%+ coverage
 - Never make git commits
 - Never reference implementation steps, tasks, phases, etc. in code comments
+- Must review changes using the CodeRabbit MCP; all genuine issues must be addressed
 
 **Errors**: Use `inferadb_control_types::{Error, Result}` with factory methods:
 

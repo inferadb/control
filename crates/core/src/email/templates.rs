@@ -1,3 +1,5 @@
+use super::html_escape;
+
 /// Email template trait
 pub trait EmailTemplate {
     /// Get the email subject
@@ -26,6 +28,7 @@ impl EmailTemplate for VerificationEmailTemplate {
     }
 
     fn html_body(&self) -> String {
+        let e = html_escape;
         format!(
             r#"<!DOCTYPE html>
 <html>
@@ -67,11 +70,11 @@ impl EmailTemplate for VerificationEmailTemplate {
     </p>
 </body>
 </html>"#,
-            self.user_name,
-            self.verification_link,
-            self.verification_link,
-            self.verification_link,
-            self.verification_code
+            e(&self.user_name),
+            e(&self.verification_link),
+            e(&self.verification_link),
+            e(&self.verification_link),
+            e(&self.verification_code)
         )
     }
 
@@ -113,6 +116,7 @@ impl EmailTemplate for PasswordResetEmailTemplate {
     }
 
     fn html_body(&self) -> String {
+        let e = html_escape;
         format!(
             r#"<!DOCTYPE html>
 <html>
@@ -154,7 +158,11 @@ impl EmailTemplate for PasswordResetEmailTemplate {
     </p>
 </body>
 </html>"#,
-            self.user_name, self.reset_link, self.reset_link, self.reset_link, self.reset_code
+            e(&self.user_name),
+            e(&self.reset_link),
+            e(&self.reset_link),
+            e(&self.reset_link),
+            e(&self.reset_code)
         )
     }
 
@@ -204,6 +212,7 @@ impl EmailTemplate for InvitationEmailTemplate {
     }
 
     fn html_body(&self) -> String {
+        let e = html_escape;
         format!(
             r#"<!DOCTYPE html>
 <html>
@@ -245,14 +254,14 @@ impl EmailTemplate for InvitationEmailTemplate {
     </p>
 </body>
 </html>"#,
-            self.inviter_name,
-            self.organization_name,
-            self.role,
-            self.invitation_link,
-            self.invitation_link,
-            self.invitation_link,
-            self.invitation_token,
-            self.expires_in
+            e(&self.inviter_name),
+            e(&self.organization_name),
+            e(&self.role),
+            e(&self.invitation_link),
+            e(&self.invitation_link),
+            e(&self.invitation_link),
+            e(&self.invitation_token),
+            e(&self.expires_in)
         )
     }
 
@@ -305,6 +314,7 @@ impl EmailTemplate for InvitationAcceptedEmailTemplate {
     }
 
     fn html_body(&self) -> String {
+        let e = html_escape;
         format!(
             r#"<!DOCTYPE html>
 <html>
@@ -329,12 +339,12 @@ impl EmailTemplate for InvitationAcceptedEmailTemplate {
     </p>
 </body>
 </html>"#,
-            self.owner_name,
-            self.member_name,
-            self.member_email,
-            self.organization_name,
-            self.role,
-            self.member_name
+            e(&self.owner_name),
+            e(&self.member_name),
+            e(&self.member_email),
+            e(&self.organization_name),
+            e(&self.role),
+            e(&self.member_name)
         )
     }
 
@@ -381,6 +391,7 @@ impl EmailTemplate for RoleChangeEmailTemplate {
     }
 
     fn html_body(&self) -> String {
+        let e = html_escape;
         format!(
             r#"<!DOCTYPE html>
 <html>
@@ -410,7 +421,11 @@ impl EmailTemplate for RoleChangeEmailTemplate {
     </p>
 </body>
 </html>"#,
-            self.member_name, self.changed_by, self.organization_name, self.old_role, self.new_role
+            e(&self.member_name),
+            e(&self.changed_by),
+            e(&self.organization_name),
+            e(&self.old_role),
+            e(&self.new_role)
         )
     }
 
@@ -453,6 +468,7 @@ impl EmailTemplate for OrganizationDeletionWarningEmailTemplate {
     }
 
     fn html_body(&self) -> String {
+        let e = html_escape;
         format!(
             r#"<!DOCTYPE html>
 <html>
@@ -490,7 +506,10 @@ impl EmailTemplate for OrganizationDeletionWarningEmailTemplate {
     </p>
 </body>
 </html>"#,
-            self.member_name, self.deleted_by, self.organization_name, self.days_until_deletion
+            e(&self.member_name),
+            e(&self.deleted_by),
+            e(&self.organization_name),
+            self.days_until_deletion
         )
     }
 
@@ -556,5 +575,96 @@ mod tests {
         assert!(template.text_body().contains("Jane Smith"));
         assert!(template.text_body().contains("https://example.com/reset?token=xyz789"));
         assert!(template.text_body().contains("XYZ789"));
+    }
+
+    #[test]
+    fn test_invitation_xss_prevention() {
+        let template = InvitationEmailTemplate {
+            invitee_email: "victim@example.com".to_string(),
+            organization_name: "<script>alert(1)</script>".to_string(),
+            inviter_name: r#"<img onerror=alert(document.cookie) src=x>"#.to_string(),
+            role: "admin".to_string(),
+            invitation_link: "https://example.com/invite?token=abc".to_string(),
+            invitation_token: "ABC123".to_string(),
+            expires_in: "7 days".to_string(),
+        };
+
+        let html = template.html_body();
+        assert!(
+            html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
+            "organization_name must be HTML-escaped"
+        );
+        assert!(
+            !html.contains("<script>alert(1)</script>"),
+            "raw <script> tag must not appear in HTML"
+        );
+        assert!(
+            html.contains("&lt;img onerror=alert(document.cookie) src=x&gt;"),
+            "inviter_name must be HTML-escaped"
+        );
+        assert!(!html.contains("<img onerror="), "raw <img> tag must not appear in HTML");
+    }
+
+    #[test]
+    fn test_invitation_accepted_xss_prevention() {
+        let template = InvitationAcceptedEmailTemplate {
+            owner_name: "Safe Owner".to_string(),
+            member_name: r#"<b "onmouseover=alert(1)>attacker</b>"#.to_string(),
+            member_email: "attacker@example.com".to_string(),
+            organization_name: "Safe Org".to_string(),
+            role: "member".to_string(),
+        };
+
+        let html = template.html_body();
+        assert!(!html.contains(r#"<b "onmouseover"#), "HTML tags in member_name must be escaped");
+        assert!(html.contains("&lt;b &quot;onmouseover=alert(1)&gt;attacker&lt;/b&gt;"));
+    }
+
+    #[test]
+    fn test_role_change_xss_prevention() {
+        let template = RoleChangeEmailTemplate {
+            member_name: "Target User".to_string(),
+            organization_name: "Normal Org".to_string(),
+            old_role: "member".to_string(),
+            new_role: "admin".to_string(),
+            changed_by: "<script>steal()</script>".to_string(),
+        };
+
+        let html = template.html_body();
+        assert!(html.contains("&lt;script&gt;steal()&lt;/script&gt;"));
+        assert!(!html.contains("<script>steal()</script>"));
+    }
+
+    #[test]
+    fn test_org_deletion_xss_prevention() {
+        let template = OrganizationDeletionWarningEmailTemplate {
+            member_name: "User".to_string(),
+            organization_name: "<script>alert(1)</script>".to_string(),
+            deleted_by: "Admin".to_string(),
+            days_until_deletion: 30,
+        };
+
+        let html = template.html_body();
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+    }
+
+    #[test]
+    fn test_text_body_not_escaped() {
+        let template = InvitationEmailTemplate {
+            invitee_email: "test@example.com".to_string(),
+            organization_name: "<script>alert(1)</script>".to_string(),
+            inviter_name: "Normal Name".to_string(),
+            role: "admin".to_string(),
+            invitation_link: "https://example.com/invite".to_string(),
+            invitation_token: "TOKEN".to_string(),
+            expires_in: "7 days".to_string(),
+        };
+
+        let text = template.text_body();
+        assert!(
+            text.contains("<script>alert(1)</script>"),
+            "plain text body should not HTML-escape (it is not rendered as HTML)"
+        );
     }
 }
