@@ -8,7 +8,10 @@ use crate::{
         AppState, audit_logs, auth, cli_auth, clients, emails, health, metrics as metrics_handler,
         organizations, schemas, sessions, teams, tokens, users, vaults,
     },
-    middleware::{logging_middleware, require_organization_member, require_session},
+    middleware::{
+        logging_middleware, login_rate_limit, registration_rate_limit, require_organization_member,
+        require_session,
+    },
 };
 
 /// Create router with state and middleware applied
@@ -178,8 +181,8 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             delete(teams::revoke_team_permission),
         )
         .with_state(state.clone())
-        .layer(middleware::from_fn_with_state(state.clone(), require_organization_member))
-        .layer(middleware::from_fn_with_state(state.clone(), require_session));
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_organization_member))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_session));
 
     // Create router with protected routes that need session middleware only
     let protected = Router::new()
@@ -214,9 +217,20 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state.clone(), require_session));
 
+    // Rate-limited authentication routes (separate routers to avoid cross-contamination)
+    let register_rate_limited = Router::new()
+        .route("/control/v1/auth/register", post(auth::register))
+        .route_layer(middleware::from_fn_with_state(state.clone(), registration_rate_limit))
+        .with_state(state.clone());
+
+    let login_rate_limited = Router::new()
+        .route("/control/v1/auth/login/password", post(auth::login))
+        .route_layer(middleware::from_fn_with_state(state.clone(), login_rate_limit))
+        .with_state(state.clone());
+
     // Combine public, protected, and org-scoped routes
     Router::new()
-        // Health check endpoints (no authentication)
+        // Health check endpoints
         // Follow Kubernetes API server conventions (/livez, /readyz, /startupz, /healthz)
         .route("/livez", get(health::livez_handler))
         .route("/readyz", get(health::readyz_handler))
@@ -226,9 +240,6 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/metrics", get(metrics_handler::metrics_handler))
         // Internal audit logging endpoint (no authentication, for internal use)
         .route("/internal/audit", post(audit_logs::create_audit_log))
-        // Authentication endpoints
-        .route("/control/v1/auth/register", post(auth::register))
-        .route("/control/v1/auth/login/password", post(auth::login))
         .route("/control/v1/auth/logout", post(auth::logout))
         .route("/control/v1/auth/verify-email", post(auth::verify_email))
         .route("/control/v1/auth/password-reset/request", post(auth::request_password_reset))
@@ -240,6 +251,8 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         // CLI token exchange endpoint (public, authorization code provides authentication)
         .route("/control/v1/auth/cli/token", post(cli_auth::cli_token_exchange))
         .with_state(state)
+        .merge(register_rate_limited)
+        .merge(login_rate_limited)
         .merge(org_scoped)
         .merge(protected)
         // Add logging middleware to log all requests

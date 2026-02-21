@@ -1,7 +1,7 @@
 # InferaDB Control Plane — Codebase Manifest
 
 > Comprehensive crate-by-crate, file-by-file analysis of the InferaDB Control Plane.
-> Generated 2026-02-05.
+> Generated 2026-02-05. Updated 2026-02-22.
 
 ## Table of Contents
 
@@ -84,7 +84,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 ## Crate: `api`
 
-**Path:** `crates/api/` · **Type:** Library · **Dependencies:** config, const, core, storage, types, axum, bon, chrono, ed25519-dalek, jsonwebtoken, metrics-exporter-prometheus, serde, tokio, tower, tracing
+**Path:** `crates/api/` · **Type:** Library · **Dependencies:** config, const, core, storage, types, axum, bon, chrono, ed25519-dalek, jsonwebtoken, metrics-exporter-prometheus, serde, tokio, tower, tracing, proptest (dev), sha2 (dev)
 
 ### `src/lib.rs`
 
@@ -102,7 +102,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 | Symbol                       | Kind     | Description                                                                                                      |
 | ---------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
-| `create_router_with_state()` | Function | Three route groups: org-scoped (session + org membership middleware), protected (session only), public (no auth) |
+| `create_router_with_state()` | Function | Three route groups: org-scoped (session + org membership via `.route_layer()`), protected (session only), public (no auth) |
 
 **Route Groups:**
 
@@ -110,16 +110,25 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 - **Protected:** Sessions, token revocation, user profile, emails, org create/list, invitation accept, CLI auth, vault GET by ID
 - **Public:** Health probes (`/livez`, `/readyz`, `/startupz`, `/healthz`), metrics, auth (register/login/logout/verify-email/password-reset), token refresh, client assertion, CLI token exchange
 
+**Note:** Login and registration routes use separate rate-limited sub-routers (via `.route_layer()`) merged into the public group — each route gets independent rate limiting middleware.
+
 ### `src/audit.rs`
 
 **Purpose:** Fire-and-forget audit logging utilities.
 
-| Symbol                 | Kind     | Description                                                                                           |
-| ---------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
-| `AuditEventParams`     | Struct   | Fields for org_id, user_id, client_id, resource_type, resource_id, event_data, ip_address, user_agent |
-| `log_audit_event()`    | Function | Fire-and-forget: errors logged but don't fail requests                                                |
-| `extract_ip_address()` | Function | Checks X-Forwarded-For then X-Real-IP headers                                                         |
-| `extract_user_agent()` | Function | Extracts User-Agent header                                                                            |
+| Symbol              | Kind     | Description                                                                                           |
+| ------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| `AuditEventParams`  | Struct   | Fields for org_id, user_id, client_id, resource_type, resource_id, event_data, ip_address, user_agent |
+| `log_audit_event()` | Function | Fire-and-forget: errors logged but don't fail requests                                                |
+| `extract_user_agent()` | Function | Extracts User-Agent header                                                                         |
+
+### `src/extract.rs`
+
+**Purpose:** Unified client IP extraction shared between rate limiting and audit logging.
+
+| Symbol               | Kind     | Description                                                                               |
+| -------------------- | -------- | ----------------------------------------------------------------------------------------- |
+| `extract_client_ip()` | Function | Cascades: `X-Forwarded-For` → `X-Real-IP` → `ConnectInfo<SocketAddr>`; returns `Option<String>` |
 
 ### `src/pagination.rs`
 
@@ -137,27 +146,32 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 #### `middleware/session.rs`
 
-| Symbol              | Kind       | Description                                                                                |
-| ------------------- | ---------- | ------------------------------------------------------------------------------------------ |
-| `SessionContext`    | Struct     | `session_id: i64`, `user_id: i64`                                                          |
-| `require_session()` | Middleware | Extracts session from cookie or Bearer token, validates, updates activity (sliding window) |
+| Symbol                       | Kind       | Description                                                                                |
+| ---------------------------- | ---------- | ------------------------------------------------------------------------------------------ |
+| `SessionContext`             | Struct     | `session_id: i64`, `user_id: i64`                                                          |
+| `require_session()`          | Middleware | Extracts session from cookie or Bearer token, validates, updates activity (sliding window) |
+| `extract_session_context()`  | Function   | Extracts `SessionContext` from request extensions (public helper)                          |
 
 #### `middleware/ratelimit.rs`
 
-| Symbol                      | Kind       | Description                                                                                   |
-| --------------------------- | ---------- | --------------------------------------------------------------------------------------------- |
-| `login_rate_limit()`        | Middleware | 100 requests/hour per IP                                                                      |
-| `registration_rate_limit()` | Middleware | 5 requests/day per IP                                                                         |
-| `rate_limit_middleware()`   | Middleware | Generic limiter with custom categories/limits; sets `X-RateLimit-*` and `Retry-After` headers |
+| Symbol                      | Kind       | Description                                                                                                           |
+| --------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------- |
+| `RateLimitConfig`           | Struct     | Configurable rate limits with `#[builder(default)]`; production defaults: 100/hr login, 5/day registration            |
+| `login_rate_limit()`        | Middleware | Per-IP login rate limiting; reads limits from `AppState.rate_limits`                                                  |
+| `registration_rate_limit()` | Middleware | Per-IP registration rate limiting; reads limits from `AppState.rate_limits`                                           |
+| `rate_limit_middleware()`   | Middleware | Generic limiter with custom categories/limits; sets `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After` headers |
 
 #### `middleware/organization.rs`
 
 | Symbol                          | Kind       | Description                                                                                                                      |
 | ------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `OrganizationContext`           | Struct     | `organization_id`, `member: OrganizationMember`; methods: `has_permission()`, `is_member()`, `is_admin_or_owner()`, `is_owner()` |
-| `require_organization_member()` | Middleware | Parses org ID from URI path segment[4], verifies membership, checks org not deleted                                              |
+| `require_organization_member()` | Middleware | Extracts org ID via axum `Path<HashMap>` extractor, verifies membership, checks org not deleted/suspended                        |
+| `require_member()`              | Function   | Convenience extractor: returns 403 if not a member                                                                               |
+| `require_admin_or_owner()`      | Function   | Convenience extractor: returns 403 if not admin or owner                                                                         |
+| `require_owner()`               | Function   | Convenience extractor: returns 403 if not owner                                                                                  |
 
-**Insight:** Path segment index coupling (hardcoded index 4) is fragile — would break silently if routes are restructured.
+**Note:** Suspension enforcement added — suspended orgs only allow owners to access `/suspend` and `/resume` endpoints; all other requests return 403.
 
 #### `middleware/permission.rs`
 
@@ -178,8 +192,12 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | Symbol                   | Kind       | Description                                                                                                       |
 | ------------------------ | ---------- | ----------------------------------------------------------------------------------------------------------------- |
 | `VaultContext`           | Struct     | `vault_id`, `organization_id`, `role: VaultRole`; methods: `has_permission()`, `is_reader/writer/manager/admin()` |
-| `require_vault_access()` | Middleware | Parses vault ID from path segment[6], verifies vault exists/not deleted/belongs to org, resolves user vault role  |
+| `require_vault_access()` | Middleware | Extracts vault ID via axum `Path<HashMap>` extractor, verifies vault exists/not deleted/belongs to org, resolves user vault role |
 | `get_user_vault_role()`  | Function   | Checks direct user grant first, then team grants; returns highest role                                            |
+| `require_reader()`       | Function   | Convenience extractor: returns 403 if vault role < Reader                                                         |
+| `require_writer()`       | Function   | Convenience extractor: returns 403 if vault role < Writer                                                         |
+| `require_manager()`      | Function   | Convenience extractor: returns 403 if vault role < Manager                                                        |
+| `require_admin()`        | Function   | Convenience extractor: returns 403 if vault role < Admin                                                          |
 
 ---
 
@@ -191,16 +209,15 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 | Symbol                     | Kind             | Description                                                                                                           |
 | -------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `AppState`                 | Struct (Builder) | `storage`, `config`, `worker_id`, `start_time`, `leader`, `email_service`, `control_identity`; `new_test()` for tests |
-| `ApiError`                 | Struct           | Wraps `CoreError`; implements `IntoResponse` with status code mapping and JSON error response                         |
-| `register()`               | Handler          | POST `/v1/auth/register` — Creates user, email, verification token, session, default org with owner role              |
+| `AppState`                 | Struct (Builder) | `storage`, `config`, `worker_id`, `start_time`, `leader`, `email_service`, `control_identity`, `rate_limits`; `new_test()` for tests |
+| `ApiError`                 | Struct           | Wraps `CoreError`; implements `IntoResponse` with status code mapping and JSON error response (includes `code` field) |
+| `ErrorResponse`            | Struct           | JSON error body: `error` (message), `code` (error code string), `details` (optional)                                  |
+| `register()`               | Handler          | POST `/v1/auth/register` — Atomically creates user, email, verification token, session, org via `BufferedBackend`     |
 | `login()`                  | Handler          | POST `/v1/auth/login/password` — Email+password auth, creates session                                                 |
 | `logout()`                 | Handler          | POST `/v1/auth/logout` — Revokes session, clears cookie                                                               |
 | `verify_email()`           | Handler          | POST `/v1/auth/verify-email` — Validates token, marks email verified                                                  |
-| `request_password_reset()` | Handler          | POST `/v1/auth/password-reset/request` — Generates reset token, sends email                                           |
+| `request_password_reset()` | Handler          | POST `/v1/auth/password-reset/request` — Returns consistent 200 OK for all inputs (prevents email enumeration)        |
 | `confirm_password_reset()` | Handler          | POST `/v1/auth/password-reset/confirm` — Validates token, updates password, revokes ALL sessions                      |
-
-**Insight:** `register()` creates 6+ entities without an explicit transaction boundary. A failure partway through could leave orphaned records.
 
 #### `handlers/health.rs`
 
@@ -217,9 +234,9 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 | Symbol                            | Kind    | Description                                                                                                       |
 | --------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
-| `generate_vault_token()`          | Handler | POST — Creates JWT access token + refresh token; validates vault role                                             |
-| `refresh_vault_token()`           | Handler | POST `/v1/tokens/refresh` — Validates, marks used (replay protection), rotates tokens                             |
-| `ClientAssertionClaims`           | Struct  | JWT claims for RFC 7523: `iss`, `sub`, `_aud`, `exp`, `_iat`, `jti`                                               |
+| `generate_vault_token()`          | Handler | POST — Creates JWT access token + refresh token; accepts `VaultRole` enum (reader/writer/manager/admin)            |
+| `refresh_vault_token()`           | Handler | POST `/v1/tokens/refresh` — Validates, marks used (replay protection), rotates tokens                              |
+| `ClientAssertionClaims`           | Struct  | JWT claims for RFC 7523: `iss`, `sub`, `aud`, `exp`, `iat`, `jti` (with `#[serde(rename)]` for underscore fields) |
 | `client_assertion_authenticate()` | Handler | POST `/v1/token` — OAuth 2.0 JWT Bearer flow: decode header for `kid`, verify Ed25519 signature, check JTI replay |
 | `revoke_vault_tokens()`           | Handler | POST `/v1/tokens/revoke/vault/:vault_id` — Vault admin only                                                       |
 
@@ -288,13 +305,13 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | `get_client()`         | Handler | GET — Single client                                                                                                                |
 | `update_client()`      | Handler | PATCH — Name/description                                                                                                           |
 | `delete_client()`      | Handler | DELETE — Soft-delete                                                                                                               |
-| `create_certificate()` | Handler | POST — Generates Ed25519 keypair, encrypts private key, writes public key to Ledger, creates audit log. Private key returned once. |
-| `list_certificates()`  | Handler | GET — Certificate metadata                                                                                                         |
-| `get_certificate()`    | Handler | GET — Single certificate                                                                                                           |
-| `revoke_certificate()` | Handler | POST — Marks revoked in Control + Ledger, audit log                                                                                |
-| `rotate_certificate()` | Handler | POST — Creates new cert with grace period, writes to Ledger with future `valid_from` for zero-downtime rotation                    |
+| `create_certificate()` | Handler | POST — Generates Ed25519 keypair, encrypts private key, writes public key to Ledger. Compensating transaction on Ledger failure. |
+| `list_certificates()`  | Handler | GET — Certificate metadata                                                                                                       |
+| `get_certificate()`    | Handler | GET — Single certificate                                                                                                         |
+| `revoke_certificate()` | Handler | POST — Marks revoked in Control + Ledger; compensating rollback restores active state on Ledger failure                          |
+| `rotate_certificate()` | Handler | POST — Creates new cert with grace period, writes to Ledger; compensating deletion on Ledger failure                             |
 
-**Insight:** Certificate rotation with grace period (`valid_from` in the future) enables zero-downtime key rotation. The private key is encrypted at rest and returned only once. Dual-write to Control + Ledger creates a consistency concern if the Ledger write fails.
+**Note:** All three certificate lifecycle handlers use compensating transactions — on Ledger write failure, Control state is rolled back. A background reconciliation job compares Control and Ledger state hourly.
 
 #### `handlers/vaults.rs`
 
@@ -316,8 +333,6 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | `list_team_grants()`  | Handler | GET                                                       |
 | `update_team_grant()` | Handler | PATCH — Change role                                       |
 | `delete_team_grant()` | Handler | DELETE — Revoke access                                    |
-
-**BUG:** `delete_team_grant()` appears to call `vault_user_grant.delete()` instead of `vault_team_grant.delete()`. Copy-paste error — team grant deletion would incorrectly delete a user grant or fail.
 
 #### `handlers/teams.rs`
 
@@ -378,34 +393,46 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 ### Test Suite (`tests/`)
 
-| Test File                            | Tests | Coverage                                                                                                                                                              |
-| ------------------------------------ | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schema_tests.rs`                    | 10    | Deploy, auto-version, explicit version, list, get, activate, rollback, diff, duplicate rejection, 404                                                                 |
-| `team_tests.rs`                      | 5     | Create, list, add member, grant permission, grant vault access                                                                                                        |
-| `security_input_validation_tests.rs` | 11    | XSS, path traversal, null bytes, empty names, long names, Unicode edge cases (ZWJ, directional overrides, Zalgo), SQL injection, control chars, pagination boundaries |
-| `organization_tests.rs`              | 7     | Registration default org, CRUD, non-member 403                                                                                                                        |
-| `client_tests.rs`                    | 13    | Client CRUD, certificate CRUD, rotation, Ledger integration, audit log                                                                                                |
-| `organization_invitation_tests.rs`   | 2     | Create+list, delete                                                                                                                                                   |
-| `organization_member_tests.rs`       | 7     | List, update role, cannot demote last owner, remove, cannot remove last owner, leave, last owner cannot leave                                                         |
-| `vault_tests.rs`                     | 6     | CRUD, grant access, revoke access                                                                                                                                     |
-| `security_isolation_tests.rs`        | 8     | Cross-org vault/client/team access, modify/delete isolation, member list isolation, JWT isolation                                                                     |
-| `audit_log_tests.rs`                 | 6     | Creation, list, filtering, pagination, query, retention cleanup                                                                                                       |
-| `jwks_verify_test.rs`                | 2     | Ed25519 generate/sign/verify, PEM conversion                                                                                                                          |
-| `security_authorization_tests.rs`    | 11    | RBAC enforcement: member/admin escalation prevention, member cannot create/delete/remove/update/team                                                                  |
-| `edge_case_tests.rs`                 | 3     | Concurrent vault access, expired token refresh, cert rotation                                                                                                         |
-| `token_tests.rs`                     | 4     | Generate, refresh flow, replay protection, revocation                                                                                                                 |
+| Test File                            | Tests | Coverage                                                                                                      |
+| ------------------------------------ | ----- | ------------------------------------------------------------------------------------------------------------- |
+| `audit_log_tests.rs`                 | 6     | Audit log creation, listing, filtering, pagination, owner-only access                                         |
+| `auth_tests.rs`                      | 21    | Login (valid/invalid/enumeration), logout, verify-email, password-reset (enumeration fix), cookie attributes  |
+| `cli_auth_tests.rs`                  | 5     | Full PKCE flow, wrong verifier, replay prevention, expired code, unauthenticated                              |
+| `client_tests.rs`                    | 13    | Client CRUD, certificate CRUD, rotation, Ledger integration, audit log                                        |
+| `cascade_deletion_tests.rs`          | 9     | User/org/vault deletion cascades: sessions, memberships, emails, teams, grants                                |
+| `edge_case_tests.rs`                 | 3     | Concurrent vault access, expired token refresh, cert rotation                                                  |
+| `email_tests.rs`                     | 9     | Add, list, set primary, delete, verify (valid/invalid/reused), cross-user isolation                            |
+| `engine_internal_tests.rs`           | 5     | Vault-by-ID (data, 404, deleted, auth required, cross-org access)                                              |
+| `health_tests.rs`                    | 5     | `/livez`, `/readyz`, `/startupz`, `/healthz` JSON fields, no-auth required                                    |
+| `jwks_verify_test.rs`                | 1     | Ed25519 generate/sign/verify with PEM roundtrip                                                                |
+| `middleware_tests.rs`                | 4     | Org/vault path extraction (standard routes + decoupled non-standard routes)                                    |
+| `organization_invitation_tests.rs`   | 2     | Create+list, delete                                                                                            |
+| `organization_member_tests.rs`       | 7     | List, update role, cannot demote last owner, remove, cannot remove last owner, leave, last owner cannot leave  |
+| `organization_suspend_tests.rs`      | 5     | Owner suspend/resume, non-owner 403, blocked resource access, post-resume access                               |
+| `organization_tests.rs`              | 7     | Registration default org, CRUD, non-member 403                                                                 |
+| `ratelimit_tests.rs`                 | 6     | Login/registration rate limit enforcement, headers, Retry-After, per-IP independence, 429 body                 |
+| `schema_tests.rs`                    | 12    | Deploy, auto-version, explicit version, list, get, activate, current, rollback, diff, duplicate rejection, 404 |
+| `security_authorization_tests.rs`    | 10    | RBAC enforcement: member/admin escalation prevention                                                           |
+| `security_input_validation_tests.rs` | 14    | XSS, path traversal, null bytes, Unicode edge cases, SQL injection, control characters, pagination boundaries  |
+| `security_isolation_tests.rs`        | 7     | Cross-org vault/client/team access, modify/delete isolation, JWT isolation                                     |
+| `session_limit_tests.rs`             | 3     | Session eviction at MAX_CONCURRENT_SESSIONS, list respects limit, multiple evictions                           |
+| `session_tests.rs`                   | 4     | List sessions, revoke specific, revoke others, cross-user revoke blocked                                      |
+| `team_tests.rs`                      | 13    | Create, list, get, update, delete+cascade, add/update/remove member, grant/revoke permission, auth checks     |
+| `tier_limit_tests.rs`               | 5     | Vault/team tier limit enforcement (402), soft-delete doesn't count, error response format                      |
+| `token_tests.rs`                     | 11    | Generate (including manager role), refresh, replay, revocation, client assertion (unknown kid, revoked cert, JTI replay, expired, wrong sig) |
+| `vault_tests.rs`                     | 8     | CRUD, user/team grant access, team grant deletion, grant isolation                                             |
 
-**Total: 95 integration tests**
+**Total: 760 tests** (195 integration across 26 test files + unit + property-based across all crates)
 
 ---
 
 ## Crate: `core`
 
-**Path:** `crates/core/` · **Type:** Library · **Dependencies:** types, storage, const, aes-gcm, argon2, ed25519-dalek, jsonwebtoken, idgenerator, lettre, webauthn-rs, tokio, tracing, metrics, bon
+**Path:** `crates/core/` · **Type:** Library · **Dependencies:** types, storage, const, aes-gcm, argon2, ed25519-dalek, jsonwebtoken, idgenerator, lettre, webauthn-rs, tokio, tracing, metrics, bon, zeroize, rsntp, proptest (dev)
 
 ### `src/lib.rs`
 
-**Purpose:** Crate root. Re-exports all public types organized by domain concern.
+**Purpose:** Crate root. Re-exports all public types organized by domain concern, including `SkewSeverity`, `SecureTokenRepository`.
 
 `#![deny(unsafe_code)]` applied crate-wide.
 
@@ -413,32 +440,29 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 **Purpose:** System clock validation against NTP for distributed deployments.
 
-| Symbol                       | Kind   | Description                                                                      |
-| ---------------------------- | ------ | -------------------------------------------------------------------------------- |
-| `ClockValidator`             | Struct | Checks system time against NTP servers via CLI tools (`chronyc`, `ntpdate`)      |
-| `ClockValidator::validate()` | Method | Performs NTP query, returns skew analysis. Soft-fails if no NTP client available |
-| `ClockStatus`                | Struct | `system_time`, `ntp_time`, `skew_seconds`, `within_threshold`                    |
-
-**Insight:** NTP parsing is placeholder-level — checks tool output format but returns `Utc::now()` rather than actual NTP time. Comment acknowledges: "In production, use a proper NTP client library."
+| Symbol                       | Kind     | Description                                                                                         |
+| ---------------------------- | -------- | --------------------------------------------------------------------------------------------------- |
+| `ClockValidator`             | Struct   | Multi-source NTP validation: `rsntp` (async SNTP) → `chronyc tracking` → `ntpdate -q` fallback     |
+| `ClockValidator::validate()` | Method   | Performs NTP query with cascading fallback, returns skew analysis. Soft-fails if no source available |
+| `ClockStatus`                | Struct   | `system_time`, `ntp_time`, `skew_ms` (sub-second precision), `severity: SkewSeverity`               |
+| `SkewSeverity`               | Enum     | `Normal` (< 100ms), `Warning` (100ms–threshold), `Critical` (≥ threshold)                           |
+| `ClockValidator::evaluate_skew()` | Method   | Testable skew classification; emits structured tracing + Prometheus gauge                       |
+| `classify_skew()`                 | Function | Pure helper: maps `(skew_ms, threshold)` → `SkewSeverity`                                     |
+| `parse_chrony_offset()`      | Function | Extracts "System time" offset from `chronyc tracking` output                                        |
+| `parse_ntpdate_offset()`     | Function | Extracts signed offset from `ntpdate -q` output                                                     |
 
 ### `src/crypto.rs`
 
 **Purpose:** Master encryption key (AES-256-GCM) for encrypting Ed25519 private keys at rest, plus keypair generation.
 
-| Symbol                           | Kind     | Description                                                                            |
-| -------------------------------- | -------- | -------------------------------------------------------------------------------------- |
-| `MasterKey`                      | Struct   | 256-bit key wrapper with secure zeroing on drop                                        |
-| `MasterKey::load_or_generate()`  | Method   | Load from file or auto-generate, sets 0600 permissions                                 |
-| `PrivateKeyEncryptor`            | Struct   | AES-256-GCM encryption service                                                         |
-| `PrivateKeyEncryptor::encrypt()` | Method   | Encrypts 32-byte private key, returns base64 (nonce + ciphertext)                      |
-| `PrivateKeyEncryptor::decrypt()` | Method   | Decrypts base64 ciphertext back to 32 bytes                                            |
-| `keypair::generate()`            | Function | Generates Ed25519 keypair; returns (URL-safe base64 public key, raw private key bytes) |
-
-**Insights:**
-
-- Random nonces via OsRng, proper AEAD — solid cryptographic implementation
-- `Drop` manually zeros the master key, but `[u8; 32]` is `Copy` so compiler copies during moves may leave unzeroed stack copies. `zeroize` crate is a dependency but not used here — `ZeroizeOnDrop` derive would be more robust
-- Decrypt returns `Vec<u8>` with no compile-time zeroize enforcement
+| Symbol                           | Kind     | Description                                                                                  |
+| -------------------------------- | -------- | -------------------------------------------------------------------------------------------- |
+| `MasterKey`                      | Struct   | 256-bit key wrapper; `#[derive(Zeroize, ZeroizeOnDrop)]`, intentionally non-`Clone`           |
+| `MasterKey::load_or_generate()`  | Method   | Load from file or auto-generate, sets 0600 permissions                                       |
+| `PrivateKeyEncryptor`            | Struct   | AES-256-GCM encryption service                                                               |
+| `PrivateKeyEncryptor::encrypt()` | Method   | Encrypts 32-byte private key, returns base64 (nonce + ciphertext)                            |
+| `PrivateKeyEncryptor::decrypt()` | Method   | Decrypts base64 ciphertext; returns `Zeroizing<Vec<u8>>` for compile-time erasure guarantee  |
+| `keypair::generate()`            | Function | Generates Ed25519 keypair; returns (URL-safe base64 public key, `Zeroizing<Vec<u8>>` private key) |
 
 ### `src/id.rs`
 
@@ -458,13 +482,13 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 **Purpose:** Background job scheduler that runs periodic cleanup on the leader instance only.
 
-| Symbol                    | Kind   | Description                                                                                                                              |
-| ------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `BackgroundJobs<S>`       | Struct | Scheduler with shutdown flag and task handles                                                                                            |
-| `BackgroundJobs::start()` | Method | Spawns: session cleanup, token cleanup, refresh token cleanup, authz code cleanup, audit log retention (90d), revoked cert cleanup (90d) |
-| `BackgroundJobs::stop()`  | Method | Signals shutdown, aborts handles                                                                                                         |
-
-**Insight:** Two of six jobs are no-ops (TTL handles cleanup). Leader-only execution prevents duplicate work in multi-instance deployments.
+| Symbol                              | Kind   | Description                                                                                                                              |
+| ----------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `BackgroundJobs<S>`                 | Struct | Scheduler with shutdown flag, task handles, optional `signing_key_store`                                                                 |
+| `BackgroundJobs::start()`           | Method | Spawns: session cleanup, token cleanup, refresh token cleanup, authz code cleanup, audit log retention (90d), revoked cert cleanup (90d), certificate reconciliation (hourly) |
+| `BackgroundJobs::stop()`            | Method | Signals shutdown, aborts handles                                                                                                         |
+| `reconcile_certificates()`          | Method | Compares Control and Ledger certificate state, logs divergences with structured fields                                                   |
+| `org_id_from_kid()`                 | Function | Parses org_id from kid format `org-{org_id}-client-{client_id}-cert-{cert_id}`                                                         |
 
 ### `src/jwt.rs`
 
@@ -474,27 +498,21 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | --------------------------------- | ------ | ------------------------------------------------------------------------------------------ |
 | `VaultTokenClaims`                | Struct | JWT claims: `iss`, `sub`, `aud`, `exp`, `iat`, `org_id`, `vault_id`, `vault_role`, `scope` |
 | `JwtSigner`                       | Struct | Signing/verification service wrapping `PrivateKeyEncryptor`                                |
-| `JwtSigner::sign_vault_token()`   | Method | Signs claims with certificate's private key, includes `kid` header                         |
-| `JwtSigner::verify_vault_token()` | Method | Verifies and decodes JWT using certificate's public key                                    |
-
-**Insights:**
-
-- Ed25519 private key manually wrapped into PKCS#8 DER with hardcoded ASN.1 bytes — correct but fragile
-- Audience validation disabled in `verify_vault_token` — potential security risk if callers forget to validate
-- Role-to-scope mapping is hardcoded with InferaDB-specific permission names
+| `JwtSigner::sign_vault_token()`   | Method | Signs claims via `to_pkcs8_der()` (no hardcoded ASN.1), includes `kid` header              |
+| `JwtSigner::verify_vault_token()` | Method | Verifies JWT with audience validation enabled (`REQUIRED_AUDIENCE`)                        |
 
 ### `src/leader.rs`
 
 **Purpose:** Leader election using storage as distributed lock with TTL-based lease.
 
-| Symbol                     | Kind   | Description                                                              |
-| -------------------------- | ------ | ------------------------------------------------------------------------ |
-| `LeaderElection<S>`        | Struct | Coordinator with storage, instance ID, leader status flag, shutdown flag |
-| `try_acquire_leadership()` | Method | Attempts to acquire leader lease                                         |
-| `is_leader()`              | Method | Cached local check via `RwLock<bool>`                                    |
-| `start_lease_renewal()`    | Method | Background renewal (10s interval, 30s TTL)                               |
-
-**Insight:** Not truly atomic (check-then-set TOCTOU race). Acceptable for TTL-based approach since leases expire quickly.
+| Symbol                     | Kind   | Description                                                                     |
+| -------------------------- | ------ | ------------------------------------------------------------------------------- |
+| `LeaderElection<S>`        | Struct | Coordinator with storage, instance ID, leader status flag, shutdown flag        |
+| `try_acquire_leadership()` | Method | Atomic acquisition via `compare_and_set(key, None, value)` (insert-if-absent)  |
+| `renew_lease()`            | Method | CAS with `expected: Some(our_value)` — prevents stale leader from overwriting  |
+| `release_leadership()`     | Method | CAS-guarded deletion — prevents one leader from deleting another's lease       |
+| `is_leader()`              | Method | Cached local check via `RwLock<bool>`                                           |
+| `start_lease_renewal()`    | Method | Background renewal (10s interval, 30s TTL)                                      |
 
 ### `src/logging.rs`
 
@@ -517,6 +535,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | `record_auth_attempt()` | Function | Counter by type/success                      |
 | `record_db_query()`     | Function | Histogram for DB latency                     |
 | `set_is_leader()`       | Function | Gauge (1.0 or 0.0)                           |
+| `set_clock_skew()`      | Function | `clock_skew_seconds` gauge for NTP monitoring |
 
 ### `src/ratelimit.rs`
 
@@ -533,7 +552,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 ### `src/repository_context.rs`
 
-**Purpose:** Consolidated repository factory creating all 21 repositories from a single storage backend.
+**Purpose:** Consolidated repository factory creating all 22 repositories from a single storage backend.
 
 | Symbol                      | Kind   | Description                                              |
 | --------------------------- | ------ | -------------------------------------------------------- |
@@ -558,20 +577,24 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | ------------------------------------- | ------ | --------------------------------------------------- |
 | `PasswordHasher`                      | Struct | Argon2id with 19 MiB memory, 2 iterations, 1 thread |
 | `PasswordHasher::hash()`              | Method | Hash with random salt, returns PHC format           |
-| `PasswordHasher::verify()`            | Method | Verify against PHC hash                             |
+| `PasswordHasher::verify()`            | Method | Verify against PHC hash; error message matches email-not-found to prevent user enumeration |
 | `PasswordHasher::validate_password()` | Method | Length validation: 12-128 chars (NIST SP 800-63B)   |
 
 ### `src/email/service.rs`
 
 **Purpose:** Email sending abstraction with SMTP implementation and mock.
 
-| Symbol             | Kind   | Description                                              |
-| ------------------ | ------ | -------------------------------------------------------- |
-| `EmailSender`      | Trait  | `async fn send_email(to, subject, body_html, body_text)` |
-| `SmtpEmailService` | Struct | Production SMTP via `lettre`                             |
-| `MockEmailSender`  | Struct | Test double (logs, doesn't send)                         |
+| Symbol             | Kind   | Description                                                                     |
+| ------------------ | ------ | ------------------------------------------------------------------------------- |
+| `EmailSender`      | Trait  | `async fn send_email(to, subject, body_html, body_text)`                        |
+| `SmtpEmailService` | Struct | Production SMTP via `lettre`; uses `MultiPart::alternative_plain_html()` (RFC 2046) |
+| `MockEmailSender`  | Struct | Test double (logs, doesn't send)                                                |
 
-**Insight:** HTML and text bodies combined with `---` separator in single content-type email rather than proper multipart/alternative MIME.
+### `src/email/mod.rs`
+
+| Symbol          | Kind     | Description                                                         |
+| --------------- | -------- | ------------------------------------------------------------------- |
+| `html_escape()` | Function | Escapes `&`, `<`, `>`, `"`, `'` to HTML entities; prevents XSS in email templates |
 
 ### `src/email/templates.rs`
 
@@ -586,13 +609,13 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | `RoleChangeEmailTemplate`                  | Role change notification            |
 | `OrganizationDeletionWarningEmailTemplate` | Pending deletion warning            |
 
-**Insight:** XSS risk if `inviter_name` or `organization_name` contain HTML special characters — user input should be HTML-escaped before interpolation.
+**Note:** All user-controlled template variables are HTML-escaped via `html_escape()` in `html_body()` methods.
 
 ---
 
 ### Repositories (`src/repository/`)
 
-All 16 repositories follow a consistent pattern:
+All 22 repositories (across 18 files) follow a consistent pattern:
 
 1. `XxxRepository<S: StorageBackend>` with a single `storage: S` field
 2. Key schema documented in doc comments (e.g., `"client:{id}"`, `"client:org:{org_id}:{idx}"`)
@@ -626,7 +649,8 @@ All 16 repositories follow a consistent pattern:
 | `create()`                      | Org-scoped unique name enforcement |
 | `list_by_organization()`        | All clients                        |
 | `list_active_by_organization()` | Loads all, filters in memory       |
-| `count_by_organization()`       | Loads full list to count           |
+| `count_by_organization()`       | Range scan key counting (no deserialization) |
+| `count_active_by_organization()` | O(1) counter key read with self-healing fallback |
 
 #### `repository/client_certificate.rs`
 
@@ -670,9 +694,13 @@ User CRUD with soft/hard delete. `get()` auto-filters deleted users.
 
 Multiple emails per user, verification, primary designation, global email uniqueness.
 
+#### `repository/secure_token.rs`
+
+Generic `SecureTokenRepository<S, T: SecureTokenEntity>` with all CRUD methods parameterized via the `SecureTokenEntity` trait. Eliminates structural duplication between token repositories.
+
 #### `repository/user_email_verification_token.rs` / `user_password_reset_token.rs`
 
-Token storage with lookups by token string. Significant structural duplication between the two.
+Type aliases over `SecureTokenRepository<S, T>` with entity-specific convenience methods (`get_by_email`, `get_by_user`).
 
 #### `repository/user_session.rs`
 
@@ -700,7 +728,7 @@ Schema versioning with Validating → Deployed → Active → Superseded/RolledB
 
 ### `src/lib.rs`
 
-**Purpose:** Crate root. Re-exports ~100 types from entities and DTOs.
+**Purpose:** Crate root. Re-exports ~100 types from entities and DTOs, including `SecureToken`, `SecureTokenEntity`.
 
 | Type             | Description                                                                                               |
 | ---------------- | --------------------------------------------------------------------------------------------------------- |
@@ -741,12 +769,12 @@ Factory methods: `Error::validation("msg")`, `Error::not_found("msg")`, etc.
 | ----------------------- | ---------- | ----------------------------------------------------------------------------------------------------------- |
 | `ControlIdentity`       | Struct     | `control_id`, `kid` (public), `signing_key`, `verifying_key` (private)                                      |
 | `generate()`            | Method     | Random Ed25519 keypair, derives control_id from pod name/hostname, computes RFC 7638 JWK Thumbprint for kid |
-| `from_pem()`            | Method     | Restores from PKCS#8 PEM (extracts last 32 bytes — simplified)                                              |
-| `sign_jwt()`            | Method     | Signs 5-min JWT with admin scope, UUID v4 jti                                                               |
+| `from_pem()`            | Method     | Restores from PKCS#8 PEM via `SigningKey::from_pkcs8_der()`; returns `Result<Self, Error>`                  |
+| `to_pem()`              | Method     | Exports via `to_pkcs8_der()` + `pem` crate wrapping; returns `Result<String, Error>`                       |
+| `sign_jwt()`            | Method     | Signs 5-min JWT with admin scope, UUID v4 jti; returns `Result<String, Error>`                              |
 | `to_jwks()`             | Method     | JWKS representation of public key                                                                           |
 | `SharedControlIdentity` | Type alias | `Arc<ControlIdentity>`                                                                                      |
 
-**Insight:** Uses `Result<_, String>` rather than the crate's `Error` type — inconsistent with rest of crate.
 
 ---
 
@@ -755,17 +783,17 @@ Factory methods: `Error::validation("msg")`, `Error::not_found("msg")`, etc.
 | File               | Types | Purpose                                                                          |
 | ------------------ | ----- | -------------------------------------------------------------------------------- |
 | `auth.rs`          | 12    | Registration, login, logout, email verification, password reset request/response |
-| `tokens.rs`        | 7     | Vault token generation, refresh, client assertion (RFC 7523), revocation         |
-| `teams.rs`         | 18+   | Team CRUD, members, permissions request/response                                 |
-| `emails.rs`        | 8     | Email management: add, list, verify, set primary                                 |
-| `users.rs`         | 4     | User profile CRUD                                                                |
+| `tokens.rs`        | 7     | Vault token generation, refresh, client assertion (RFC 7523), revocation; uses `VaultRole` enum (not String) |
+| `teams.rs`         | 22    | Team CRUD, members, permissions request/response                                 |
+| `emails.rs`        | 9     | Email management: add, list, verify, set primary                                 |
+| `users.rs`         | 5     | User profile CRUD                                                                |
 | `sessions.rs`      | 3     | Session listing and revocation                                                   |
 | `audit_logs.rs`    | 5     | Audit log creation and querying                                                  |
-| `organizations.rs` | 23    | Organization CRUD, members, invitations, ownership, engine-facing                |
-| `clients.rs`       | 17    | Client/certificate CRUD with Terraform-compatible deserializer                   |
+| `organizations.rs` | 26    | Organization CRUD, members, invitations, ownership, engine-facing                |
+| `clients.rs`       | 19    | Client/certificate CRUD with Terraform-compatible deserializer                   |
 | `cli_auth.rs`      | 4     | PKCE authorization code flow                                                     |
 | `schemas.rs`       | 16    | Schema deploy, activate, rollback, diff                                          |
-| `vaults.rs`        | 21    | Vault CRUD, user/team grants                                                     |
+| `vaults.rs`        | 23    | Vault CRUD, user/team grants (consolidated: `UserGrantInfo`/`TeamGrantInfo` merged into `*Response`) |
 
 **Notable:** `clients.rs` includes `deserialize_optional_string_or_number` for Terraform compatibility (sends numbers as strings).
 
@@ -778,16 +806,17 @@ Factory methods: `Error::validation("msg")`, `Error::not_found("msg")`, etc.
 | `user.rs`                          | `User`                                                                                               | Name validation (1-100 chars), passwordless support, ToS acceptance, soft delete                                       |
 | `organization.rs`                  | `Organization`, `OrganizationTier`, `OrganizationRole`, `OrganizationMember`                         | Tier limits (Dev/Pro/Max), role hierarchy (Member < Admin < Owner), suspension                                         |
 | `team.rs`                          | `OrganizationTeam`, `OrganizationTeamMember`, `OrganizationPermission`, `OrganizationTeamPermission` | 14 permission variants, composite permissions (`OrgPermClientManage` → individual `OrgPermClient*`)                    |
-| `vault.rs`                         | `Vault`, `VaultSyncStatus`, `VaultRole`, `VaultUserGrant`, `VaultTeamGrant`                          | Sync lifecycle (Pending/Synced/Failed), role hierarchy via `Ord` derive                                                |
+| `vault.rs`                         | `Vault`, `VaultSyncStatus`, `VaultRole`, `VaultUserGrant`, `VaultTeamGrant`                          | Sync lifecycle (Pending/Synced/Failed), role hierarchy via `Ord` derive, `VaultRole` serde: `#[serde(rename_all = "lowercase")]` (reader/writer/manager/admin) |
 | `client.rs`                        | `Client`, `ClientCertificate`                                                                        | `kid` format: `org-{org_id}-client-{client_id}-cert-{cert_id}`, encrypted private key, revocation tracking             |
 | `user_email.rs`                    | `UserEmail`                                                                                          | Multi-email, verification, primary designation, normalization                                                          |
-| `user_email_verification_token.rs` | `UserEmailVerificationToken`                                                                         | 24-hour expiry, 64 hex chars, idempotent `mark_used()`                                                                 |
-| `user_password_reset_token.rs`     | `UserPasswordResetToken`                                                                             | 1-hour expiry, same structure as verification token                                                                    |
+| `secure_token.rs`                  | `SecureToken`, `SecureTokenEntity` trait                                                             | Shared base: id, token, created_at, expires_at, used_at; methods: is_expired, is_used, is_valid, mark_used             |
+| `user_email_verification_token.rs` | `UserEmailVerificationToken`                                                                         | Composes `SecureToken` via `#[serde(flatten)]`; 24-hour TTL, links to `user_email_id`                                  |
+| `user_password_reset_token.rs`     | `UserPasswordResetToken`                                                                             | Composes `SecureToken` via `#[serde(flatten)]`; 1-hour TTL, links to `user_id`                                         |
 | `vault_refresh_token.rs`           | `VaultRefreshToken`                                                                                  | Session-bound or client-bound, replay detection via `used_at`, validation priority: revoked → used → expired           |
 | `user_session.rs`                  | `SessionType`, `UserSession`                                                                         | Type-specific TTLs (Web: 24h, CLI: 7d, SDK: 30d), sliding window expiry                                                |
 | `authorization_code.rs`            | `AuthorizationCode`                                                                                  | 10-min TTL, PKCE S256 verification, one-time use                                                                       |
 | `organization_invitation.rs`       | `OrganizationInvitation`                                                                             | 7-day expiry, 32-byte hex token, email normalization                                                                   |
-| `audit_log.rs`                     | `AuditLog`, `AuditEventType` (37 variants), `AuditResourceType` (12 variants)                        | Auto-generated ID, immutable, security events (RefreshTokenReused, ClockSkewDetected)                                  |
+| `audit_log.rs`                     | `AuditLog`, `AuditEventType` (53 variants), `AuditResourceType` (13 variants)                        | Auto-generated ID, immutable, security events (RefreshTokenReused, ClockSkewDetected)                                  |
 | `passkey_credential.rs`            | `PasskeyCredential`                                                                                  | WebAuthn Level 3, uses `SystemTime` (not `chrono` — inconsistency), backup flags                                       |
 | `vault_schema.rs`                  | `VaultSchema`, `SchemaVersion`, `SchemaDeploymentStatus`                                             | SemVer versioning, state machine (Validating → Deployed → Active → Superseded/RolledBack/Failed), 1MB definition limit |
 
@@ -795,11 +824,11 @@ Factory methods: `Error::validation("msg")`, `Error::not_found("msg")`, etc.
 
 ## Crate: `storage`
 
-**Path:** `crates/storage/` · **Type:** Library · **Dependencies:** inferadb-common-storage, inferadb-common-storage-ledger, bon, async-trait, parking_lot, serde, tokio, tracing
+**Path:** `crates/storage/` · **Type:** Library · **Dependencies:** inferadb-common-storage, inferadb-common-storage-ledger, bon, async-trait, moka, serde, tokio, tracing
 
 ### `src/lib.rs`
 
-Crate root with barrel re-exports from all modules.
+Crate root with barrel re-exports from all modules, including `BufferedBackend`, `MemorySigningKeyStore`, `PublicSigningKey`, `PublicSigningKeyStore`.
 
 ### `src/backend.rs`
 
@@ -813,7 +842,7 @@ Pure re-export of `inferadb_common_storage` types: `StorageBackend`, `Transactio
 | -------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
 | `StorageBackendType`       | Enum     | `Memory`, `Ledger`                                                                                       |
 | `LedgerConfig`             | Struct   | Required fields (vs config crate's `Option<T>` fields) — type-level validated-vs-unvalidated distinction |
-| `Backend`                  | Enum     | Wraps `MemoryBackend` or `LedgerBackend`, implements `StorageBackend` via delegation                     |
+| `Backend`                  | Enum     | Wraps `MemoryBackend` or `LedgerBackend`, implements `StorageBackend` via `delegate_storage!` macro      |
 | `create_storage_backend()` | Function | Factory creating concrete backend from config                                                            |
 
 **Insight:** Two `LedgerConfig` types (factory: required fields, config: optional fields) encode validation state at the type level.
@@ -828,21 +857,27 @@ Re-exports `Metrics`, `MetricsSnapshot`, `MetricsCollector` from shared storage 
 
 ### `src/optimization.rs`
 
-**Purpose:** LRU cache + batch write optimization layer.
+**Purpose:** Concurrent cache + batch write optimization layer.
 
 | Symbol                | Kind   | Description                                                                    |
 | --------------------- | ------ | ------------------------------------------------------------------------------ |
 | `CacheConfig`         | Struct | `max_entries` (10K), `ttl_secs` (60), `enabled`                                |
-| `LruCache`            | Struct | `HashMap` + `VecDeque` with `parking_lot::Mutex`                               |
+| `MokaCache`           | Type   | `moka::sync::Cache<String, Vec<u8>>` — O(1) ops, TinyLFU eviction, lock-free reads |
 | `BatchWriter<B>`      | Struct | Wraps `inferadb_common_storage::BatchWriter`, adds cache invalidation on flush |
-| `OptimizedBackend<B>` | Struct | Decorator adding caching, batching, metrics to any `StorageBackend`            |
+| `OptimizedBackend<B>` | Struct | Decorator adding caching, batching, metrics to any `StorageBackend`; uses `Option<MokaCache>` (None when disabled) |
 
-**Insights:**
+**Note:** Replaced custom `HashMap + VecDeque` LRU (O(n) per access) with `moka::sync::Cache` — production-grade concurrent cache used by crates.io. No external `Arc<Mutex<>>` needed; moka handles concurrency internally. 19 tests covering hits, invalidation, eviction, metrics, batch ops, stress, concurrent access.
 
-- LRU `get` is O(n) for access order updates (`VecDeque::iter().position()`) — bottleneck at 10K entries. `LinkedHashMap` or `lru` crate would give O(1)
-- `clear_range` clears entire cache (conservative) — could cause churn
-- Transactions bypass cache entirely (correct for consistency)
-- 18 tests covering hits, invalidation, eviction, metrics, batch ops, stress
+### `src/buffered.rs`
+
+**Purpose:** Atomic multi-write wrapper for cross-repository transaction boundaries.
+
+| Symbol                | Kind   | Description                                                                                  |
+| --------------------- | ------ | -------------------------------------------------------------------------------------------- |
+| `BufferedBackend<S>`  | Struct | Wraps `StorageBackend`; buffers all writes and commits atomically via a single real transaction |
+| `BufferedTransaction` | Struct | Virtual transaction that merges writes into the parent buffer (commit is a no-op to storage) |
+
+**Note:** Used by `register()` handler to atomically create 6 entities. Reads pass through to inner storage; writes are deferred until `commit()`.
 
 ### `src/coordination.rs`
 
@@ -856,7 +891,7 @@ Re-exports `Metrics`, `MetricsSnapshot`, `MetricsCollector` from shared storage 
 
 ### `tests/ledger_integration_tests.rs`
 
-8 integration tests gated behind `RUN_LEDGER_INTEGRATION_TESTS` env var. Covers basic ops, TTL, transactions, concurrent writes, vault isolation, reconnection.
+9 integration tests gated behind `RUN_LEDGER_INTEGRATION_TESTS` env var. Covers basic ops, range ops, TTL, transactions, transaction delete, health check, concurrent writes, vault isolation, reconnection.
 
 **Insight:** PID-seeded atomic counter for vault ID uniqueness prevents `nextest` parallel collisions. Uses early return pattern instead of `#[ignore]` — tests report as passing when skipped.
 
@@ -884,15 +919,11 @@ Re-exports `Metrics`, `MetricsSnapshot`, `MetricsCollector` from shared storage 
 
 | Method                         | Description                                                                  |
 | ------------------------------ | ---------------------------------------------------------------------------- |
-| `ControlConfig::load()`        | Layered: defaults → file → env vars                                          |
+| `ControlConfig::load()`        | Layered: defaults → YAML file (extracts `control` section) → env vars (`INFERADB_CTRL__` prefix) |
 | `ControlConfig::validate()`    | Checks addresses, storage backend, ledger completeness, URLs, webhook bounds |
 | `apply_environment_defaults()` | Dev auto-fallback from ledger to memory                                      |
 
-**Insights:**
-
-- `test_builder_defaults_match_serde_defaults` is a best practice for dual-default systems
-- `EmailConfig::host` has `#[builder(default)]` but no `#[serde(default)]` — latent bug: YAML without `host` key gets `""` not `"localhost"`
-- Environment prefix `INFERADB` in code vs `INFERADB_CTRL__` in docs — needs reconciliation
+**Note:** All config fields with `#[builder(default)]` now have matching `#[serde(default)]` (including `EmailConfig.host` and `.address`). Environment variable prefix `INFERADB_CTRL__` matches documentation.
 
 ---
 
@@ -943,24 +974,27 @@ Re-exports `Metrics`, `MetricsSnapshot`, `MetricsCollector` from shared storage 
 
 ## Crate: `test-fixtures`
 
-**Path:** `crates/test-fixtures/` · **Type:** Library · **Dependencies:** api, core, storage, axum, tower
+**Path:** `crates/test-fixtures/` · **Type:** Library · **Dependencies:** api, core, storage, types, axum, tower
 
 ### `src/lib.rs`
 
-**Purpose:** Shared test utilities for integration tests.
+**Purpose:** Shared test utilities for integration tests. Consolidates common operations to eliminate per-file duplication.
 
-| Function                                    | Description                                            |
-| ------------------------------------------- | ------------------------------------------------------ |
-| `create_test_state()`                       | Creates `AppState` with in-memory `Backend`            |
-| `create_test_app(state)`                    | Wraps `create_router_with_state()` for full app router |
-| `extract_session_cookie(headers)`           | Parses `Set-Cookie` for `infera_session` value         |
-| `register_user(app, name, email, password)` | Full registration flow, returns session cookie         |
-
-**Insights:**
-
-- `#![allow(clippy::unwrap_used, clippy::expect_used)]` at crate level — appropriate for test code
-- `extract_session_cookie` only checks first `set-cookie` header — fragile if multiple cookies set
-- Excellent documentation with examples, arguments, return values, panic conditions
+| Function                          | Description                                                          |
+| --------------------------------- | -------------------------------------------------------------------- |
+| `create_test_state()`             | Creates `AppState` with in-memory `Backend`                          |
+| `create_test_app(state)`          | Wraps `create_router_with_state()` for full app router               |
+| `extract_session_cookie(headers)` | Parses `Set-Cookie` for `infera_session` value                       |
+| `register_user(app, ...)`         | Full registration flow, returns session cookie                       |
+| `body_json(response)`             | Parse response body as `serde_json::Value`                           |
+| `login_user(app, email, password)` | Login + return session cookie                                       |
+| `get_org_id(app, session)`        | Get first org ID from list endpoint                                  |
+| `create_organization(app, ...)`   | POST org + return (id, json)                                         |
+| `create_vault(app, ...)`          | POST vault + return (id, json)                                       |
+| `create_client(app, ...)`         | POST client + return (id, json)                                      |
+| `create_client_with_cert(app, ...)` | Create client + certificate, return (client_id, cert_id, json)     |
+| `verify_user_email(state, email)` | Verify via repository (bypasses email token flow)                    |
+| `invite_and_accept_member(app, ...)` | Full invitation flow: create invitation + accept with member session |
 
 ---
 
@@ -970,33 +1004,16 @@ Re-exports `Metrics`, `MetricsSnapshot`, `MetricsCollector` from shared storage 
 
 1. **Consistent `#![deny(unsafe_code)]`** across all library crates
 2. **Consistent builder pattern** via `bon::Builder` with `#[builder(on(String, into))]` everywhere
-3. **Strong error handling** — `Error` enum with factory methods, no `.unwrap()` in production code
-4. **Security awareness** — Argon2id passwords, AES-256-GCM key encryption, Ed25519 JWT signing, JTI replay protection, PKCE, rate limiting, audit logging
-5. **Distributed systems design** — Worker ID coordination, leader election, clock validation, TTL-based cleanup
-6. **Thorough test suite** — 95+ integration tests, security tests (XSS, injection, isolation, authorization), contract tests
-7. **Clean architecture** — Clear crate boundaries, trait-based abstractions, repository pattern
+3. **Strong error handling** — `Error` enum with factory methods, no `.unwrap()` in production code; `ErrorResponse` includes machine-readable `code` field
+4. **Security hardening** — Argon2id passwords, AES-256-GCM key encryption, Ed25519 JWT signing with audience validation, JTI replay protection, PKCE, rate limiting (wired into routes), audit logging, HTML-escaped email templates, constant-time password reset responses, `Zeroizing<Vec<u8>>` for key material
+5. **Distributed systems design** — Worker ID coordination, atomic leader election (CAS-based), NTP clock validation (rsntp), TTL-based cleanup, certificate reconciliation
+6. **Comprehensive test suite** — 760 tests: integration (26 test files, 195 tests), unit, property-based (proptest); covers all API endpoints, RBAC, rate limiting, PKCE, tier limits, cascading deletions, concurrent sessions
+7. **Clean architecture** — Clear crate boundaries, trait-based abstractions, repository pattern, `BufferedBackend` for cross-repo atomicity
+8. **DRY token entities** — `SecureToken` base type eliminates structural duplication between verification and reset tokens
+9. **Production-grade caching** — `moka::sync::Cache` (TinyLFU, lock-free reads) replaces custom O(n) LRU; O(1) repository count indexes with self-healing counters
 
-### Known Issues
+### Remaining Issues
 
-1. **BUG: `delete_team_grant()` in `handlers/vaults.rs`** calls wrong repository method (`vault_user_grant.delete()` instead of `vault_team_grant.delete()`)
-2. **Path segment index coupling** — Middleware extracts IDs from hardcoded positions (index 4, 6) in URI path
-3. **IP extraction inconsistency** — Rate limiting uses `ConnectInfo<SocketAddr>`, audit logging uses `X-Forwarded-For`/`X-Real-IP`
-4. **No transaction boundaries in `register()`** — 6+ entities created without explicit transaction
-5. **Dual-write consistency** — Certificate ops write to both Control and Ledger without compensating transactions
-6. **Email multipart** — SMTP sender uses `---` separator instead of proper MIME multipart/alternative
-7. **XSS risk in email templates** — `inviter_name`/`organization_name` not HTML-escaped
-8. **`EmailConfig::host` missing `#[serde(default)]`** — YAML without `host` key gets `""` not `"localhost"`
-9. **Environment prefix mismatch** — Code uses `INFERADB`, docs reference `INFERADB_CTRL__`
-
-### Areas for Modernization
-
-1. **LRU cache** — O(n) access order updates via `VecDeque::iter().position()`. Replace with `lru` crate for O(1)
-2. **Zeroize enforcement** — `MasterKey` manually zeros but `[u8; 32]` is `Copy`; derive `ZeroizeOnDrop` instead
-3. **JWT audience validation** — Disabled in `verify_vault_token`, should be enforced
-4. **NTP clock validation** — Placeholder implementation; replace with proper NTP client library
-5. **Enum dispatch** — `StorageBackend for Backend` has 8 match arms doing identical delegation; `enum_dispatch` macro would reduce boilerplate
-6. **`identity.rs` error types** — Uses `Result<_, String>` instead of crate `Error` type
-7. **Structural duplication** — `UserPasswordResetToken` / `UserEmailVerificationToken` nearly identical; `UserGrantInfo`/`UserGrantResponse` structurally identical
-8. **Inconsistent DTO typing** — Some DTOs use `VaultRole` enum, others use `String` for roles
-9. **Missing root re-exports** — Several DTO types not re-exported from `lib.rs`
-10. **PasskeyCredential timestamp type** — Uses `SystemTime` while all other entities use `chrono::DateTime<Utc>`
+1. **PasskeyCredential timestamp type** — Uses `SystemTime` while all other entities use `chrono::DateTime<Utc>`
+2. **Audit event IP addresses** — `extract_client_ip()` exists but audit event callers still use `..Default::default()` for `ip_address` field (always `None`)
+3. **`get_organization_by_id()` handler** — Exists but is not routed (dead code); only the vault engine-internal endpoint is active

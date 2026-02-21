@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use axum::{
-    extract::{Request, State},
+    RequestExt,
+    extract::{Path, Request, State},
     middleware::Next,
     response::Response,
 };
@@ -51,10 +54,11 @@ impl VaultContext {
 
 /// Vault authorization middleware
 ///
-/// Extracts vault ID from path, resolves user's vault role via grants,
+/// Extracts vault ID from the `{vault}` path parameter, resolves user's vault role via grants,
 /// and attaches vault context to the request.
 ///
-/// This middleware should be applied to routes with `{vault}` path parameter.
+/// This middleware must be applied as a `route_layer` (not `layer`) so that
+/// axum's path parameters are available after route matching.
 /// It requires OrganizationContext to be set by require_organization_member middleware.
 pub async fn require_vault_access(
     State(state): State<AppState>,
@@ -66,26 +70,23 @@ pub async fn require_vault_access(
         CoreError::internal("Organization context not found in request extensions".to_string())
     })?;
 
-    // Extract vault_id from the URI path manually
-    // Routes are of the form /control/v1/organizations/{org}/vaults/{vault}/... where {vault} is
-    // the 7th segment
-    let uri_path = request.uri().path();
-    let segments: Vec<&str> = uri_path.split('/').collect();
+    // Extract vault_id from the named {vault} path parameter set by axum's router
+    let Path(params): Path<HashMap<String, String>> =
+        request.extract_parts().await.map_err(|_| {
+            CoreError::internal(
+                "Vault middleware applied to route without path parameters".to_string(),
+            )
+        })?;
 
-    let vault_id = if segments.len() >= 7
-        && segments[1] == "control"
-        && segments[2] == "v1"
-        && segments[3] == "organizations"
-        && segments[5] == "vaults"
-    {
-        segments[6]
-            .parse::<i64>()
-            .map_err(|_| CoreError::validation("Invalid vault ID in path".to_string()))?
-    } else {
-        return Err(
-            CoreError::internal("Vault middleware applied to invalid route".to_string()).into()
-        );
-    };
+    let vault_id = params
+        .get("vault")
+        .ok_or_else(|| {
+            CoreError::internal(
+                "Vault middleware applied to route without {vault} parameter".to_string(),
+            )
+        })?
+        .parse::<i64>()
+        .map_err(|_| CoreError::validation("Invalid vault ID in path".to_string()))?;
 
     // Verify vault exists and belongs to the organization
     let vault_repo = VaultRepository::new((*state.storage).clone());

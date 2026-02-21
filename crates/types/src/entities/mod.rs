@@ -4,6 +4,7 @@ pub mod client;
 pub mod organization;
 pub mod organization_invitation;
 pub mod passkey_credential;
+pub mod secure_token;
 pub mod team;
 pub mod user;
 pub mod user_email;
@@ -20,6 +21,7 @@ pub use client::{Client, ClientCertificate};
 pub use organization::{Organization, OrganizationMember, OrganizationRole, OrganizationTier};
 pub use organization_invitation::OrganizationInvitation;
 pub use passkey_credential::PasskeyCredential;
+pub use secure_token::{SecureToken, SecureTokenEntity};
 pub use team::{
     OrganizationPermission, OrganizationTeam, OrganizationTeamMember, OrganizationTeamPermission,
 };

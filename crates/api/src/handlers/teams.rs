@@ -100,7 +100,7 @@ pub async fn create_team(
         repos.org_team.count_active_by_organization(org_ctx.organization_id).await?;
 
     if current_count >= organization.tier.max_teams() {
-        return Err(CoreError::validation(format!(
+        return Err(CoreError::tier_limit(format!(
             "Team limit reached for tier {:?}. Maximum: {}",
             organization.tier,
             organization.tier.max_teams()

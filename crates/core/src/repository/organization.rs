@@ -194,6 +194,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
 /// - org_member:org:{org_id}:{user_id} -> member_id (for org+user lookup)
 /// - org_member:user:{user_id}:{org_id} -> member_id (for user's orgs lookup)
 /// - org_member:user_count:{user_id} -> count (for per-user org limit)
+/// - org_member:org_count:{org_id} -> count (for per-org member count)
 pub struct OrganizationMemberRepository<S: StorageBackend> {
     storage: S,
 }
@@ -222,6 +223,36 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
     /// Key for user's organization count
     fn user_org_count_key(user_id: i64) -> Vec<u8> {
         format!("org_member:user_count:{user_id}").into_bytes()
+    }
+
+    /// Key for per-organization member count
+    fn org_member_count_key(org_id: i64) -> Vec<u8> {
+        format!("org_member:org_count:{org_id}").into_bytes()
+    }
+
+    /// Read the raw org member count from storage, returning None if uninitialized or corrupt
+    async fn get_raw_org_member_count(&self, org_id: i64) -> Result<Option<i64>> {
+        let key = Self::org_member_count_key(org_id);
+        let data = self
+            .storage
+            .get(&key)
+            .await
+            .map_err(|e| Error::internal(format!("Failed to get org member count: {e}")))?;
+        match data {
+            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_i64_id(&bytes)?)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Recount org members by scanning all members and update the counter
+    async fn recount_org_members(&self, org_id: i64) -> Result<usize> {
+        let members = self.get_by_organization(org_id).await?;
+        let count = members.len();
+        self.storage
+            .set(Self::org_member_count_key(org_id), (count as i64).to_le_bytes().to_vec())
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set org member count: {e}")))?;
+        Ok(count)
     }
 
     /// Create a new organization member
@@ -268,6 +299,12 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         let count_key = Self::user_org_count_key(member.user_id);
         let current_count = self.get_user_organization_count(member.user_id).await?;
         txn.set(count_key, (current_count + 1).to_le_bytes().to_vec());
+
+        // Increment per-org member count
+        let org_count_key = Self::org_member_count_key(member.organization_id);
+        let current_org_count =
+            self.get_raw_org_member_count(member.organization_id).await?.unwrap_or(0);
+        txn.set(org_count_key, (current_org_count + 1).to_le_bytes().to_vec());
 
         // Commit transaction
         txn.commit().await.map_err(|e| {
@@ -382,9 +419,17 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         }
     }
 
-    /// Count members in an organization
+    /// Count members in an organization using maintained counter
+    ///
+    /// Reads from a counter key maintained during create and delete operations.
+    /// Under concurrent writes, the counter is eventually consistent: reads outside
+    /// the transaction may observe stale values, but self-healing on the next read
+    /// corrects any drift.
     pub async fn count_by_organization(&self, org_id: i64) -> Result<usize> {
-        Ok(self.get_by_organization(org_id).await?.len())
+        match self.get_raw_org_member_count(org_id).await? {
+            Some(count) if count >= 0 => Ok(count as usize),
+            _ => self.recount_org_members(org_id).await,
+        }
     }
 
     /// Count owners in an organization
@@ -435,6 +480,14 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         let current_count = self.get_user_organization_count(member.user_id).await?;
         if current_count > 0 {
             txn.set(count_key, (current_count - 1).to_le_bytes().to_vec());
+        }
+
+        // Decrement per-org member count
+        let org_count_key = Self::org_member_count_key(member.organization_id);
+        let current_org_count =
+            self.get_raw_org_member_count(member.organization_id).await?.unwrap_or(0);
+        if current_org_count > 0 {
+            txn.set(org_count_key, (current_org_count - 1).to_le_bytes().to_vec());
         }
 
         // Commit transaction
@@ -744,5 +797,63 @@ mod tests {
         assert!(repo.get(1).await.unwrap().is_none());
         assert!(repo.get_by_org_and_user(100, 200).await.unwrap().is_none());
         assert_eq!(repo.get_user_organization_count(200).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_org_member_count_tracks_create_and_delete() {
+        let _ = IdGenerator::init(1);
+        let repo = create_test_member_repo().await;
+
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 0);
+
+        let member1 = OrganizationMember::new(1, 100, 200, OrganizationRole::Owner);
+        repo.create(member1).await.unwrap();
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 1);
+
+        let member2 = OrganizationMember::new(2, 100, 201, OrganizationRole::Member);
+        repo.create(member2).await.unwrap();
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 2);
+
+        repo.delete(1).await.unwrap();
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 1);
+
+        repo.delete(2).await.unwrap();
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_org_member_count_independent_per_org() {
+        let _ = IdGenerator::init(1);
+        let repo = create_test_member_repo().await;
+
+        let member1 = OrganizationMember::new(1, 100, 200, OrganizationRole::Owner);
+        let member2 = OrganizationMember::new(2, 101, 201, OrganizationRole::Owner);
+        repo.create(member1).await.unwrap();
+        repo.create(member2).await.unwrap();
+
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 1);
+        assert_eq!(repo.count_by_organization(101).await.unwrap(), 1);
+        assert_eq!(repo.count_by_organization(999).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_org_member_count_self_heals_on_missing_counter() {
+        let _ = IdGenerator::init(1);
+        let repo = create_test_member_repo().await;
+
+        let member1 = OrganizationMember::new(1, 100, 200, OrganizationRole::Owner);
+        let member2 = OrganizationMember::new(2, 100, 201, OrganizationRole::Member);
+        repo.create(member1).await.unwrap();
+        repo.create(member2).await.unwrap();
+
+        // Delete the counter key to simulate migration
+        use inferadb_control_storage::Backend;
+        repo.storage
+            .delete(&OrganizationMemberRepository::<Backend>::org_member_count_key(100))
+            .await
+            .unwrap();
+
+        // Should self-heal by recounting
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 2);
     }
 }

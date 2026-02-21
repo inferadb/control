@@ -85,17 +85,7 @@ pub struct CreateUserGrantRequest {
 
 #[derive(Debug, Serialize)]
 pub struct CreateUserGrantResponse {
-    pub grant: UserGrantInfo,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UserGrantInfo {
-    pub id: i64,
-    pub vault_id: i64,
-    pub user_id: i64,
-    pub role: VaultRole,
-    pub granted_at: String,
-    pub granted_by_user_id: i64,
+    pub grant: UserGrantResponse,
 }
 
 #[derive(Debug, Serialize)]
@@ -141,17 +131,7 @@ pub struct CreateTeamGrantRequest {
 
 #[derive(Debug, Serialize)]
 pub struct CreateTeamGrantResponse {
-    pub grant: TeamGrantInfo,
-}
-
-#[derive(Debug, Serialize)]
-pub struct TeamGrantInfo {
-    pub id: i64,
-    pub vault_id: i64,
-    pub team_id: i64,
-    pub role: VaultRole,
-    pub granted_at: String,
-    pub granted_by_user_id: i64,
+    pub grant: TeamGrantResponse,
 }
 
 #[derive(Debug, Serialize)]

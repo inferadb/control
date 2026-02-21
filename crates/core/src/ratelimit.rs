@@ -159,7 +159,11 @@ impl<S: StorageBackend> RateLimiter<S> {
         let ttl_seconds = limit.window.seconds();
 
         self.storage
-            .set_with_ttl(key, new_count.to_string().into_bytes(), ttl_seconds)
+            .set_with_ttl(
+                key,
+                new_count.to_string().into_bytes(),
+                std::time::Duration::from_secs(ttl_seconds),
+            )
             .await
             .map_err(|e| Error::internal(format!("Failed to set rate limit counter: {e}")))?;
 

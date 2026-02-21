@@ -169,12 +169,11 @@ async fn main() -> Result<()> {
 
     // Identity for engine authentication (needs to be created before engine_client)
     let control_identity = if let Some(ref pem) = config.pem {
-        ControlIdentity::from_pem(pem)
-            .map_err(|e| anyhow::anyhow!("Failed to load Control identity from PEM: {e}"))?
+        ControlIdentity::from_pem(pem)?
     } else {
         // Generate new identity and display in formatted box
         let identity = ControlIdentity::generate();
-        let pem = identity.to_pem();
+        let pem = identity.to_pem()?;
         startup::print_generated_keypair(&pem, "pem");
         identity
     };

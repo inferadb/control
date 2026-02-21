@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! Integration tests for registration atomicity (Task 3) and
-//! password reset email enumeration prevention (Task 4).
+//! Integration tests for auth endpoints: registration atomicity, password
+//! reset enumeration prevention, login, logout, verify-email, password-reset
+//! confirm, and session cookie attribute verification.
 
 use std::sync::Arc;
 
@@ -11,7 +12,9 @@ use axum::{
 };
 use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_storage::{Backend, BufferedBackend};
-use inferadb_control_test_fixtures::{create_test_app, create_test_state, register_user};
+use inferadb_control_test_fixtures::{
+    create_test_app, create_test_state, extract_session_cookie, register_user,
+};
 use inferadb_control_types::entities::{
     Organization, OrganizationMember, OrganizationRole, OrganizationTier, SessionType, User,
     UserEmail, UserEmailVerificationToken, UserSession,
@@ -408,7 +411,7 @@ async fn test_password_reset_end_to_end_after_enumeration_fix() {
     // Retrieve the token from storage and confirm the reset
     let tokens = repos.user_password_reset_token.get_by_user(user_id).await.unwrap();
     assert_eq!(tokens.len(), 1);
-    let reset_token = tokens[0].token.clone();
+    let reset_token = tokens[0].secure_token.token.clone();
 
     let response = app
         .clone()
@@ -450,4 +453,533 @@ async fn test_password_reset_end_to_end_after_enumeration_fix() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK, "Login with new password should succeed");
+}
+
+// ===========================================================================
+// Task 23: Auth endpoint integration tests through the full router
+// ===========================================================================
+
+/// Helper: send a login request and return the full response.
+async fn login_request(
+    app: &axum::Router,
+    email: &str,
+    password: &str,
+) -> axum::http::Response<Body> {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/v1/auth/login/password")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "email": email,
+                        "password": password
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+/// Helper: send a logout request with the given session cookie.
+async fn logout_request(app: &axum::Router, session_cookie: &str) -> axum::http::Response<Body> {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/v1/auth/logout")
+                .header("cookie", format!("infera_session={session_cookie}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+/// Helper: verify an email token via the API.
+async fn verify_email_request(app: &axum::Router, token: &str) -> axum::http::Response<Body> {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/v1/auth/verify-email")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "token": token }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+/// Helper: extract the full Set-Cookie header value for the session cookie.
+fn extract_set_cookie_header(headers: &axum::http::HeaderMap) -> Option<String> {
+    headers
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("infera_session="))
+        .map(|s| s.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: Login with valid credentials returns 200 + session cookie
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_login_valid_credentials() {
+    let _ = IdGenerator::init(44);
+    let state = create_test_state();
+    let app = create_test_app(state);
+
+    register_user(&app, "LoginUser", "login@example.com", "strong-password-123").await;
+
+    let response = login_request(&app, "login@example.com", "strong-password-123").await;
+
+    assert_eq!(response.status(), StatusCode::OK, "Login should succeed");
+
+    let session = extract_session_cookie(response.headers());
+    assert!(session.is_some(), "Session cookie should be set on login");
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json.get("user_id").is_some(), "Response should contain user_id");
+    assert!(json.get("session_id").is_some(), "Response should contain session_id");
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: Login with wrong password returns 401
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_login_wrong_password() {
+    let _ = IdGenerator::init(45);
+    let state = create_test_state();
+    let app = create_test_app(state);
+
+    register_user(&app, "WrongPw", "wrongpw@example.com", "strong-password-123").await;
+
+    let response = login_request(&app, "wrongpw@example.com", "completely-wrong-pw").await;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "Wrong password should return 401");
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: Login with non-existent email returns 401 (same as wrong password)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_login_nonexistent_email() {
+    let _ = IdGenerator::init(46);
+    let state = create_test_state();
+    let app = create_test_app(state);
+
+    let response = login_request(&app, "nobody@example.com", "any-password-here").await;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "Non-existent email should return 401 (same as wrong password)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: Login error messages are identical for wrong password vs
+//          non-existent email (no user enumeration)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_login_no_user_enumeration() {
+    let _ = IdGenerator::init(47);
+    let state = create_test_state();
+    let app = create_test_app(state);
+
+    register_user(&app, "EnumUser", "enum@example.com", "strong-password-123").await;
+
+    // Wrong password for existing user
+    let resp_wrong_pw = login_request(&app, "enum@example.com", "wrong-password-xxx").await;
+    let body_wrong_pw = axum::body::to_bytes(resp_wrong_pw.into_body(), usize::MAX).await.unwrap();
+
+    // Non-existent email
+    let resp_no_user = login_request(&app, "ghost@example.com", "any-password-123").await;
+    let body_no_user = axum::body::to_bytes(resp_no_user.into_body(), usize::MAX).await.unwrap();
+
+    let json_wrong: serde_json::Value = serde_json::from_slice(&body_wrong_pw).unwrap();
+    let json_ghost: serde_json::Value = serde_json::from_slice(&body_no_user).unwrap();
+
+    // Error responses should be identical to prevent enumeration
+    assert_eq!(
+        json_wrong.get("error"),
+        json_ghost.get("error"),
+        "Error messages must be identical for wrong-pw vs non-existent email"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: Logout clears session cookie
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_logout_clears_session() {
+    let _ = IdGenerator::init(48);
+    let state = create_test_state();
+    let app = create_test_app(state);
+
+    let session =
+        register_user(&app, "LogoutUser", "logout@example.com", "strong-password-123").await;
+
+    let response = logout_request(&app, &session).await;
+    assert_eq!(response.status(), StatusCode::OK, "Logout should return 200");
+
+    // The Set-Cookie header should indicate cookie removal (empty value or
+    // max-age=0)
+    let cookie_header = extract_set_cookie_header(response.headers());
+    assert!(
+        cookie_header.is_some(),
+        "Logout response should set a cookie header to clear the session"
+    );
+    let cookie_str = cookie_header.unwrap();
+    // axum/tower_cookies clears cookies by setting them to empty or with
+    // max-age=0
+    let cleared = cookie_str.contains("infera_session=;")
+        || cookie_str.contains("infera_session=\"\"")
+        || cookie_str.contains("Max-Age=0");
+    assert!(cleared, "Session cookie should be cleared on logout, got: {cookie_str}");
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: Using a logged-out session for an authenticated request fails
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_logged_out_session_is_invalid() {
+    let _ = IdGenerator::init(49);
+    let backend = Backend::memory();
+    let state = inferadb_control_api::handlers::auth::AppState::new_test(Arc::new(backend.clone()));
+    let app = create_test_app(state);
+
+    let session =
+        register_user(&app, "Revoked", "revoked@example.com", "strong-password-123").await;
+
+    // Logout
+    logout_request(&app, &session).await;
+
+    // Try to access a protected endpoint with the old session
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/control/v1/auth/me")
+                .header("cookie", format!("infera_session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "Revoked session should be rejected");
+}
+
+// ---------------------------------------------------------------------------
+// Test 14: Verify email with valid token
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_verify_email_valid_token() {
+    let _ = IdGenerator::init(50);
+    let backend = Backend::memory();
+    let state = inferadb_control_api::handlers::auth::AppState::new_test(Arc::new(backend.clone()));
+    let app = create_test_app(state);
+
+    register_user(&app, "VerifyMe", "verifyme@example.com", "strong-password-123").await;
+
+    // Fetch the verification token from storage
+    let repos = RepositoryContext::new(backend.clone());
+    let email = repos.user_email.get_by_email("verifyme@example.com").await.unwrap().unwrap();
+    let tokens = repos.user_email_verification_token.get_by_email(email.id).await.unwrap();
+    assert!(!tokens.is_empty(), "Verification token should exist after registration");
+    let token_value = tokens[0].secure_token.token.clone();
+
+    let response = verify_email_request(&app, &token_value).await;
+    assert_eq!(response.status(), StatusCode::OK, "Verify email should succeed");
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        json.get("email").and_then(|v| v.as_str()),
+        Some("verifyme@example.com"),
+        "Response should contain the verified email"
+    );
+
+    // Verify the email is now marked as verified in storage
+    let updated_email =
+        repos.user_email.get_by_email("verifyme@example.com").await.unwrap().unwrap();
+    assert!(updated_email.is_verified(), "Email should be verified in storage");
+}
+
+// ---------------------------------------------------------------------------
+// Test 15: Verify email with invalid token returns 400
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_verify_email_invalid_token() {
+    let _ = IdGenerator::init(51);
+    let state = create_test_state();
+    let app = create_test_app(state);
+
+    let response = verify_email_request(&app, "not-a-real-token-at-all").await;
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "Invalid verification token should return 400"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 16: Verify email with expired/used token returns 400
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_verify_email_used_token_rejected() {
+    let _ = IdGenerator::init(52);
+    let backend = Backend::memory();
+    let state = inferadb_control_api::handlers::auth::AppState::new_test(Arc::new(backend.clone()));
+    let app = create_test_app(state);
+
+    register_user(&app, "UsedToken", "usedtoken@example.com", "strong-password-123").await;
+
+    let repos = RepositoryContext::new(backend.clone());
+    let email = repos.user_email.get_by_email("usedtoken@example.com").await.unwrap().unwrap();
+    let tokens = repos.user_email_verification_token.get_by_email(email.id).await.unwrap();
+    let token_value = tokens[0].secure_token.token.clone();
+
+    // First verification succeeds
+    let resp1 = verify_email_request(&app, &token_value).await;
+    assert_eq!(resp1.status(), StatusCode::OK);
+
+    // Second verification with same (now used) token: the handler checks
+    // token validity first (used → "Invalid or expired" via `error` field) OR
+    // email already verified (200 via `message` field). Both are acceptable.
+    let resp2 = verify_email_request(&app, &token_value).await;
+    let status2 = resp2.status();
+    let body2 = axum::body::to_bytes(resp2.into_body(), usize::MAX).await.unwrap();
+    let json2: serde_json::Value = serde_json::from_slice(&body2).unwrap();
+
+    // Success responses use "message", error responses use "error"
+    let msg =
+        json2.get("message").or_else(|| json2.get("error")).and_then(|v| v.as_str()).unwrap_or("");
+    assert!(
+        (status2 == StatusCode::OK && msg.contains("already verified"))
+            || (status2 == StatusCode::BAD_REQUEST && msg.contains("Invalid or expired")),
+        "Reusing a token should indicate already verified or invalid, got status={status2} msg={msg}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 17: Password reset confirm with invalid token returns 400
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_password_reset_confirm_invalid_token() {
+    let _ = IdGenerator::init(53);
+    let state = create_test_state();
+    let app = create_test_app(state);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/v1/auth/password-reset/confirm")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "token": "completely-bogus-token",
+                        "new_password": "new-password-456"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST, "Invalid reset token should return 400");
+}
+
+// ---------------------------------------------------------------------------
+// Test 18: Password reset confirm revokes all sessions
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_password_reset_confirm_revokes_sessions() {
+    let _ = IdGenerator::init(54);
+    let backend = Backend::memory();
+    let state = inferadb_control_api::handlers::auth::AppState::new_test(Arc::new(backend.clone()));
+    let app = create_test_app(state);
+
+    // Register and verify email
+    let session =
+        register_user(&app, "SessionRevoke", "sessrevoke@example.com", "old-password-123").await;
+
+    let repos = RepositoryContext::new(backend.clone());
+    let mut email = repos.user_email.get_by_email("sessrevoke@example.com").await.unwrap().unwrap();
+    email.verify();
+    repos.user_email.update(email).await.unwrap();
+
+    // Request and confirm password reset
+    request_password_reset(&app, "sessrevoke@example.com").await;
+
+    let user_email =
+        repos.user_email.get_by_email("sessrevoke@example.com").await.unwrap().unwrap();
+    let tokens = repos.user_password_reset_token.get_by_user(user_email.user_id).await.unwrap();
+    let reset_token = tokens[0].secure_token.token.clone();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/v1/auth/password-reset/confirm")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "token": reset_token,
+                        "new_password": "new-password-456"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Old session should be revoked
+    let me_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/control/v1/auth/me")
+                .header("cookie", format!("infera_session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        me_response.status(),
+        StatusCode::UNAUTHORIZED,
+        "Old session should be revoked after password reset"
+    );
+
+    // Login with the new password should work
+    let login_resp = login_request(&app, "sessrevoke@example.com", "new-password-456").await;
+    assert_eq!(login_resp.status(), StatusCode::OK, "Login with new password should succeed");
+}
+
+// ---------------------------------------------------------------------------
+// Test 19: Session cookie has HttpOnly, Secure, and SameSite attributes
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_session_cookie_attributes() {
+    let _ = IdGenerator::init(55);
+    let state = create_test_state();
+    let app = create_test_app(state);
+
+    // Register a user — this sets a session cookie
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/v1/auth/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "CookieTest",
+                        "email": "cookietest@example.com",
+                        "password": "strong-password-123"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let cookie_header = extract_set_cookie_header(response.headers())
+        .expect("Registration should set a session cookie");
+    let cookie_lower = cookie_header.to_lowercase();
+
+    assert!(
+        cookie_lower.contains("httponly"),
+        "Session cookie must have HttpOnly attribute, got: {cookie_header}"
+    );
+    assert!(
+        cookie_lower.contains("secure"),
+        "Session cookie must have Secure attribute, got: {cookie_header}"
+    );
+    assert!(
+        cookie_lower.contains("samesite=lax"),
+        "Session cookie must have SameSite=Lax, got: {cookie_header}"
+    );
+    assert!(
+        cookie_header.contains("Path=/"),
+        "Session cookie should have Path=/, got: {cookie_header}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 20: Login also sets correct cookie attributes
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_login_cookie_attributes() {
+    let _ = IdGenerator::init(56);
+    let state = create_test_state();
+    let app = create_test_app(state);
+
+    register_user(&app, "LoginCookie", "logincookie@example.com", "strong-password-123").await;
+
+    let response = login_request(&app, "logincookie@example.com", "strong-password-123").await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let cookie_header =
+        extract_set_cookie_header(response.headers()).expect("Login should set a session cookie");
+    let cookie_lower = cookie_header.to_lowercase();
+
+    assert!(
+        cookie_lower.contains("httponly"),
+        "Login session cookie must have HttpOnly, got: {cookie_header}"
+    );
+    assert!(
+        cookie_lower.contains("secure"),
+        "Login session cookie must have Secure, got: {cookie_header}"
+    );
+    assert!(
+        cookie_lower.contains("samesite=lax"),
+        "Login session cookie must have SameSite=Lax, got: {cookie_header}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 21: Password reset request always returns 200 regardless of input
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_password_reset_request_always_200() {
+    let _ = IdGenerator::init(57);
+    let state = create_test_state();
+    let app = create_test_app(state);
+
+    let (status, _) = request_password_reset(&app, "nonexistent@example.com").await;
+    assert_eq!(status, StatusCode::OK, "Password reset for unknown email must return 200");
 }

@@ -10,6 +10,7 @@ use inferadb_control_types::{
 /// - vault:{id} -> Vault data
 /// - vault:org:{org_id}:{idx} -> vault_id (for org listing)
 /// - vault:name:{org_id}:{name_lowercase} -> vault_id (for duplicate name checking)
+/// - vault:org_active_count:{org_id} -> i64 (active vault count per org)
 pub struct VaultRepository<S: StorageBackend> {
     storage: S,
 }
@@ -33,6 +34,36 @@ impl<S: StorageBackend> VaultRepository<S> {
     /// Generate key for vault by name (for duplicate checking)
     fn vault_name_index_key(org_id: i64, name: &str) -> Vec<u8> {
         format!("vault:name:{}:{}", org_id, name.to_lowercase()).into_bytes()
+    }
+
+    /// Key for per-organization active vault count
+    fn org_active_count_key(org_id: i64) -> Vec<u8> {
+        format!("vault:org_active_count:{org_id}").into_bytes()
+    }
+
+    /// Read the raw active count from storage, returning None if uninitialized or corrupt
+    async fn get_raw_active_count(&self, org_id: i64) -> Result<Option<i64>> {
+        let key = Self::org_active_count_key(org_id);
+        let data = self
+            .storage
+            .get(&key)
+            .await
+            .map_err(|e| Error::internal(format!("Failed to get vault active count: {e}")))?;
+        match data {
+            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_i64_id(&bytes)?)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Recount active vaults by scanning all entities and update the counter
+    async fn recount_active(&self, org_id: i64) -> Result<usize> {
+        let active = self.list_active_by_organization(org_id).await?;
+        let count = active.len();
+        self.storage
+            .set(Self::org_active_count_key(org_id), (count as i64).to_le_bytes().to_vec())
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set vault active count: {e}")))?;
+        Ok(count)
     }
 
     /// Create a new vault
@@ -74,6 +105,11 @@ impl<S: StorageBackend> VaultRepository<S> {
 
         // Store name index
         txn.set(name_key, vault.id.to_le_bytes().to_vec());
+
+        // Increment active count for the organization
+        let active_count_key = Self::org_active_count_key(vault.organization_id);
+        let current_active = self.get_raw_active_count(vault.organization_id).await?.unwrap_or(0);
+        txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
 
         // Commit transaction
         txn.commit()
@@ -139,6 +175,10 @@ impl<S: StorageBackend> VaultRepository<S> {
             .await?
             .ok_or_else(|| Error::not_found(format!("Vault {} not found", vault.id)))?;
 
+        // Detect soft-delete and undelete transitions
+        let soft_delete_transition = !existing.is_deleted() && vault.is_deleted();
+        let undelete_transition = existing.is_deleted() && !vault.is_deleted();
+
         // Serialize updated vault
         let vault_data = serde_json::to_vec(&vault)
             .map_err(|e| Error::internal(format!("Failed to serialize vault: {e}")))?;
@@ -174,6 +214,21 @@ impl<S: StorageBackend> VaultRepository<S> {
             txn.set(new_name_key, vault.id.to_le_bytes().to_vec());
         }
 
+        // Adjust active count on soft-delete or undelete transitions
+        if soft_delete_transition {
+            let active_count_key = Self::org_active_count_key(vault.organization_id);
+            let current_active =
+                self.get_raw_active_count(vault.organization_id).await?.unwrap_or(0);
+            if current_active > 0 {
+                txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
+            }
+        } else if undelete_transition {
+            let active_count_key = Self::org_active_count_key(vault.organization_id);
+            let current_active =
+                self.get_raw_active_count(vault.organization_id).await?.unwrap_or(0);
+            txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
+        }
+
         // Update vault record
         txn.set(Self::vault_key(vault.id), vault_data);
 
@@ -207,6 +262,16 @@ impl<S: StorageBackend> VaultRepository<S> {
         // Delete name index
         txn.delete(Self::vault_name_index_key(vault.organization_id, &vault.name));
 
+        // Decrement active count if the vault was not soft-deleted
+        if !vault.is_deleted() {
+            let active_count_key = Self::org_active_count_key(vault.organization_id);
+            let current_active =
+                self.get_raw_active_count(vault.organization_id).await?.unwrap_or(0);
+            if current_active > 0 {
+                txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
+            }
+        }
+
         // Commit transaction
         txn.commit()
             .await
@@ -215,16 +280,28 @@ impl<S: StorageBackend> VaultRepository<S> {
         Ok(())
     }
 
-    /// Count vaults in an organization
+    /// Count vaults in an organization by counting index keys
     pub async fn count_by_organization(&self, org_id: i64) -> Result<usize> {
-        let vaults = self.list_by_organization(org_id).await?;
-        Ok(vaults.len())
+        let start = format!("vault:org:{org_id}:").into_bytes();
+        let end = format!("vault:org:{org_id}~").into_bytes();
+        let kvs =
+            self.storage.get_range(start..end).await.map_err(|e| {
+                Error::internal(format!("Failed to count organization vaults: {e}"))
+            })?;
+        Ok(kvs.len())
     }
 
-    /// Count active (non-deleted) vaults in an organization
+    /// Count active (non-deleted) vaults in an organization using maintained counter
+    ///
+    /// Reads from a counter key maintained during create, update (soft-delete/undelete),
+    /// and delete operations. Under concurrent writes, the counter is eventually consistent:
+    /// reads outside the transaction may observe stale values, but self-healing on the next
+    /// read corrects any drift.
     pub async fn count_active_by_organization(&self, org_id: i64) -> Result<usize> {
-        let vaults = self.list_active_by_organization(org_id).await?;
-        Ok(vaults.len())
+        match self.get_raw_active_count(org_id).await? {
+            Some(count) if count >= 0 => Ok(count as usize),
+            _ => self.recount_active(org_id).await,
+        }
     }
 }
 
@@ -781,6 +858,117 @@ mod tests {
 
         repo.delete(1).await.unwrap();
         assert!(repo.get(1).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_active_count_tracks_create() {
+        let repo = create_test_vault_repo();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+
+        let vault1 = create_test_vault(1, 100, "Vault 1").unwrap();
+        repo.create(vault1).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+
+        let vault2 = create_test_vault(2, 100, "Vault 2").unwrap();
+        repo.create(vault2).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+
+        // Different org should be independent
+        let vault3 = create_test_vault(3, 200, "Vault 3").unwrap();
+        repo.create(vault3).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+        assert_eq!(repo.count_active_by_organization(200).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_tracks_soft_delete() {
+        let repo = create_test_vault_repo();
+        let vault1 = create_test_vault(1, 100, "Vault 1").unwrap();
+        let mut vault2 = create_test_vault(2, 100, "Vault 2").unwrap();
+        let vault3 = create_test_vault(3, 100, "Vault 3").unwrap();
+
+        repo.create(vault1).await.unwrap();
+        repo.create(vault2.clone()).await.unwrap();
+        repo.create(vault3).await.unwrap();
+
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 3);
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 3);
+
+        // Soft delete one vault
+        vault2.mark_deleted();
+        repo.update(vault2).await.unwrap();
+
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+        // Total count (index key count) still includes soft-deleted
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_tracks_hard_delete() {
+        let repo = create_test_vault_repo();
+        let vault1 = create_test_vault(1, 100, "Vault 1").unwrap();
+        let vault2 = create_test_vault(2, 100, "Vault 2").unwrap();
+
+        repo.create(vault1).await.unwrap();
+        repo.create(vault2).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+
+        // Hard delete
+        repo.delete(1).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_hard_delete_of_soft_deleted_does_not_double_decrement() {
+        let repo = create_test_vault_repo();
+        let mut vault = create_test_vault(1, 100, "Vault 1").unwrap();
+        repo.create(vault.clone()).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+
+        // Soft delete first
+        vault.mark_deleted();
+        repo.update(vault).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+
+        // Then hard delete — should not decrement below 0
+        repo.delete(1).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_self_heals_on_missing_counter() {
+        let repo = create_test_vault_repo();
+
+        // Create vaults without counter (simulating migration from old data)
+        let vault1 = create_test_vault(1, 100, "Vault 1").unwrap();
+        let vault2 = create_test_vault(2, 100, "Vault 2").unwrap();
+        repo.create(vault1).await.unwrap();
+        repo.create(vault2).await.unwrap();
+
+        // Delete the counter key to simulate pre-existing data
+        repo.storage.delete(&VaultRepository::<Backend>::org_active_count_key(100)).await.unwrap();
+
+        // Should self-heal by recounting
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_tracks_undelete() {
+        let repo = create_test_vault_repo();
+        let mut vault = create_test_vault(1, 100, "Vault 1").unwrap();
+        repo.create(vault.clone()).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+
+        // Soft delete
+        vault.mark_deleted();
+        repo.update(vault.clone()).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+
+        // Undelete by clearing deleted_at
+        vault.deleted_at = None;
+        repo.update(vault).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
     }
 
     #[tokio::test]

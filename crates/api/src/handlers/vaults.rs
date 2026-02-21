@@ -9,10 +9,10 @@ use inferadb_control_types::{
     dto::{
         CreateTeamGrantRequest, CreateTeamGrantResponse, CreateUserGrantRequest,
         CreateUserGrantResponse, CreateVaultRequest, CreateVaultResponse, DeleteTeamGrantResponse,
-        ListTeamGrantsResponse, ListUserGrantsResponse, ListVaultsResponse, TeamGrantInfo,
-        TeamGrantResponse, UpdateTeamGrantRequest, UpdateTeamGrantResponse, UpdateUserGrantRequest,
-        UpdateUserGrantResponse, UpdateVaultRequest, UpdateVaultResponse, UserGrantInfo,
-        UserGrantResponse, VaultInfo, VaultResponse,
+        ListTeamGrantsResponse, ListUserGrantsResponse, ListVaultsResponse, TeamGrantResponse,
+        UpdateTeamGrantRequest, UpdateTeamGrantResponse, UpdateUserGrantRequest,
+        UpdateUserGrantResponse, UpdateVaultRequest, UpdateVaultResponse, UserGrantResponse,
+        VaultInfo, VaultResponse,
     },
     entities::{Vault, VaultRole, VaultTeamGrant, VaultUserGrant},
 };
@@ -394,16 +394,7 @@ pub async fn create_user_grant(
 
     Ok((
         StatusCode::CREATED,
-        Json(CreateUserGrantResponse {
-            grant: UserGrantInfo {
-                id: grant.id,
-                vault_id: grant.vault_id,
-                user_id: grant.user_id,
-                role: grant.role,
-                granted_at: grant.granted_at.to_rfc3339(),
-                granted_by_user_id: grant.granted_by_user_id,
-            },
-        }),
+        Json(CreateUserGrantResponse { grant: user_grant_to_response(grant) }),
     ))
 }
 
@@ -565,16 +556,7 @@ pub async fn create_team_grant(
 
     Ok((
         StatusCode::CREATED,
-        Json(CreateTeamGrantResponse {
-            grant: TeamGrantInfo {
-                id: grant.id,
-                vault_id: grant.vault_id,
-                team_id: grant.team_id,
-                role: grant.role,
-                granted_at: grant.granted_at.to_rfc3339(),
-                granted_by_user_id: grant.granted_by_user_id,
-            },
-        }),
+        Json(CreateTeamGrantResponse { grant: team_grant_to_response(grant) }),
     ))
 }
 

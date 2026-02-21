@@ -1,30 +1,25 @@
 use bon::bon;
-use chrono::{DateTime, Duration, Utc};
+use chrono::Duration;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
+use super::secure_token::{SecureToken, SecureTokenEntity};
+use crate::error::Result;
 
 /// Password reset token expiry duration (1 hour)
 const TOKEN_EXPIRY_HOURS: i64 = 1;
 
-/// Represents a password reset token for a user
+/// Password reset token entity
 ///
-/// Password reset tokens are used to securely reset a user's password.
-/// They expire after 1 hour and can only be used once.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Links a [`SecureToken`] to a specific user for securely resetting
+/// their password. Expires after 1 hour and can only be used once.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserPasswordResetToken {
-    /// Unique identifier for the token
-    pub id: i64,
     /// ID of the user this token is for
     pub user_id: i64,
-    /// The token string (64-char hex-encoded, 32 bytes of entropy)
-    pub token: String,
-    /// When the token was created
-    pub created_at: DateTime<Utc>,
-    /// When the token expires
-    pub expires_at: DateTime<Utc>,
-    /// When the token was used (if used)
-    pub used_at: Option<DateTime<Utc>>,
+
+    /// Shared secure token fields (id, token, created_at, expires_at, used_at)
+    #[serde(flatten)]
+    pub secure_token: SecureToken,
 }
 
 #[bon]
@@ -36,51 +31,59 @@ impl UserPasswordResetToken {
     /// * `id` - Unique identifier for the token
     /// * `user_id` - ID of the user this token is for
     /// * `token` - The token string (must be 64 hex characters)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the token format is invalid
     #[builder(on(String, into), finish_fn = create)]
     pub fn new(id: i64, user_id: i64, token: String) -> Result<Self> {
-        // Validate token format (64 hex characters = 32 bytes)
-        if token.len() != 64 || !token.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::validation("Token must be 64 hexadecimal characters".to_string()));
-        }
-
-        let now = Utc::now();
-        let expires_at = now + Duration::hours(TOKEN_EXPIRY_HOURS);
-
-        Ok(Self { id, user_id, token, created_at: now, expires_at, used_at: None })
+        let secure_token = SecureToken::new(id, token, Duration::hours(TOKEN_EXPIRY_HOURS))?;
+        Ok(Self { user_id, secure_token })
     }
 
     /// Generate a new cryptographically secure random token string
     ///
-    /// Returns a 64-character hex-encoded string (32 bytes of entropy)
+    /// Returns a 64-character hex-encoded string (32 bytes of entropy).
     pub fn generate_token() -> String {
-        use rand::Rng;
-        let mut rng = rand::rng();
-        let bytes: [u8; 32] = rng.random();
-        hex::encode(bytes)
+        SecureToken::generate_token()
     }
 
     /// Check if the token has expired
     pub fn is_expired(&self) -> bool {
-        Utc::now() > self.expires_at
+        self.secure_token.is_expired()
     }
 
     /// Check if the token has been used
     pub fn is_used(&self) -> bool {
-        self.used_at.is_some()
+        self.secure_token.is_used()
     }
 
     /// Check if the token is valid (not expired and not used)
     pub fn is_valid(&self) -> bool {
-        !self.is_expired() && !self.is_used()
+        self.secure_token.is_valid()
     }
 
     /// Mark the token as used
     pub fn mark_used(&mut self) {
-        self.used_at = Some(Utc::now());
+        self.secure_token.mark_used();
+    }
+}
+
+impl SecureTokenEntity for UserPasswordResetToken {
+    fn key_prefix() -> &'static str {
+        "password_reset_token"
+    }
+
+    fn foreign_key_prefix() -> &'static str {
+        "user"
+    }
+
+    fn secure_token(&self) -> &SecureToken {
+        &self.secure_token
+    }
+
+    fn secure_token_mut(&mut self) -> &mut SecureToken {
+        &mut self.secure_token
+    }
+
+    fn foreign_key_id(&self) -> i64 {
+        self.user_id
     }
 }
 
@@ -111,10 +114,10 @@ mod tests {
 
         assert!(token.is_ok());
         let token = token.unwrap();
-        assert_eq!(token.id, 1);
+        assert_eq!(token.secure_token.id, 1);
         assert_eq!(token.user_id, 100);
-        assert_eq!(token.token, token_string);
-        assert!(token.used_at.is_none());
+        assert_eq!(token.secure_token.token, token_string);
+        assert!(token.secure_token.used_at.is_none());
     }
 
     #[test]
@@ -155,7 +158,7 @@ mod tests {
         assert!(token.is_valid());
 
         // Manually set expiry to the past
-        token.expires_at = Utc::now() - Duration::seconds(1);
+        token.secure_token.expires_at = chrono::Utc::now() - Duration::seconds(1);
         assert!(token.is_expired());
         assert!(!token.is_valid());
     }
@@ -178,7 +181,7 @@ mod tests {
         token.mark_used();
         assert!(token.is_used());
         assert!(!token.is_valid());
-        assert!(token.used_at.is_some());
+        assert!(token.secure_token.used_at.is_some());
     }
 
     #[test]
@@ -191,11 +194,23 @@ mod tests {
             .create()
             .unwrap();
 
-        let duration = token.expires_at - token.created_at;
+        let duration = token.secure_token.expires_at - token.secure_token.created_at;
         // Allow for small timing differences
-        assert!(
-            duration.num_hours() == TOKEN_EXPIRY_HOURS
-                || duration.num_hours() == TOKEN_EXPIRY_HOURS - 1
-        );
+        assert!(duration.num_minutes() >= 59 && duration.num_minutes() <= 60);
+    }
+
+    #[test]
+    fn test_serde_roundtrip() {
+        let token_string = UserPasswordResetToken::generate_token();
+        let entity = UserPasswordResetToken::builder()
+            .id(42)
+            .user_id(100)
+            .token(token_string)
+            .create()
+            .unwrap();
+
+        let json = serde_json::to_string(&entity).unwrap();
+        let deserialized: UserPasswordResetToken = serde_json::from_str(&json).unwrap();
+        assert_eq!(entity, deserialized);
     }
 }

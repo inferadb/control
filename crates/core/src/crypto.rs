@@ -438,4 +438,53 @@ mod tests {
                 .expect("decoded bytes must form a valid Ed25519 public key");
         }
     }
+
+    mod proptest_crypto {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        fn create_test_encryptor() -> PrivateKeyEncryptor {
+            let master_key: [u8; 32] = [0x42; 32];
+            PrivateKeyEncryptor::new(&master_key).unwrap()
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn encrypt_decrypt_roundtrip(key in proptest::collection::vec(any::<u8>(), 32)) {
+                let encryptor = create_test_encryptor();
+                let key_arr: [u8; 32] = key.try_into().unwrap();
+
+                let encrypted = encryptor.encrypt(&key_arr).unwrap();
+                let decrypted = encryptor.decrypt(&encrypted).unwrap();
+                prop_assert_eq!(&*decrypted, &key_arr);
+            }
+
+            #[test]
+            fn encrypt_produces_unique_ciphertexts(key in proptest::collection::vec(any::<u8>(), 32)) {
+                let encryptor = create_test_encryptor();
+                let key_arr: [u8; 32] = key.try_into().unwrap();
+
+                // Same plaintext encrypted twice should produce different ciphertexts
+                // (due to random nonce)
+                let ct1 = encryptor.encrypt(&key_arr).unwrap();
+                let ct2 = encryptor.encrypt(&key_arr).unwrap();
+                prop_assert_ne!(&ct1, &ct2);
+
+                // Both should decrypt to the same value
+                let pt1 = encryptor.decrypt(&ct1).unwrap();
+                let pt2 = encryptor.decrypt(&ct2).unwrap();
+                prop_assert_eq!(&*pt1, &*pt2);
+            }
+
+            #[test]
+            fn encrypt_rejects_non_32_byte_keys(len in (0usize..100).prop_filter("not 32", |l| *l != 32)) {
+                let encryptor = create_test_encryptor();
+                let key = vec![0u8; len];
+                prop_assert!(encryptor.encrypt(&key).is_err());
+            }
+        }
+    }
 }

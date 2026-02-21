@@ -4,61 +4,11 @@ use axum::{
     http::{Request, StatusCode},
 };
 use inferadb_control_core::IdGenerator;
-use inferadb_control_test_fixtures::{create_test_app, create_test_state, register_user};
+use inferadb_control_test_fixtures::{
+    create_client_with_cert, create_test_app, create_test_state, register_user,
+};
 use serde_json::json;
 use tower::ServiceExt;
-
-/// Helper to create a client with certificate
-async fn create_client_with_cert(app: &axum::Router, session: &str, org_id: i64) -> (i64, i64) {
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
-                .header("cookie", format!("infera_session={session}"))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "name": "test-client",
-                        "description": "Test client"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
-                .header("cookie", format!("infera_session={session}"))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "name": "test-cert"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let cert_id = json["certificate"]["id"].as_i64().unwrap();
-
-    (client_id, cert_id)
-}
 
 #[tokio::test]
 async fn test_concurrent_vault_access_from_multiple_teams() {
@@ -287,7 +237,7 @@ async fn test_token_refresh_with_expired_access_token() {
     let vault_id = json["vault"]["id"].as_i64().unwrap();
 
     // Create client and certificate
-    let (_client_id, _cert_id) = create_client_with_cert(&app, &session, org_id).await;
+    let (_client_id, _cert_id, _) = create_client_with_cert(&app, &session, org_id).await;
 
     // Generate vault token with very short TTL (1 second)
     let response = app

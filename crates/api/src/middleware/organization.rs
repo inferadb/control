@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use axum::{
-    extract::{Request, State},
+    RequestExt,
+    extract::{Path, Request, State},
     middleware::Next,
     response::Response,
 };
@@ -47,35 +50,33 @@ impl OrganizationContext {
 
 /// Organization authorization middleware
 ///
-/// Extracts organization ID from path, validates user is a member,
+/// Extracts organization ID from the `{org}` path parameter, validates user is a member,
 /// and attaches organization context to the request.
 ///
-/// This middleware should be applied to routes with `{org}` path parameter.
+/// This middleware must be applied as a `route_layer` (not `layer`) so that
+/// axum's path parameters are available after route matching.
 pub async fn require_organization_member(
     State(state): State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    // Extract org_id from the URI path manually
-    // Routes are of the form /control/v1/organizations/{org}/... where {org} is always the 5th
-    // segment
-    let uri_path = request.uri().path();
-    let segments: Vec<&str> = uri_path.split('/').collect();
+    // Extract org_id from the named {org} path parameter set by axum's router
+    let Path(params): Path<HashMap<String, String>> =
+        request.extract_parts().await.map_err(|_| {
+            CoreError::internal(
+                "Organization middleware applied to route without path parameters".to_string(),
+            )
+        })?;
 
-    let org_id = if segments.len() >= 5
-        && segments[1] == "control"
-        && segments[2] == "v1"
-        && segments[3] == "organizations"
-    {
-        segments[4]
-            .parse::<i64>()
-            .map_err(|_| CoreError::validation("Invalid organization ID in path".to_string()))?
-    } else {
-        return Err(CoreError::internal(
-            "Organization middleware applied to invalid route".to_string(),
-        )
-        .into());
-    };
+    let org_id = params
+        .get("org")
+        .ok_or_else(|| {
+            CoreError::internal(
+                "Organization middleware applied to route without {org} parameter".to_string(),
+            )
+        })?
+        .parse::<i64>()
+        .map_err(|_| CoreError::validation("Invalid organization ID in path".to_string()))?;
 
     // Get session context (should be set by require_session middleware)
     let session_ctx = request.extensions().get::<SessionContext>().cloned().ok_or_else(|| {
@@ -98,6 +99,18 @@ pub async fn require_organization_member(
 
     if org.is_deleted() {
         return Err(CoreError::not_found("Organization not found".to_string()).into());
+    }
+
+    // Block access to suspended organizations
+    // Allow owners through for suspend/resume endpoints so they can manage suspension state
+    if org.is_suspended() {
+        let is_owner = member.has_permission(OrganizationRole::Owner);
+        let path = request.uri().path().to_string();
+        let is_suspension_mgmt = path.ends_with("/suspend") || path.ends_with("/resume");
+
+        if !is_owner || !is_suspension_mgmt {
+            return Err(CoreError::authz("Organization is suspended".to_string()).into());
+        }
     }
 
     // Attach organization context to request extensions

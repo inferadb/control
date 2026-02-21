@@ -1,13 +1,14 @@
-use std::{ops::RangeBounds, sync::Arc};
+use std::{ops::RangeBounds, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use bon::Builder;
 use bytes::Bytes;
 use inferadb_common_storage::{
-    KeyValue, StorageBackend, StorageResult, Transaction,
+    KeyValue, StorageBackend, StorageResult, Transaction, VaultId,
     auth::{
         MemorySigningKeyStore, PublicSigningKeyStore, SigningKeyMetrics, SigningKeyMetricsSnapshot,
     },
+    health::{HealthProbe, HealthStatus},
 };
 use inferadb_common_storage_ledger::{
     ClientConfig, LedgerBackend, LedgerBackendConfig, ServerSource, auth::LedgerSigningKeyStore,
@@ -142,73 +143,68 @@ impl Backend {
     }
 }
 
+/// Delegates a method call to the inner storage backend of each `Backend` variant.
+///
+/// Eliminates the repetitive `match self { Memory { storage: b, .. } => ..., Ledger { backend: b,
+/// .. } => ... }` pattern across all `StorageBackend` trait methods. Each variant destructures to
+/// extract only the storage field (`storage` for Memory, `backend` for Ledger), ignoring extra
+/// fields like `signing_keys` and `signing_key_metrics`.
+macro_rules! delegate_storage {
+    ($self:ident, $method:ident ( $($arg:expr),* )) => {
+        match $self {
+            Backend::Memory { storage: __backend, .. } => __backend.$method($($arg),*).await,
+            Backend::Ledger { backend: __backend, .. } => __backend.$method($($arg),*).await,
+        }
+    };
+}
+
 #[async_trait]
 impl StorageBackend for Backend {
     async fn get(&self, key: &[u8]) -> StorageResult<Option<Bytes>> {
-        match self {
-            Backend::Memory { storage: b, .. } => b.get(key).await,
-            Backend::Ledger { backend: b, .. } => b.get(key).await,
-        }
+        delegate_storage!(self, get(key))
     }
 
     async fn set(&self, key: Vec<u8>, value: Vec<u8>) -> StorageResult<()> {
-        match self {
-            Backend::Memory { storage: b, .. } => b.set(key, value).await,
-            Backend::Ledger { backend: b, .. } => b.set(key, value).await,
-        }
+        delegate_storage!(self, set(key, value))
     }
 
     async fn delete(&self, key: &[u8]) -> StorageResult<()> {
-        match self {
-            Backend::Memory { storage: b, .. } => b.delete(key).await,
-            Backend::Ledger { backend: b, .. } => b.delete(key).await,
-        }
+        delegate_storage!(self, delete(key))
     }
 
     async fn get_range<R>(&self, range: R) -> StorageResult<Vec<KeyValue>>
     where
         R: RangeBounds<Vec<u8>> + Send,
     {
-        match self {
-            Backend::Memory { storage: b, .. } => b.get_range(range).await,
-            Backend::Ledger { backend: b, .. } => b.get_range(range).await,
-        }
+        delegate_storage!(self, get_range(range))
     }
 
     async fn clear_range<R>(&self, range: R) -> StorageResult<()>
     where
         R: RangeBounds<Vec<u8>> + Send,
     {
-        match self {
-            Backend::Memory { storage: b, .. } => b.clear_range(range).await,
-            Backend::Ledger { backend: b, .. } => b.clear_range(range).await,
-        }
+        delegate_storage!(self, clear_range(range))
     }
 
-    async fn set_with_ttl(
-        &self,
-        key: Vec<u8>,
-        value: Vec<u8>,
-        ttl_seconds: u64,
-    ) -> StorageResult<()> {
-        match self {
-            Backend::Memory { storage: b, .. } => b.set_with_ttl(key, value, ttl_seconds).await,
-            Backend::Ledger { backend: b, .. } => b.set_with_ttl(key, value, ttl_seconds).await,
-        }
+    async fn set_with_ttl(&self, key: Vec<u8>, value: Vec<u8>, ttl: Duration) -> StorageResult<()> {
+        delegate_storage!(self, set_with_ttl(key, value, ttl))
     }
 
     async fn transaction(&self) -> StorageResult<Box<dyn Transaction>> {
-        match self {
-            Backend::Memory { storage: b, .. } => b.transaction().await,
-            Backend::Ledger { backend: b, .. } => b.transaction().await,
-        }
+        delegate_storage!(self, transaction())
     }
 
-    async fn health_check(&self) -> StorageResult<()> {
-        match self {
-            Backend::Memory { storage: b, .. } => b.health_check().await,
-            Backend::Ledger { backend: b, .. } => b.health_check().await,
-        }
+    async fn compare_and_set(
+        &self,
+        key: &[u8],
+        expected: Option<&[u8]>,
+        new_value: Vec<u8>,
+    ) -> StorageResult<()> {
+        delegate_storage!(self, compare_and_set(key, expected, new_value))
+    }
+
+    async fn health_check(&self, probe: HealthProbe) -> StorageResult<HealthStatus> {
+        delegate_storage!(self, health_check(probe))
     }
 }
 
@@ -250,8 +246,13 @@ pub async fn create_storage_backend(config: &StorageConfig) -> StorageResult<Bac
             let backend_config = LedgerBackendConfig::builder()
                 .client(client_config)
                 .namespace_id(ledger_config.namespace_id)
-                .maybe_vault_id(ledger_config.vault_id)
-                .build();
+                .maybe_vault_id(ledger_config.vault_id.map(VaultId::from))
+                .build()
+                .map_err(|e| {
+                    inferadb_common_storage::StorageError::internal(format!(
+                        "Ledger backend config error: {e}"
+                    ))
+                })?;
             let backend = LedgerBackend::new(backend_config).await.map_err(|e| {
                 inferadb_common_storage::StorageError::internal(format!(
                     "Ledger connection error: {e}"

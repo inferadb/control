@@ -52,6 +52,9 @@ url = { workspace = true }
 # Metrics
 metrics = { workspace = true }
 
+# NTP client
+rsntp = { workspace = true }
+
 # Internal dependencies
 inferadb-control-types = { path = "../types" }
 
@@ -76,6 +79,7 @@ opentelemetry = [
 ]
 
 [dev-dependencies]
+proptest = { workspace = true }
 tempfile = "3.14"
 
 [lints]

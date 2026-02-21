@@ -408,36 +408,26 @@ pub async fn client_assertion_authenticate(
     }
 
     // Verify JWT signature using certificate public key
-    use base64::{
-        Engine,
-        engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD},
-    };
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use ed25519_dalek::pkcs8::spki::EncodePublicKey;
     use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 
     let public_key_bytes = URL_SAFE_NO_PAD
         .decode(&certificate.public_key)
         .map_err(|e| CoreError::internal(format!("Failed to decode public key: {e}")))?;
 
-    if public_key_bytes.len() != 32 {
-        return Err(CoreError::internal("Invalid public key length".to_string()).into());
-    }
+    let public_key_array: [u8; 32] = public_key_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| CoreError::internal("Invalid public key length".to_string()))?;
 
-    // Convert public key to PEM (same as in jwt.rs)
-    let mut spki_der = vec![
-        0x30, 0x2a, // SEQUENCE (42 bytes)
-        0x30, 0x05, // SEQUENCE (algorithm)
-        0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112
-        0x03, 0x21, 0x00, // BIT STRING (33 bytes, 0 unused bits)
-    ];
-    spki_der.extend_from_slice(&public_key_bytes);
-
-    let public_key_pem = format!(
-        "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
-        BASE64.encode(&spki_der)
-    );
-
-    let decoding_key = DecodingKey::from_ed_pem(public_key_pem.as_bytes())
-        .map_err(|e| CoreError::internal(format!("Failed to create decoding key: {e}")))?;
+    // Encode public key as SPKI DER using the pkcs8/spki crate
+    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&public_key_array)
+        .map_err(|e| CoreError::internal(format!("Invalid public key: {e}")))?;
+    let spki_der = verifying_key
+        .to_public_key_der()
+        .map_err(|e| CoreError::internal(format!("Failed to encode SPKI DER: {e}")))?;
+    let decoding_key = DecodingKey::from_ed_der(spki_der.as_ref());
 
     // Set up validation - expect token endpoint as audience
     let mut validation = Validation::new(Algorithm::EdDSA);

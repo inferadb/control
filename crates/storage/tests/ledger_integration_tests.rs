@@ -23,6 +23,7 @@ use std::{
 };
 
 use bytes::Bytes;
+use inferadb_common_storage::VaultId;
 use inferadb_common_storage_ledger::{
     ClientConfig, LedgerBackend, LedgerBackendConfig, ServerSource,
 };
@@ -66,8 +67,9 @@ async fn create_ledger_backend() -> LedgerBackend {
     let config = LedgerBackendConfig::builder()
         .client(client_config)
         .namespace_id(ledger_namespace_id())
-        .vault_id(vault_id)
-        .build();
+        .vault_id(VaultId::from(vault_id))
+        .build()
+        .expect("valid ledger backend config");
 
     LedgerBackend::new(config).await.expect("backend creation should succeed")
 }
@@ -157,7 +159,7 @@ async fn test_ledger_ttl_expiration() {
 
     // Set a key with 2 second TTL
     backend
-        .set_with_ttl(b"ctrl_ttl_test".to_vec(), b"expiring_value".to_vec(), 2)
+        .set_with_ttl(b"ctrl_ttl_test".to_vec(), b"expiring_value".to_vec(), Duration::from_secs(2))
         .await
         .expect("Failed to set with TTL");
 
@@ -237,7 +239,8 @@ async fn test_ledger_health_check() {
 
     let backend = create_ledger_backend().await;
 
-    let result = backend.health_check().await;
+    let result =
+        backend.health_check(inferadb_common_storage::health::HealthProbe::Readiness).await;
     assert!(result.is_ok(), "Health check should succeed");
 }
 
@@ -268,8 +271,9 @@ async fn test_ledger_concurrent_writes() {
             let config = LedgerBackendConfig::builder()
                 .client(client_config)
                 .namespace_id(namespace_id)
-                .vault_id(vault_id)
-                .build();
+                .vault_id(VaultId::from(vault_id))
+                .build()
+                .expect("valid config");
 
             let backend = LedgerBackend::new(config).await.expect("backend");
             let key = format!("ctrl_concurrent_{i}");
@@ -306,8 +310,9 @@ async fn test_ledger_vault_isolation() {
     let config_a = LedgerBackendConfig::builder()
         .client(client_config_a)
         .namespace_id(ledger_namespace_id())
-        .vault_id(vault_a)
-        .build();
+        .vault_id(VaultId::from(vault_a))
+        .build()
+        .unwrap();
 
     let client_config_b = ClientConfig::builder()
         .servers(ServerSource::from_static([ledger_endpoint()]))
@@ -317,8 +322,9 @@ async fn test_ledger_vault_isolation() {
     let config_b = LedgerBackendConfig::builder()
         .client(client_config_b)
         .namespace_id(ledger_namespace_id())
-        .vault_id(vault_b)
-        .build();
+        .vault_id(VaultId::from(vault_b))
+        .build()
+        .unwrap();
 
     let backend_a = LedgerBackend::new(config_a).await.unwrap();
     let backend_b = LedgerBackend::new(config_b).await.unwrap();

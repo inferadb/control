@@ -27,10 +27,11 @@
 //! If any repo operation fails (or `commit()` is never called), nothing is
 //! persisted — the buffer is simply dropped.
 
-use std::{ops::RangeBounds, sync::Arc};
+use std::{ops::RangeBounds, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use inferadb_common_storage::health::{HealthProbe, HealthStatus};
 use tokio::sync::Mutex;
 
 use crate::backend::{KeyValue, StorageBackend, StorageResult, Transaction};
@@ -40,6 +41,7 @@ use crate::backend::{KeyValue, StorageBackend, StorageResult, Transaction};
 enum BufferedWrite {
     Set { key: Vec<u8>, value: Vec<u8> },
     Delete { key: Vec<u8> },
+    CompareAndSet { key: Vec<u8>, expected: Option<Vec<u8>>, new_value: Vec<u8> },
 }
 
 /// A storage backend that buffers all writes for atomic commit.
@@ -77,6 +79,9 @@ impl<S: StorageBackend + Clone + 'static> BufferedBackend<S> {
             match write {
                 BufferedWrite::Set { key, value } => txn.set(key.clone(), value.clone()),
                 BufferedWrite::Delete { key } => txn.delete(key.clone()),
+                BufferedWrite::CompareAndSet { key, expected, new_value } => {
+                    txn.compare_and_set(key.clone(), expected.clone(), new_value.clone())?;
+                },
             }
         }
         txn.commit().await?;
@@ -92,7 +97,10 @@ impl<S: StorageBackend + Clone + 'static> BufferedBackend<S> {
         let buffer = self.buffer.lock().await;
         for write in buffer.iter().rev() {
             match write {
-                BufferedWrite::Set { key: k, value } if k.as_slice() == key => {
+                BufferedWrite::Set { key: k, value }
+                | BufferedWrite::CompareAndSet { key: k, new_value: value, .. }
+                    if k.as_slice() == key =>
+                {
                     return Some(Some(Bytes::from(value.clone())));
                 },
                 BufferedWrite::Delete { key: k } if k.as_slice() == key => {
@@ -148,7 +156,7 @@ impl<S: StorageBackend + Clone + 'static> StorageBackend for BufferedBackend<S> 
         &self,
         key: Vec<u8>,
         value: Vec<u8>,
-        _ttl_seconds: u64,
+        _ttl: Duration,
     ) -> StorageResult<()> {
         // Buffer as a plain set — the transaction API does not support TTL.
         // The entity-level expiry checks (e.g., is_expired()) handle TTL
@@ -167,8 +175,28 @@ impl<S: StorageBackend + Clone + 'static> StorageBackend for BufferedBackend<S> 
         }))
     }
 
-    async fn health_check(&self) -> StorageResult<()> {
-        self.inner.health_check().await
+    /// Buffers a compare-and-set operation for deferred execution at commit time.
+    ///
+    /// The `expected` value is NOT validated immediately — it is checked when the
+    /// buffered writes are committed via a real transaction. This means intermediate
+    /// reads via `buffer_lookup` will optimistically return `new_value` as if the CAS
+    /// succeeded. A CAS mismatch will surface as an error during `commit()`.
+    async fn compare_and_set(
+        &self,
+        key: &[u8],
+        expected: Option<&[u8]>,
+        new_value: Vec<u8>,
+    ) -> StorageResult<()> {
+        self.buffer.lock().await.push(BufferedWrite::CompareAndSet {
+            key: key.to_vec(),
+            expected: expected.map(|e| e.to_vec()),
+            new_value,
+        });
+        Ok(())
+    }
+
+    async fn health_check(&self, probe: HealthProbe) -> StorageResult<HealthStatus> {
+        self.inner.health_check(probe).await
     }
 }
 
@@ -200,7 +228,10 @@ impl<S: StorageBackend + 'static> Transaction for BufferedTransaction<S> {
         let buffer = self.parent_buffer.lock().await;
         for write in buffer.iter().rev() {
             match write {
-                BufferedWrite::Set { key: k, value } if k.as_slice() == key => {
+                BufferedWrite::Set { key: k, value }
+                | BufferedWrite::CompareAndSet { key: k, new_value: value, .. }
+                    if k.as_slice() == key =>
+                {
                     return Ok(Some(Bytes::from(value.clone())));
                 },
                 BufferedWrite::Delete { key: k } if k.as_slice() == key => {
@@ -220,6 +251,16 @@ impl<S: StorageBackend + 'static> Transaction for BufferedTransaction<S> {
 
     fn delete(&mut self, key: Vec<u8>) {
         self.local_writes.push(BufferedWrite::Delete { key });
+    }
+
+    fn compare_and_set(
+        &mut self,
+        key: Vec<u8>,
+        expected: Option<Vec<u8>>,
+        new_value: Vec<u8>,
+    ) -> StorageResult<()> {
+        self.local_writes.push(BufferedWrite::CompareAndSet { key, expected, new_value });
+        Ok(())
     }
 
     async fn commit(self: Box<Self>) -> StorageResult<()> {

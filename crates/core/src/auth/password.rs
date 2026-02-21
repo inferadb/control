@@ -66,7 +66,7 @@ impl PasswordHasher {
 
         self.argon2
             .verify_password(password.as_bytes(), &parsed_hash)
-            .map_err(|_| Error::auth("Invalid password".to_string()))?;
+            .map_err(|_| Error::auth("Invalid email or password".to_string()))?;
 
         Ok(())
     }
@@ -187,5 +187,45 @@ mod tests {
         let hash = hash_password(password).unwrap();
         assert!(verify_password(password, &hash).is_ok());
         assert!(verify_password("wrong", &hash).is_err());
+    }
+
+    mod proptest_password {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        // Argon2 is intentionally slow (password KDF), so we use fewer cases
+        // to keep test runtime under 60 seconds while still exercising property invariants
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(32))]
+
+            #[test]
+            fn hash_verify_roundtrip(password in "[a-zA-Z0-9!@#$%^&*]{12,128}") {
+                let hash = hash_password(&password).unwrap();
+                prop_assert!(verify_password(&password, &hash).is_ok());
+            }
+
+            #[test]
+            fn hash_produces_unique_outputs(password in "[a-zA-Z0-9]{12,64}") {
+                // Same password hashed twice should produce different hashes (random salt)
+                let h1 = hash_password(&password).unwrap();
+                let h2 = hash_password(&password).unwrap();
+                prop_assert_ne!(&h1, &h2);
+
+                // Both should verify against the original password
+                prop_assert!(verify_password(&password, &h1).is_ok());
+                prop_assert!(verify_password(&password, &h2).is_ok());
+            }
+
+            #[test]
+            fn wrong_password_fails_verification(
+                password in "[a-zA-Z0-9]{12,32}",
+                wrong in "[a-zA-Z0-9]{12,32}"
+            ) {
+                prop_assume!(password != wrong);
+                let hash = hash_password(&password).unwrap();
+                prop_assert!(verify_password(&wrong, &hash).is_err());
+            }
+        }
     }
 }

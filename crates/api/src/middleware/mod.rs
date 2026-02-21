@@ -13,7 +13,7 @@ pub use organization::{
 pub use permission::{
     get_user_permissions, has_organization_permission, require_organization_permission,
 };
-pub use ratelimit::{login_rate_limit, registration_rate_limit};
+pub use ratelimit::{RateLimitConfig, login_rate_limit, registration_rate_limit};
 pub use session::{SessionContext, extract_session_context, require_session};
 pub use vault::{
     VaultContext, get_user_vault_role, require_admin, require_manager, require_reader,

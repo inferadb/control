@@ -91,3 +91,72 @@ impl<T> Paginated<T> {
 
 /// Extract pagination query parameters
 pub type PaginationQuery = Query<PaginationParams>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod proptest_pagination {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn from_total_has_more_correctness(
+                total in 0usize..10000,
+                offset in 0usize..10000,
+                limit in 1usize..1000,
+                count in 0usize..1000,
+            ) {
+                prop_assume!(count <= limit);
+                prop_assume!(offset + count <= total || count == 0);
+
+                let meta = PaginationMeta::from_total(total, offset, limit, count);
+
+                prop_assert_eq!(meta.total, Some(total));
+                prop_assert_eq!(meta.count, count);
+                prop_assert_eq!(meta.offset, offset);
+                prop_assert_eq!(meta.limit, limit);
+
+                // has_more should be true iff there are remaining items beyond this page
+                let expected_has_more = offset + count < total;
+                prop_assert_eq!(meta.has_more, expected_has_more);
+            }
+
+            #[test]
+            fn from_count_has_more_correctness(
+                count in 0usize..1000,
+                offset in 0usize..10000,
+                limit in 1usize..1000,
+            ) {
+                prop_assume!(count <= limit);
+
+                let meta = PaginationMeta::from_count(count, offset, limit);
+
+                prop_assert_eq!(meta.total, None);
+                prop_assert_eq!(meta.count, count);
+                prop_assert_eq!(meta.offset, offset);
+                prop_assert_eq!(meta.limit, limit);
+
+                // has_more should be true only when count == limit (might have more items)
+                let expected_has_more = count == limit;
+                prop_assert_eq!(meta.has_more, expected_has_more);
+            }
+
+            #[test]
+            fn from_total_last_page_not_has_more(
+                total in 1usize..10000,
+                limit in 1usize..1000,
+            ) {
+                // When offset + count == total, has_more should be false
+                let offset = total.saturating_sub(limit).min(total);
+                let count = total - offset;
+                let meta = PaginationMeta::from_total(total, offset, limit, count);
+                prop_assert!(!meta.has_more);
+            }
+        }
+    }
+}

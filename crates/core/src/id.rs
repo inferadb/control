@@ -12,8 +12,8 @@ use tokio::{sync::RwLock, time};
 /// Custom epoch for Snowflake IDs: 2024-01-01T00:00:00Z (in milliseconds)
 const CUSTOM_EPOCH: i64 = 1704067200000;
 
-/// Worker heartbeat TTL in seconds
-const WORKER_HEARTBEAT_TTL: u64 = 30;
+/// Worker heartbeat TTL
+const WORKER_HEARTBEAT_TTL: Duration = Duration::from_secs(30);
 
 /// Worker heartbeat interval in seconds
 const WORKER_HEARTBEAT_INTERVAL: u64 = 10;
@@ -517,7 +517,10 @@ mod tests {
         // Register a few worker IDs manually
         for id in 0..10 {
             let key = format!("workers/active/{id}").into_bytes();
-            storage.set_with_ttl(key, b"timestamp".to_vec(), 30).await.unwrap();
+            storage
+                .set_with_ttl(key, b"timestamp".to_vec(), std::time::Duration::from_secs(30))
+                .await
+                .unwrap();
         }
 
         // Auto-acquire should find an available ID that's not 0-9
@@ -560,5 +563,39 @@ mod tests {
         // Test that very large ordinals are rejected
         let ordinal: u16 = 2000;
         assert!(ordinal > MAX_WORKER_ID);
+    }
+
+    mod proptest_id {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn ids_are_strictly_increasing(n in 2usize..100) {
+                let _ = IdGenerator::init(999);
+                let ids: Vec<i64> = (0..n).map(|_| IdGenerator::next_id()).collect();
+                for window in ids.windows(2) {
+                    prop_assert!(window[1] > window[0], "IDs must be strictly increasing: {} > {}", window[1], window[0]);
+                }
+            }
+
+            #[test]
+            fn ids_are_unique(n in 2usize..100) {
+                let _ = IdGenerator::init(998);
+                let ids: Vec<i64> = (0..n).map(|_| IdGenerator::next_id()).collect();
+                let unique: HashSet<i64> = ids.iter().copied().collect();
+                prop_assert_eq!(ids.len(), unique.len(), "All generated IDs must be unique");
+            }
+
+            #[test]
+            fn ids_are_positive(_seed in 0u16..1000) {
+                let _ = IdGenerator::init(997);
+                let id = IdGenerator::next_id();
+                prop_assert!(id > 0, "Generated IDs must be positive: {}", id);
+            }
+        }
     }
 }

@@ -74,7 +74,7 @@ pub use vaults::{
     CreateTeamGrantRequest, CreateTeamGrantResponse, CreateUserGrantRequest,
     CreateUserGrantResponse, CreateVaultRequest, CreateVaultResponse, DeleteTeamGrantResponse,
     DeleteUserGrantResponse, DeleteVaultResponse, ListTeamGrantsResponse, ListUserGrantsResponse,
-    ListVaultsResponse, TeamGrantInfo, TeamGrantResponse, UpdateTeamGrantRequest,
-    UpdateTeamGrantResponse, UpdateUserGrantRequest, UpdateUserGrantResponse, UpdateVaultRequest,
-    UpdateVaultResponse, UserGrantInfo, UserGrantResponse, VaultDetail, VaultInfo, VaultResponse,
+    ListVaultsResponse, TeamGrantResponse, UpdateTeamGrantRequest, UpdateTeamGrantResponse,
+    UpdateUserGrantRequest, UpdateUserGrantResponse, UpdateVaultRequest, UpdateVaultResponse,
+    UserGrantResponse, VaultDetail, VaultInfo, VaultResponse,
 };

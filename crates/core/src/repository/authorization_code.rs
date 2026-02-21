@@ -66,7 +66,11 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
 
         // Set TTL for the code record (after commit since TTL is not transactional)
         self.storage
-            .set_with_ttl(Self::code_key(&code.code), code_data, ttl_seconds)
+            .set_with_ttl(
+                Self::code_key(&code.code),
+                code_data,
+                std::time::Duration::from_secs(ttl_seconds),
+            )
             .await
             .map_err(|e| Error::internal(format!("Failed to set code TTL: {e}")))?;
 
@@ -75,7 +79,7 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
             .set_with_ttl(
                 Self::session_code_index_key(code.session_id, &code.code),
                 code.code.as_bytes().to_vec(),
-                ttl_seconds,
+                std::time::Duration::from_secs(ttl_seconds),
             )
             .await
             .map_err(|e| Error::internal(format!("Failed to set session index TTL: {e}")))?;
@@ -124,7 +128,11 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
 
         // Update code record with TTL
         self.storage
-            .set_with_ttl(Self::code_key(&code.code), code_data, ttl_seconds)
+            .set_with_ttl(
+                Self::code_key(&code.code),
+                code_data,
+                std::time::Duration::from_secs(ttl_seconds),
+            )
             .await
             .map_err(|e| Error::internal(format!("Failed to update code: {e}")))?;
 

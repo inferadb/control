@@ -4,7 +4,9 @@ use axum::{
     http::{Request, StatusCode},
 };
 use inferadb_control_core::IdGenerator;
-use inferadb_control_test_fixtures::{create_test_app, create_test_state, register_user};
+use inferadb_control_test_fixtures::{
+    create_test_app, create_test_state, create_vault, get_org_id, register_user,
+};
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -19,48 +21,9 @@ async fn setup_vault(app: &axum::Router, worker_id: u16) -> (i64, i64, String) {
     )
     .await;
 
-    // Get organization ID
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri("/control/v1/organizations")
-                .header("cookie", format!("infera_session={session}"))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
-
-    // Create a vault
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
-                .header("cookie", format!("infera_session={session}"))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "name": format!("schema-test-vault-{}", worker_id),
-                        "description": "Vault for schema testing"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let vault_id = json["vault"]["id"].as_i64().unwrap();
+    let org_id = get_org_id(app, &session).await;
+    let (vault_id, _) =
+        create_vault(app, &session, org_id, &format!("schema-test-vault-{worker_id}")).await;
 
     (org_id, vault_id, session)
 }

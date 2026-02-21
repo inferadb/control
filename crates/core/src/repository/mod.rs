@@ -8,6 +8,7 @@ pub mod jti_replay_protection;
 pub mod organization;
 pub mod organization_invitation;
 pub mod passkey_credential;
+pub mod secure_token;
 pub mod team;
 pub mod user;
 pub mod user_email;
@@ -26,6 +27,7 @@ pub use jti_replay_protection::JtiReplayProtectionRepository;
 pub use organization::{OrganizationMemberRepository, OrganizationRepository};
 pub use organization_invitation::OrganizationInvitationRepository;
 pub use passkey_credential::PasskeyCredentialRepository;
+pub use secure_token::SecureTokenRepository;
 pub use team::{
     OrganizationTeamMemberRepository, OrganizationTeamPermissionRepository,
     OrganizationTeamRepository,

@@ -5,8 +5,27 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use inferadb_control_core::{RateLimit, RateLimiter, categories, limits};
+use tracing::warn;
 
 use crate::{extract::extract_client_ip, handlers::AppState};
+
+/// Configurable rate limits for the application
+///
+/// Production code uses `Default` which delegates to the standard limits.
+/// Tests can override with smaller values for faster execution.
+#[derive(Debug, Clone)]
+pub struct RateLimitConfig {
+    /// Rate limit for login attempts (default: 100/hour per IP)
+    pub login: RateLimit,
+    /// Rate limit for registration attempts (default: 5/day per IP)
+    pub registration: RateLimit,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self { login: limits::login_ip(), registration: limits::registration_ip() }
+    }
+}
 
 /// Convert a display-able value to a HeaderValue.
 ///
@@ -19,14 +38,17 @@ fn header_value(value: impl std::fmt::Display) -> HeaderValue {
 
 /// Rate limiting middleware for login attempts
 ///
-/// Applies: 100 requests per hour per IP
+/// Reads the login rate limit from `AppState::rate_limits`.
+/// Falls back to `"unknown"` if client IP cannot be determined, ensuring
+/// requests are never blocked due to missing IP information.
 pub async fn login_rate_limit(State(state): State<AppState>, req: Request, next: Next) -> Response {
-    let Some(ip) = extract_client_ip(&req) else {
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to extract client IP").into_response();
-    };
+    let ip = extract_client_ip(&req).unwrap_or_else(|| {
+        warn!("could not determine client IP for login rate limiting");
+        "unknown".to_string()
+    });
 
     let limiter = RateLimiter::new((*state.storage).clone());
-    let limit = limits::login_ip();
+    let limit = state.rate_limits.login.clone();
 
     match limiter.check_with_metadata(categories::LOGIN_IP, &ip, &limit).await {
         Ok(result) => {
@@ -61,18 +83,20 @@ pub async fn login_rate_limit(State(state): State<AppState>, req: Request, next:
 
 /// Rate limiting middleware for registration attempts
 ///
-/// Applies: 5 requests per day per IP
+/// Reads the registration rate limit from `AppState::rate_limits`.
+/// Falls back to `"unknown"` if client IP cannot be determined.
 pub async fn registration_rate_limit(
     State(state): State<AppState>,
     req: Request,
     next: Next,
 ) -> Response {
-    let Some(ip) = extract_client_ip(&req) else {
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to extract client IP").into_response();
-    };
+    let ip = extract_client_ip(&req).unwrap_or_else(|| {
+        warn!("could not determine client IP for registration rate limiting");
+        "unknown".to_string()
+    });
 
     let limiter = RateLimiter::new((*state.storage).clone());
-    let limit = limits::registration_ip();
+    let limit = state.rate_limits.registration.clone();
 
     match limiter.check_with_metadata(categories::REGISTRATION_IP, &ip, &limit).await {
         Ok(result) => {

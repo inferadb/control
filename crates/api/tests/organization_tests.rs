@@ -3,28 +3,12 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use inferadb_control_api::AppState;
 use inferadb_control_core::IdGenerator;
-use inferadb_control_test_fixtures::{create_test_app, create_test_state, extract_session_cookie};
+use inferadb_control_test_fixtures::{
+    create_test_app, create_test_state, extract_session_cookie, verify_user_email,
+};
 use serde_json::json;
 use tower::ServiceExt;
-
-/// Helper to verify a user's email (for testing)
-async fn verify_user_email(state: &AppState, username: &str) {
-    use inferadb_control_core::UserRepository;
-    let user_repo = UserRepository::new((*state.storage).clone());
-    let email_repo = inferadb_control_core::UserEmailRepository::new((*state.storage).clone());
-
-    // Get the user
-    let user = user_repo.get_by_name(username).await.unwrap().unwrap();
-
-    // Get and verify the user's email
-    let mut emails = email_repo.get_user_emails(user.id).await.unwrap();
-    if let Some(email) = emails.first_mut() {
-        email.verify();
-        email_repo.update(email.clone()).await.unwrap();
-    }
-}
 
 #[tokio::test]
 async fn test_registration_creates_default_organization() {

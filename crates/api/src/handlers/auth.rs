@@ -38,6 +38,8 @@ pub struct AppState {
     pub leader: Option<Arc<inferadb_control_core::LeaderElection<Backend>>>,
     pub email_service: Option<Arc<inferadb_control_core::EmailService>>,
     pub control_identity: Option<Arc<inferadb_control_types::ControlIdentity>>,
+    #[builder(default)]
+    pub rate_limits: crate::middleware::RateLimitConfig,
 }
 
 impl AppState {
@@ -88,7 +90,10 @@ impl IntoResponse for ApiError {
             tracing::warn!(status = %status, error = %error_message, "Client error");
         }
 
-        (status, Json(ErrorResponse { error: error_message, details: None })).into_response()
+        let error_code = self.0.error_code().to_string();
+
+        (status, Json(ErrorResponse { error: error_message, code: error_code, details: None }))
+            .into_response()
     }
 }
 
@@ -203,7 +208,7 @@ pub async fn register(
     if let Some(email_service) = &state.email_service {
         let email_addr = email.email.clone();
         let user_name = payload.name.clone();
-        let token_str = verification_token.token.clone();
+        let token_str = verification_token.secure_token.token.clone();
         let email_service = Arc::clone(email_service);
         let frontend_url = state.config.frontend.url.clone();
 
@@ -784,7 +789,7 @@ mod tests {
         // Get the reset token from the repository
         let tokens = repos.user_password_reset_token.get_by_user(user_id).await.unwrap();
         assert_eq!(tokens.len(), 1);
-        let reset_token = tokens[0].token.clone();
+        let reset_token = tokens[0].secure_token.token.clone();
 
         // Confirm password reset
         let confirm_request = axum::http::Request::builder()
@@ -926,7 +931,7 @@ mod tests {
 
         // Get the reset token
         let tokens = repos.user_password_reset_token.get_by_user(user_id).await.unwrap();
-        let reset_token = tokens[0].token.clone();
+        let reset_token = tokens[0].secure_token.token.clone();
 
         // Confirm password reset
         let confirm_request = axum::http::Request::builder()

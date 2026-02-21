@@ -1,32 +1,25 @@
 use bon::bon;
-use chrono::{DateTime, Duration, Utc};
+use chrono::Duration;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
+use super::secure_token::{SecureToken, SecureTokenEntity};
+use crate::error::Result;
 
 /// Email verification token expiry duration (24 hours)
 const TOKEN_EXPIRY_HOURS: i64 = 24;
 
-/// UserEmailVerificationToken entity for email verification
+/// Email verification token entity
+///
+/// Links a [`SecureToken`] to a specific user email address for
+/// confirming email ownership. Expires after 24 hours.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserEmailVerificationToken {
-    /// Unique token ID (Snowflake ID)
-    pub id: i64,
-
     /// UserEmail ID this token is for
     pub user_email_id: i64,
 
-    /// Verification token (32 bytes, hex-encoded = 64 chars)
-    pub token: String,
-
-    /// When the token was created
-    pub created_at: DateTime<Utc>,
-
-    /// When the token expires
-    pub expires_at: DateTime<Utc>,
-
-    /// When the token was used (if verified)
-    pub used_at: Option<DateTime<Utc>>,
+    /// Shared secure token fields (id, token, created_at, expires_at, used_at)
+    #[serde(flatten)]
+    pub secure_token: SecureToken,
 }
 
 #[bon]
@@ -37,65 +30,65 @@ impl UserEmailVerificationToken {
     ///
     /// * `id` - Snowflake ID for the token
     /// * `user_email_id` - ID of the UserEmail to verify
-    /// * `token` - The verification token (should be 64 hex chars)
-    ///
-    /// # Returns
-    ///
-    /// A new UserEmailVerificationToken instance or an error if token is invalid
+    /// * `token` - The verification token (must be 64 hex characters)
     #[builder(on(String, into), finish_fn = create)]
     pub fn new(id: i64, user_email_id: i64, token: String) -> Result<Self> {
-        // Validate token format (must be 64 hex characters)
-        if token.len() != 64 {
-            return Err(Error::validation(
-                "Token must be exactly 64 characters (32 bytes hex-encoded)".to_string(),
-            ));
-        }
-
-        if !token.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::validation(
-                "Token must contain only hexadecimal characters".to_string(),
-            ));
-        }
-
-        let now = Utc::now();
-        let expires_at = now + Duration::hours(TOKEN_EXPIRY_HOURS);
-
-        Ok(Self { id, user_email_id, token, created_at: now, expires_at, used_at: None })
+        let secure_token = SecureToken::new(id, token, Duration::hours(TOKEN_EXPIRY_HOURS))?;
+        Ok(Self { user_email_id, secure_token })
     }
 
     /// Generate a random verification token
     ///
-    /// Returns a 32-byte random token as a 64-character hex string
+    /// Returns a 32-byte random token as a 64-character hex string.
     pub fn generate_token() -> String {
-        use rand::Rng;
-        let mut rng = rand::rng();
-        let bytes: [u8; 32] = rng.random();
-        hex::encode(bytes)
+        SecureToken::generate_token()
     }
 
     /// Check if token is expired
     pub fn is_expired(&self) -> bool {
-        Utc::now() > self.expires_at
+        self.secure_token.is_expired()
     }
 
     /// Check if token has been used
     pub fn is_used(&self) -> bool {
-        self.used_at.is_some()
+        self.secure_token.is_used()
     }
 
     /// Check if token is valid (not expired and not used)
     pub fn is_valid(&self) -> bool {
-        !self.is_expired() && !self.is_used()
+        self.secure_token.is_valid()
     }
 
     /// Mark token as used
     pub fn mark_used(&mut self) {
-        self.used_at = Some(Utc::now());
+        self.secure_token.mark_used();
     }
 
     /// Get time until expiry
     pub fn time_until_expiry(&self) -> Duration {
-        self.expires_at - Utc::now()
+        self.secure_token.time_until_expiry()
+    }
+}
+
+impl SecureTokenEntity for UserEmailVerificationToken {
+    fn key_prefix() -> &'static str {
+        "email_verify_token"
+    }
+
+    fn foreign_key_prefix() -> &'static str {
+        "email"
+    }
+
+    fn secure_token(&self) -> &SecureToken {
+        &self.secure_token
+    }
+
+    fn secure_token_mut(&mut self) -> &mut SecureToken {
+        &mut self.secure_token
+    }
+
+    fn foreign_key_id(&self) -> i64 {
+        self.user_email_id
     }
 }
 
@@ -112,7 +105,7 @@ mod tests {
         assert!(result.is_ok());
 
         let token_entity = result.unwrap();
-        assert_eq!(token_entity.id, 1);
+        assert_eq!(token_entity.secure_token.id, 1);
         assert_eq!(token_entity.user_email_id, 100);
         assert!(!token_entity.is_expired());
         assert!(!token_entity.is_used());
@@ -124,7 +117,7 @@ mod tests {
         let result =
             UserEmailVerificationToken::builder().id(1).user_email_id(100).token("short").create();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::Validation { .. }));
+        assert!(matches!(result.unwrap_err(), crate::error::Error::Validation { .. }));
     }
 
     #[test]
@@ -136,7 +129,7 @@ mod tests {
             .token(invalid_token)
             .create();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::Validation { .. }));
+        assert!(matches!(result.unwrap_err(), crate::error::Error::Validation { .. }));
     }
 
     #[test]
@@ -146,7 +139,7 @@ mod tests {
 
         assert_eq!(token1.len(), 64);
         assert_eq!(token2.len(), 64);
-        assert_ne!(token1, token2); // Should be unique
+        assert_ne!(token1, token2);
         assert!(token1.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
@@ -182,5 +175,20 @@ mod tests {
         let time_left = token_entity.time_until_expiry();
         assert!(time_left > Duration::hours(23));
         assert!(time_left <= Duration::hours(24));
+    }
+
+    #[test]
+    fn test_serde_roundtrip() {
+        let token = UserEmailVerificationToken::generate_token();
+        let entity = UserEmailVerificationToken::builder()
+            .id(42)
+            .user_email_id(100)
+            .token(token)
+            .create()
+            .unwrap();
+
+        let json = serde_json::to_string(&entity).unwrap();
+        let deserialized: UserEmailVerificationToken = serde_json::from_str(&json).unwrap();
+        assert_eq!(entity, deserialized);
     }
 }

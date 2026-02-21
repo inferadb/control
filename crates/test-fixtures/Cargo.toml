@@ -14,6 +14,7 @@ version.workspace = true
 inferadb-control-api = { path = "../api" }
 inferadb-control-core = { path = "../core" }
 inferadb-control-storage = { path = "../storage" }
+inferadb-control-types = { path = "../types" }
 
 # External dependencies
 anyhow = { workspace = true }

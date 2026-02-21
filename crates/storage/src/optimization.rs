@@ -36,6 +36,7 @@ pub use inferadb_common_storage::batch::{
     BatchConfig, BatchFlushStats, BatchOperation, DEFAULT_MAX_BATCH_BYTES, DEFAULT_MAX_BATCH_SIZE,
     TRANSACTION_SIZE_LIMIT,
 };
+use inferadb_common_storage::health::{HealthProbe, HealthStatus};
 use moka::sync::Cache;
 use tracing::{debug, trace};
 
@@ -139,7 +140,7 @@ impl<B: StorageBackend + Clone> BatchWriter<B> {
             }
         }
 
-        self.inner.flush().await
+        self.inner.flush().await.into_result()
     }
 
     /// Flush if the batch has reached size limits, otherwise do nothing
@@ -346,19 +347,14 @@ impl<B: StorageBackend + Clone> StorageBackend for OptimizedBackend<B> {
         result
     }
 
-    async fn set_with_ttl(
-        &self,
-        key: Vec<u8>,
-        value: Vec<u8>,
-        ttl_seconds: u64,
-    ) -> StorageResult<()> {
+    async fn set_with_ttl(&self, key: Vec<u8>, value: Vec<u8>, ttl: Duration) -> StorageResult<()> {
         let start = Instant::now();
 
         if let Some(cache) = &self.cache {
             cache.invalidate(&key);
         }
 
-        let result = self.backend.set_with_ttl(key, value, ttl_seconds).await;
+        let result = self.backend.set_with_ttl(key, value, ttl).await;
 
         self.metrics.record_set(start.elapsed());
         self.metrics.record_ttl_operation();
@@ -377,9 +373,32 @@ impl<B: StorageBackend + Clone> StorageBackend for OptimizedBackend<B> {
         Ok(txn)
     }
 
-    async fn health_check(&self) -> StorageResult<()> {
+    async fn compare_and_set(
+        &self,
+        key: &[u8],
+        expected: Option<&[u8]>,
+        new_value: Vec<u8>,
+    ) -> StorageResult<()> {
+        let start = Instant::now();
+
+        if let Some(cache) = &self.cache {
+            cache.invalidate(key);
+        }
+
+        let result = self.backend.compare_and_set(key, expected, new_value).await;
+
+        self.metrics.record_set(start.elapsed());
+
+        if result.is_err() {
+            self.metrics.record_error();
+        }
+
+        result
+    }
+
+    async fn health_check(&self, probe: HealthProbe) -> StorageResult<HealthStatus> {
         self.metrics.record_health_check();
-        self.backend.health_check().await
+        self.backend.health_check(probe).await
     }
 }
 
@@ -497,7 +516,11 @@ mod tests {
     async fn test_batch_writer_basic() {
         let backend = MemoryBackend::new();
         let cache_config = CacheConfig::disabled();
-        let batch_config = BatchConfig::new(100, 1024 * 1024);
+        let batch_config = BatchConfig::builder()
+            .max_batch_size(100)
+            .max_batch_bytes(1024 * 1024)
+            .build()
+            .unwrap();
         let optimized = OptimizedBackend::new(backend.clone(), cache_config, batch_config);
 
         let mut batch = optimized.batch_writer();
@@ -523,7 +546,8 @@ mod tests {
         let backend = MemoryBackend::new();
         let cache_config = CacheConfig::disabled();
         // Very small batch size to force splitting
-        let batch_config = BatchConfig::new(2, 1024 * 1024);
+        let batch_config =
+            BatchConfig::builder().max_batch_size(2).max_batch_bytes(1024 * 1024).build().unwrap();
         let optimized = OptimizedBackend::new(backend.clone(), cache_config, batch_config);
 
         let mut batch = optimized.batch_writer();
@@ -547,7 +571,8 @@ mod tests {
         let backend = MemoryBackend::new();
         let cache_config = CacheConfig::disabled();
         // Very small byte limit to force splitting
-        let batch_config = BatchConfig::new(1000, 200);
+        let batch_config =
+            BatchConfig::builder().max_batch_size(1000).max_batch_bytes(200).build().unwrap();
         let optimized = OptimizedBackend::new(backend.clone(), cache_config, batch_config);
 
         let mut batch = optimized.batch_writer();
@@ -571,7 +596,8 @@ mod tests {
     async fn test_batch_writer_should_flush() {
         let backend = MemoryBackend::new();
         let cache_config = CacheConfig::disabled();
-        let batch_config = BatchConfig::new(3, 1024 * 1024);
+        let batch_config =
+            BatchConfig::builder().max_batch_size(3).max_batch_bytes(1024 * 1024).build().unwrap();
         let optimized = OptimizedBackend::new(backend, cache_config, batch_config);
 
         let mut batch = optimized.batch_writer();
@@ -589,7 +615,8 @@ mod tests {
     async fn test_batch_writer_flush_if_needed() {
         let backend = MemoryBackend::new();
         let cache_config = CacheConfig::disabled();
-        let batch_config = BatchConfig::new(2, 1024 * 1024);
+        let batch_config =
+            BatchConfig::builder().max_batch_size(2).max_batch_bytes(1024 * 1024).build().unwrap();
         let optimized = OptimizedBackend::new(backend, cache_config, batch_config);
 
         let mut batch = optimized.batch_writer();
@@ -677,16 +704,17 @@ mod tests {
     #[tokio::test]
     async fn test_batch_config_for_large_transactions() {
         let config = BatchConfig::for_large_transactions();
-        assert!(config.enabled);
-        assert_eq!(config.max_batch_bytes, TRANSACTION_SIZE_LIMIT);
-        assert_eq!(config.max_batch_size, DEFAULT_MAX_BATCH_SIZE);
+        assert!(config.enabled());
+        assert_eq!(config.max_batch_bytes(), TRANSACTION_SIZE_LIMIT);
+        assert_eq!(config.max_batch_size(), DEFAULT_MAX_BATCH_SIZE);
     }
 
     #[tokio::test]
     async fn test_large_batch_stress() {
         let backend = MemoryBackend::new();
         let cache_config = CacheConfig::disabled();
-        let batch_config = BatchConfig::new(100, 10000); // Small limits
+        let batch_config =
+            BatchConfig::builder().max_batch_size(100).max_batch_bytes(10000).build().unwrap(); // Small limits
         let optimized = OptimizedBackend::new(backend.clone(), cache_config, batch_config);
 
         let mut batch = optimized.batch_writer();

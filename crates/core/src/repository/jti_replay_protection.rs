@@ -45,13 +45,13 @@ impl<S: StorageBackend> JtiReplayProtectionRepository<S> {
 
         if ttl_seconds > 0 {
             self.storage
-                .set_with_ttl(key, value, ttl_seconds as u64)
+                .set_with_ttl(key, value, std::time::Duration::from_secs(ttl_seconds as u64))
                 .await
                 .map_err(|e| Error::internal(format!("Failed to mark JTI as used: {e}")))?;
         } else {
             // If already expired, still set it with 1 second TTL to prevent race conditions
             self.storage
-                .set_with_ttl(key, value, 1)
+                .set_with_ttl(key, value, std::time::Duration::from_secs(1))
                 .await
                 .map_err(|e| Error::internal(format!("Failed to mark JTI as used: {e}")))?;
         }

@@ -871,15 +871,15 @@ async fn test_certificate_creation_writes_to_ledger() {
     // Verify the public signing key was written to Ledger storage
     let signing_key_store = state.storage.signing_key_store();
     let stored_key = signing_key_store
-        .get_key(org_id, kid)
+        .get_key(org_id.into(), kid)
         .await
         .expect("get_key should not fail")
         .expect("key should exist in Ledger storage");
 
     // Verify key properties
     assert_eq!(stored_key.kid, kid);
-    assert_eq!(stored_key.public_key, public_key_from_response);
-    assert_eq!(stored_key.client_id, client_id);
+    assert_eq!(stored_key.public_key.as_str(), public_key_from_response);
+    assert_eq!(i64::from(stored_key.client_id), client_id);
     assert!(stored_key.active, "key should be active");
     assert!(stored_key.revoked_at.is_none(), "key should not be revoked");
 }
@@ -970,7 +970,7 @@ async fn test_certificate_revocation_updates_ledger() {
     // Verify key is active before revocation
     let signing_key_store = state.storage.signing_key_store();
     let key_before = signing_key_store
-        .get_key(org_id, &kid)
+        .get_key(org_id.into(), &kid)
         .await
         .expect("get_key should not fail")
         .expect("key should exist");
@@ -998,7 +998,7 @@ async fn test_certificate_revocation_updates_ledger() {
 
     // Verify key is now revoked in Ledger storage
     let key_after = signing_key_store
-        .get_key(org_id, &kid)
+        .get_key(org_id.into(), &kid)
         .await
         .expect("get_key should not fail")
         .expect("key should still exist after revocation");
@@ -1124,7 +1124,7 @@ async fn test_certificate_rotation_writes_to_ledger() {
 
     // Original key should still exist and be active
     let original_key = signing_key_store
-        .get_key(org_id, &original_kid)
+        .get_key(org_id.into(), &original_kid)
         .await
         .expect("get_key should not fail")
         .expect("original key should still exist");
@@ -1134,7 +1134,7 @@ async fn test_certificate_rotation_writes_to_ledger() {
 
     // New rotated key should exist
     let new_key = signing_key_store
-        .get_key(org_id, new_kid)
+        .get_key(org_id.into(), new_kid)
         .await
         .expect("get_key should not fail")
         .expect("new rotated key should exist");
@@ -1287,6 +1287,7 @@ async fn test_engine_rejects_tokens_after_revocation() {
 
     use base64::engine::{Engine as Base64Engine, general_purpose::STANDARD as BASE64};
     use chrono::Utc;
+    use ed25519_dalek::pkcs8::EncodePrivateKey;
     use inferadb_common_authn::{
         SigningKeyCache, error::AuthError, jwt::verify_with_signing_key_cache,
     };
@@ -1371,20 +1372,13 @@ async fn test_engine_rejects_tokens_after_revocation() {
     let kid = json["certificate"]["kid"].as_str().unwrap().to_string();
     let private_key_b64 = json["private_key"].as_str().unwrap();
 
-    // Decode private key and wrap in PKCS#8 DER format for jsonwebtoken
+    // Decode private key and encode as PKCS#8 DER for jsonwebtoken
     let private_key_bytes = BASE64.decode(private_key_b64).expect("decode private_key");
     assert_eq!(private_key_bytes.len(), 32, "Ed25519 private key should be 32 bytes");
 
-    // PKCS#8 DER header for Ed25519
-    let mut pkcs8_der = vec![
-        0x30, 0x2e, // SEQUENCE, 46 bytes
-        0x02, 0x01, 0x00, // INTEGER version 0
-        0x30, 0x05, // SEQUENCE, 5 bytes (algorithm identifier)
-        0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
-        0x04, 0x22, // OCTET STRING, 34 bytes
-        0x04, 0x20, // OCTET STRING, 32 bytes (the actual key)
-    ];
-    pkcs8_der.extend_from_slice(&private_key_bytes);
+    let private_key_array: [u8; 32] = private_key_bytes.as_slice().try_into().unwrap();
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_array);
+    let pkcs8_der = signing_key.to_pkcs8_der().expect("encode PKCS#8 DER");
 
     // Create JWT claims
     let now = Utc::now().timestamp() as u64;
@@ -1404,7 +1398,7 @@ async fn test_engine_rejects_tokens_after_revocation() {
     let mut header = Header::new(Algorithm::EdDSA);
     header.kid = Some(kid.clone());
 
-    let encoding_key = EncodingKey::from_ed_der(&pkcs8_der);
+    let encoding_key = EncodingKey::from_ed_der(pkcs8_der.as_bytes());
     let token = encode(&header, &claims, &encoding_key).expect("encode JWT");
 
     // Create SigningKeyCache using shared storage
@@ -1443,7 +1437,7 @@ async fn test_engine_rejects_tokens_after_revocation() {
     assert!(
         matches!(
             result,
-            Err(AuthError::KeyInactive { kid: ref k }) | Err(AuthError::KeyRevoked { kid: ref k }) if k == &kid
+            Err(AuthError::KeyInactive { kid: ref k, .. }) | Err(AuthError::KeyRevoked { kid: ref k, .. }) if k == &kid
         ),
         "token should be rejected after revocation (KeyInactive or KeyRevoked): {:?}",
         result

@@ -11,6 +11,8 @@ use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::error::Error;
+
 /// Control API identity containing Ed25519 keypair for signing JWTs
 #[derive(Clone)]
 pub struct ControlIdentity {
@@ -92,26 +94,21 @@ impl ControlIdentity {
     }
 
     /// Create control identity from an existing Ed25519 private key (PEM format).
-    pub fn from_pem(pem: &str) -> Result<Self, String> {
-        // Parse PEM to extract the private key bytes
-        let pem = pem::parse(pem).map_err(|e| format!("Failed to parse PEM: {e}"))?;
+    pub fn from_pem(pem_str: &str) -> Result<Self, Error> {
+        use ed25519_dalek::pkcs8::DecodePrivateKey;
 
-        if pem.tag() != "PRIVATE KEY" {
-            return Err(format!("Invalid PEM tag: expected 'PRIVATE KEY', got '{}'", pem.tag()));
+        let parsed = pem::parse(pem_str)
+            .map_err(|e| Error::internal(format!("Failed to parse PEM: {e}")))?;
+
+        if parsed.tag() != "PRIVATE KEY" {
+            return Err(Error::internal(format!(
+                "Invalid PEM tag: expected 'PRIVATE KEY', got '{}'",
+                parsed.tag()
+            )));
         }
 
-        // Ed25519 private keys are 32 bytes
-        let key_bytes = pem.contents();
-        if key_bytes.len() < 32 {
-            return Err("Invalid Ed25519 private key length".to_string());
-        }
-
-        // Extract the last 32 bytes (Ed25519 private key)
-        let private_key_bytes: [u8; 32] = key_bytes[key_bytes.len() - 32..]
-            .try_into()
-            .map_err(|_| "Failed to extract 32-byte private key")?;
-
-        let signing_key = SigningKey::from_bytes(&private_key_bytes);
+        let signing_key = SigningKey::from_pkcs8_der(parsed.contents())
+            .map_err(|e| Error::internal(format!("Failed to decode PKCS#8 private key: {e}")))?;
         let verifying_key = signing_key.verifying_key();
 
         let control_id = Self::generate_control_id();
@@ -162,24 +159,15 @@ impl ControlIdentity {
     }
 
     /// Export the private key as PEM format (for saving to config)
-    pub fn to_pem(&self) -> String {
-        let key_bytes = self.signing_key.to_bytes();
+    pub fn to_pem(&self) -> Result<String, Error> {
+        use ed25519_dalek::pkcs8::EncodePrivateKey;
 
-        // PKCS#8 format for Ed25519 private key
-        // This is a simplified version - in production you might want to use a proper PKCS#8
-        // encoder
-        let mut pkcs8_bytes = vec![
-            0x30, 0x2e, // SEQUENCE, length 46
-            0x02, 0x01, 0x00, // INTEGER 0 (version)
-            0x30, 0x05, // SEQUENCE, length 5
-            0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
-            0x04, 0x22, // OCTET STRING, length 34
-            0x04, 0x20, // OCTET STRING, length 32
-        ];
-        pkcs8_bytes.extend_from_slice(&key_bytes);
-
-        let pem = pem::Pem::new("PRIVATE KEY", pkcs8_bytes);
-        pem::encode(&pem)
+        let der = self
+            .signing_key
+            .to_pkcs8_der()
+            .map_err(|e| Error::internal(format!("Failed to encode PKCS#8 DER: {e}")))?;
+        let pem_data = pem::Pem::new("PRIVATE KEY", der.as_bytes());
+        Ok(pem::encode(&pem_data))
     }
 
     /// Sign a JWT for control-to-engine authentication
@@ -191,7 +179,7 @@ impl ControlIdentity {
     /// # Returns
     ///
     /// A signed JWT valid for 5 minutes
-    pub fn sign_jwt(&self, engine_url: &str) -> Result<String, String> {
+    pub fn sign_jwt(&self, engine_url: &str) -> Result<String, Error> {
         let now = chrono::Utc::now();
         let exp = now + chrono::Duration::minutes(5);
 
@@ -214,11 +202,12 @@ impl ControlIdentity {
         header.kid = Some(self.kid.clone());
 
         // Convert Ed25519 signing key to PEM for jsonwebtoken
-        let pem = self.to_pem();
+        let pem = self.to_pem()?;
         let encoding_key = EncodingKey::from_ed_pem(pem.as_bytes())
-            .map_err(|e| format!("Failed to create encoding key: {e}"))?;
+            .map_err(|e| Error::internal(format!("Failed to create encoding key: {e}")))?;
 
-        encode(&header, &claims, &encoding_key).map_err(|e| format!("Failed to sign JWT: {e}"))
+        encode(&header, &claims, &encoding_key)
+            .map_err(|e| Error::internal(format!("Failed to sign JWT: {e}")))
     }
 
     /// Get the JWKS representation of the public key
@@ -259,7 +248,7 @@ mod tests {
     #[test]
     fn test_pem_round_trip() {
         let identity = ControlIdentity::generate();
-        let pem = identity.to_pem();
+        let pem = identity.to_pem().unwrap();
 
         let restored = ControlIdentity::from_pem(&pem);
         assert!(restored.is_ok());
@@ -272,7 +261,7 @@ mod tests {
     fn test_kid_is_deterministic() {
         // Same key should always produce the same kid
         let identity = ControlIdentity::generate();
-        let pem = identity.to_pem();
+        let pem = identity.to_pem().unwrap();
 
         let restored1 = ControlIdentity::from_pem(&pem).unwrap();
         let restored2 = ControlIdentity::from_pem(&pem).unwrap();
@@ -327,5 +316,61 @@ mod tests {
         assert!(!identity.kid.contains('+'));
         assert!(!identity.kid.contains('/'));
         assert!(!identity.kid.contains('='));
+    }
+
+    #[test]
+    fn test_pem_roundtrip_signing_works() {
+        // Generate key → export PEM → import PEM → verify signing still works
+        let original = ControlIdentity::generate();
+        let pem = original.to_pem().unwrap();
+
+        let restored = ControlIdentity::from_pem(&pem).unwrap();
+
+        // kid should be deterministic from the key
+        assert_eq!(original.kid, restored.kid);
+
+        // Signing should produce valid JWTs with the restored identity
+        let jwt = restored.sign_jwt("http://localhost:8080").unwrap();
+        assert!(!jwt.is_empty());
+        assert_eq!(jwt.matches('.').count(), 2);
+
+        // Verify the JWT can be decoded (header should contain the kid)
+        let header = jsonwebtoken::decode_header(&jwt).unwrap();
+        assert_eq!(header.kid, Some(restored.kid));
+        assert_eq!(header.alg, jsonwebtoken::Algorithm::EdDSA);
+    }
+
+    #[test]
+    fn test_pem_roundtrip_multiple_cycles() {
+        // PEM export/import should be stable across multiple cycles
+        let original = ControlIdentity::generate();
+
+        let pem1 = original.to_pem().unwrap();
+        let restored1 = ControlIdentity::from_pem(&pem1).unwrap();
+        let pem2 = restored1.to_pem().unwrap();
+        let restored2 = ControlIdentity::from_pem(&pem2).unwrap();
+
+        // PEM output should be identical across cycles
+        assert_eq!(pem1, pem2);
+        // kid should be identical across all instances
+        assert_eq!(original.kid, restored1.kid);
+        assert_eq!(original.kid, restored2.kid);
+    }
+
+    #[test]
+    fn test_from_pem_rejects_invalid_tag() {
+        let pem = "-----BEGIN RSA PRIVATE KEY-----\nYQ==\n-----END RSA PRIVATE KEY-----\n";
+        let result = ControlIdentity::from_pem(pem);
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("PRIVATE KEY"));
+    }
+
+    #[test]
+    fn test_from_pem_rejects_invalid_der() {
+        // Valid PEM wrapping but invalid PKCS#8 DER content
+        let invalid_pem = pem::encode(&pem::Pem::new("PRIVATE KEY", vec![0u8; 16]));
+        let result = ControlIdentity::from_pem(&invalid_pem);
+        assert!(result.is_err());
     }
 }

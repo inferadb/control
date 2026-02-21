@@ -128,9 +128,9 @@ pub use entities::{
     AuditEventType, AuditLog, AuditResourceType, AuthorizationCode, Client, ClientCertificate,
     Organization, OrganizationInvitation, OrganizationMember, OrganizationPermission,
     OrganizationRole, OrganizationTeam, OrganizationTeamMember, OrganizationTeamPermission,
-    OrganizationTier, PasskeyCredential, SessionType, User, UserEmail, UserEmailVerificationToken,
-    UserPasswordResetToken, UserSession, Vault, VaultRefreshToken, VaultRole, VaultSyncStatus,
-    VaultTeamGrant, VaultUserGrant,
+    OrganizationTier, PasskeyCredential, SecureToken, SecureTokenEntity, SessionType, User,
+    UserEmail, UserEmailVerificationToken, UserPasswordResetToken, UserSession, Vault,
+    VaultRefreshToken, VaultRole, VaultSyncStatus, VaultTeamGrant, VaultUserGrant,
 };
 
 // ============================================================================
@@ -246,7 +246,6 @@ pub use dto::{
     RevokeTokensResponse,
     SessionInfo,
     SetPrimaryEmailRequest,
-    TeamGrantInfo,
     TeamGrantResponse,
     TeamInfo,
     TeamMemberInfo,
@@ -275,7 +274,6 @@ pub use dto::{
     UpdateVaultRequest,
     UpdateVaultResponse,
     UserEmailInfo,
-    UserGrantInfo,
     UserGrantResponse,
     UserProfile,
     VaultDetail,

@@ -66,7 +66,10 @@ mod tests {
     async fn test_ttl() {
         let backend = MemoryBackend::new();
 
-        backend.set_with_ttl(b"temp".to_vec(), b"value".to_vec(), 1).await.unwrap();
+        backend
+            .set_with_ttl(b"temp".to_vec(), b"value".to_vec(), Duration::from_secs(1))
+            .await
+            .unwrap();
 
         // Should exist immediately
         let value = backend.get(b"temp").await.unwrap();
@@ -111,7 +114,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_check() {
+        use inferadb_common_storage::health::HealthProbe;
+
         let backend = MemoryBackend::new();
-        assert!(backend.health_check().await.is_ok());
+        let status = backend.health_check(HealthProbe::Readiness).await.unwrap();
+        assert!(status.is_healthy());
     }
 }

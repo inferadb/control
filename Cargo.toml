@@ -80,7 +80,7 @@ aes-gcm = "0.10"
 argon2 = { version = "0.5", features = ["std"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
-ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
+ed25519-dalek = { version = "2", features = ["rand_core", "zeroize", "pkcs8"] }
 hex = "0.4"
 jsonwebtoken = { version = "10", default-features = false, features = [
   "aws_lc_rs",
@@ -100,6 +100,9 @@ webauthn-rs = { version = "0.5", features = [
 
 # Snowflake ID generation
 idgenerator = "2"
+
+# Testing
+proptest = "1"
 
 # Email
 lettre = { version = "0.11", default-features = false, features = [
@@ -140,6 +143,9 @@ kube = { version = "3", features = ["client"] }
 
 # Caching
 moka = { version = "0.12", features = ["sync"] }
+
+# NTP client
+rsntp = { version = "4", default-features = false, features = ["chrono", "async"] }
 
 # TLS (for crypto provider initialization)
 rustls = { version = "0.23", default-features = false, features = [

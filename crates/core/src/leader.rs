@@ -1,11 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, StorageError};
 use inferadb_control_types::error::{Error, Result};
 use tokio::{sync::RwLock, time};
 
-/// Leader lease TTL in seconds
-const LEADER_LEASE_TTL: u64 = 30;
+/// Leader lease TTL
+const LEADER_LEASE_TTL: Duration = Duration::from_secs(30);
 
 /// Leader lease renewal interval in seconds (renew before expiry)
 const LEADER_RENEWAL_INTERVAL: u64 = 10;
@@ -75,7 +75,11 @@ impl<S: StorageBackend + 'static> LeaderElection<S> {
         b"leader/current".to_vec()
     }
 
-    /// Try to acquire leadership
+    /// Try to acquire leadership atomically using compare-and-set
+    ///
+    /// Uses `compare_and_set` with `expected: None` (insert-if-absent) to prevent
+    /// the TOCTOU race where two instances both see "no leader" and both succeed.
+    /// On successful CAS, immediately sets the key with TTL to establish the lease.
     ///
     /// Returns `Ok(true)` if leadership was acquired, `Ok(false)` if another instance is leader.
     ///
@@ -84,43 +88,51 @@ impl<S: StorageBackend + 'static> LeaderElection<S> {
     /// Returns an error if storage operation fails.
     pub async fn try_acquire_leadership(&self) -> Result<bool> {
         let key = Self::leader_key();
+        let value = self.instance_id.to_string();
 
-        // Check if leader already exists
-        if let Some(existing) = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to check leader status: {e}")))?
-        {
-            // Check if it's us (we might already be leader)
-            if let Ok(leader_id) = String::from_utf8(existing.to_vec())
-                && let Ok(id) = leader_id.parse::<u16>()
-                && id == self.instance_id
-            {
-                // We're already the leader
+        // Atomic insert-if-absent: only succeeds if no leader key exists
+        match self.storage.compare_and_set(&key, None, value.as_bytes().to_vec()).await {
+            Ok(()) => {
+                // CAS succeeded — we are the leader. Set TTL for lease expiry.
+                // If this fails, rollback the CAS to prevent a permanent lock
+                // (key without TTL would never expire).
+                if let Err(e) = self
+                    .storage
+                    .set_with_ttl(key.clone(), value.as_bytes().to_vec(), LEADER_LEASE_TTL)
+                    .await
+                {
+                    let _ = self.storage.delete(&key).await;
+                    return Err(Error::internal(format!(
+                        "Failed to set leadership lease TTL: {e}"
+                    )));
+                }
+
                 let mut is_leader = self.is_leader.write().await;
                 *is_leader = true;
-                return Ok(true);
-            }
 
-            // Another instance is leader
-            return Ok(false);
+                tracing::info!(instance_id = self.instance_id, "Acquired leadership lease");
+
+                Ok(true)
+            },
+            Err(StorageError::Conflict { .. }) => {
+                // Key exists — check if we're already the leader
+                if let Some(existing) =
+                    self.storage.get(&key).await.map_err(|e| {
+                        Error::internal(format!("Failed to check leader status: {e}"))
+                    })?
+                    && let Ok(leader_id) = String::from_utf8(existing.to_vec())
+                    && let Ok(id) = leader_id.parse::<u16>()
+                    && id == self.instance_id
+                {
+                    let mut is_leader = self.is_leader.write().await;
+                    *is_leader = true;
+                    return Ok(true);
+                }
+
+                Ok(false)
+            },
+            Err(e) => Err(Error::internal(format!("Failed to acquire leadership: {e}"))),
         }
-
-        // No current leader, try to acquire lease
-        let value = self.instance_id.to_string();
-        self.storage
-            .set_with_ttl(key, value.as_bytes().to_vec(), LEADER_LEASE_TTL)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to acquire leadership: {e}")))?;
-
-        // Mark ourselves as leader
-        let mut is_leader = self.is_leader.write().await;
-        *is_leader = true;
-
-        tracing::info!(instance_id = self.instance_id, "Acquired leadership lease");
-
-        Ok(true)
     }
 
     /// Check if this instance is currently the leader
@@ -128,29 +140,58 @@ impl<S: StorageBackend + 'static> LeaderElection<S> {
         *self.is_leader.read().await
     }
 
-    /// Renew the leader lease
+    /// Renew the leader lease with atomic ownership verification
     ///
-    /// This should be called periodically while the instance is leader.
+    /// Uses `compare_and_set` to atomically verify we're still the recorded leader
+    /// before renewing. This prevents a stale leader from overwriting another
+    /// instance's lease after its own lease expired.
     async fn renew_lease(&self) -> Result<()> {
-        // Only renew if we're the leader
         if !self.is_leader().await {
             return Ok(());
         }
 
         let key = Self::leader_key();
         let value = self.instance_id.to_string();
+        let value_bytes = value.as_bytes().to_vec();
 
-        self.storage.set_with_ttl(key, value.as_bytes().to_vec(), LEADER_LEASE_TTL).await.map_err(
-            |e| {
-                // If renewal fails, we're no longer the leader
-                tracing::error!("Failed to renew leader lease: {}", e);
-                Error::internal(format!("Failed to renew leader lease: {e}"))
+        // Atomically verify we're still the leader (CAS with same value)
+        match self
+            .storage
+            .compare_and_set(&key, Some(value_bytes.as_slice()), value_bytes.clone())
+            .await
+        {
+            Ok(()) => {
+                // CAS succeeded — we're still the leader. Re-set with TTL.
+                if let Err(e) =
+                    self.storage.set_with_ttl(key.clone(), value_bytes, LEADER_LEASE_TTL).await
+                {
+                    // TTL set failed — rollback to prevent permanent lock
+                    let _ = self.storage.delete(&key).await;
+                    let mut is_leader = self.is_leader.write().await;
+                    *is_leader = false;
+                    return Err(Error::internal(format!("Failed to renew leader lease: {e}")));
+                }
+
+                tracing::debug!(instance_id = self.instance_id, "Renewed leadership lease");
+                Ok(())
             },
-        )?;
-
-        tracing::debug!(instance_id = self.instance_id, "Renewed leadership lease");
-
-        Ok(())
+            Err(StorageError::Conflict { .. }) => {
+                // Another instance is now the leader — step down
+                tracing::warn!(
+                    instance_id = self.instance_id,
+                    "Leadership was taken by another instance, stepping down"
+                );
+                let mut is_leader = self.is_leader.write().await;
+                *is_leader = false;
+                Err(Error::internal("Leadership lost: another instance is now leader".to_string()))
+            },
+            Err(e) => {
+                tracing::error!("Failed to verify leadership during renewal: {}", e);
+                let mut is_leader = self.is_leader.write().await;
+                *is_leader = false;
+                Err(Error::internal(format!("Failed to renew leader lease: {e}")))
+            },
+        }
     }
 
     /// Start automatic lease renewal
@@ -194,23 +235,44 @@ impl<S: StorageBackend + 'static> LeaderElection<S> {
         });
     }
 
-    /// Release leadership voluntarily
+    /// Release leadership voluntarily with atomic ownership verification
     ///
-    /// This should be called when shutting down gracefully.
+    /// Uses `compare_and_set` to atomically verify we're still the recorded leader
+    /// before deleting. This prevents one leader from deleting another leader's lease.
     pub async fn release_leadership(&self) -> Result<()> {
-        // Only release if we're the leader
         if !self.is_leader().await {
             return Ok(());
         }
 
         let key = Self::leader_key();
+        let value = self.instance_id.to_string();
+        let value_bytes = value.as_bytes().to_vec();
 
-        self.storage
-            .delete(&key)
+        // Atomically verify we're still the leader before deleting
+        match self
+            .storage
+            .compare_and_set(&key, Some(value_bytes.as_slice()), value_bytes.clone())
             .await
-            .map_err(|e| Error::internal(format!("Failed to release leadership: {e}")))?;
+        {
+            Ok(()) => {
+                // CAS succeeded — we're still the leader. Safe to delete.
+                self.storage
+                    .delete(&key)
+                    .await
+                    .map_err(|e| Error::internal(format!("Failed to release leadership: {e}")))?;
+            },
+            Err(StorageError::Conflict { .. }) => {
+                // Another instance is leader — just clear our local state
+                tracing::debug!(
+                    instance_id = self.instance_id,
+                    "Leadership already held by another instance during release"
+                );
+            },
+            Err(e) => {
+                tracing::error!("Failed to verify leadership during release: {}", e);
+            },
+        }
 
-        // Mark as no longer leader
         let mut is_leader = self.is_leader.write().await;
         *is_leader = false;
 
@@ -399,5 +461,80 @@ mod tests {
         // Task should not have run
         assert!(!task_ran);
         assert!(!leader2.is_leader().await);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_acquisition_exactly_one_wins() {
+        let storage = MemoryBackend::new();
+        let num_instances = 10;
+
+        let mut handles = Vec::new();
+        for i in 0..num_instances {
+            let s = storage.clone();
+            handles.push(tokio::spawn(async move {
+                let leader = LeaderElection::new(s, i);
+                let acquired = leader.try_acquire_leadership().await.unwrap();
+                (i, acquired)
+            }));
+        }
+
+        let mut winners = Vec::new();
+        for handle in handles {
+            let (id, acquired) = handle.await.unwrap();
+            if acquired {
+                winners.push(id);
+            }
+        }
+
+        assert_eq!(winners.len(), 1, "Expected exactly one leader, but got {winners:?}");
+    }
+
+    #[tokio::test]
+    async fn test_renew_lease_detects_stolen_leadership() {
+        let storage = MemoryBackend::new();
+        let leader1 = LeaderElection::new(storage.clone(), 1);
+        let leader2_value = 2u16.to_string();
+
+        // Leader 1 acquires leadership
+        assert!(leader1.try_acquire_leadership().await.unwrap());
+        assert!(leader1.is_leader().await);
+
+        // Simulate leader 2 stealing the lease (e.g., leader 1's lease expired
+        // and leader 2 acquired, then leader 1 tries to renew with stale state)
+        let key = LeaderElection::<MemoryBackend>::leader_key();
+        storage
+            .set_with_ttl(key, leader2_value.as_bytes().to_vec(), LEADER_LEASE_TTL)
+            .await
+            .unwrap();
+
+        // Leader 1's renewal should fail because the key now holds leader 2's id
+        let result = leader1.renew_lease().await;
+        assert!(result.is_err());
+        assert!(!leader1.is_leader().await);
+    }
+
+    #[tokio::test]
+    async fn test_release_does_not_delete_other_leaders_lease() {
+        let storage = MemoryBackend::new();
+        let leader1 = LeaderElection::new(storage.clone(), 1);
+        let leader2_value = 2u16.to_string();
+
+        // Leader 1 acquires leadership
+        assert!(leader1.try_acquire_leadership().await.unwrap());
+
+        // Simulate leader 2 taking over (lease expired, leader 2 acquired)
+        let key = LeaderElection::<MemoryBackend>::leader_key();
+        storage
+            .set_with_ttl(key.clone(), leader2_value.as_bytes().to_vec(), LEADER_LEASE_TTL)
+            .await
+            .unwrap();
+
+        // Leader 1 releases — should NOT delete leader 2's lease
+        leader1.release_leadership().await.unwrap();
+
+        // Leader 2's lease should still exist
+        let value = storage.get(&key).await.unwrap();
+        assert!(value.is_some());
+        assert_eq!(String::from_utf8(value.unwrap().to_vec()).unwrap(), "2");
     }
 }

@@ -28,7 +28,7 @@ pub mod repository_context;
 pub mod startup;
 
 pub use auth::{PasswordHasher, hash_password, verify_password};
-pub use clock::{ClockStatus, ClockValidator};
+pub use clock::{ClockStatus, ClockValidator, SkewSeverity};
 pub use crypto::{MasterKey, PrivateKeyEncryptor, keypair};
 pub use email::{
     EmailSender, EmailService, EmailTemplate, InvitationAcceptedEmailTemplate,
@@ -46,8 +46,9 @@ pub use repository::{
     ClientRepository, JtiReplayProtectionRepository, OrganizationInvitationRepository,
     OrganizationMemberRepository, OrganizationRepository, OrganizationTeamMemberRepository,
     OrganizationTeamPermissionRepository, OrganizationTeamRepository, PasskeyCredentialRepository,
-    UserEmailRepository, UserEmailVerificationTokenRepository, UserPasswordResetTokenRepository,
-    UserRepository, UserSessionRepository, VaultRefreshTokenRepository, VaultRepository,
-    VaultTeamGrantRepository, VaultUserGrantRepository,
+    SecureTokenRepository, UserEmailRepository, UserEmailVerificationTokenRepository,
+    UserPasswordResetTokenRepository, UserRepository, UserSessionRepository,
+    VaultRefreshTokenRepository, VaultRepository, VaultTeamGrantRepository,
+    VaultUserGrantRepository,
 };
 pub use repository_context::RepositoryContext;

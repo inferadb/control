@@ -53,6 +53,7 @@ pub fn init() {
         describe_gauge!("vaults_total", "Total number of vaults");
         describe_gauge!("is_leader", "Whether this instance is the leader (1) or not (0)");
         describe_gauge!("discovered_endpoints", "Number of currently discovered server endpoints");
+        describe_gauge!("clock_skew_seconds", "Measured clock skew against NTP in seconds");
     });
 }
 
@@ -153,6 +154,11 @@ pub fn record_discovery_cache_miss() {
 /// Set the number of discovered endpoints
 pub fn set_discovered_endpoints(count: i64) {
     gauge!("discovered_endpoints").set(count as f64);
+}
+
+/// Set the measured clock skew against NTP in seconds
+pub fn set_clock_skew(skew_seconds: f64) {
+    gauge!("clock_skew_seconds").set(skew_seconds);
 }
 
 /// Record a signing key registration in Ledger
@@ -259,6 +265,7 @@ mod tests {
         set_vaults_total(105);
         set_is_leader(true);
         set_is_leader(false);
+        set_clock_skew(0.042);
     }
 
     #[test]

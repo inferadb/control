@@ -339,14 +339,15 @@ pub async fn create_certificate(
     let now = Utc::now();
     let public_signing_key = PublicSigningKey {
         kid: cert.kid.clone(),
-        public_key: public_key_base64.clone(),
-        client_id,
-        cert_id: cert.id,
+        public_key: public_key_base64.clone().into(),
+        client_id: client_id.into(),
+        cert_id: cert.id.into(),
         created_at: now,
         valid_from: now,
         valid_until: None,
         active: true,
         revoked_at: None,
+        revocation_reason: None,
     };
 
     // org_id maps directly to namespace_id in Ledger
@@ -361,7 +362,7 @@ pub async fn create_certificate(
 
     // Time the Ledger write operation for metrics
     let ledger_start = std::time::Instant::now();
-    if let Err(e) = signing_key_store.create_key(namespace_id, &public_signing_key).await {
+    if let Err(e) = signing_key_store.create_key(namespace_id.into(), &public_signing_key).await {
         tracing::error!(
             error = %e,
             kid = %cert.kid,
@@ -568,7 +569,7 @@ pub async fn revoke_certificate(
     // Time the Ledger revoke operation for metrics
     let ledger_start = std::time::Instant::now();
     if let Err(e) = signing_key_store
-        .revoke_key(namespace_id, &cert.kid, Some("Certificate revoked by user"))
+        .revoke_key(namespace_id.into(), &cert.kid, Some("Certificate revoked by user"))
         .await
     {
         tracing::error!(
@@ -758,14 +759,15 @@ pub async fn rotate_certificate(
     // Write public key to Ledger with valid_from in the future
     let public_signing_key = PublicSigningKey {
         kid: new_cert.kid.clone(),
-        public_key: public_key_base64.clone(),
-        client_id,
-        cert_id: new_cert.id,
+        public_key: public_key_base64.clone().into(),
+        client_id: client_id.into(),
+        cert_id: new_cert.id.into(),
         created_at: now,
         valid_from,
         valid_until: None,
         active: true,
         revoked_at: None,
+        revocation_reason: None,
     };
 
     // org_id maps directly to namespace_id in Ledger
@@ -781,7 +783,7 @@ pub async fn rotate_certificate(
 
     // Time the Ledger write operation for metrics
     let ledger_start = std::time::Instant::now();
-    if let Err(e) = signing_key_store.create_key(namespace_id, &public_signing_key).await {
+    if let Err(e) = signing_key_store.create_key(namespace_id.into(), &public_signing_key).await {
         tracing::error!(
             error = %e,
             kid = %new_cert.kid,

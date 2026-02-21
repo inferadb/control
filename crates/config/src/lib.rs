@@ -229,6 +229,7 @@ fn default_webauthn_origin() -> String {
 #[builder(on(String, into))]
 pub struct EmailConfig {
     /// SMTP host
+    #[serde(default = "default_email_host")]
     #[builder(default = "localhost".to_string())]
     pub host: String,
 
@@ -244,6 +245,7 @@ pub struct EmailConfig {
     pub password: Option<String>,
 
     /// From email address
+    #[serde(default = "default_email_address")]
     #[builder(default = "noreply@inferadb.com".to_string())]
     pub address: String,
 
@@ -390,8 +392,16 @@ fn default_storage() -> String {
     "ledger".to_string()
 }
 
+fn default_email_host() -> String {
+    "localhost".to_string()
+}
+
 fn default_email_port() -> u16 {
     587
+}
+
+fn default_email_address() -> String {
+    "noreply@inferadb.com".to_string()
 }
 
 fn default_email_name() -> String {
@@ -482,35 +492,57 @@ impl ControlConfig {
     /// control:
     ///   threads: 4
     ///   logging: "info"
-    ///   network:
-    ///     public_rest: "127.0.0.1:9090"
+    ///   listen:
+    ///     http: "127.0.0.1:9090"
     ///   # ... control config
     ///
     /// engine:
     ///   # ... engine config (ignored by control)
     /// ```
+    ///
+    /// ## Environment Variables
+    ///
+    /// Environment variables use the `INFERADB_CTRL__` prefix with double-underscore
+    /// nesting, mapping directly to `ControlConfig` fields:
+    ///
+    /// - `INFERADB_CTRL__LISTEN__HTTP=0.0.0.0:9090`
+    /// - `INFERADB_CTRL__STORAGE=memory`
+    /// - `INFERADB_CTRL__LEDGER__ENDPOINT=http://localhost:50051`
+    /// - `INFERADB_CTRL__EMAIL__HOST=smtp.example.com`
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        // The config crate will use serde's #[serde(default)] annotations for defaults
-        // Layer 1 (defaults) is handled by serde deserialization
-        // Layer 2: Add file source (optional - only overrides if file exists)
-        let builder =
-            config::Config::builder().add_source(config::File::from(path.as_ref()).required(false));
+        // Layer 1 (defaults): handled by serde's #[serde(default)] annotations.
+        // Layer 2: Load file and extract the `control` section from the unified YAML.
+        // The file may contain both `engine:` and `control:` sections; we only care
+        // about `control:`.
+        let file_config = config::Config::builder()
+            .add_source(config::File::from(path.as_ref()).required(false))
+            .build()
+            .map_err(|e| Error::config(format!("Failed to build config: {e}")))?;
 
-        // Layer 3: Add environment variables (highest precedence)
-        // Use INFERADB__ prefix for the nested format (INFERADB__CONTROL__...)
-        let builder = builder.add_source(
-            config::Environment::with_prefix("INFERADB").separator("__").try_parsing(true),
-        );
+        // Serialize the `control` section to a JSON value, then use it as a source.
+        // This extracts just the control-plane config from the unified file format.
+        let file_control: ControlConfig = file_config.get("control").unwrap_or_default();
 
-        let config =
-            builder.build().map_err(|e| Error::config(format!("Failed to build config: {e}")))?;
+        // Serialize the file-loaded config as a config::Value source, then layer
+        // environment variables on top. The env prefix INFERADB_CTRL__ maps directly
+        // to ControlConfig fields: INFERADB_CTRL__LISTEN__HTTP → listen.http
+        let serialized = config::Config::try_from(&file_control)
+            .map_err(|e| Error::config(format!("Failed to serialize file config: {e}")))?;
 
-        // Deserialize as RootConfig and extract the control section
-        let root: RootConfig = config
+        let merged = config::Config::builder()
+            .add_source(serialized)
+            .add_source(
+                config::Environment::with_prefix("INFERADB_CTRL")
+                    .prefix_separator("__")
+                    .separator("__")
+                    .try_parsing(true),
+            )
+            .build()
+            .map_err(|e| Error::config(format!("Failed to merge config: {e}")))?;
+
+        merged
             .try_deserialize()
-            .map_err(|e| Error::config(format!("Failed to deserialize config: {e}")))?;
-
-        Ok(root.control)
+            .map_err(|e| Error::config(format!("Failed to deserialize config: {e}")))
     }
 
     /// Load configuration with defaults, never panicking
@@ -667,7 +699,7 @@ impl ControlConfig {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used, unsafe_code)]
 mod tests {
     use super::*;
 
@@ -785,5 +817,80 @@ mod tests {
         let ledger = LedgerConfig::builder().build();
         assert!(ledger.endpoint.is_none());
         assert!(ledger.client_id.is_none());
+    }
+
+    #[test]
+    fn test_env_var_prefix_inferadb_ctrl() {
+        // INFERADB_CTRL__STORAGE=memory should be loaded by the config system.
+        // Use a non-existent config file path to test env-var-only loading.
+        let config_path = "/tmp/inferadb_test_nonexistent_config.yaml";
+
+        // SAFETY: test runs in isolation with nextest (one test per process)
+        unsafe {
+            std::env::set_var("INFERADB_CTRL__STORAGE", "memory");
+        }
+
+        let config = ControlConfig::load(config_path).unwrap();
+        assert_eq!(config.storage, "memory", "env var should set storage");
+
+        unsafe {
+            std::env::remove_var("INFERADB_CTRL__STORAGE");
+        }
+    }
+
+    #[test]
+    fn test_env_var_nested_prefix() {
+        // INFERADB_CTRL__LISTEN__HTTP should set listen.http
+        let config_path = "/tmp/inferadb_test_nonexistent_nested.yaml";
+
+        // SAFETY: test runs in isolation with nextest (one test per process)
+        unsafe {
+            std::env::set_var("INFERADB_CTRL__LISTEN__HTTP", "0.0.0.0:8080");
+        }
+
+        let config = ControlConfig::load(config_path).unwrap();
+        assert_eq!(config.listen.http, "0.0.0.0:8080", "nested env var should set listen.http");
+
+        unsafe {
+            std::env::remove_var("INFERADB_CTRL__LISTEN__HTTP");
+        }
+    }
+
+    #[test]
+    fn test_email_config_host_serde_default() {
+        // Deserializing EmailConfig without a `host` field should default to "localhost"
+        let yaml = "port: 25\n";
+        let email: EmailConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(email.host, "localhost", "host should default to 'localhost'");
+    }
+
+    #[test]
+    fn test_email_config_address_serde_default() {
+        // Deserializing EmailConfig without an `address` field should default
+        let yaml = "port: 25\n";
+        let email: EmailConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            email.address, "noreply@inferadb.com",
+            "address should default to 'noreply@inferadb.com'"
+        );
+    }
+
+    #[test]
+    fn test_all_serde_defaults_match_builder_defaults() {
+        // Comprehensive audit: every field with #[builder(default)] must also have
+        // a matching #[serde(default)] producing the same value.
+        let built = ControlConfig::builder().build();
+        let yaml = "{}";
+        let serde_default: ControlConfig = serde_yaml::from_str(yaml).unwrap();
+
+        // EmailConfig fields that were previously missing serde defaults
+        assert_eq!(
+            built.email.host, serde_default.email.host,
+            "EmailConfig.host serde default must match builder default"
+        );
+        assert_eq!(
+            built.email.address, serde_default.email.address,
+            "EmailConfig.address serde default must match builder default"
+        );
     }
 }

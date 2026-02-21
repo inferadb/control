@@ -4,65 +4,11 @@ use axum::{
     http::{Request, StatusCode},
 };
 use inferadb_control_core::IdGenerator;
-use inferadb_control_test_fixtures::{create_test_app, create_test_state, register_user};
+use inferadb_control_test_fixtures::{
+    create_client_with_cert, create_test_app, create_test_state, register_user,
+};
 use serde_json::json;
 use tower::ServiceExt;
-
-/// Helper to create a client with certificate for token generation
-async fn create_client_with_cert(app: &axum::Router, session: &str, org_id: i64) -> (i64, i64) {
-    // Create client
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
-                .header("cookie", format!("infera_session={session}"))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "name": "test-client",
-                        "description": "Test client for tokens"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
-
-    // Create certificate for client
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
-                .header("cookie", format!("infera_session={session}"))
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"name": "test-cert"}).to_string()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-
-    if !status.is_success() {
-        let body_str = String::from_utf8_lossy(&body);
-        panic!("Failed to create certificate. Status: {status}, Body: {body_str}");
-    }
-
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let cert_id = json["certificate"]["id"].as_i64().unwrap();
-
-    (client_id, cert_id)
-}
 
 #[tokio::test]
 async fn test_generate_vault_token() {
@@ -242,7 +188,7 @@ async fn test_refresh_token_flow() {
     let vault_id = json["vault"]["id"].as_i64().unwrap();
 
     // Create client and certificate for token generation
-    let (_client_id, _cert_id) = create_client_with_cert(&app, &session, org_id).await;
+    let (_client_id, _cert_id, _) = create_client_with_cert(&app, &session, org_id).await;
 
     // Generate vault token (this creates a refresh token)
     let response = app
@@ -384,7 +330,7 @@ async fn test_refresh_token_replay_protection() {
     let vault_id = json["vault"]["id"].as_i64().unwrap();
 
     // Create client and certificate for token generation
-    let (_client_id, _cert_id) = create_client_with_cert(&app, &session, org_id).await;
+    let (_client_id, _cert_id, _) = create_client_with_cert(&app, &session, org_id).await;
 
     // Generate initial token
     let response = app
@@ -525,7 +471,7 @@ async fn test_revoke_refresh_tokens() {
     let vault_id = json["vault"]["id"].as_i64().unwrap();
 
     // Create client and certificate for token generation
-    let (_client_id, _cert_id) = create_client_with_cert(&app, &session, org_id).await;
+    let (_client_id, _cert_id, _) = create_client_with_cert(&app, &session, org_id).await;
 
     // Generate token
     let response = app
@@ -594,6 +540,7 @@ async fn test_revoke_refresh_tokens() {
 #[tokio::test]
 async fn test_client_assertion_authenticate() {
     use base64::engine::{Engine as Base64Engine, general_purpose::STANDARD as BASE64};
+    use ed25519_dalek::pkcs8::EncodePrivateKey;
     use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use serde::Serialize;
 
@@ -694,19 +641,13 @@ async fn test_client_assertion_authenticate() {
     let kid = cert_json["certificate"]["kid"].as_str().unwrap().to_string();
     let private_key_b64 = cert_json["private_key"].as_str().unwrap();
 
-    // Decode private key (returned as STANDARD base64) and wrap in PKCS#8 DER
+    // Decode private key (returned as STANDARD base64) and encode as PKCS#8 DER
     let private_key_bytes = BASE64.decode(private_key_b64).expect("decode private_key");
     assert_eq!(private_key_bytes.len(), 32);
 
-    let mut pkcs8_der = vec![
-        0x30, 0x2e, // SEQUENCE, 46 bytes
-        0x02, 0x01, 0x00, // INTEGER version 0
-        0x30, 0x05, // SEQUENCE, 5 bytes (algorithm identifier)
-        0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
-        0x04, 0x22, // OCTET STRING, 34 bytes
-        0x04, 0x20, // OCTET STRING, 32 bytes (the actual key)
-    ];
-    pkcs8_der.extend_from_slice(&private_key_bytes);
+    let private_key_array: [u8; 32] = private_key_bytes.as_slice().try_into().unwrap();
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_array);
+    let pkcs8_der = signing_key.to_pkcs8_der().expect("encode PKCS#8 DER");
 
     // Build JWT client assertion (RFC 7523)
     #[derive(Serialize)]
@@ -732,7 +673,7 @@ async fn test_client_assertion_authenticate() {
     let mut header = Header::new(Algorithm::EdDSA);
     header.kid = Some(kid);
 
-    let encoding_key = EncodingKey::from_ed_der(&pkcs8_der);
+    let encoding_key = EncodingKey::from_ed_der(pkcs8_der.as_bytes());
     let client_assertion = encode(&header, &claims, &encoding_key).expect("encode JWT");
 
     // POST to /control/v1/token with client assertion (form-encoded)
@@ -831,7 +772,7 @@ async fn test_manager_role_token_generation() {
     let vault_id = json["vault"]["id"].as_i64().unwrap();
 
     // Create client and certificate
-    let (_client_id, _cert_id) = create_client_with_cert(&app, &session, org_id).await;
+    let (_client_id, _cert_id, _) = create_client_with_cert(&app, &session, org_id).await;
 
     // Request a token with Manager role (user has Admin, so Manager should be allowed)
     let response = app
@@ -862,4 +803,276 @@ async fn test_manager_role_token_generation() {
     assert_eq!(json["token_type"], "Bearer");
     assert!(json["access_token"].is_string());
     assert!(json["refresh_token"].is_string());
+}
+
+// ---------------------------------------------------------------------------
+// Client Assertion (RFC 7523) negative-path tests
+// ---------------------------------------------------------------------------
+
+/// Shared setup: register user, create org, vault, client, certificate.
+/// Returns (app, session, org_id, vault_id, client_id, cert_id, kid, signing_key).
+async fn setup_client_assertion_env(
+    seed: u16,
+) -> (axum::Router, String, i64, i64, i64, i64, String, ed25519_dalek::SigningKey) {
+    use base64::engine::{Engine as Base64Engine, general_purpose::STANDARD as BASE64};
+    use ed25519_dalek::pkcs8::EncodePrivateKey;
+    use inferadb_control_test_fixtures::{create_client, create_vault, get_org_id};
+
+    let _ = IdGenerator::init(seed);
+    let state = create_test_state();
+    let app = create_test_app(state.clone());
+
+    let session = register_user(
+        &app,
+        &format!("causer{seed}"),
+        &format!("ca{seed}@example.com"),
+        "securepassword123",
+    )
+    .await;
+
+    let org_id = get_org_id(&app, &session).await;
+    let (vault_id, _) = create_vault(&app, &session, org_id, &format!("ca-vault-{seed}")).await;
+    let (client_id, _) = create_client(&app, &session, org_id, &format!("ca-client-{seed}")).await;
+
+    // Create certificate (need kid and private_key from response, so done inline)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .header("cookie", format!("infera_session={session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"name": format!("ca-cert-{seed}")}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let cert_id = json["certificate"]["id"].as_i64().unwrap();
+    let kid = json["certificate"]["kid"].as_str().unwrap().to_string();
+    let private_key_b64 = json["private_key"].as_str().unwrap();
+
+    let private_key_bytes = BASE64.decode(private_key_b64).unwrap();
+    let private_key_array: [u8; 32] = private_key_bytes.as_slice().try_into().unwrap();
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_array);
+
+    // Verify the key can produce PKCS#8 DER (catches encoding issues early)
+    let _pkcs8 = signing_key.to_pkcs8_der().unwrap();
+
+    (app, session, org_id, vault_id, client_id, cert_id, kid, signing_key)
+}
+
+/// Build a signed JWT client assertion from parts.
+fn build_client_assertion(
+    kid: &str,
+    client_id: i64,
+    jti: &str,
+    exp_offset_secs: i64,
+    signing_key: &ed25519_dalek::SigningKey,
+) -> String {
+    use ed25519_dalek::pkcs8::EncodePrivateKey;
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct AssertionClaims {
+        iss: String,
+        sub: String,
+        aud: String,
+        exp: i64,
+        iat: i64,
+        jti: String,
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    let claims = AssertionClaims {
+        iss: client_id.to_string(),
+        sub: client_id.to_string(),
+        aud: "https://api.inferadb.com/token".to_string(),
+        exp: now + exp_offset_secs,
+        iat: now,
+        jti: jti.to_string(),
+    };
+
+    let mut header = Header::new(Algorithm::EdDSA);
+    header.kid = Some(kid.to_string());
+
+    let pkcs8_der = signing_key.to_pkcs8_der().unwrap();
+    let encoding_key = EncodingKey::from_ed_der(pkcs8_der.as_bytes());
+    encode(&header, &claims, &encoding_key).unwrap()
+}
+
+/// Submit a client assertion to POST /control/v1/token and return the response.
+async fn submit_client_assertion(
+    app: &axum::Router,
+    client_assertion: &str,
+    vault_id: i64,
+) -> axum::http::Response<Body> {
+    let form_body = format!(
+        "grant_type=client_credentials\
+         &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer\
+         &client_assertion={client_assertion}\
+         &vault_id={vault_id}\
+         &requested_role=reader"
+    );
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/v1/token")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(form_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn test_client_assertion_unknown_kid() {
+    let (app, _session, _org_id, vault_id, client_id, _cert_id, _kid, signing_key) =
+        setup_client_assertion_env(910).await;
+
+    // Use a kid that doesn't exist in the system
+    let assertion = build_client_assertion(
+        "org-999-client-999-cert-999",
+        client_id,
+        "jti-unknown-kid-1",
+        300,
+        &signing_key,
+    );
+
+    let response = submit_client_assertion(&app, &assertion, vault_id).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json["error"].as_str().unwrap().contains("certificate")
+            || json["error"].as_str().unwrap().contains("kid"),
+        "Error should mention certificate or kid, got: {}",
+        json["error"]
+    );
+}
+
+#[tokio::test]
+async fn test_client_assertion_revoked_certificate() {
+    let (app, session, org_id, vault_id, client_id, cert_id, kid, signing_key) =
+        setup_client_assertion_env(911).await;
+
+    // Revoke the certificate via the API
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!(
+                    "/control/v1/organizations/{org_id}/clients/{client_id}/certificates/{cert_id}"
+                ))
+                .header("cookie", format!("infera_session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK, "Revocation should succeed");
+
+    // Now try to authenticate with the revoked certificate
+    let assertion =
+        build_client_assertion(&kid, client_id, "jti-revoked-cert-1", 300, &signing_key);
+
+    let response = submit_client_assertion(&app, &assertion, vault_id).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json["error"].as_str().unwrap().contains("revoked"),
+        "Error should mention revocation, got: {}",
+        json["error"]
+    );
+}
+
+#[tokio::test]
+async fn test_client_assertion_jti_replay_protection() {
+    let (app, _session, _org_id, vault_id, client_id, _cert_id, kid, signing_key) =
+        setup_client_assertion_env(912).await;
+
+    let jti = "jti-replay-test-unique-1";
+
+    // First assertion with this JTI should succeed
+    let assertion = build_client_assertion(&kid, client_id, jti, 300, &signing_key);
+    let response = submit_client_assertion(&app, &assertion, vault_id).await;
+    assert_eq!(response.status(), StatusCode::OK, "First assertion should succeed");
+
+    // Second assertion with the SAME JTI should fail (replay attack)
+    let assertion = build_client_assertion(&kid, client_id, jti, 300, &signing_key);
+    let response = submit_client_assertion(&app, &assertion, vault_id).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json["error"].as_str().unwrap().to_lowercase().contains("replay")
+            || json["error"].as_str().unwrap().to_lowercase().contains("jti"),
+        "Error should mention replay or JTI, got: {}",
+        json["error"]
+    );
+}
+
+#[tokio::test]
+async fn test_client_assertion_expired_jwt() {
+    let (app, _session, _org_id, vault_id, client_id, _cert_id, kid, signing_key) =
+        setup_client_assertion_env(913).await;
+
+    // Build an assertion that expired 2 minutes ago
+    let assertion = build_client_assertion(
+        &kid,
+        client_id,
+        "jti-expired-jwt-1",
+        -120, // expired 2 minutes ago (exceeds jsonwebtoken's 60s leeway)
+        &signing_key,
+    );
+
+    let response = submit_client_assertion(&app, &assertion, vault_id).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json["error"].as_str().unwrap().to_lowercase().contains("expired")
+            || json["error"].as_str().unwrap().contains("verify"),
+        "Error should mention expiry or verification failure, got: {}",
+        json["error"]
+    );
+}
+
+#[tokio::test]
+async fn test_client_assertion_wrong_signature() {
+    let (app, _session, _org_id, vault_id, client_id, _cert_id, kid, _signing_key) =
+        setup_client_assertion_env(914).await;
+
+    // Generate a completely different key pair and sign with it
+    let wrong_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
+
+    let assertion = build_client_assertion(&kid, client_id, "jti-wrong-sig-1", 300, &wrong_key);
+
+    let response = submit_client_assertion(&app, &assertion, vault_id).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json["error"].as_str().unwrap().contains("verify")
+            || json["error"].as_str().unwrap().contains("signature"),
+        "Error should mention verification or signature failure, got: {}",
+        json["error"]
+    );
 }

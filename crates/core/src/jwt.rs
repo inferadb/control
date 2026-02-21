@@ -1,9 +1,7 @@
-use base64::{
-    Engine,
-    engine::general_purpose::{STANDARD as PEM_BASE64, URL_SAFE_NO_PAD},
-};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use bon::bon;
 use chrono::{DateTime, Duration, Utc};
+use ed25519_dalek::pkcs8::{EncodePrivateKey, spki::EncodePublicKey};
 use inferadb_control_const::auth::{REQUIRED_AUDIENCE, REQUIRED_ISSUER};
 use inferadb_control_types::{
     entities::{ClientCertificate, VaultRole},
@@ -124,70 +122,6 @@ impl JwtSigner {
         Self { encryptor }
     }
 
-    /// Convert Ed25519 private key (32 bytes) to PKCS#8 PEM format
-    fn ed25519_to_pem(&self, private_key: &[u8; 32]) -> Result<Vec<u8>> {
-        // PKCS#8 v1 structure for Ed25519:
-        // SEQUENCE {
-        //   INTEGER 0 (version)
-        //   SEQUENCE {
-        //     OBJECT IDENTIFIER 1.3.101.112 (Ed25519)
-        //   }
-        //   OCTET STRING {
-        //     OCTET STRING <32 bytes private key>
-        //   }
-        // }
-
-        // Ed25519 OID: 1.3.101.112
-        let mut pkcs8_der = vec![
-            0x30, 0x2e, // SEQUENCE (46 bytes)
-            0x02, 0x01, 0x00, // INTEGER 0 (version)
-            0x30, 0x05, // SEQUENCE (algorithm)
-            0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112
-            0x04, 0x22, // OCTET STRING (34 bytes)
-            0x04, 0x20, // OCTET STRING (32 bytes)
-        ];
-        pkcs8_der.extend_from_slice(private_key);
-
-        // Convert to PEM
-        let pem = format!(
-            "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
-            PEM_BASE64.encode(&pkcs8_der)
-        );
-
-        Ok(pem.into_bytes())
-    }
-
-    /// Convert Ed25519 public key (32 bytes) to SPKI PEM format
-    fn ed25519_public_to_pem(&self, public_key: &[u8]) -> Result<Vec<u8>> {
-        if public_key.len() != 32 {
-            return Err(Error::internal("Public key must be 32 bytes".to_string()));
-        }
-
-        // SubjectPublicKeyInfo structure for Ed25519:
-        // SEQUENCE {
-        //   SEQUENCE {
-        //     OBJECT IDENTIFIER 1.3.101.112 (Ed25519)
-        //   }
-        //   BIT STRING <32 bytes public key>
-        // }
-
-        let mut spki_der = vec![
-            0x30, 0x2a, // SEQUENCE (42 bytes)
-            0x30, 0x05, // SEQUENCE (algorithm)
-            0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112
-            0x03, 0x21, 0x00, // BIT STRING (33 bytes, 0 unused bits)
-        ];
-        spki_der.extend_from_slice(public_key);
-
-        // Convert to PEM
-        let pem = format!(
-            "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
-            PEM_BASE64.encode(&spki_der)
-        );
-
-        Ok(pem.into_bytes())
-    }
-
     /// Sign JWT claims using a client certificate
     ///
     /// The JWT will be signed with the Ed25519 private key from the certificate.
@@ -205,10 +139,12 @@ impl JwtSigner {
             .try_into()
             .map_err(|_| Error::internal("Invalid private key length".to_string()))?;
 
-        // Create encoding key for jsonwebtoken using raw Ed25519 key bytes
-        // jsonwebtoken expects the seed (32 bytes) for EdDSA
-        let encoding_key = EncodingKey::from_ed_pem(&self.ed25519_to_pem(&signing_key_array)?)
-            .map_err(|e| Error::internal(format!("Failed to create encoding key: {e}")))?;
+        // Encode private key as PKCS#8 DER using the pkcs8 crate
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_array);
+        let pkcs8_der = signing_key
+            .to_pkcs8_der()
+            .map_err(|e| Error::internal(format!("Failed to encode PKCS#8 DER: {e}")))?;
+        let encoding_key = EncodingKey::from_ed_der(pkcs8_der.as_bytes());
 
         // Create header with kid (key ID)
         let mut header = Header::new(Algorithm::EdDSA);
@@ -236,16 +172,17 @@ impl JwtSigner {
             .decode(&certificate.public_key)
             .map_err(|e| Error::internal(format!("Failed to decode public key: {e}")))?;
 
-        if public_key_bytes.len() != 32 {
-            return Err(Error::internal(
-                "Invalid public key length (expected 32 bytes)".to_string(),
-            ));
-        }
+        let public_key_array: [u8; 32] = public_key_bytes.as_slice().try_into().map_err(|_| {
+            Error::internal("Invalid public key length (expected 32 bytes)".to_string())
+        })?;
 
-        // Create decoding key from PEM
-        let public_key_pem = self.ed25519_public_to_pem(&public_key_bytes)?;
-        let decoding_key = DecodingKey::from_ed_pem(&public_key_pem)
-            .map_err(|e| Error::internal(format!("Failed to create decoding key: {e}")))?;
+        // Encode public key as SPKI DER using the pkcs8/spki crate
+        let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&public_key_array)
+            .map_err(|e| Error::internal(format!("Invalid public key: {e}")))?;
+        let spki_der = verifying_key
+            .to_public_key_der()
+            .map_err(|e| Error::internal(format!("Failed to encode SPKI DER: {e}")))?;
+        let decoding_key = DecodingKey::from_ed_der(spki_der.as_ref());
 
         // Set up validation
         let mut validation = Validation::new(Algorithm::EdDSA);
@@ -524,5 +461,107 @@ mod tests {
         let token = signer.sign_vault_token(&claims, &certificate).unwrap();
         let verified = signer.verify_vault_token(&token, &certificate).unwrap();
         assert_eq!(verified.aud, REQUIRED_AUDIENCE);
+    }
+
+    #[test]
+    fn test_pkcs8_der_roundtrip_sign_verify() {
+        // Verify that pkcs8 DER encoding produces keys compatible with sign/verify
+        // Test with multiple random keypairs to catch encoding edge cases
+        for _ in 0..10 {
+            let encryptor = create_test_encryptor();
+            let certificate = create_test_certificate(&encryptor);
+            let signer = JwtSigner::new(encryptor);
+
+            let claims = VaultTokenClaims::builder()
+                .organization_id(1)
+                .client_id(1)
+                .vault_id(1)
+                .vault_role(VaultRole::Reader)
+                .ttl_seconds(300)
+                .build();
+
+            let token = signer.sign_vault_token(&claims, &certificate).unwrap();
+            let verified = signer.verify_vault_token(&token, &certificate).unwrap();
+            assert_eq!(verified.sub, claims.sub);
+            assert_eq!(verified.vault_id, claims.vault_id);
+        }
+    }
+
+    mod proptest_jwt {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn sign_verify_roundtrip(
+                org_id in 1i64..10000,
+                client_id in 1i64..10000,
+                vault_id in 1i64..10000,
+                vault_role in prop_oneof![
+                    Just(VaultRole::Reader),
+                    Just(VaultRole::Writer),
+                    Just(VaultRole::Manager),
+                    Just(VaultRole::Admin),
+                ],
+                ttl in 60i64..86400,
+            ) {
+                let encryptor = create_test_encryptor();
+                let certificate = create_test_certificate(&encryptor);
+                let signer = JwtSigner::new(encryptor);
+
+                let claims = VaultTokenClaims::builder()
+                    .organization_id(org_id)
+                    .client_id(client_id)
+                    .vault_id(vault_id)
+                    .vault_role(vault_role)
+                    .ttl_seconds(ttl)
+                    .build();
+
+                let token = signer.sign_vault_token(&claims, &certificate).unwrap();
+                let verified = signer.verify_vault_token(&token, &certificate).unwrap();
+
+                prop_assert_eq!(verified.org_id, org_id.to_string());
+                prop_assert_eq!(verified.vault_id, vault_id.to_string());
+
+                // JWT stores vault_role as "read"/"write"/"manage"/"admin"
+                // (not "reader"/"writer"/"manager"/"admin" from Display)
+                let expected_role = match vault_role {
+                    VaultRole::Reader => "read",
+                    VaultRole::Writer => "write",
+                    VaultRole::Manager => "manage",
+                    VaultRole::Admin => "admin",
+                };
+                prop_assert_eq!(verified.vault_role, expected_role);
+            }
+
+            #[test]
+            fn different_keys_cannot_verify(
+                org_id in 1i64..10000,
+                vault_id in 1i64..10000,
+            ) {
+                let encryptor1 = create_test_encryptor();
+                let cert1 = create_test_certificate(&encryptor1);
+                let signer1 = JwtSigner::new(encryptor1);
+
+                let encryptor2 = create_test_encryptor();
+                let cert2 = create_test_certificate(&encryptor2);
+                let signer2 = JwtSigner::new(encryptor2);
+
+                let claims = VaultTokenClaims::builder()
+                    .organization_id(org_id)
+                    .client_id(1)
+                    .vault_id(vault_id)
+                    .vault_role(VaultRole::Reader)
+                    .ttl_seconds(300)
+                    .build();
+
+                let token = signer1.sign_vault_token(&claims, &cert1).unwrap();
+                // Verification with a different certificate should fail
+                prop_assert!(signer2.verify_vault_token(&token, &cert2).is_err());
+            }
+        }
     }
 }

@@ -227,7 +227,7 @@ pub async fn resend_verification(
     // Delete any existing tokens for this email
     let existing_tokens = repos.user_email_verification_token.get_by_email(email_id).await?;
     for token in existing_tokens {
-        repos.user_email_verification_token.delete(token.id).await?;
+        repos.user_email_verification_token.delete(token.secure_token.id).await?;
     }
 
     // Generate new verification token

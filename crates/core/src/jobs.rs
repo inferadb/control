@@ -402,7 +402,7 @@ impl<S: StorageBackend + Clone + Send + Sync + 'static> BackgroundJobs<S> {
                 continue;
             };
 
-            match signing_key_store.get_key(namespace_id, &cert.kid).await {
+            match signing_key_store.get_key(namespace_id.into(), &cert.kid).await {
                 Ok(Some(key)) => {
                     if key.revoked_at.is_some() {
                         tracing::error!(
@@ -595,7 +595,7 @@ mod tests {
             .client_id(100)
             .cert_id(1)
             .build();
-        signing_key_store.create_key(200, &signing_key).await.unwrap();
+        signing_key_store.create_key(200.into(), &signing_key).await.unwrap();
 
         // Reconcile — should find no divergences
         let result =
@@ -639,8 +639,8 @@ mod tests {
             .client_id(100)
             .cert_id(1)
             .build();
-        signing_key_store.create_key(200, &signing_key).await.unwrap();
-        signing_key_store.revoke_key(200, &cert.kid, Some("test")).await.unwrap();
+        signing_key_store.create_key(200.into(), &signing_key).await.unwrap();
+        signing_key_store.revoke_key(200.into(), &cert.kid, Some("test")).await.unwrap();
 
         // Reconcile — should detect the divergence (active in Control, revoked in Ledger)
         let result =
@@ -666,8 +666,8 @@ mod tests {
             .client_id(100)
             .cert_id(1)
             .build();
-        signing_key_store.create_key(200, &signing_key).await.unwrap();
-        signing_key_store.deactivate_key(200, &cert.kid).await.unwrap();
+        signing_key_store.create_key(200.into(), &signing_key).await.unwrap();
+        signing_key_store.deactivate_key(200.into(), &cert.kid).await.unwrap();
 
         // Reconcile — should detect the divergence (active in Control, inactive in Ledger)
         let result =

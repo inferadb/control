@@ -10,6 +10,7 @@ use inferadb_control_types::{
 /// - client:{id} -> Client data
 /// - client:org:{org_id}:{idx} -> client_id (for org listing)
 /// - client:name:{org_id}:{name_lowercase} -> client_id (for duplicate name checking)
+/// - client:org_active_count:{org_id} -> i64 (active client count per org)
 pub struct ClientRepository<S: StorageBackend> {
     storage: S,
 }
@@ -33,6 +34,36 @@ impl<S: StorageBackend> ClientRepository<S> {
     /// Generate key for client by name (for duplicate checking)
     fn client_name_index_key(org_id: i64, name: &str) -> Vec<u8> {
         format!("client:name:{}:{}", org_id, name.to_lowercase()).into_bytes()
+    }
+
+    /// Key for per-organization active client count
+    fn org_active_count_key(org_id: i64) -> Vec<u8> {
+        format!("client:org_active_count:{org_id}").into_bytes()
+    }
+
+    /// Read the raw active count from storage, returning None if uninitialized or corrupt
+    async fn get_raw_active_count(&self, org_id: i64) -> Result<Option<i64>> {
+        let key = Self::org_active_count_key(org_id);
+        let data = self
+            .storage
+            .get(&key)
+            .await
+            .map_err(|e| Error::internal(format!("Failed to get client active count: {e}")))?;
+        match data {
+            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_i64_id(&bytes)?)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Recount active clients by scanning all entities and update the counter
+    async fn recount_active(&self, org_id: i64) -> Result<usize> {
+        let active = self.list_active_by_organization(org_id).await?;
+        let count = active.len();
+        self.storage
+            .set(Self::org_active_count_key(org_id), (count as i64).to_le_bytes().to_vec())
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set client active count: {e}")))?;
+        Ok(count)
     }
 
     /// Create a new client
@@ -74,6 +105,11 @@ impl<S: StorageBackend> ClientRepository<S> {
 
         // Store name index
         txn.set(name_key, client.id.to_le_bytes().to_vec());
+
+        // Increment active count for the organization
+        let active_count_key = Self::org_active_count_key(client.organization_id);
+        let current_active = self.get_raw_active_count(client.organization_id).await?.unwrap_or(0);
+        txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
 
         // Commit transaction
         txn.commit()
@@ -139,6 +175,10 @@ impl<S: StorageBackend> ClientRepository<S> {
             .await?
             .ok_or_else(|| Error::not_found(format!("Client {} not found", client.id)))?;
 
+        // Detect soft-delete and undelete transitions
+        let soft_delete_transition = !existing.is_deleted() && client.is_deleted();
+        let undelete_transition = existing.is_deleted() && !client.is_deleted();
+
         // Serialize updated client
         let client_data = serde_json::to_vec(&client)
             .map_err(|e| Error::internal(format!("Failed to serialize client: {e}")))?;
@@ -176,6 +216,21 @@ impl<S: StorageBackend> ClientRepository<S> {
             txn.set(new_name_key, client.id.to_le_bytes().to_vec());
         }
 
+        // Adjust active count on soft-delete or undelete transitions
+        if soft_delete_transition {
+            let active_count_key = Self::org_active_count_key(client.organization_id);
+            let current_active =
+                self.get_raw_active_count(client.organization_id).await?.unwrap_or(0);
+            if current_active > 0 {
+                txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
+            }
+        } else if undelete_transition {
+            let active_count_key = Self::org_active_count_key(client.organization_id);
+            let current_active =
+                self.get_raw_active_count(client.organization_id).await?.unwrap_or(0);
+            txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
+        }
+
         // Update client record
         txn.set(Self::client_key(client.id), client_data);
 
@@ -211,6 +266,16 @@ impl<S: StorageBackend> ClientRepository<S> {
         // Delete name index
         txn.delete(Self::client_name_index_key(client.organization_id, &client.name));
 
+        // Decrement active count if the client was not soft-deleted
+        if !client.is_deleted() {
+            let active_count_key = Self::org_active_count_key(client.organization_id);
+            let current_active =
+                self.get_raw_active_count(client.organization_id).await?.unwrap_or(0);
+            if current_active > 0 {
+                txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
+            }
+        }
+
         // Commit transaction
         txn.commit()
             .await
@@ -219,16 +284,28 @@ impl<S: StorageBackend> ClientRepository<S> {
         Ok(())
     }
 
-    /// Count clients in an organization
+    /// Count clients in an organization by counting index keys
     pub async fn count_by_organization(&self, org_id: i64) -> Result<usize> {
-        let clients = self.list_by_organization(org_id).await?;
-        Ok(clients.len())
+        let start = format!("client:org:{org_id}:").into_bytes();
+        let end = format!("client:org:{org_id}~").into_bytes();
+        let kvs =
+            self.storage.get_range(start..end).await.map_err(|e| {
+                Error::internal(format!("Failed to count organization clients: {e}"))
+            })?;
+        Ok(kvs.len())
     }
 
-    /// Count active (non-deleted) clients in an organization
+    /// Count active (non-deleted) clients in an organization using maintained counter
+    ///
+    /// Reads from a counter key maintained during create, update (soft-delete/undelete),
+    /// and delete operations. Under concurrent writes, the counter is eventually consistent:
+    /// reads outside the transaction may observe stale values, but self-healing on the next
+    /// read corrects any drift.
     pub async fn count_active_by_organization(&self, org_id: i64) -> Result<usize> {
-        let clients = self.list_active_by_organization(org_id).await?;
-        Ok(clients.len())
+        match self.get_raw_active_count(org_id).await? {
+            Some(count) if count >= 0 => Ok(count as usize),
+            _ => self.recount_active(org_id).await,
+        }
     }
 }
 
@@ -380,5 +457,80 @@ mod tests {
 
         assert_eq!(repo.count_by_organization(100).await.unwrap(), 3);
         assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_tracks_hard_delete() {
+        let repo = create_test_repo();
+        let client1 = create_test_client(1, 100, "Client 1").unwrap();
+        let client2 = create_test_client(2, 100, "Client 2").unwrap();
+
+        repo.create(client1).await.unwrap();
+        repo.create(client2).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+
+        repo.delete(1).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_hard_delete_after_soft_delete() {
+        let repo = create_test_repo();
+        let mut client = create_test_client(1, 100, "Client 1").unwrap();
+        repo.create(client.clone()).await.unwrap();
+
+        // Soft delete, then hard delete — should not double-decrement
+        client.mark_deleted();
+        repo.update(client).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+
+        repo.delete(1).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_self_heals_on_missing_counter() {
+        let repo = create_test_repo();
+        let client1 = create_test_client(1, 100, "Client 1").unwrap();
+        repo.create(client1).await.unwrap();
+
+        // Delete the counter key to simulate migration
+        repo.storage.delete(&ClientRepository::<Backend>::org_active_count_key(100)).await.unwrap();
+
+        // Should self-heal by recounting
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_tracks_undelete() {
+        let repo = create_test_repo();
+        let mut client = create_test_client(1, 100, "Client 1").unwrap();
+        repo.create(client.clone()).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+
+        // Soft delete
+        client.mark_deleted();
+        repo.update(client.clone()).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+
+        // Undelete by clearing deleted_at
+        client.deleted_at = None;
+        repo.update(client).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_count_independent_per_org() {
+        let repo = create_test_repo();
+        let client1 = create_test_client(1, 100, "Client 1").unwrap();
+        let client2 = create_test_client(2, 200, "Client 2").unwrap();
+
+        repo.create(client1).await.unwrap();
+        repo.create(client2).await.unwrap();
+
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(repo.count_active_by_organization(200).await.unwrap(), 1);
+        assert_eq!(repo.count_active_by_organization(300).await.unwrap(), 0);
     }
 }

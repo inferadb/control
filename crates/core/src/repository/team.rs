@@ -13,6 +13,7 @@ use inferadb_control_types::{
 /// - team:{id} -> OrganizationTeam data
 /// - team:org:{org_id}:{idx} -> team_id (for org listing)
 /// - team:name:{org_id}:{name_lowercase} -> team_id (for duplicate name checking)
+/// - team:org_active_count:{org_id} -> i64 (active team count per org)
 pub struct OrganizationTeamRepository<S: StorageBackend> {
     storage: S,
 }
@@ -36,6 +37,36 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
     /// Generate key for team by name (for duplicate checking)
     fn team_name_index_key(org_id: i64, name: &str) -> Vec<u8> {
         format!("team:name:{}:{}", org_id, name.to_lowercase()).into_bytes()
+    }
+
+    /// Key for per-organization active team count
+    fn org_active_count_key(org_id: i64) -> Vec<u8> {
+        format!("team:org_active_count:{org_id}").into_bytes()
+    }
+
+    /// Read the raw active count from storage, returning None if uninitialized or corrupt
+    async fn get_raw_active_count(&self, org_id: i64) -> Result<Option<i64>> {
+        let key = Self::org_active_count_key(org_id);
+        let data = self
+            .storage
+            .get(&key)
+            .await
+            .map_err(|e| Error::internal(format!("Failed to get team active count: {e}")))?;
+        match data {
+            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_i64_id(&bytes)?)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Recount active teams by scanning all entities and update the counter
+    async fn recount_active(&self, org_id: i64) -> Result<usize> {
+        let active = self.list_active_by_organization(org_id).await?;
+        let count = active.len();
+        self.storage
+            .set(Self::org_active_count_key(org_id), (count as i64).to_le_bytes().to_vec())
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set team active count: {e}")))?;
+        Ok(count)
     }
 
     /// Create a new team
@@ -77,6 +108,11 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
 
         // Store name index
         txn.set(name_key, team.id.to_le_bytes().to_vec());
+
+        // Increment active count for the organization
+        let active_count_key = Self::org_active_count_key(team.organization_id);
+        let current_active = self.get_raw_active_count(team.organization_id).await?.unwrap_or(0);
+        txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
 
         // Commit transaction
         txn.commit()
@@ -142,6 +178,10 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
             .await?
             .ok_or_else(|| Error::not_found(format!("Team {} not found", team.id)))?;
 
+        // Detect soft-delete and undelete transitions
+        let soft_delete_transition = !existing.is_deleted() && team.is_deleted();
+        let undelete_transition = existing.is_deleted() && !team.is_deleted();
+
         // Serialize updated team
         let team_data = serde_json::to_vec(&team)
             .map_err(|e| Error::internal(format!("Failed to serialize team: {e}")))?;
@@ -177,6 +217,21 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
             txn.set(new_name_key, team.id.to_le_bytes().to_vec());
         }
 
+        // Adjust active count on soft-delete or undelete transitions
+        if soft_delete_transition {
+            let active_count_key = Self::org_active_count_key(team.organization_id);
+            let current_active =
+                self.get_raw_active_count(team.organization_id).await?.unwrap_or(0);
+            if current_active > 0 {
+                txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
+            }
+        } else if undelete_transition {
+            let active_count_key = Self::org_active_count_key(team.organization_id);
+            let current_active =
+                self.get_raw_active_count(team.organization_id).await?.unwrap_or(0);
+            txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
+        }
+
         // Update team record
         txn.set(Self::team_key(team.id), team_data);
 
@@ -210,6 +265,16 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
         // Delete name index
         txn.delete(Self::team_name_index_key(team.organization_id, &team.name));
 
+        // Decrement active count if the team was not soft-deleted
+        if !team.is_deleted() {
+            let active_count_key = Self::org_active_count_key(team.organization_id);
+            let current_active =
+                self.get_raw_active_count(team.organization_id).await?.unwrap_or(0);
+            if current_active > 0 {
+                txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
+            }
+        }
+
         // Commit transaction
         txn.commit()
             .await
@@ -218,16 +283,29 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
         Ok(())
     }
 
-    /// Count teams in an organization
+    /// Count teams in an organization by counting index keys
     pub async fn count_by_organization(&self, org_id: i64) -> Result<usize> {
-        let teams = self.list_by_organization(org_id).await?;
-        Ok(teams.len())
+        let start = format!("team:org:{org_id}:").into_bytes();
+        let end = format!("team:org:{org_id}~").into_bytes();
+        let kvs = self
+            .storage
+            .get_range(start..end)
+            .await
+            .map_err(|e| Error::internal(format!("Failed to count organization teams: {e}")))?;
+        Ok(kvs.len())
     }
 
-    /// Count active (non-deleted) teams in an organization
+    /// Count active (non-deleted) teams in an organization using maintained counter
+    ///
+    /// Reads from a counter key maintained during create, update (soft-delete/undelete),
+    /// and delete operations. Under concurrent writes, the counter is eventually consistent:
+    /// reads outside the transaction may observe stale values, but self-healing on the next
+    /// read corrects any drift.
     pub async fn count_active_by_organization(&self, org_id: i64) -> Result<usize> {
-        let teams = self.list_active_by_organization(org_id).await?;
-        Ok(teams.len())
+        match self.get_raw_active_count(org_id).await? {
+            Some(count) if count >= 0 => Ok(count as usize),
+            _ => self.recount_active(org_id).await,
+        }
     }
 }
 
@@ -784,6 +862,127 @@ mod tests {
 
         let retrieved = repo.get(1).await.unwrap();
         assert!(retrieved.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_active_count_tracks_create() {
+        let storage = MemoryBackend::new();
+        let repo = OrganizationTeamRepository::new(storage);
+
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+
+        let team1 = OrganizationTeam::builder()
+            .id(1)
+            .organization_id(100)
+            .name("Team 1".to_string())
+            .create()
+            .unwrap();
+        repo.create(team1).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+
+        let team2 = OrganizationTeam::builder()
+            .id(2)
+            .organization_id(100)
+            .name("Team 2".to_string())
+            .create()
+            .unwrap();
+        repo.create(team2).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_tracks_soft_delete() {
+        let storage = MemoryBackend::new();
+        let repo = OrganizationTeamRepository::new(storage);
+
+        let team1 = OrganizationTeam::builder()
+            .id(1)
+            .organization_id(100)
+            .name("Team 1".to_string())
+            .create()
+            .unwrap();
+        let mut team2 = OrganizationTeam::builder()
+            .id(2)
+            .organization_id(100)
+            .name("Team 2".to_string())
+            .create()
+            .unwrap();
+
+        repo.create(team1).await.unwrap();
+        repo.create(team2.clone()).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 2);
+
+        team2.mark_deleted();
+        repo.update(team2).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_tracks_hard_delete() {
+        let storage = MemoryBackend::new();
+        let repo = OrganizationTeamRepository::new(storage);
+
+        let team = OrganizationTeam::builder()
+            .id(1)
+            .organization_id(100)
+            .name("Team 1".to_string())
+            .create()
+            .unwrap();
+        repo.create(team).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+
+        repo.delete(1).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+        assert_eq!(repo.count_by_organization(100).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_self_heals_on_missing_counter() {
+        let storage = MemoryBackend::new();
+        let repo = OrganizationTeamRepository::new(storage);
+
+        let team = OrganizationTeam::builder()
+            .id(1)
+            .organization_id(100)
+            .name("Team 1".to_string())
+            .create()
+            .unwrap();
+        repo.create(team).await.unwrap();
+
+        // Delete the counter key to simulate migration
+        repo.storage
+            .delete(&OrganizationTeamRepository::<MemoryBackend>::org_active_count_key(100))
+            .await
+            .unwrap();
+
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_active_count_tracks_undelete() {
+        let storage = MemoryBackend::new();
+        let repo = OrganizationTeamRepository::new(storage);
+
+        let mut team = OrganizationTeam::builder()
+            .id(1)
+            .organization_id(100)
+            .name("Team 1".to_string())
+            .create()
+            .unwrap();
+        repo.create(team.clone()).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+
+        // Soft delete
+        team.mark_deleted();
+        repo.update(team.clone()).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+
+        // Undelete by clearing deleted_at
+        team.deleted_at = None;
+        repo.update(team).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
     }
 
     #[tokio::test]
