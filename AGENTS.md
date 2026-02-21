@@ -40,6 +40,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 - No backwards compatibility shims or feature flags
 - Write tests before implementation, target 90%+ coverage
 - Never make git commits
+- Never reference implementation steps, tasks, phases, etc. in code comments
 
 **Errors**: Use `inferadb_control_types::{Error, Result}` with factory methods:
 

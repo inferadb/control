@@ -398,82 +398,84 @@ pub async fn verify_email(
 ///
 /// POST /v1/auth/password-reset/request
 ///
-/// Generates a password reset token and sends it via email
+/// Returns a consistent 200 OK for all inputs to prevent email enumeration.
+/// The reset email is only sent when the account exists, is verified, and is
+/// not deleted.
 pub async fn request_password_reset(
     State(state): State<AppState>,
     Json(payload): Json<PasswordResetRequestRequest>,
 ) -> Result<Json<PasswordResetRequestResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
 
-    // Find the email
-    let email = repos.user_email.get_by_email(&payload.email).await?.ok_or_else(|| {
-        // Don't reveal whether email exists for security
-        CoreError::validation("If the email exists, a reset link will be sent".to_string())
-    })?;
+    // Determine whether to send the reset email. Every branch that bails out
+    // falls through to the same success response — no early returns.
+    let eligible = 'check: {
+        let Some(email) = repos.user_email.get_by_email(&payload.email).await? else {
+            break 'check None;
+        };
 
-    // Verify the email is verified and primary
-    if !email.is_verified() {
-        return Err(
-            CoreError::validation("Email must be verified to reset password".to_string()).into()
-        );
-    }
+        if !email.is_verified() {
+            break 'check None;
+        }
 
-    // Get the user to ensure they exist and aren't deleted
-    let user = repos
-        .user
-        .get(email.user_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("User not found".to_string()))?;
+        let Some(user) = repos.user.get(email.user_id).await? else {
+            break 'check None;
+        };
 
-    if user.is_deleted() {
-        return Err(CoreError::validation("User account is deleted".to_string()).into());
-    }
+        if user.is_deleted() {
+            break 'check None;
+        }
 
-    // Generate password reset token
-    let token_id = IdGenerator::next_id();
-    let token_string = UserPasswordResetToken::generate_token();
-    let reset_token = UserPasswordResetToken::builder()
-        .id(token_id)
-        .user_id(user.id)
-        .token(token_string.clone())
-        .create()?;
+        Some((email, user))
+    };
 
-    // Store the token
-    repos.user_password_reset_token.create(reset_token).await?;
+    // Only generate the token and send the email when the account is eligible.
+    if let Some((email, user)) = eligible {
+        let token_id = IdGenerator::next_id();
+        let token_string = UserPasswordResetToken::generate_token();
+        let reset_token = UserPasswordResetToken::builder()
+            .id(token_id)
+            .user_id(user.id)
+            .token(token_string.clone())
+            .create()?;
 
-    // Send password reset email (fire-and-forget - don't block request)
-    if let Some(email_service) = &state.email_service {
-        let email_addr = email.email.clone();
-        let user_name = user.name.clone();
-        let token_for_email = token_string.clone();
-        let email_service = Arc::clone(email_service);
-        let frontend_url = state.config.frontend.url.clone();
+        repos.user_password_reset_token.create(reset_token).await?;
 
-        // Spawn async task to send email
-        tokio::spawn(async move {
-            use inferadb_control_core::{EmailTemplate, PasswordResetEmailTemplate};
+        if let Some(email_service) = &state.email_service {
+            let email_addr = email.email.clone();
+            let user_name = user.name.clone();
+            let token_for_email = token_string.clone();
+            let email_service = Arc::clone(email_service);
+            let frontend_url = state.config.frontend.url.clone();
 
-            let reset_link = format!("{frontend_url}/reset-password?token={token_for_email}");
+            tokio::spawn(async move {
+                use inferadb_control_core::{EmailTemplate, PasswordResetEmailTemplate};
 
-            let template =
-                PasswordResetEmailTemplate { user_name, reset_link, reset_code: token_for_email };
+                let reset_link = format!("{frontend_url}/reset-password?token={token_for_email}");
 
-            if let Err(e) = email_service
-                .send_email(
-                    &email_addr,
-                    &template.subject(),
-                    &template.html_body(),
-                    &template.text_body(),
-                )
-                .await
-            {
-                tracing::error!(
-                    error = %e,
-                    email = %email_addr,
-                    "Failed to send password reset email"
-                );
-            }
-        });
+                let template = PasswordResetEmailTemplate {
+                    user_name,
+                    reset_link,
+                    reset_code: token_for_email,
+                };
+
+                if let Err(e) = email_service
+                    .send_email(
+                        &email_addr,
+                        &template.subject(),
+                        &template.html_body(),
+                        &template.text_body(),
+                    )
+                    .await
+                {
+                    tracing::error!(
+                        error = %e,
+                        email = %email_addr,
+                        "Failed to send password reset email"
+                    );
+                }
+            });
+        }
     }
 
     Ok(Json(PasswordResetRequestResponse {
