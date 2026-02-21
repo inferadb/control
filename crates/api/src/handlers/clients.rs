@@ -361,14 +361,27 @@ pub async fn create_certificate(
 
     // Time the Ledger write operation for metrics
     let ledger_start = std::time::Instant::now();
-    signing_key_store.create_key(namespace_id, &public_signing_key).await.map_err(|e| {
+    if let Err(e) = signing_key_store.create_key(namespace_id, &public_signing_key).await {
         tracing::error!(
             error = %e,
             kid = %cert.kid,
-            "Failed to write public signing key to Ledger"
+            "Failed to write public signing key to Ledger, rolling back Control write"
         );
-        CoreError::internal(format!("Failed to register signing key in Ledger: {e}"))
-    })?;
+
+        // Compensating transaction: delete the certificate from Control
+        if let Err(rollback_err) = repos.client_certificate.delete(cert.id).await {
+            tracing::error!(
+                error = %rollback_err,
+                cert_id = cert.id,
+                kid = %cert.kid,
+                "Failed to roll back certificate creation in Control — manual intervention required"
+            );
+        }
+
+        return Err(
+            CoreError::internal(format!("Failed to register signing key in Ledger: {e}")).into()
+        );
+    }
     let ledger_duration = ledger_start.elapsed().as_secs_f64();
 
     // Record metrics for signing key registration
@@ -554,17 +567,31 @@ pub async fn revoke_certificate(
 
     // Time the Ledger revoke operation for metrics
     let ledger_start = std::time::Instant::now();
-    signing_key_store
+    if let Err(e) = signing_key_store
         .revoke_key(namespace_id, &cert.kid, Some("Certificate revoked by user"))
         .await
-        .map_err(|e| {
+    {
+        tracing::error!(
+            error = %e,
+            kid = %cert.kid,
+            "Failed to revoke public signing key in Ledger, rolling back Control revocation"
+        );
+
+        // Compensating transaction: restore the certificate to active state in Control
+        cert.revoked_at = None;
+        cert.revoked_by_user_id = None;
+        if let Err(rollback_err) = repos.client_certificate.update(cert).await {
             tracing::error!(
-                error = %e,
-                kid = %cert.kid,
-                "Failed to revoke public signing key in Ledger"
+                error = %rollback_err,
+                cert_id = cert_id,
+                "Failed to roll back certificate revocation in Control — certificate appears revoked in Control but active in Ledger, manual intervention required"
             );
-            CoreError::internal(format!("Failed to revoke signing key in Ledger: {e}"))
-        })?;
+        }
+
+        return Err(
+            CoreError::internal(format!("Failed to revoke signing key in Ledger: {e}")).into()
+        );
+    }
     let ledger_duration = ledger_start.elapsed().as_secs_f64();
 
     // Record metrics for signing key revocation
@@ -754,14 +781,27 @@ pub async fn rotate_certificate(
 
     // Time the Ledger write operation for metrics
     let ledger_start = std::time::Instant::now();
-    signing_key_store.create_key(namespace_id, &public_signing_key).await.map_err(|e| {
+    if let Err(e) = signing_key_store.create_key(namespace_id, &public_signing_key).await {
         tracing::error!(
             error = %e,
             kid = %new_cert.kid,
-            "Failed to write rotated public signing key to Ledger"
+            "Failed to write rotated public signing key to Ledger, rolling back Control write"
         );
-        CoreError::internal(format!("Failed to register signing key in Ledger: {e}"))
-    })?;
+
+        // Compensating transaction: delete the new certificate from Control
+        if let Err(rollback_err) = repos.client_certificate.delete(new_cert.id).await {
+            tracing::error!(
+                error = %rollback_err,
+                cert_id = new_cert.id,
+                kid = %new_cert.kid,
+                "Failed to roll back rotated certificate creation in Control — manual intervention required"
+            );
+        }
+
+        return Err(
+            CoreError::internal(format!("Failed to register signing key in Ledger: {e}")).into()
+        );
+    }
     let ledger_duration = ledger_start.elapsed().as_secs_f64();
 
     // Record metrics for signing key rotation

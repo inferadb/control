@@ -14,6 +14,9 @@ pub use coordination::{Coordinator, LeaderStatus, WorkerInfo};
 pub use factory::{
     Backend, LedgerConfig, StorageBackendType, StorageConfig, create_storage_backend,
 };
+pub use inferadb_common_storage::auth::{
+    MemorySigningKeyStore, PublicSigningKey, PublicSigningKeyStore,
+};
 pub use memory::MemoryBackend;
 pub use metrics::{Metrics, MetricsCollector, MetricsSnapshot};
 pub use optimization::{
