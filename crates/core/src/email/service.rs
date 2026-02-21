@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use inferadb_control_types::error::{Error, Result};
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Mailbox, header::ContentType},
+    message::{Mailbox, MultiPart},
     transport::smtp::authentication::Credentials,
 };
 
@@ -107,8 +107,10 @@ impl EmailSender for SmtpEmailService {
             .from(from)
             .to(to_mailbox)
             .subject(subject)
-            .header(ContentType::TEXT_HTML)
-            .body(format!("{body_html}\n\n---\n\n{body_text}"))
+            .multipart(MultiPart::alternative_plain_html(
+                body_text.to_owned(),
+                body_html.to_owned(),
+            ))
             .map_err(|e| Error::internal(format!("Failed to build email message: {e}")))?;
 
         self.transport
@@ -272,5 +274,101 @@ mod tests {
         assert_eq!(config.host, "mailpit");
         assert_eq!(config.port, 1025);
         assert!(config.insecure);
+    }
+
+    #[test]
+    fn test_email_uses_multipart_alternative() {
+        let email = Message::builder()
+            .from("sender@example.com".parse::<Mailbox>().unwrap())
+            .to("recipient@example.com".parse::<Mailbox>().unwrap())
+            .subject("Test Subject")
+            .multipart(MultiPart::alternative_plain_html(
+                String::from("Plain text body"),
+                String::from("<p>HTML body</p>"),
+            ))
+            .unwrap();
+
+        let formatted = String::from_utf8(email.formatted()).unwrap();
+        assert!(
+            formatted.contains("multipart/alternative"),
+            "Email should have multipart/alternative Content-Type"
+        );
+    }
+
+    #[test]
+    fn test_email_html_part_has_correct_content_type() {
+        let email = Message::builder()
+            .from("sender@example.com".parse::<Mailbox>().unwrap())
+            .to("recipient@example.com".parse::<Mailbox>().unwrap())
+            .subject("Test Subject")
+            .multipart(MultiPart::alternative_plain_html(
+                String::from("Plain text body"),
+                String::from("<p>HTML body</p>"),
+            ))
+            .unwrap();
+
+        let formatted = String::from_utf8(email.formatted()).unwrap();
+        assert!(
+            formatted.contains("Content-Type: text/html"),
+            "Email should contain text/html Content-Type for HTML part"
+        );
+    }
+
+    #[test]
+    fn test_email_text_part_has_correct_content_type() {
+        let email = Message::builder()
+            .from("sender@example.com".parse::<Mailbox>().unwrap())
+            .to("recipient@example.com".parse::<Mailbox>().unwrap())
+            .subject("Test Subject")
+            .multipart(MultiPart::alternative_plain_html(
+                String::from("Plain text body"),
+                String::from("<p>HTML body</p>"),
+            ))
+            .unwrap();
+
+        let formatted = String::from_utf8(email.formatted()).unwrap();
+        assert!(
+            formatted.contains("Content-Type: text/plain"),
+            "Email should contain text/plain Content-Type for text part"
+        );
+    }
+
+    #[test]
+    fn test_email_no_separator_concatenation() {
+        let email = Message::builder()
+            .from("sender@example.com".parse::<Mailbox>().unwrap())
+            .to("recipient@example.com".parse::<Mailbox>().unwrap())
+            .subject("Test Subject")
+            .multipart(MultiPart::alternative_plain_html(
+                String::from("Plain text body"),
+                String::from("<p>HTML body</p>"),
+            ))
+            .unwrap();
+
+        let formatted = String::from_utf8(email.formatted()).unwrap();
+
+        // The old implementation concatenated with "\n\n---\n\n" — this should not appear
+        assert!(!formatted.contains("\n---\n"), "Email should not contain the old --- separator");
+    }
+
+    #[test]
+    fn test_email_plain_text_before_html() {
+        let email = Message::builder()
+            .from("sender@example.com".parse::<Mailbox>().unwrap())
+            .to("recipient@example.com".parse::<Mailbox>().unwrap())
+            .subject("Test Subject")
+            .multipart(MultiPart::alternative_plain_html(
+                String::from("Plain text body"),
+                String::from("<p>HTML body</p>"),
+            ))
+            .unwrap();
+
+        let formatted = String::from_utf8(email.formatted()).unwrap();
+
+        // Per RFC 2046 Section 5.1.4, the preferred format (HTML) should be
+        // the last part in a multipart/alternative message
+        let text_pos = formatted.find("Content-Type: text/plain").unwrap();
+        let html_pos = formatted.find("Content-Type: text/html").unwrap();
+        assert!(text_pos < html_pos, "Plain text part should appear before HTML part (RFC 2046)");
     }
 }
