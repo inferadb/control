@@ -248,9 +248,7 @@ impl JwtSigner {
 
         // Set up validation
         let mut validation = Validation::new(Algorithm::EdDSA);
-        // Note: audience validation should match what was set in the token
-        // For now, we skip audience validation here since the caller knows the expected audience
-        validation.validate_aud = false;
+        validation.set_audience(&[REQUIRED_AUDIENCE]);
 
         // Decode and verify
         let token_data = decode::<VaultTokenClaims>(token, &decoding_key, &validation)
@@ -479,5 +477,51 @@ mod tests {
         // Expires at should be approximately 1 hour from now
         let expected_exp = now + Duration::seconds(3600);
         assert!((expires_at - expected_exp).num_seconds().abs() < 2);
+    }
+
+    #[test]
+    fn test_verify_vault_token_rejects_wrong_audience() {
+        let encryptor = create_test_encryptor();
+        let certificate = create_test_certificate(&encryptor);
+        let signer = JwtSigner::new(encryptor);
+
+        // Manually construct claims with wrong audience
+        let now = Utc::now();
+        let exp = now + Duration::seconds(3600);
+        let wrong_aud_claims = VaultTokenClaims {
+            iss: REQUIRED_ISSUER.to_string(),
+            sub: "client:100".to_string(),
+            aud: "https://wrong.example.com".to_string(),
+            exp: exp.timestamp(),
+            iat: now.timestamp(),
+            org_id: "123".to_string(),
+            vault_id: "456".to_string(),
+            vault_role: "read".to_string(),
+            scope: "inferadb.check inferadb.read".to_string(),
+        };
+
+        let token = signer.sign_vault_token(&wrong_aud_claims, &certificate).unwrap();
+
+        let result = signer.verify_vault_token(&token, &certificate);
+        assert!(result.is_err(), "Token with wrong audience should be rejected");
+    }
+
+    #[test]
+    fn test_verify_vault_token_accepts_correct_audience() {
+        let encryptor = create_test_encryptor();
+        let certificate = create_test_certificate(&encryptor);
+        let signer = JwtSigner::new(encryptor);
+
+        let claims = VaultTokenClaims::builder()
+            .organization_id(123)
+            .client_id(789)
+            .vault_id(456)
+            .vault_role(VaultRole::Writer)
+            .ttl_seconds(3600)
+            .build();
+
+        let token = signer.sign_vault_token(&claims, &certificate).unwrap();
+        let verified = signer.verify_vault_token(&token, &certificate).unwrap();
+        assert_eq!(verified.aud, REQUIRED_AUDIENCE);
     }
 }
