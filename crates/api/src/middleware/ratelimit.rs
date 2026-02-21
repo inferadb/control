@@ -1,14 +1,12 @@
-use std::net::SocketAddr;
-
 use axum::{
-    extract::{ConnectInfo, Request, State},
+    extract::{Request, State},
     http::{HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use inferadb_control_core::{RateLimit, RateLimiter, categories, limits};
 
-use crate::handlers::AppState;
+use crate::{extract::extract_client_ip, handlers::AppState};
 
 /// Convert a display-able value to a HeaderValue.
 ///
@@ -17,15 +15,6 @@ use crate::handlers::AppState;
 /// which is always valid for HTTP headers. This avoids `.unwrap()` on infallible conversions.
 fn header_value(value: impl std::fmt::Display) -> HeaderValue {
     HeaderValue::try_from(value.to_string()).unwrap_or_else(|_| HeaderValue::from_static("0"))
-}
-
-/// Extract client IP address from request
-///
-/// Extracts the IP from ConnectInfo (peer address).
-/// In production, this would ideally check X-Forwarded-For or similar headers
-/// when behind a reverse proxy.
-fn extract_client_ip(req: &Request) -> Option<String> {
-    req.extensions().get::<ConnectInfo<SocketAddr>>().map(|ConnectInfo(addr)| addr.ip().to_string())
 }
 
 /// Rate limiting middleware for login attempts
@@ -150,19 +139,5 @@ pub async fn rate_limit_middleware(
             }
         },
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Rate limit check failed").into_response(),
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_extract_client_ip() {
-        let req = Request::builder().uri("/test").body(axum::body::Body::empty()).unwrap();
-
-        // Without ConnectInfo, should return None
-        assert!(extract_client_ip(&req).is_none());
     }
 }

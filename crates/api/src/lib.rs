@@ -61,6 +61,7 @@ use inferadb_control_types::ControlIdentity;
 use tracing::info;
 
 pub mod audit;
+pub mod extract;
 pub mod handlers;
 pub mod middleware;
 pub mod pagination;

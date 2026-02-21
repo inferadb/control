@@ -49,20 +49,6 @@ pub async fn log_audit_event(
     }
 }
 
-/// Extract IP address from request headers
-pub fn extract_ip_address(headers: &axum::http::HeaderMap) -> Option<String> {
-    // Check X-Forwarded-For first (common in proxied environments)
-    headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_string())
-        .or_else(|| {
-            // Fallback to X-Real-IP
-            headers.get("x-real-ip").and_then(|v| v.to_str().ok()).map(|s| s.to_string())
-        })
-}
-
 /// Extract user agent from request headers
 pub fn extract_user_agent(headers: &axum::http::HeaderMap) -> Option<String> {
     headers.get("user-agent").and_then(|v| v.to_str().ok()).map(|s| s.to_string())
