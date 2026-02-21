@@ -1,6 +1,8 @@
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
+use crate::entities::VaultRole;
+
 // ============================================================================
 // Request/Response Types - Token Generation
 // ============================================================================
@@ -14,8 +16,8 @@ pub struct GenerateVaultTokenRequest {
     pub access_token_ttl: Option<i64>,
     /// TTL for refresh token in seconds (default: 3600 = 1 hour for sessions)
     pub refresh_token_ttl: Option<i64>,
-    /// Requested role (optional: "read", "write", "admin", defaults to "read")
-    pub requested_role: Option<String>,
+    /// Requested role (optional, defaults to "reader")
+    pub requested_role: Option<VaultRole>,
 }
 
 #[derive(Debug, Serialize, Builder)]
@@ -32,7 +34,7 @@ pub struct GenerateVaultTokenResponse {
     /// Vault ID this token is scoped to
     pub vault_id: String,
     /// Vault role granted by this token
-    pub vault_role: String,
+    pub vault_role: VaultRole,
     /// Long-lived refresh token (hex-encoded)
     pub refresh_token: String,
 }
@@ -80,8 +82,8 @@ pub struct ClientAssertionRequest {
     pub client_assertion: String,
     /// Vault ID to access (required)
     pub vault_id: String,
-    /// Requested role: "read", "write", or "admin" (optional, defaults to "read")
-    pub requested_role: Option<String>,
+    /// Requested role (optional, defaults to "reader")
+    pub requested_role: Option<VaultRole>,
 }
 
 #[derive(Debug, Serialize, Builder)]
@@ -95,8 +97,8 @@ pub struct ClientAssertionResponse {
     pub expires_in: i64,
     /// Space-separated scope permissions (e.g., "vault:read vault:write")
     pub scope: String,
-    /// Vault role granted ("read", "write", or "admin")
-    pub vault_role: String,
+    /// Vault role granted
+    pub vault_role: VaultRole,
     /// Refresh token for obtaining new access tokens
     pub refresh_token: String,
 }

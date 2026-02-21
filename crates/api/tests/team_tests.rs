@@ -459,7 +459,7 @@ async fn test_grant_team_vault_access() {
                 .body(Body::from(
                     json!({
                         "team_id": team_id,
-                        "role": "WRITER"
+                        "role": "writer"
                     })
                     .to_string(),
                 ))
@@ -473,5 +473,5 @@ async fn test_grant_team_vault_access() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(json["grant"]["role"], "WRITER");
+    assert_eq!(json["grant"]["role"], "writer");
 }

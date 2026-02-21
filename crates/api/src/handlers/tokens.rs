@@ -57,41 +57,16 @@ pub async fn generate_vault_token(
         .await?
         .ok_or_else(|| CoreError::authz("You do not have access to this vault".to_string()))?;
 
-    // Determine the role to grant in the token
-    let vault_role = if let Some(requested_role_str) = &req.requested_role {
-        // Parse requested role
-        let requested_role = match requested_role_str.as_str() {
-            "read" => VaultRole::Reader,
-            "write" => VaultRole::Writer,
-            "admin" => VaultRole::Admin,
-            _ => {
-                return Err(CoreError::validation(
-                    "Invalid role. Must be one of: read, write, admin".to_string(),
-                )
-                .into());
-            },
-        };
+    // Determine the role to grant in the token (default to Reader for least privilege)
+    let vault_role = req.requested_role.unwrap_or(VaultRole::Reader);
 
-        // Verify requested role doesn't exceed user's actual permission level
-        if requested_role > max_vault_role {
-            return Err(CoreError::validation(format!(
-                "Requested role '{}' exceeds your permission level '{}'",
-                requested_role_str,
-                match max_vault_role {
-                    VaultRole::Reader => "read",
-                    VaultRole::Writer => "write",
-                    VaultRole::Admin => "admin",
-                    VaultRole::Manager => "manage",
-                }
-            ))
-            .into());
-        }
-
-        requested_role
-    } else {
-        // Default to Reader (principle of least privilege)
-        VaultRole::Reader
-    };
+    // Verify requested role doesn't exceed user's actual permission level
+    if vault_role > max_vault_role {
+        return Err(CoreError::validation(format!(
+            "Requested role '{vault_role}' exceeds your permission level '{max_vault_role}'"
+        ))
+        .into());
+    }
 
     // Get the client to use for signing
 
@@ -173,13 +148,7 @@ pub async fn generate_vault_token(
             expires_in: access_ttl,
             refresh_expires_in: refresh_ttl,
             vault_id: vault_id.to_string(),
-            vault_role: match vault_role {
-                VaultRole::Reader => "read",
-                VaultRole::Writer => "write",
-                VaultRole::Admin => "admin",
-                VaultRole::Manager => "manage",
-            }
-            .to_string(),
+            vault_role,
             refresh_token: refresh_token.token.clone(),
         }),
     ))
@@ -387,21 +356,7 @@ pub async fn client_assertion_authenticate(
         .map_err(|_| CoreError::validation("invalid vault_id".to_string()))?;
 
     // Parse requested role (default to Reader for least privilege)
-    let requested_role = if let Some(role_str) = &req.requested_role {
-        match role_str.as_str() {
-            "read" => VaultRole::Reader,
-            "write" => VaultRole::Writer,
-            "admin" => VaultRole::Admin,
-            _ => {
-                return Err(CoreError::validation(
-                    "invalid role (must be read, write, or admin)".to_string(),
-                )
-                .into());
-            },
-        }
-    } else {
-        VaultRole::Reader // Default to read per spec
-    };
+    let requested_role = req.requested_role.unwrap_or(VaultRole::Reader);
 
     // Decode JWT header to extract kid (key ID)
     use jsonwebtoken::decode_header;
@@ -577,19 +532,12 @@ pub async fn client_assertion_authenticate(
     }
     .to_string();
 
-    let vault_role_str = match requested_role {
-        VaultRole::Reader => "read",
-        VaultRole::Writer => "write",
-        VaultRole::Manager => "manage",
-        VaultRole::Admin => "admin",
-    };
-
     Ok(Json(ClientAssertionResponse {
         access_token,
         token_type: "Bearer".to_string(),
         expires_in: access_ttl,
         scope,
-        vault_role: vault_role_str.to_string(),
+        vault_role: requested_role,
         refresh_token: refresh_token.token,
     }))
 }

@@ -174,7 +174,7 @@ async fn test_concurrent_vault_access_from_multiple_teams() {
                 .body(Body::from(
                     json!({
                         "team_id": team1_id,
-                        "role": "READER"
+                        "role": "reader"
                     })
                     .to_string(),
                 ))
@@ -196,7 +196,7 @@ async fn test_concurrent_vault_access_from_multiple_teams() {
                 .body(Body::from(
                     json!({
                         "team_id": team2_id,
-                        "role": "WRITER"
+                        "role": "writer"
                     })
                     .to_string(),
                 ))
@@ -229,10 +229,10 @@ async fn test_concurrent_vault_access_from_multiple_teams() {
 
     assert_eq!(grants.len(), 2);
 
-    // Verify one grant is for READER role and one is for WRITER role
+    // Verify one grant is for reader role and one is for writer role
     let roles: Vec<&str> = grants.iter().map(|g| g["role"].as_str().unwrap()).collect();
-    assert!(roles.contains(&"READER"));
-    assert!(roles.contains(&"WRITER"));
+    assert!(roles.contains(&"reader"));
+    assert!(roles.contains(&"writer"));
 }
 
 #[tokio::test]

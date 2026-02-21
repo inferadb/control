@@ -416,7 +416,7 @@ async fn test_grant_user_vault_access() {
                 .body(Body::from(
                     json!({
                         "user_id": member_user_id,
-                        "role": "READER"
+                        "role": "reader"
                     })
                     .to_string(),
                 ))
@@ -430,7 +430,7 @@ async fn test_grant_user_vault_access() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(json["grant"]["role"], "READER");
+    assert_eq!(json["grant"]["role"], "reader");
 }
 
 #[tokio::test]
@@ -535,7 +535,7 @@ async fn test_revoke_user_vault_access() {
                 .body(Body::from(
                     json!({
                         "user_id": member_user_id,
-                        "role": "READER"
+                        "role": "reader"
                     })
                     .to_string(),
                 ))
@@ -651,7 +651,7 @@ async fn test_delete_team_grant() {
                 .body(Body::from(
                     json!({
                         "team_id": team_id,
-                        "role": "WRITER"
+                        "role": "writer"
                     })
                     .to_string(),
                 ))
@@ -835,7 +835,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
                 .body(Body::from(
                     json!({
                         "user_id": member_user_id,
-                        "role": "READER"
+                        "role": "reader"
                     })
                     .to_string(),
                 ))
@@ -858,7 +858,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
                 .body(Body::from(
                     json!({
                         "team_id": team_id,
-                        "role": "WRITER"
+                        "role": "writer"
                     })
                     .to_string(),
                 ))

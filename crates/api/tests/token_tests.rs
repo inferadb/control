@@ -255,7 +255,7 @@ async fn test_refresh_token_flow() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "role": "READER"
+                        "role": "reader"
                     })
                     .to_string(),
                 ))
@@ -397,7 +397,7 @@ async fn test_refresh_token_replay_protection() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "role": "READER"
+                        "role": "reader"
                     })
                     .to_string(),
                 ))
@@ -538,7 +538,7 @@ async fn test_revoke_refresh_tokens() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
-                        "role": "READER"
+                        "role": "reader"
                     })
                     .to_string(),
                 ))
@@ -741,7 +741,7 @@ async fn test_client_assertion_authenticate() {
          &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer\
          &client_assertion={client_assertion}\
          &vault_id={vault_id}\
-         &requested_role=read"
+         &requested_role=reader"
     );
 
     let response = app
@@ -774,6 +774,92 @@ async fn test_client_assertion_authenticate() {
     assert_eq!(token_json["token_type"], "Bearer");
     assert_eq!(token_json["expires_in"], 300);
     assert!(token_json["scope"].as_str().unwrap().contains("vault:read"));
-    assert_eq!(token_json["vault_role"], "read");
+    assert_eq!(token_json["vault_role"], "reader");
     assert!(token_json["refresh_token"].is_string());
+}
+
+#[tokio::test]
+async fn test_manager_role_token_generation() {
+    let _ = IdGenerator::init(25);
+    let state = create_test_state();
+    let app = create_test_app(state.clone());
+
+    let session =
+        register_user(&app, "manageruser", "manager@example.com", "securepassword123").await;
+
+    // Get organization
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/control/v1/organizations")
+                .header("cookie", format!("infera_session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+
+    // Create vault (creator gets Admin role)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .header("cookie", format!("infera_session={session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "manager-test-vault",
+                        "description": "Vault for manager role testing"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let vault_id = json["vault"]["id"].as_i64().unwrap();
+
+    // Create client and certificate
+    let (_client_id, _cert_id) = create_client_with_cert(&app, &session, org_id).await;
+
+    // Request a token with Manager role (user has Admin, so Manager should be allowed)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/tokens"))
+                .header("cookie", format!("infera_session={session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "requested_role": "manager"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(status, StatusCode::CREATED, "Manager role token should succeed: {json}");
+    assert_eq!(json["vault_role"], "manager");
+    assert_eq!(json["token_type"], "Bearer");
+    assert!(json["access_token"].is_string());
+    assert!(json["refresh_token"].is_string());
 }
