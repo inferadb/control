@@ -100,7 +100,7 @@ pub async fn create_organization(
             name: organization.name,
             tier: tier_to_string(&organization.tier),
             created_at: organization.created_at.to_rfc3339(),
-            role: role_to_string(&OrganizationRole::Owner),
+            role: OrganizationRole::Owner.to_string(),
         },
     }))
 }
@@ -111,15 +111,6 @@ fn tier_to_string(tier: &OrganizationTier) -> String {
         OrganizationTier::TierDevV1 => "TIER_DEV_V1".to_string(),
         OrganizationTier::TierProV1 => "TIER_PRO_V1".to_string(),
         OrganizationTier::TierMaxV1 => "TIER_MAX_V1".to_string(),
-    }
-}
-
-/// Convert OrganizationRole to string
-fn role_to_string(role: &OrganizationRole) -> String {
-    match role {
-        OrganizationRole::Member => "MEMBER".to_string(),
-        OrganizationRole::Admin => "ADMIN".to_string(),
-        OrganizationRole::Owner => "OWNER".to_string(),
     }
 }
 
@@ -153,7 +144,7 @@ pub async fn list_organizations(
                 name: org.name,
                 tier: tier_to_string(&org.tier),
                 created_at: org.created_at.to_rfc3339(),
-                role: role_to_string(&member.role),
+                role: member.role.to_string(),
             });
         }
     }
@@ -202,7 +193,7 @@ pub async fn get_organization(
             name: org.name,
             tier: tier_to_string(&org.tier),
             created_at: org.created_at.to_rfc3339(),
-            role: role_to_string(&org_ctx.member.role),
+            role: org_ctx.member.role.to_string(),
         },
     }))
 }
@@ -280,7 +271,7 @@ pub async fn update_organization(
             name: org.name,
             tier: tier_to_string(&org.tier),
             created_at: org.created_at.to_rfc3339(),
-            role: role_to_string(&org_ctx.member.role),
+            role: org_ctx.member.role.to_string(),
         },
     }))
 }
@@ -460,7 +451,7 @@ pub async fn list_members(
         .map(|m| OrganizationMemberResponse {
             id: m.id,
             user_id: m.user_id,
-            role: role_to_string(&m.role),
+            role: m.role.to_string(),
             joined_at: m.created_at.to_rfc3339(),
         })
         .collect();
@@ -500,18 +491,12 @@ pub async fn update_member_role(
     }
 
     // Parse new role
-    let new_role = match payload.role.as_str() {
-        "MEMBER" => OrganizationRole::Member,
-        "ADMIN" => OrganizationRole::Admin,
-        "OWNER" => OrganizationRole::Owner,
-        _ => {
-            return Err(CoreError::validation(format!(
-                "Invalid role '{}'. Must be MEMBER, ADMIN, or OWNER",
-                payload.role
-            ))
-            .into());
-        },
-    };
+    let new_role: OrganizationRole = payload.role.parse().map_err(|_| {
+        CoreError::validation(format!(
+            "Invalid role '{}'. Must be MEMBER, ADMIN, or OWNER",
+            payload.role
+        ))
+    })?;
 
     // Only owners can promote someone to OWNER
     if new_role == OrganizationRole::Owner && org_ctx.member.role != OrganizationRole::Owner {
@@ -539,7 +524,7 @@ pub async fn update_member_role(
         member: OrganizationMemberResponse {
             id: target_member.id,
             user_id: target_member.user_id,
-            role: role_to_string(&target_member.role),
+            role: target_member.role.to_string(),
             joined_at: target_member.created_at.to_rfc3339(),
         },
     }))
@@ -632,7 +617,7 @@ fn invitation_to_response(invitation: OrganizationInvitation) -> InvitationRespo
     InvitationResponse {
         id: invitation.id,
         email: invitation.email,
-        role: role_to_string(&invitation.role),
+        role: invitation.role.to_string(),
         created_at: invitation.created_at.to_rfc3339(),
         expires_at: invitation.expires_at.to_rfc3339(),
         invited_by_user_id: invitation.invited_by_user_id,
@@ -865,7 +850,7 @@ pub async fn accept_invitation(
         name: org.name,
         tier: tier_to_string(&org.tier),
         created_at: org.created_at.to_rfc3339(),
-        role: role_to_string(&invitation.role),
+        role: invitation.role.to_string(),
     };
 
     Ok(Json(AcceptInvitationResponse { organization: org_response }))

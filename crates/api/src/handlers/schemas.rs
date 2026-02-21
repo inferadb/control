@@ -386,13 +386,8 @@ pub async fn diff_schemas(
 // ============================================================================
 
 fn parse_deployment_status(status_str: &str) -> Result<SchemaDeploymentStatus> {
-    match status_str.to_uppercase().as_str() {
-        "VALIDATING" => Ok(SchemaDeploymentStatus::Validating),
-        "DEPLOYED" => Ok(SchemaDeploymentStatus::Deployed),
-        "ACTIVE" => Ok(SchemaDeploymentStatus::Active),
-        "FAILED" => Ok(SchemaDeploymentStatus::Failed),
-        "SUPERSEDED" => Ok(SchemaDeploymentStatus::Superseded),
-        "ROLLED_BACK" => Ok(SchemaDeploymentStatus::RolledBack),
-        _ => Err(CoreError::validation(format!("Invalid status: {status_str}")).into()),
-    }
+    status_str
+        .to_uppercase()
+        .parse()
+        .map_err(|_| CoreError::validation(format!("Invalid status: {status_str}")).into())
 }

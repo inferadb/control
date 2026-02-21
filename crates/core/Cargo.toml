@@ -34,7 +34,6 @@ ed25519-dalek = { workspace = true }
 hex = { workspace = true }
 jsonwebtoken = { workspace = true }
 rand = { workspace = true }
-sha2 = { workspace = true }
 zeroize = { workspace = true }
 
 # Snowflake IDs

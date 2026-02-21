@@ -9,6 +9,7 @@ use inferadb_control_types::{
 };
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::crypto::PrivateKeyEncryptor;
 
@@ -134,13 +135,14 @@ impl JwtSigner {
         let private_key_bytes = self.encryptor.decrypt(&certificate.private_key_encrypted)?;
 
         // Create Ed25519 signing key
-        let signing_key_array: [u8; 32] = private_key_bytes
+        let mut signing_key_array: [u8; 32] = private_key_bytes
             .as_slice()
             .try_into()
             .map_err(|_| Error::internal("Invalid private key length".to_string()))?;
 
         // Encode private key as PKCS#8 DER using the pkcs8 crate
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_array);
+        signing_key_array.zeroize();
         let pkcs8_der = signing_key
             .to_pkcs8_der()
             .map_err(|e| Error::internal(format!("Failed to encode PKCS#8 DER: {e}")))?;

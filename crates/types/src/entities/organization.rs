@@ -158,7 +158,18 @@ impl Organization {
 }
 
 /// Organization role enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    strum::Display,
+    strum::EnumString
+)]
+#[strum(serialize_all = "UPPERCASE")]
 pub enum OrganizationRole {
     /// Regular member with no special permissions
     #[serde(rename = "MEMBER")]

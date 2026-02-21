@@ -79,12 +79,15 @@ impl ControlIdentity {
     /// Generate a new control identity with a random Ed25519 keypair.
     pub fn generate() -> Self {
         use rand::RngCore;
+        use zeroize::Zeroize;
 
         let mut rng = rand::rng();
         let mut secret_bytes = [0u8; 32];
         rng.fill_bytes(&mut secret_bytes);
 
         let signing_key = SigningKey::from_bytes(&secret_bytes);
+        secret_bytes.zeroize();
+
         let verifying_key = signing_key.verifying_key();
 
         let control_id = Self::generate_control_id();

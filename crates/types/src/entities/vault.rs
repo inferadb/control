@@ -36,8 +36,20 @@ pub enum VaultSyncStatus {
 }
 
 /// Role for vault access grants
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    strum::Display
+)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum VaultRole {
     /// Can read vault data
     Reader,
@@ -53,17 +65,6 @@ impl VaultRole {
     /// Check if this role has at least the required role level
     pub fn has_permission(&self, required: VaultRole) -> bool {
         self >= &required
-    }
-}
-
-impl std::fmt::Display for VaultRole {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VaultRole::Reader => write!(f, "reader"),
-            VaultRole::Writer => write!(f, "writer"),
-            VaultRole::Manager => write!(f, "manager"),
-            VaultRole::Admin => write!(f, "admin"),
-        }
     }
 }
 

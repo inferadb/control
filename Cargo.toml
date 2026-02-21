@@ -98,6 +98,9 @@ webauthn-rs = { version = "0.5", features = [
   "danger-allow-state-serialisation",
 ] }
 
+# Enum derive macros
+strum = { version = "0.27", features = ["derive"] }
+
 # Snowflake ID generation
 idgenerator = "2"
 
