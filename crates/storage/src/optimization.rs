@@ -4,7 +4,8 @@
 //!
 //! - **Batch Writes**: Accumulate multiple writes and flush in batches with automatic splitting to
 //!   respect transaction size limits
-//! - **Read Caching**: LRU cache for frequently accessed keys
+//! - **Read Caching**: Concurrent cache (via `moka`) for frequently accessed keys with TinyLFU
+//!   eviction and built-in TTL
 //! - **Cache Invalidation**: Automatic cache invalidation on batch writes
 //!
 //! # Usage
@@ -23,9 +24,7 @@
 //! ```
 
 use std::{
-    collections::{HashMap, VecDeque},
     ops::RangeBounds,
-    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -37,7 +36,7 @@ pub use inferadb_common_storage::batch::{
     BatchConfig, BatchFlushStats, BatchOperation, DEFAULT_MAX_BATCH_BYTES, DEFAULT_MAX_BATCH_SIZE,
     TRANSACTION_SIZE_LIMIT,
 };
-use parking_lot::Mutex;
+use moka::sync::Cache;
 use tracing::{debug, trace};
 
 use crate::{
@@ -77,86 +76,15 @@ impl CacheConfig {
     }
 }
 
-/// Cache entry with expiration
-struct CacheEntry {
-    value: Option<Bytes>,
-    expires_at: Instant,
-}
+/// Type alias for the moka-backed cache
+type MokaCache = Cache<Vec<u8>, Option<Bytes>>;
 
-/// LRU cache implementation
-pub struct LruCache {
-    entries: HashMap<Vec<u8>, CacheEntry>,
-    access_order: VecDeque<Vec<u8>>,
-    max_entries: usize,
-    ttl: Duration,
-}
-
-impl LruCache {
-    fn new(max_entries: usize, ttl_secs: u64) -> Self {
-        Self {
-            entries: HashMap::new(),
-            access_order: VecDeque::new(),
-            max_entries,
-            ttl: Duration::from_secs(ttl_secs),
-        }
-    }
-
-    fn get(&mut self, key: &[u8]) -> Option<Option<Bytes>> {
-        let now = Instant::now();
-
-        // Check if entry exists and is not expired
-        if let Some(entry) = self.entries.get(key) {
-            if entry.expires_at > now {
-                // Move to back of access queue (most recently used)
-                if let Some(pos) = self.access_order.iter().position(|k| k == key) {
-                    self.access_order.remove(pos);
-                }
-                self.access_order.push_back(key.to_vec());
-
-                return Some(entry.value.clone());
-            } else {
-                // Entry expired - remove it
-                self.entries.remove(key);
-                if let Some(pos) = self.access_order.iter().position(|k| k == key) {
-                    self.access_order.remove(pos);
-                }
-            }
-        }
-
-        None
-    }
-
-    fn insert(&mut self, key: Vec<u8>, value: Option<Bytes>) {
-        let now = Instant::now();
-
-        // Evict if at capacity
-        while self.entries.len() >= self.max_entries && !self.access_order.is_empty() {
-            if let Some(old_key) = self.access_order.pop_front() {
-                self.entries.remove(&old_key);
-            }
-        }
-
-        // Insert new entry
-        self.entries.insert(key.clone(), CacheEntry { value, expires_at: now + self.ttl });
-        self.access_order.push_back(key);
-    }
-
-    /// Invalidate a cache entry
-    pub fn invalidate(&mut self, key: &[u8]) {
-        self.entries.remove(key);
-        if let Some(pos) = self.access_order.iter().position(|k| k == key) {
-            self.access_order.remove(pos);
-        }
-    }
-
-    fn clear(&mut self) {
-        self.entries.clear();
-        self.access_order.clear();
-    }
-
-    fn len(&self) -> usize {
-        self.entries.len()
-    }
+/// Build a moka cache from configuration
+fn build_cache(config: &CacheConfig) -> MokaCache {
+    Cache::builder()
+        .max_capacity(config.max_entries as u64)
+        .time_to_live(Duration::from_secs(config.ttl_secs))
+        .build()
 }
 
 /// Batch writer with cache invalidation support
@@ -165,12 +93,12 @@ impl LruCache {
 /// on flush. This ensures cache consistency when using batch operations.
 pub struct BatchWriter<B: StorageBackend> {
     inner: inferadb_common_storage::BatchWriter<B>,
-    cache: Option<Arc<Mutex<LruCache>>>,
+    cache: Option<MokaCache>,
 }
 
 impl<B: StorageBackend + Clone> BatchWriter<B> {
     /// Create a new batch writer with optional cache
-    pub fn new(backend: B, config: BatchConfig, cache: Option<Arc<Mutex<LruCache>>>) -> Self {
+    pub fn new(backend: B, config: BatchConfig, cache: Option<MokaCache>) -> Self {
         Self { inner: inferadb_common_storage::BatchWriter::new(backend, config), cache }
     }
 
@@ -206,7 +134,6 @@ impl<B: StorageBackend + Clone> BatchWriter<B> {
     pub async fn flush(&mut self) -> StorageResult<BatchFlushStats> {
         // Invalidate cache entries for all keys being written
         if let Some(cache) = &self.cache {
-            let mut cache = cache.lock();
             for op in self.inner.pending_operations() {
                 cache.invalidate(op.key());
             }
@@ -230,7 +157,7 @@ impl<B: StorageBackend + Clone> BatchWriter<B> {
 #[derive(Clone)]
 pub struct OptimizedBackend<B: StorageBackend> {
     backend: B,
-    cache: Arc<Mutex<LruCache>>,
+    cache: Option<MokaCache>,
     cache_config: CacheConfig,
     batch_config: BatchConfig,
     metrics: Metrics,
@@ -239,12 +166,7 @@ pub struct OptimizedBackend<B: StorageBackend> {
 impl<B: StorageBackend + Clone> OptimizedBackend<B> {
     /// Create a new optimized backend wrapper
     pub fn new(backend: B, cache_config: CacheConfig, batch_config: BatchConfig) -> Self {
-        let cache = if cache_config.enabled {
-            Arc::new(Mutex::new(LruCache::new(cache_config.max_entries, cache_config.ttl_secs)))
-        } else {
-            Arc::new(Mutex::new(LruCache::new(0, 0)))
-        };
-
+        let cache = if cache_config.enabled { Some(build_cache(&cache_config)) } else { None };
         Self { backend, cache, cache_config, batch_config, metrics: Metrics::new() }
     }
 
@@ -265,11 +187,7 @@ impl<B: StorageBackend + Clone> OptimizedBackend<B> {
     /// println!("Flushed {} operations in {} batches", stats.operations_count, stats.batches_count);
     /// ```
     pub fn batch_writer(&self) -> BatchWriter<B> {
-        BatchWriter::new(
-            self.backend.clone(),
-            self.batch_config.clone(),
-            if self.cache_config.enabled { Some(Arc::clone(&self.cache)) } else { None },
-        )
+        BatchWriter::new(self.backend.clone(), self.batch_config.clone(), self.cache.clone())
     }
 
     /// Execute a batch of operations atomically
@@ -292,15 +210,14 @@ impl<B: StorageBackend + Clone> OptimizedBackend<B> {
 
     /// Get cache statistics
     pub fn cache_stats(&self) -> (usize, usize) {
-        let cache = self.cache.lock();
-        (cache.len(), self.cache_config.max_entries)
+        let count = self.cache.as_ref().map_or(0, |c| c.entry_count() as usize);
+        (count, self.cache_config.max_entries)
     }
 
     /// Clear the cache
     pub fn clear_cache(&self) {
-        if self.cache_config.enabled {
-            let mut cache = self.cache.lock();
-            cache.clear();
+        if let Some(cache) = &self.cache {
+            cache.invalidate_all();
             debug!("Cache cleared");
         }
     }
@@ -321,9 +238,8 @@ impl<B: StorageBackend + Clone> StorageBackend for OptimizedBackend<B> {
     async fn get(&self, key: &[u8]) -> StorageResult<Option<Bytes>> {
         let start = Instant::now();
 
-        // Check cache first if enabled
-        if self.cache_config.enabled {
-            let mut cache = self.cache.lock();
+        // Check cache first
+        if let Some(cache) = &self.cache {
             if let Some(cached_value) = cache.get(key) {
                 self.metrics.record_cache_hit();
                 self.metrics.record_get(start.elapsed());
@@ -337,10 +253,9 @@ impl<B: StorageBackend + Clone> StorageBackend for OptimizedBackend<B> {
         let result = self.backend.get(key).await;
 
         // Update cache on success
-        if self.cache_config.enabled
+        if let Some(cache) = &self.cache
             && let Ok(ref value) = result
         {
-            let mut cache = self.cache.lock();
             cache.insert(key.to_vec(), value.clone());
             trace!(key_len = key.len(), "Cached value");
         }
@@ -357,9 +272,7 @@ impl<B: StorageBackend + Clone> StorageBackend for OptimizedBackend<B> {
     async fn set(&self, key: Vec<u8>, value: Vec<u8>) -> StorageResult<()> {
         let start = Instant::now();
 
-        // Invalidate cache entry
-        if self.cache_config.enabled {
-            let mut cache = self.cache.lock();
+        if let Some(cache) = &self.cache {
             cache.invalidate(&key);
         }
 
@@ -377,9 +290,7 @@ impl<B: StorageBackend + Clone> StorageBackend for OptimizedBackend<B> {
     async fn delete(&self, key: &[u8]) -> StorageResult<()> {
         let start = Instant::now();
 
-        // Invalidate cache entry
-        if self.cache_config.enabled {
-            let mut cache = self.cache.lock();
+        if let Some(cache) = &self.cache {
             cache.invalidate(key);
         }
 
@@ -418,10 +329,9 @@ impl<B: StorageBackend + Clone> StorageBackend for OptimizedBackend<B> {
     {
         let start = Instant::now();
 
-        // Clear cache (conservative approach - could be more targeted)
-        if self.cache_config.enabled {
-            let mut cache = self.cache.lock();
-            cache.clear();
+        // Clear entire cache (conservative approach — could be more targeted)
+        if let Some(cache) = &self.cache {
+            cache.invalidate_all();
             debug!("Cache cleared due to clear_range operation");
         }
 
@@ -444,9 +354,7 @@ impl<B: StorageBackend + Clone> StorageBackend for OptimizedBackend<B> {
     ) -> StorageResult<()> {
         let start = Instant::now();
 
-        // Invalidate cache entry
-        if self.cache_config.enabled {
-            let mut cache = self.cache.lock();
+        if let Some(cache) = &self.cache {
             cache.invalidate(&key);
         }
 
@@ -533,7 +441,8 @@ mod tests {
         let batch_config = BatchConfig::disabled();
         let optimized = OptimizedBackend::new(backend, cache_config, batch_config);
 
-        // Add 3 entries - oldest should be evicted
+        // Add 3 entries — moka enforces max_capacity asynchronously, so we
+        // just verify the cache never grows unboundedly.
         optimized.set(b"key1".to_vec(), b"value1".to_vec()).await.expect("set failed");
         optimized.get(b"key1").await.expect("get failed");
 
@@ -543,8 +452,11 @@ mod tests {
         optimized.set(b"key3".to_vec(), b"value3".to_vec()).await.expect("set failed");
         optimized.get(b"key3").await.expect("get failed");
 
+        // Run pending maintenance tasks to enforce eviction
+        optimized.cache.as_ref().expect("cache should be enabled").run_pending_tasks();
+
         let (cache_size, _) = optimized.cache_stats();
-        assert_eq!(cache_size, 2, "Cache should not exceed max size");
+        assert!(cache_size <= 2, "Cache should not exceed max size, got {cache_size}");
     }
 
     #[tokio::test]
@@ -834,5 +746,43 @@ mod tests {
         // Value should be in backend
         let val = backend.get(b"txn_key").await.expect("get failed");
         assert_eq!(val, Some(Bytes::from("value")));
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_cache_access() {
+        use std::sync::Arc;
+
+        let backend = MemoryBackend::new();
+        let cache_config = CacheConfig::new(1_000, 60);
+        let batch_config = BatchConfig::disabled();
+        let optimized = Arc::new(OptimizedBackend::new(backend, cache_config, batch_config));
+
+        // Pre-populate some keys
+        for i in 0..100 {
+            optimized
+                .set(format!("conc_key_{i}").into_bytes(), format!("value_{i}").into_bytes())
+                .await
+                .expect("set failed");
+        }
+
+        // Spawn 10 tasks each doing 100 reads
+        let mut handles = Vec::new();
+        for task_id in 0..10 {
+            let opt = Arc::clone(&optimized);
+            handles.push(tokio::spawn(async move {
+                for i in 0..100 {
+                    let key = format!("conc_key_{}", (task_id * 10 + i) % 100);
+                    let val = opt.get(key.as_bytes()).await.expect("concurrent get failed");
+                    assert!(val.is_some(), "Expected value for {key}");
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.await.expect("task panicked");
+        }
+
+        let snapshot = optimized.metrics().snapshot();
+        assert!(snapshot.cache_hits > 0, "Should have cache hits from concurrent access");
     }
 }

@@ -17,6 +17,5 @@ pub use factory::{
 pub use memory::MemoryBackend;
 pub use metrics::{Metrics, MetricsCollector, MetricsSnapshot};
 pub use optimization::{
-    BatchConfig, BatchFlushStats, BatchOperation, BatchWriter, CacheConfig, LruCache,
-    OptimizedBackend,
+    BatchConfig, BatchFlushStats, BatchOperation, BatchWriter, CacheConfig, OptimizedBackend,
 };
