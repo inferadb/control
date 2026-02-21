@@ -10,7 +10,7 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use bon::Builder;
 use inferadb_control_const::auth::{SESSION_COOKIE_MAX_AGE, SESSION_COOKIE_NAME};
 use inferadb_control_core::{IdGenerator, RepositoryContext, hash_password, verify_password};
-use inferadb_control_storage::Backend;
+use inferadb_control_storage::{Backend, BufferedBackend};
 use inferadb_control_types::{
     Error as CoreError,
     dto::{
@@ -99,6 +99,11 @@ pub type Result<T> = std::result::Result<T, ApiError>;
 /// POST /v1/auth/register
 ///
 /// Creates a new user account with email and password, and returns a session cookie.
+///
+/// All entity creation (user, email, verification token, session, organization,
+/// org member) is performed within a single atomic transaction via
+/// [`BufferedBackend`]. If any step fails, nothing is persisted and the user
+/// can safely retry.
 #[axum::debug_handler]
 #[tracing::instrument(skip(state, jar, payload), fields(email = %payload.email, name = %payload.name))]
 pub async fn register(
@@ -106,10 +111,10 @@ pub async fn register(
     jar: CookieJar,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<(CookieJar, Json<RegisterResponse>)> {
-    // Initialize repository context
+    // --- Validation (reads go directly to real storage) ---
+
     let repos = RepositoryContext::new((*state.storage).clone());
 
-    // Validate inputs
     if payload.name.trim().is_empty() {
         return Err(CoreError::validation("Name cannot be empty".to_string()).into());
     }
@@ -118,15 +123,19 @@ pub async fn register(
         return Err(CoreError::validation("Email cannot be empty".to_string()).into());
     }
 
-    // Check if email is already in use
     if repos.user_email.is_email_in_use(&payload.email).await? {
         return Err(
             CoreError::validation(format!("Email '{}' is already in use", payload.email)).into()
         );
     }
 
-    // Hash password
+    // Hash password (CPU-bound, no storage interaction)
     let password_hash = hash_password(&payload.password)?;
+
+    // --- Atomic entity creation via BufferedBackend ---
+
+    let buffered = BufferedBackend::new((*state.storage).clone());
+    let buffered_repos = RepositoryContext::new(buffered.clone());
 
     // Generate IDs
     let user_id = IdGenerator::next_id();
@@ -139,8 +148,8 @@ pub async fn register(
         .name(payload.name.clone())
         .password_hash(password_hash)
         .create()?;
-    user.accept_tos(); // Auto-accept TOS on registration
-    repos.user.create(user).await?;
+    user.accept_tos();
+    buffered_repos.user.create(user).await?;
 
     // Create email (unverified)
     let email = UserEmail::builder()
@@ -149,7 +158,7 @@ pub async fn register(
         .email(payload.email.clone())
         .primary(true)
         .create()?;
-    repos.user_email.create(email.clone()).await?;
+    buffered_repos.user_email.create(email.clone()).await?;
 
     // Create email verification token
     let token_id = IdGenerator::next_id();
@@ -159,9 +168,38 @@ pub async fn register(
         .user_email_id(email_id)
         .token(token_string)
         .create()?;
-    repos.user_email_verification_token.create(verification_token.clone()).await?;
+    buffered_repos.user_email_verification_token.create(verification_token.clone()).await?;
 
-    // Send verification email (fire-and-forget - don't block registration)
+    // Create session
+    let session = UserSession::builder()
+        .id(session_id)
+        .user_id(user_id)
+        .session_type(SessionType::Web)
+        .create();
+    buffered_repos.user_session.create(session).await?;
+
+    // Create default organization with same name as user
+    let org_id = IdGenerator::next_id();
+    let member_id = IdGenerator::next_id();
+
+    let organization = Organization::builder()
+        .id(org_id)
+        .name(payload.name.clone())
+        .tier(OrganizationTier::TierDevV1)
+        .create()?;
+    buffered_repos.org.create(organization).await?;
+
+    // Create organization member (owner role)
+    let member = OrganizationMember::new(member_id, org_id, user_id, OrganizationRole::Owner);
+    buffered_repos.org_member.create(member).await?;
+
+    // --- Commit all writes atomically ---
+    buffered
+        .commit()
+        .await
+        .map_err(|e| CoreError::internal(format!("Failed to commit registration: {e}")))?;
+
+    // Send verification email (fire-and-forget — after commit so we know the user exists)
     if let Some(email_service) = &state.email_service {
         let email_addr = email.email.clone();
         let user_name = payload.name.clone();
@@ -169,7 +207,6 @@ pub async fn register(
         let email_service = Arc::clone(email_service);
         let frontend_url = state.config.frontend.url.clone();
 
-        // Spawn async task to send email
         tokio::spawn(async move {
             use inferadb_control_core::{EmailTemplate, VerificationEmailTemplate};
 
@@ -198,29 +235,6 @@ pub async fn register(
             }
         });
     }
-
-    // Create session
-    let session = UserSession::builder()
-        .id(session_id)
-        .user_id(user_id)
-        .session_type(SessionType::Web)
-        .create();
-    repos.user_session.create(session).await?;
-
-    // Create default organization with same name as user
-    let org_id = IdGenerator::next_id();
-    let member_id = IdGenerator::next_id();
-
-    let organization = Organization::builder()
-        .id(org_id)
-        .name(payload.name.clone())
-        .tier(OrganizationTier::TierDevV1)
-        .create()?;
-    repos.org.create(organization).await?;
-
-    // Create organization member (owner role)
-    let member = OrganizationMember::new(member_id, org_id, user_id, OrganizationRole::Owner);
-    repos.org_member.create(member).await?;
 
     // Set session cookie
     let cookie = Cookie::build((SESSION_COOKIE_NAME, session_id.to_string()))
