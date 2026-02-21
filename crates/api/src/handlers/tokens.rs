@@ -338,10 +338,12 @@ struct ClientAssertionClaims {
     /// Subject: client ID
     sub: String,
     /// Audience: token endpoint URL (validated by JWT library)
+    #[serde(rename = "aud")]
     _aud: String,
     /// Expiration time (Unix timestamp)
     exp: i64,
-    /// Issued at (Unix timestamp, not used after deserialization)
+    /// Issued at (Unix timestamp)
+    #[serde(rename = "iat")]
     _iat: i64,
     /// JWT ID (for replay protection)
     jti: String,
@@ -416,7 +418,7 @@ pub async fn client_assertion_authenticate(
 
     // Parse kid to extract cert_id
     let kid_parts: Vec<&str> = kid.split('-').collect();
-    if kid_parts.len() != 8
+    if kid_parts.len() != 6
         || kid_parts[0] != "org"
         || kid_parts[2] != "client"
         || kid_parts[4] != "cert"
@@ -451,10 +453,13 @@ pub async fn client_assertion_authenticate(
     }
 
     // Verify JWT signature using certificate public key
-    use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+    use base64::{
+        Engine,
+        engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD},
+    };
     use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 
-    let public_key_bytes = BASE64
+    let public_key_bytes = URL_SAFE_NO_PAD
         .decode(&certificate.public_key)
         .map_err(|e| CoreError::internal(format!("Failed to decode public key: {e}")))?;
 

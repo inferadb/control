@@ -690,7 +690,7 @@ pub async fn delete_team_grant(
     }
 
     // Delete the grant
-    repos.vault_user_grant.delete(grant_id).await?;
+    repos.vault_team_grant.delete(grant_id).await?;
 
     Ok(Json(DeleteTeamGrantResponse { message: "Team grant deleted successfully".to_string() }))
 }

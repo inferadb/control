@@ -590,3 +590,190 @@ async fn test_revoke_refresh_tokens() {
 
     assert!(response.status().is_client_error() || response.status() == StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn test_client_assertion_authenticate() {
+    use base64::engine::{Engine as Base64Engine, general_purpose::STANDARD as BASE64};
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+    use serde::Serialize;
+
+    let _ = IdGenerator::init(24);
+    let state = create_test_state();
+    let app = create_test_app(state.clone());
+
+    let session =
+        register_user(&app, "assertuser", "assert@example.com", "securepassword123").await;
+
+    // Get organization
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/control/v1/organizations")
+                .header("cookie", format!("infera_session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let orgs: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let org_id = orgs["organizations"][0]["id"].as_i64().unwrap();
+
+    // Create vault
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .header("cookie", format!("infera_session={session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "assertion-test-vault",
+                        "description": "Vault for client assertion testing"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let vault_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let vault_id = vault_json["vault"]["id"].as_i64().unwrap();
+
+    // Create client
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .header("cookie", format!("infera_session={session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "assertion-test-client",
+                        "description": "Client for assertion testing"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let client_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let client_id = client_json["client"]["id"].as_i64().unwrap();
+
+    // Create certificate
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .header("cookie", format!("infera_session={session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"name": "assertion-test-cert"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let cert_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let kid = cert_json["certificate"]["kid"].as_str().unwrap().to_string();
+    let private_key_b64 = cert_json["private_key"].as_str().unwrap();
+
+    // Decode private key (returned as STANDARD base64) and wrap in PKCS#8 DER
+    let private_key_bytes = BASE64.decode(private_key_b64).expect("decode private_key");
+    assert_eq!(private_key_bytes.len(), 32);
+
+    let mut pkcs8_der = vec![
+        0x30, 0x2e, // SEQUENCE, 46 bytes
+        0x02, 0x01, 0x00, // INTEGER version 0
+        0x30, 0x05, // SEQUENCE, 5 bytes (algorithm identifier)
+        0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
+        0x04, 0x22, // OCTET STRING, 34 bytes
+        0x04, 0x20, // OCTET STRING, 32 bytes (the actual key)
+    ];
+    pkcs8_der.extend_from_slice(&private_key_bytes);
+
+    // Build JWT client assertion (RFC 7523)
+    #[derive(Serialize)]
+    struct AssertionClaims {
+        iss: String,
+        sub: String,
+        aud: String,
+        exp: i64,
+        iat: i64,
+        jti: String,
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    let claims = AssertionClaims {
+        iss: client_id.to_string(),
+        sub: client_id.to_string(),
+        aud: "https://api.inferadb.com/token".to_string(),
+        exp: now + 300,
+        iat: now,
+        jti: "test-jti-client-assertion-1".to_string(),
+    };
+
+    let mut header = Header::new(Algorithm::EdDSA);
+    header.kid = Some(kid);
+
+    let encoding_key = EncodingKey::from_ed_der(&pkcs8_der);
+    let client_assertion = encode(&header, &claims, &encoding_key).expect("encode JWT");
+
+    // POST to /control/v1/token with client assertion (form-encoded)
+    let form_body = format!(
+        "grant_type=client_credentials\
+         &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer\
+         &client_assertion={client_assertion}\
+         &vault_id={vault_id}\
+         &requested_role=read"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/control/v1/token")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(form_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+    if !status.is_success() {
+        let body_str = String::from_utf8_lossy(&body);
+        panic!("Client assertion failed. Status: {status}, Body: {body_str}");
+    }
+
+    assert_eq!(status, StatusCode::OK);
+
+    let token_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    // Verify response shape
+    assert!(token_json["access_token"].is_string());
+    assert_eq!(token_json["token_type"], "Bearer");
+    assert_eq!(token_json["expires_in"], 300);
+    assert!(token_json["scope"].as_str().unwrap().contains("vault:read"));
+    assert_eq!(token_json["vault_role"], "read");
+    assert!(token_json["refresh_token"].is_string());
+}

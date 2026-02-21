@@ -410,4 +410,29 @@ mod tests {
         let decrypted = encryptor.decrypt(&encrypted).unwrap();
         assert_eq!(decrypted.as_slice(), &private_key_bytes);
     }
+
+    #[test]
+    fn test_keypair_base64_roundtrip_consistency() {
+        // Generate multiple keypairs and verify the public key survives a
+        // URL_SAFE_NO_PAD encode → decode roundtrip, confirming no encoding
+        // mismatch between generation and consumption.
+        for _ in 0..256 {
+            let (public_key_base64, _private_key_bytes) = keypair::generate();
+
+            // Decode the URL-safe base64 back to raw bytes
+            let decoded = URL_SAFE_NO_PAD
+                .decode(&public_key_base64)
+                .expect("URL_SAFE_NO_PAD decode should succeed for every generated key");
+
+            assert_eq!(decoded.len(), 32, "Ed25519 public key must be 32 bytes");
+
+            // Re-encode and verify roundtrip
+            let re_encoded = URL_SAFE_NO_PAD.encode(&decoded);
+            assert_eq!(re_encoded, public_key_base64, "base64 roundtrip must be lossless");
+
+            // Verify that the key reconstructs a valid Ed25519 VerifyingKey
+            ed25519_dalek::VerifyingKey::from_bytes(&decoded.try_into().unwrap())
+                .expect("decoded bytes must form a valid Ed25519 public key");
+        }
+    }
 }

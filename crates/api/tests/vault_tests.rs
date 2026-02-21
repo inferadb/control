@@ -561,3 +561,375 @@ async fn test_revoke_user_vault_access() {
 
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 }
+
+#[tokio::test]
+async fn test_delete_team_grant() {
+    let _ = IdGenerator::init(20);
+    let state = create_test_state();
+    let app = create_test_app(state.clone());
+
+    let session =
+        register_user(&app, "teamgrantdel", "teamgrantdel@example.com", "securepassword123").await;
+
+    // Get organization ID
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/control/v1/organizations")
+                .header("cookie", format!("infera_session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+
+    // Create a team
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .header("cookie", format!("infera_session={session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "delete-grant-team",
+                        "description": "Team for grant deletion test"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let team_id = json["team"]["id"].as_i64().unwrap();
+
+    // Create a vault
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .header("cookie", format!("infera_session={session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "team-grant-del-vault",
+                        "description": "Vault for team grant deletion"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let vault_id = json["vault"]["id"].as_i64().unwrap();
+
+    // Grant team access to vault
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants"))
+                .header("cookie", format!("infera_session={session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "team_id": team_id,
+                        "role": "WRITER"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let grant_id = json["grant"]["id"].as_i64().unwrap();
+
+    // Delete the team grant
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!(
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants/{grant_id}"
+                ))
+                .header("cookie", format!("infera_session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify team grant no longer exists by listing team grants
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants"))
+                .header("cookie", format!("infera_session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let grants = json["grants"].as_array().unwrap();
+    assert!(grants.is_empty(), "Team grant should be deleted but still exists");
+}
+
+#[tokio::test]
+async fn test_delete_team_grant_does_not_affect_user_grants() {
+    let _ = IdGenerator::init(30);
+    let state = create_test_state();
+    let app = create_test_app(state.clone());
+
+    let owner_session =
+        register_user(&app, "tgowner", "tgowner@example.com", "securepassword123").await;
+    let member_session =
+        register_user(&app, "tgmember", "tgmember@example.com", "securepassword123").await;
+
+    // Get organization ID
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/control/v1/organizations")
+                .header("cookie", format!("infera_session={owner_session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+
+    // Get member user ID
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/control/v1/auth/me")
+                .header("cookie", format!("infera_session={member_session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let member_user_id = json["user"]["id"].as_i64().unwrap();
+
+    // Add member to organization
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/members"))
+                .header("cookie", format!("infera_session={owner_session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "user_id": member_user_id,
+                        "role": "MEMBER"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Create a team
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .header("cookie", format!("infera_session={owner_session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "isolation-team",
+                        "description": "Team for isolation test"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let team_id = json["team"]["id"].as_i64().unwrap();
+
+    // Create a vault
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .header("cookie", format!("infera_session={owner_session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "isolation-vault",
+                        "description": "Vault for isolation test"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let vault_id = json["vault"]["id"].as_i64().unwrap();
+
+    // Create a user grant
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/user-grants"))
+                .header("cookie", format!("infera_session={owner_session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "user_id": member_user_id,
+                        "role": "READER"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // Create a team grant
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants"))
+                .header("cookie", format!("infera_session={owner_session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "team_id": team_id,
+                        "role": "WRITER"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let team_grant_id = json["grant"]["id"].as_i64().unwrap();
+
+    // Delete the team grant
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!(
+                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants/{team_grant_id}"
+                ))
+                .header("cookie", format!("infera_session={owner_session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify user grant is unaffected
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/user-grants"))
+                .header("cookie", format!("infera_session={owner_session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let user_grants = json["grants"].as_array().unwrap();
+    assert_eq!(user_grants.len(), 2, "User grants should be unaffected after deleting team grant");
+
+    // Verify team grant is deleted
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants"))
+                .header("cookie", format!("infera_session={owner_session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let team_grants = json["grants"].as_array().unwrap();
+    assert!(team_grants.is_empty(), "Team grant should be deleted");
+}
