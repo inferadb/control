@@ -9,12 +9,24 @@ use base64::{
     engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD},
 };
 use inferadb_control_types::error::{Error, Result};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 /// Master encryption key (256-bit / 32 bytes)
 ///
 /// This key is used to encrypt client certificate private keys at rest.
 /// It is loaded from a file or auto-generated on first startup.
-#[derive(Clone)]
+///
+/// Uses `ZeroizeOnDrop` to guarantee key material is securely erased from memory
+/// when dropped, preventing dead-store elimination by the optimizer.
+///
+/// `MasterKey` intentionally does not implement [`Clone`] to prevent accidental
+/// copies of cryptographic key material in memory.
+///
+/// ```compile_fail
+/// fn requires_clone<T: Clone>() {}
+/// requires_clone::<inferadb_control_core::MasterKey>();
+/// ```
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct MasterKey([u8; 32]);
 
 impl MasterKey {
@@ -108,13 +120,6 @@ impl MasterKey {
     }
 }
 
-impl Drop for MasterKey {
-    fn drop(&mut self) {
-        // Zero out the key when dropped for security
-        self.0.fill(0);
-    }
-}
-
 /// Private key encryption service using AES-256-GCM
 ///
 /// This service encrypts Ed25519 private keys for secure storage in the database.
@@ -168,10 +173,8 @@ impl PrivateKeyEncryptor {
     /// Decrypt a private key
     ///
     /// Takes base64-encoded string with nonce prepended, returns the 32-byte private key
-    ///
-    /// IMPORTANT: The returned Vec contains sensitive key material and should be zeroized when no
-    /// longer needed.
-    pub fn decrypt(&self, encrypted_base64: &str) -> Result<Vec<u8>> {
+    /// wrapped in `Zeroizing` to guarantee secure erasure on drop.
+    pub fn decrypt(&self, encrypted_base64: &str) -> Result<Zeroizing<Vec<u8>>> {
         // Decode from base64
         let combined = BASE64_STANDARD
             .decode(encrypted_base64)
@@ -199,7 +202,7 @@ impl PrivateKeyEncryptor {
             )));
         }
 
-        Ok(plaintext)
+        Ok(Zeroizing::new(plaintext))
     }
 }
 
@@ -212,14 +215,14 @@ pub mod keypair {
     /// Generate a new Ed25519 key pair
     ///
     /// Returns (public_key_base64, private_key_bytes)
-    /// The private key bytes should be encrypted before storage
-    pub fn generate() -> (String, Vec<u8>) {
+    /// The private key bytes are wrapped in `Zeroizing` and should be encrypted before storage.
+    pub fn generate() -> (String, Zeroizing<Vec<u8>>) {
         let signing_key = SigningKey::generate(&mut OsRng);
         let verifying_key: VerifyingKey = signing_key.verifying_key();
 
         // JWK standard (RFC 7517) uses URL-safe base64 without padding for key material
         let public_key_base64 = URL_SAFE_NO_PAD.encode(verifying_key.as_bytes());
-        let private_key_bytes = signing_key.to_bytes().to_vec();
+        let private_key_bytes = Zeroizing::new(signing_key.to_bytes().to_vec());
 
         (public_key_base64, private_key_bytes)
     }
@@ -408,7 +411,7 @@ mod tests {
 
         // Decrypt and verify
         let decrypted = encryptor.decrypt(&encrypted).unwrap();
-        assert_eq!(decrypted.as_slice(), &private_key_bytes);
+        assert_eq!(decrypted.as_slice(), private_key_bytes.as_slice());
     }
 
     #[test]

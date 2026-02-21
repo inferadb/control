@@ -80,7 +80,7 @@ aes-gcm = "0.10"
 argon2 = { version = "0.5", features = ["std"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
 hex = "0.4"
 jsonwebtoken = { version = "10", default-features = false, features = [
   "aws_lc_rs",
@@ -91,7 +91,7 @@ pem = "3"
 secrecy = "0.10"
 sha2 = "0.10"
 uuid = { version = "1.0", features = ["serde", "v4"] }
-zeroize = "1"
+zeroize = { version = "1", features = ["derive"] }
 
 # WebAuthn/Passkey support
 webauthn-rs = { version = "0.5", features = [

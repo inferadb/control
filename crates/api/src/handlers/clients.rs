@@ -401,7 +401,7 @@ pub async fn create_certificate(
     .await;
 
     // Return private key (base64 encoded) - this is the ONLY time it will be available unencrypted
-    let private_key_base64 = BASE64.encode(&private_key_bytes);
+    let private_key_base64 = BASE64.encode(private_key_bytes.as_slice());
 
     Ok((
         StatusCode::CREATED,
@@ -800,7 +800,7 @@ pub async fn rotate_certificate(
     .await;
 
     // Return private key (base64 encoded) - this is the ONLY time it will be available
-    let private_key_base64 = BASE64.encode(&private_key_bytes);
+    let private_key_base64 = BASE64.encode(private_key_bytes.as_slice());
 
     Ok((
         StatusCode::CREATED,

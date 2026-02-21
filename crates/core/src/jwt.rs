@@ -196,11 +196,12 @@ impl JwtSigner {
         claims: &VaultTokenClaims,
         certificate: &ClientCertificate,
     ) -> Result<String> {
-        // Decrypt the private key
+        // Decrypt the private key (returned as Zeroizing<Vec<u8>> for secure erasure)
         let private_key_bytes = self.encryptor.decrypt(&certificate.private_key_encrypted)?;
 
         // Create Ed25519 signing key
         let signing_key_array: [u8; 32] = private_key_bytes
+            .as_slice()
             .try_into()
             .map_err(|_| Error::internal("Invalid private key length".to_string()))?;
 
