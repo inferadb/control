@@ -169,15 +169,16 @@ Each audit log entry contains:
 ### List Organization Audit Logs
 
 ```bash
-GET /v1/organizations/{org}/audit-logs
+GET /control/v1/organizations/{org}/audit-logs
 ```
 
 Query parameters:
 
 - `limit` (integer): Page size (default: 50, max: 100)
 - `offset` (integer): Offset for pagination (default: 0)
-- `event_type` (string): Filter by event type (optional)
-- `user_id` (integer): Filter by user (optional)
+- `action` (string): Filter by audit event type (optional)
+- `actor` (integer): Filter by user ID (optional)
+- `resource_type` (string): Filter by resource type (optional)
 - `start_date` (ISO 8601): Filter events after this date (optional)
 - `end_date` (ISO 8601): Filter events before this date (optional)
 
@@ -186,35 +187,35 @@ Query parameters:
 **Get recent audit logs**:
 
 ```bash
-curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?limit=50" \
+curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?limit=50" \
   -H "Cookie: infera_session={session_id}"
 ```
 
 **Filter by event type**:
 
 ```bash
-curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?event_type=vault_access_granted" \
+curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?action=vault_access_granted" \
   -H "Cookie: infera_session={session_id}"
 ```
 
 **Filter by user**:
 
 ```bash
-curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?user_id=456" \
+curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?actor=456" \
   -H "Cookie: infera_session={session_id}"
 ```
 
 **Filter by date range**:
 
 ```bash
-curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?start_date=2025-11-01T00:00:00Z&end_date=2025-11-18T23:59:59Z" \
+curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?start_date=2025-11-01T00:00:00Z&end_date=2025-11-18T23:59:59Z" \
   -H "Cookie: infera_session={session_id}"
 ```
 
 **Combine filters**:
 
 ```bash
-curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?event_type=user_login&start_date=2025-11-01T00:00:00Z&limit=100" \
+curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?action=user_login&start_date=2025-11-01T00:00:00Z&limit=100" \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -259,7 +260,7 @@ Investigate suspicious login activity:
 
 ```bash
 # Find all failed login attempts in the last 24 hours
-curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?event_type=user_login&start_date=$(date -u -v-1d +%Y-%m-%dT%H:%M:%SZ)" \
+curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?action=user_login&start_date=$(date -u -v-1d +%Y-%m-%dT%H:%M:%SZ)" \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -269,7 +270,7 @@ Review vault access grants:
 
 ```bash
 # List all vault access grants this month
-curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?event_type=vault_access_granted&start_date=2025-11-01T00:00:00Z" \
+curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?action=vault_access_granted&start_date=2025-11-01T00:00:00Z" \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -279,7 +280,7 @@ Track a specific user's activity:
 
 ```bash
 # Get all actions by user 456
-curl -X GET "http://localhost:9090/v1/organizations/{org}/audit-logs?user_id=456&limit=100" \
+curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?actor=456&limit=100" \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -299,7 +300,7 @@ def export_audit_logs(org_id: str, start_date: datetime, end_date: datetime):
 
     while True:
         response = requests.get(
-            f"http://localhost:9090/v1/organizations/{org_id}/audit-logs",
+            f"http://localhost:9090/control/v1/organizations/{org_id}/audit-logs",
             params={
                 "limit": limit,
                 "offset": offset,
@@ -354,9 +355,9 @@ def monitor_security_events(org_id: str, poll_interval: int = 60):
     while True:
         for event_type in critical_events:
             response = requests.get(
-                f"http://localhost:9090/v1/organizations/{org_id}/audit-logs",
+                f"http://localhost:9090/control/v1/organizations/{org_id}/audit-logs",
                 params={
-                    "event_type": event_type,
+                    "action": event_type,
                     "start_date": last_check.isoformat(),
                     "limit": 100,
                 },
@@ -404,10 +405,10 @@ Audit logs grow large over time. Always use time-range filters for better perfor
 
 ```bash
 # Good: Time-bounded query
-GET /v1/organizations/{org}/audit-logs?start_date=2025-11-01T00:00:00Z&end_date=2025-11-18T23:59:59Z
+GET /control/v1/organizations/{org}/audit-logs?start_date=2025-11-01T00:00:00Z&end_date=2025-11-18T23:59:59Z
 
 # Slower: Open-ended query
-GET /v1/organizations/{org}/audit-logs
+GET /control/v1/organizations/{org}/audit-logs
 ```
 
 ### 2. Combine Filters
@@ -416,20 +417,20 @@ Use multiple filters to reduce result sets:
 
 ```bash
 # Good: Filtered query
-GET /v1/organizations/{org}/audit-logs?event_type=vault_access_granted&user_id=456&start_date=2025-11-01T00:00:00Z
+GET /control/v1/organizations/{org}/audit-logs?action=vault_access_granted&actor=456&start_date=2025-11-01T00:00:00Z
 
 # Slower: Broad query
-GET /v1/organizations/{org}/audit-logs?start_date=2025-11-01T00:00:00Z
+GET /control/v1/organizations/{org}/audit-logs?start_date=2025-11-01T00:00:00Z
 ```
 
 ### 3. Use Appropriate Page Sizes
 
 ```bash
 # UI pagination: smaller pages
-GET /v1/organizations/{org}/audit-logs?limit=25
+GET /control/v1/organizations/{org}/audit-logs?limit=25
 
 # Batch export: larger pages
-GET /v1/organizations/{org}/audit-logs?limit=100
+GET /control/v1/organizations/{org}/audit-logs?limit=100
 ```
 
 ### 4. Avoid Large Offsets
@@ -438,7 +439,7 @@ For very large result sets, avoid deep pagination:
 
 ```bash
 # Inefficient for large datasets
-GET /v1/organizations/{org}/audit-logs?offset=10000&limit=50
+GET /control/v1/organizations/{org}/audit-logs?offset=10000&limit=50
 ```
 
 Instead, use narrower time ranges or export data in batches during off-peak hours.

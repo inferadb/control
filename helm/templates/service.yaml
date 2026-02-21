@@ -18,13 +18,5 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
-    - port: {{ .Values.service.grpcPort }}
-      targetPort: grpc
-      protocol: TCP
-      name: grpc
-    - port: {{ .Values.service.meshPort }}
-      targetPort: mesh
-      protocol: TCP
-      name: mesh
   selector:
     {{- include "inferadb-control.selectorLabels" . | nindent 4 }}

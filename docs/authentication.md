@@ -104,7 +104,7 @@ sequenceDiagram
 
     Note over Client: Store session credentials
 
-    Client->>MgmtAPI: 6. Request Vault Access<br/>POST /v1/organizations/{org_id}/vaults/{vault_id}/tokens<br/>Authorization: Bearer {session_token}<br/>{requested_role: "read"} (optional)
+    Client->>MgmtAPI: 6. Request Vault Access<br/>POST /control/v1/organizations/{org}/vaults/{vault}/tokens<br/>Authorization: Bearer {session_token}<br/>{requested_role: "read"} (optional)
 
     Note over MgmtAPI: 7. Validate Session Token<br/>8. Check User Vault Permissions<br/>9. Determine Role (requested or default)<br/>10. Generate Vault JWT (Ed25519)<br/>11. Issue Vault Tokens
 
@@ -166,7 +166,7 @@ Vault-scoped JWTs issued by Control contain the following claims:
 When requesting a vault access token, clients can optionally specify the desired permission level:
 
 ```http
-POST /v1/organizations/{org_id}/vaults/{vault_id}/tokens
+POST /control/v1/organizations/{org}/vaults/{vault}/tokens
 Authorization: Bearer {session_token}
 Content-Type: application/json
 
@@ -288,7 +288,7 @@ sequenceDiagram
     participant Client as Client Application
     participant MgmtAPI as Control
 
-    Client->>MgmtAPI: POST /v1/tokens/refresh<br/>{refresh_token}
+    Client->>MgmtAPI: POST /control/v1/tokens/refresh<br/>{refresh_token}
 
     Note over MgmtAPI: Validate Refresh Token<br/>Check Single-Use Status<br/>Verify Vault Access<br/>Mark Token as Used<br/>Generate New JWT<br/>Issue New Refresh Token
 
@@ -355,7 +355,7 @@ Clients **MUST** handle these error scenarios when refreshing tokens:
 ```javascript
 async function refreshVaultToken(vaultId, refreshToken) {
   try {
-    const response = await fetch(`/v1/vaults/${vaultId}/tokens/refresh`, {
+    const response = await fetch(`/control/v1/tokens/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken }),
@@ -457,7 +457,7 @@ sequenceDiagram
 
     Note over Backend: 2. Sign with Private Key (Ed25519)
 
-    Backend->>MgmtAPI: 3. POST /v1/token<br/>{grant_type: client_credentials,<br/>client_assertion_type: jwt-bearer,<br/>client_assertion: {signed_jwt},<br/>vault_id: "<vault_id>",<br/>requested_role: "write"}
+    Backend->>MgmtAPI: 3. POST /control/v1/token<br/>{grant_type: client_credentials,<br/>client_assertion_type: jwt-bearer,<br/>client_assertion: {signed_jwt},<br/>vault_id: "<vault_id>",<br/>requested_role: "write"}
 
     Note over MgmtAPI: 4. Parse Assertion JWT<br/>5. Lookup Client by iss/sub<br/>6. Verify Signature (Public Key)<br/>7. Validate Claims (aud, exp, jti)<br/>8. Check Vault Permissions<br/>9. Generate Vault-Scoped JWT
 
@@ -469,7 +469,7 @@ sequenceDiagram
 **Token Request Parameters**:
 
 ```http
-POST /v1/token
+POST /control/v1/token
 Content-Type: application/json
 
 {
@@ -581,7 +581,7 @@ app.get("/api/documents/:id", async (req, res) => {
         user_agent: req.headers["user-agent"],
       },
     },
-    vaultToken
+    vaultToken,
   );
 
   // 5. Enforce decision
@@ -651,7 +651,7 @@ const decision = await inferadb.check(
       session_id: user.sessionId,
     },
   },
-  vaultToken
+  vaultToken,
 );
 ```
 
@@ -693,7 +693,7 @@ async function handleEmailChange(userId, oldEmail, newEmail) {
   await inferadb.migrateRelations(
     `user:${oldEmail}`,
     `user:${newEmail}`,
-    vaultToken
+    vaultToken,
   );
 
   // Or keep using stable ID-based subjects (no migration needed!)
@@ -957,7 +957,7 @@ Token revocation provides immediate invalidation of compromised or unwanted acce
 **API Endpoint**:
 
 ```http
-DELETE /v1/sessions/{session_id}
+DELETE /control/v1/users/sessions/{id}
 Authorization: Bearer {admin_session_token}
 ```
 
@@ -1021,7 +1021,7 @@ Authorization: Bearer {admin_session_token}
 **API Endpoint**:
 
 ```http
-DELETE /v1/organizations/{org_id}/clients/{client_id}/certificates/{cert_id}
+DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}
 Authorization: Bearer {admin_session_token}
 ```
 
@@ -1075,14 +1075,14 @@ sequenceDiagram
     participant ServerAPI as Engine
     participant Client as Client Application
 
-    Admin->>MgmtAPI: DELETE /v1/sessions/{id}
+    Admin->>MgmtAPI: DELETE /control/v1/users/sessions/{id}
     MgmtAPI->>MgmtAPI: Mark session as revoked in DB
     MgmtAPI->>Redis: Add session_id to revocation set<br/>(TTL: 7 days)
     MgmtAPI-->>Admin: Session revoked
 
     Note over Client: Attempts to refresh vault token
 
-    Client->>MgmtAPI: POST /v1/tokens/refresh
+    Client->>MgmtAPI: POST /control/v1/tokens/refresh
     MgmtAPI->>Redis: Check if session revoked
     Redis-->>MgmtAPI: Session in revocation set
     MgmtAPI-->>Client: 401 invalid_grant
@@ -1132,7 +1132,7 @@ sequenceDiagram
     Note over ServerAPI: Need to verify vault ownership
 
     ServerAPI->>ServerAPI: Generate engine JWT (5 min TTL)
-    ServerAPI->>MgmtAPI: GET /v1/vaults/{vault_id}<br/>Authorization: Bearer {engine_jwt}
+    ServerAPI->>MgmtAPI: GET /control/v1/vaults/{vault}<br/>Authorization: Bearer {engine_jwt}
 
     MgmtAPI->>ServerAPI: Fetch JWKS from /.well-known/jwks.json
     MgmtAPI->>MgmtAPI: Verify engine JWT signature
@@ -1140,7 +1140,7 @@ sequenceDiagram
     MgmtAPI-->>ServerAPI: Vault details (org_id, name, status)
 
     ServerAPI->>ServerAPI: Cache vault details (5 min TTL)
-    ServerAPI->>MgmtAPI: GET /v1/organizations/{org_id}<br/>Authorization: Bearer {engine_jwt}
+    ServerAPI->>MgmtAPI: GET /control/v1/organizations/{org}<br/>Authorization: Bearer {engine_jwt}
     MgmtAPI-->>ServerAPI: Organization status
 
     ServerAPI->>ServerAPI: Cache org status (5 min TTL)
@@ -1262,14 +1262,14 @@ This architecture ensures that privileged endpoints are only accessible via the 
 
 User-facing endpoints with session authentication and permission enforcement:
 
-- `GET /v1/organizations/{org}` - Fetch organization details (requires organization membership)
-- `GET /v1/vaults/{vault}` - Fetch vault details (requires vault access)
+- `GET /control/v1/organizations/{org}` - Fetch organization details (requires organization membership)
+- `GET /control/v1/vaults/{vault}` - Fetch vault details (requires vault access)
 
 **User Request Example**:
 
 ```bash
 # Request to public server (port 9090)
-curl -X GET http://localhost:9090/v1/organizations/123456789 \
+curl -X GET http://localhost:9090/control/v1/organizations/123456789 \
   -H "Cookie: infera_session=sess_abc123..."
 ```
 
@@ -1308,7 +1308,7 @@ curl -X GET http://localhost:9092/internal/organizations/123456789 \
 | **Authentication** | Session cookies            | Engine JWTs (EdDSA)            |
 | **Authorization**  | Permission checks required | No permission checks           |
 | **Network**        | Public internet            | Internal network only          |
-| **Endpoints**      | `/v1/*`                    | `/internal/*`                  |
+| **Endpoints**      | `/control/v1/*`            | `/internal/*`                  |
 | **Use Case**       | User requests              | Engine-to-control verification |
 
 #### Security Benefits

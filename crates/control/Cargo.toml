@@ -24,9 +24,7 @@ inferadb-control-types = { path = "../types" }
 # External dependencies (anyhow at application level, snafu in libraries)
 anyhow = { workspace = true }
 clap = { workspace = true }
-config = { workspace = true }
 rustls = { workspace = true }
-serde = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -44,7 +44,7 @@ impl SecureToken {
     ///
     /// Returns a 32-byte random value as a 64-character hex string.
     pub fn generate_token() -> String {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         let bytes: [u8; 32] = rng.random();
         hex::encode(bytes)

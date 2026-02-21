@@ -19,16 +19,16 @@ All list endpoints accept these optional query parameters:
 
 ```bash
 # Get first page (default: 50 items)
-GET /v1/organizations/{org}/vaults
+GET /control/v1/organizations/{org}/vaults
 
 # Get 25 items per page
-GET /v1/organizations/{org}/vaults?limit=25
+GET /control/v1/organizations/{org}/vaults?limit=25
 
 # Get second page (skip first 50 items)
-GET /v1/organizations/{org}/vaults?limit=50&offset=50
+GET /control/v1/organizations/{org}/vaults?limit=50&offset=50
 
 # Get third page with 25 items per page
-GET /v1/organizations/{org}/vaults?limit=25&offset=50
+GET /control/v1/organizations/{org}/vaults?limit=25&offset=50
 ```
 
 ## Response Format
@@ -111,13 +111,13 @@ The `has_more` field indicates whether additional pages exist:
 
 ```bash
 # Too small: excessive requests
-GET /v1/organizations/{org}/vaults?limit=5
+GET /control/v1/organizations/{org}/vaults?limit=5
 
 # Good: balanced performance
-GET /v1/organizations/{org}/vaults?limit=50
+GET /control/v1/organizations/{org}/vaults?limit=50
 
 # Large batch: fewer requests, higher memory
-GET /v1/organizations/{org}/vaults?limit=100
+GET /control/v1/organizations/{org}/vaults?limit=100
 ```
 
 **Recommendations**:
@@ -136,7 +136,7 @@ async function fetchAllVaults(orgId: string): Promise<Vault[]> {
 
   while (true) {
     const response = await fetch(
-      `/v1/organizations/${orgId}/vaults?limit=${limit}&offset=${offset}`
+      `/control/v1/organizations/${orgId}/vaults?limit=${limit}&offset=${offset}`,
     );
     const { data, pagination } = await response.json();
 
@@ -183,7 +183,7 @@ function handlePaginatedResponse(response: PaginatedResponse) {
 
 ```bash
 # Inefficient for large datasets
-GET /v1/audit-logs?limit=50&offset=100000
+GET /control/v1/organizations/{org}/audit-logs?limit=50&offset=100000
 ```
 
 For large datasets, consider:
@@ -196,15 +196,15 @@ For large datasets, consider:
 
 All list endpoints support pagination:
 
-| Endpoint                                 | Default Limit | Notes                       |
-| ---------------------------------------- | ------------- | --------------------------- |
-| `GET /v1/organizations`                  | 50            | User's organizations        |
-| `GET /v1/organizations/{org}/vaults`     | 50            | Organization vaults         |
-| `GET /v1/organizations/{org}/teams`      | 50            | Organization teams          |
-| `GET /v1/organizations/{org}/clients`    | 50            | OAuth clients               |
-| `GET /v1/organizations/{org}/sessions`   | 50            | User sessions               |
-| `GET /v1/organizations/{org}/audit-logs` | 50            | Audit logs (streaming mode) |
-| `GET /v1/teams/{team}/members`           | 50            | Team members                |
+| Endpoint                                         | Default Limit | Notes                       |
+| ------------------------------------------------ | ------------- | --------------------------- |
+| `GET /control/v1/organizations`                  | 50            | User's organizations        |
+| `GET /control/v1/organizations/{org}/vaults`     | 50            | Organization vaults         |
+| `GET /control/v1/organizations/{org}/teams`      | 50            | Organization teams          |
+| `GET /control/v1/organizations/{org}/clients`    | 50            | OAuth clients               |
+| `GET /control/v1/organizations/{org}/sessions`   | 50            | User sessions               |
+| `GET /control/v1/organizations/{org}/audit-logs` | 50            | Audit logs (streaming mode) |
+| `GET /control/v1/teams/{team}/members`           | 50            | Team members                |
 
 ## Examples
 
@@ -221,7 +221,7 @@ def get_all_vaults(org_id: str, api_url: str) -> list:
 
     while True:
         response = requests.get(
-            f"{api_url}/v1/organizations/{org_id}/vaults",
+            f"{api_url}/control/v1/organizations/{org_id}/vaults",
             params={"limit": limit, "offset": offset}
         )
         response.raise_for_status()
@@ -253,13 +253,13 @@ interface PaginatedResponse<T> {
 
 async function* fetchVaultsPaginated(
   orgId: string,
-  pageSize: number = 50
+  pageSize: number = 50,
 ): AsyncGenerator<Vault[]> {
   let offset = 0;
 
   while (true) {
     const response = await fetch(
-      `/v1/organizations/${orgId}/vaults?limit=${pageSize}&offset=${offset}`
+      `/control/v1/organizations/${orgId}/vaults?limit=${pageSize}&offset=${offset}`,
     );
     const page: PaginatedResponse<Vault> = await response.json();
 
@@ -303,7 +303,7 @@ func FetchAllVaults(orgID string) ([]Vault, error) {
 
     for {
         url := fmt.Sprintf(
-            "/v1/organizations/%s/vaults?limit=%d&offset=%d",
+            "/control/v1/organizations/%s/vaults?limit=%d&offset=%d",
             orgID, limit, offset,
         )
 

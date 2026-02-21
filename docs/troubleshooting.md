@@ -39,18 +39,13 @@ cargo build --release
 
 **Solution**:
 
-```yaml
-# Ensure config.yaml uses memory backend
-control:
-  storage: "memory"
+```bash
+# Use in-memory backend (development)
+inferadb-control --storage memory
 
-# Or for Ledger (production):
-control:
-  storage: "ledger"
-  ledger:
-    endpoint: "https://ledger.example.com"
-    client_id: "your-client-id"
-    namespace_id: 1
+# Or for Ledger (production)
+inferadb-control --storage ledger --ledger-endpoint https://ledger.example.com \
+  --ledger-client-id your-client-id --ledger-namespace-id 1
 ```
 
 ### Port Conflicts
@@ -61,23 +56,17 @@ control:
 
 **Solutions**:
 
-**Option 1**: Change ports in configuration
-
-```yaml
-# config.yaml
-control:
-  listen:
-    http: "127.0.0.1:8080" # Changed from 9090
-    grpc: "127.0.0.1:8081" # Changed from 9091
-    mesh: "0.0.0.0:8082" # Changed from 9092
-```
-
-**Option 2**: Use environment variables
+**Option 1**: Change listen address via CLI flag
 
 ```bash
-export INFERADB__CONTROL__LISTEN__HTTP="127.0.0.1:8080"
-export INFERADB__CONTROL__LISTEN__GRPC="127.0.0.1:8081"
-./target/release/inferadb-control
+inferadb-control --listen 127.0.0.1:8080
+```
+
+**Option 2**: Use environment variable
+
+```bash
+export INFERADB__CONTROL__LISTEN="127.0.0.1:8080"
+inferadb-control
 ```
 
 **Option 3**: Kill conflicting process
@@ -92,17 +81,6 @@ kill -9 <PID>
 
 ### Configuration Issues
 
-#### Issue: Configuration file not found
-
-**Error**: `Failed to load configuration file`
-
-**Solution**:
-
-```bash
-# Specify config file explicitly
-./target/release/inferadb-control --config /path/to/config.yaml
-```
-
 #### Issue: Master key file not found
 
 **Error**: `Failed to load master key from file`
@@ -110,10 +88,11 @@ kill -9 <PID>
 **Solution**:
 
 ```bash
-# Let Control auto-generate the key file
-# Or specify a path in config.yaml:
-control:
-  key_file: "./data/master.key"
+# Specify a key file path via CLI flag
+inferadb-control --key-file ./data/master.key
+
+# Or via environment variable
+export INFERADB__CONTROL__KEY_FILE="./data/master.key"
 
 # The key file will be auto-generated if it doesn't exist
 ```
@@ -195,10 +174,6 @@ curl -X POST http://localhost:9090/v1/auth/password-reset/request \
 curl -X POST http://localhost:9090/v1/auth/email-verification/resend \
   -H "Content-Type: application/json" \
   -d '{"email": "user@example.com"}'
-
-# For development, disable requirement in config
-features:
-  require_email_verification: false
 ```
 
 ### Session Issues
@@ -223,7 +198,7 @@ curl -H "Cookie: session_id=sess_abc123"    # Wrong cookie name
 **Step 2**: Check session expiration
 
 ```bash
-# Sessions expire after TTL (default: 30 days for web)
+# Sessions expire after TTL (default: 24 hours for web, 7 days for CLI, 30 days for SDK)
 # Login again to get new session
 curl -X POST http://localhost:9090/v1/auth/login/password \
   -H "Content-Type: application/json" \
@@ -258,15 +233,9 @@ curl -X POST http://localhost:9090/v1/auth/sessions/revoke-all \
 
 **Solutions**:
 
-**For development**: Adjust rate limits in config
-
-```yaml
-# config.yaml
-control:
-  limits:
-    login_attempts_per_ip_per_hour: 1000 # Increase for testing
-    registrations_per_ip_per_day: 100
-```
+**Note**: Rate limits are built-in defaults and are not configurable. If you encounter rate
+limiting during development, wait for the limit window to reset or restart the server
+(in-memory rate limit state is cleared on restart).
 
 **For production**: Implement exponential backoff
 
@@ -371,15 +340,17 @@ curl -X GET http://localhost:9090/v1/organizations \
 tail -f /var/log/inferadb-control-api.log
 
 # Or if running directly
-./target/release/inferadb-control-api --config config.yaml 2>&1 | tee api.log
+./target/release/inferadb-control --log-level debug 2>&1 | tee api.log
 ```
 
 **Step 2**: Enable debug logging
 
-```yaml
-# config.yaml
-control:
-  logging: "debug" # or "trace"
+```bash
+# Via CLI flag
+inferadb-control --log-level debug
+
+# Or via environment variable
+export INFERADB__CONTROL__LOG_LEVEL=debug
 ```
 
 **Step 3**: Report the issue with logs
@@ -434,13 +405,11 @@ ps aux | grep inferadb-control-api
 curl http://localhost:9090/metrics | grep memory
 ```
 
-**Step 3**: Adjust threads
+**Step 3**: Reduce concurrency
 
-```yaml
-# config.yaml
-control:
-  threads: 4 # Reduce from default (number of CPU cores)
-```
+The thread count is managed automatically by the Tokio runtime and is not configurable.
+If memory usage is excessive, consider reducing the number of concurrent connections at the
+load balancer or reverse proxy level.
 
 ## Deployment Issues
 
@@ -468,11 +437,11 @@ docker logs -f inferadb-control-api
 docker inspect inferadb-control-api | jq '.[0].Config.Env'
 ```
 
-**Step 3**: Check volume mounts
+**Step 3**: Check volume mounts for key file
 
 ```bash
-# Verify config file is accessible
-docker exec inferadb-control-api cat /app/config.yaml
+# Verify key file is accessible inside the container
+docker exec inferadb-control-api ls -la /data/master.key
 ```
 
 ### Kubernetes Deployment
@@ -523,7 +492,7 @@ kubectl get endpoints -n infera inferadb-control-api
 
 ```bash
 kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
-  curl http://inferadb-control-api.inferadb.svc.cluster.local:9090/health
+  curl http://inferadb-control-api.inferadb.svc.cluster.local:9090/healthz
 ```
 
 ## Development & Testing
@@ -616,16 +585,23 @@ docker-compose logs mailhog
 
 **For production**: Verify SMTP config
 
-```yaml
-# config.yaml
-control:
-  email:
-    host: "smtp.gmail.com"
-    port: 587
-    username: "your-email@gmail.com"
-    password: "your-app-password" # Use app password, not real password!
-    address: "noreply@yourdomain.com"
-    name: "Your App"
+```bash
+# Via CLI flags
+inferadb-control \
+  --email-host smtp.gmail.com \
+  --email-port 587 \
+  --email-username your-email@gmail.com \
+  --email-password your-app-password \
+  --email-from-address noreply@yourdomain.com \
+  --email-from-name "Your App"
+
+# Or via environment variables
+export INFERADB__CONTROL__EMAIL_HOST=smtp.gmail.com
+export INFERADB__CONTROL__EMAIL_PORT=587
+export INFERADB__CONTROL__EMAIL_USERNAME=your-email@gmail.com
+export INFERADB__CONTROL__EMAIL_PASSWORD=your-app-password  # Use provider-specific credentials (e.g., Gmail app password, SendGrid API key)
+export INFERADB__CONTROL__EMAIL_FROM_ADDRESS=noreply@yourdomain.com
+export INFERADB__CONTROL__EMAIL_FROM_NAME="Your App"
 ```
 
 **Test SMTP connection**:
@@ -652,9 +628,9 @@ If these solutions don't resolve your issue:
 
 2. **Enable debug logging**:
 
-   ```yaml
-   control:
-     logging: "trace"
+   ```bash
+   inferadb-control --log-level trace
+   # Or: export INFERADB__CONTROL__LOG_LEVEL=trace
    ```
 
 3. **Collect diagnostic information**:
@@ -668,7 +644,7 @@ If these solutions don't resolve your issue:
    ./target/release/inferadb-control --version
 
    # Configuration (redact secrets!)
-   cat config.yaml | grep -v secret
+   env | grep INFERADB__CONTROL__ | grep -Evi '(secret|password|token|key|pem|credential)'
 
    # Recent logs
    tail -n 100 /var/log/inferadb-control-api.log

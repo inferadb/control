@@ -296,7 +296,7 @@ pub async fn create_certificate(
 
     // Encrypt private key for storage
     tracing::debug!("Loading master key for encryption");
-    let master_key = MasterKey::load_or_generate(state.config.key_file.as_deref())?;
+    let master_key = MasterKey::load_or_generate(&state.config.key_file)?;
     let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
 
     tracing::debug!("Encrypting private key");
@@ -712,7 +712,7 @@ pub async fn rotate_certificate(
 
     // Encrypt private key for storage
     tracing::debug!("Loading master key for encryption");
-    let master_key = MasterKey::load_or_generate(state.config.key_file.as_deref())?;
+    let master_key = MasterKey::load_or_generate(&state.config.key_file)?;
     let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
 
     tracing::debug!("Encrypting private key");

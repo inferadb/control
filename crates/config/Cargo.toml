@@ -13,22 +13,20 @@ version.workspace = true
 # Builder pattern
 bon = { workspace = true }
 
-# Configuration loading
-config = { workspace = true }
-num_cpus = { workspace = true }
+# CLI argument parsing with env var support
+clap = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
-serde_json = { workspace = true }
+
+# Enum derive macros (Display, EnumString)
+strum = { workspace = true }
 
 # Logging
 tracing = { workspace = true }
 
 # Error types from types crate
 inferadb-control-types = { path = "../types" }
-
-[dev-dependencies]
-serde_yaml = { workspace = true }
 
 [lints]
 workspace = true

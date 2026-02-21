@@ -31,7 +31,7 @@ use time;
 #[builder(on(Arc<_>, into))]
 pub struct AppState {
     pub storage: Arc<Backend>,
-    pub config: Arc<inferadb_control_config::ControlConfig>,
+    pub config: Arc<inferadb_control_config::Config>,
     pub worker_id: u16,
     #[builder(default = std::time::SystemTime::now())]
     pub start_time: std::time::SystemTime,
@@ -46,12 +46,12 @@ impl AppState {
     /// Create AppState for testing with default configuration
     /// This is used by both unit tests and integration tests
     pub fn new_test(storage: Arc<Backend>) -> Self {
-        use inferadb_control_config::ControlConfig;
+        use inferadb_control_config::{Config, StorageBackend};
 
         // Create a minimal test config using builder pattern
-        // WebAuthnConfig defaults to localhost which is correct for tests
-        let config = ControlConfig::builder()
-            .maybe_key_file(Some("/tmp/test-master.key".to_string()))
+        let config = Config::builder()
+            .storage(StorageBackend::Memory)
+            .key_file(std::path::PathBuf::from("/tmp/test-master.key"))
             .build();
 
         // Create mock email service for testing
@@ -210,7 +210,7 @@ pub async fn register(
         let user_name = payload.name.clone();
         let token_str = verification_token.secure_token.token.clone();
         let email_service = Arc::clone(email_service);
-        let frontend_url = state.config.frontend.url.clone();
+        let frontend_url = state.config.frontend_url.clone();
 
         tokio::spawn(async move {
             use inferadb_control_core::{EmailTemplate, VerificationEmailTemplate};
@@ -451,7 +451,7 @@ pub async fn request_password_reset(
             let user_name = user.name.clone();
             let token_for_email = token_string.clone();
             let email_service = Arc::clone(email_service);
-            let frontend_url = state.config.frontend.url.clone();
+            let frontend_url = state.config.frontend_url.clone();
 
             tokio::spawn(async move {
                 use inferadb_control_core::{EmailTemplate, PasswordResetEmailTemplate};

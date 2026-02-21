@@ -137,7 +137,7 @@ impl OrganizationInvitation {
     ///
     /// Returns an error if token generation fails
     pub fn generate_token() -> Result<String> {
-        use rand::Rng;
+        use rand::RngExt;
 
         let mut token_bytes = [0u8; 32];
         rand::rng().fill(&mut token_bytes);

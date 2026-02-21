@@ -1,896 +1,570 @@
 //! # InferaDB Control Configuration
 //!
-//! Handles configuration loading from files, environment variables, and CLI args.
-//!
-//! ## Unified Configuration Format
-//!
-//! This crate supports a unified configuration format that allows both engine and control
-//! services to share the same configuration file:
-//!
-//! ```yaml
-//! engine:
-//!   threads: 4
-//!   logging: "info"
-//!   listen:
-//!     http: "127.0.0.1:8080"
-//!   # ... other engine config (ignored by control)
-//!
-//! control:
-//!   threads: 4
-//!   logging: "info"
-//!   listen:
-//!     http: "127.0.0.1:9090"
-//!   # ... control config
-//! ```
-//!
-//! The control service reads its configuration from the `control:` section. Any `engine:` section
-//! is ignored by control (and vice versa when engine reads the same file).
-//!
-//! ## Builder Pattern for Configuration
-//!
-//! All configuration structs use [`bon::Builder`] for programmatic construction. Builder
-//! defaults match serde defaults, so both file-based and programmatic configs behave
-//! identically:
+//! CLI-first configuration for the Control API. Uses `clap::Parser` for
+//! argument parsing with environment variable fallbacks, and `bon::Builder`
+//! for ergonomic test construction without CLI/env interference.
 //!
 //! ```no_run
-//! use inferadb_control_config::{ControlConfig, ListenConfig};
+//! use inferadb_control_config::{Cli, Config};
+//! use clap::Parser;
 //!
-//! // Build a custom configuration programmatically
-//! let config = ControlConfig::builder()
-//!     .threads(8)
-//!     .logging("debug")  // &str accepted via Into<String>
-//!     .listen(
-//!         ListenConfig::builder()
-//!             .http("0.0.0.0:9090")
-//!             .grpc("0.0.0.0:9091")
-//!             .build()
-//!     )
-//!     .build();
-//!
-//! // Use defaults for most fields
-//! let minimal = ControlConfig::builder().build();
-//! assert_eq!(minimal.logging, "info");  // serde default
+//! let cli = Cli::parse();
+//! let config = cli.config;
+//! config.validate().expect("invalid configuration");
 //! ```
 //!
-//! ### Default Values
+//! ```no_run
+//! use std::path::PathBuf;
+//! use inferadb_control_config::{Config, StorageBackend};
 //!
-//! Configuration fields have sensible defaults aligned between serde and builder:
-//!
-//! | Field | Default |
-//! |-------|---------|
-//! | `threads` | Number of CPU cores |
-//! | `logging` | `"info"` |
-//! | `listen.http` | `"127.0.0.1:9090"` |
-//! | `listen.grpc` | `"127.0.0.1:9091"` |
-//!
-//! Optional fields (`Option<T>`) can be set using `.maybe_*()` methods:
-//!
-//! ```ignore
-//! use inferadb_control_config::ControlConfig;
-//!
-//! let config = ControlConfig::builder()
-//!     .maybe_pem(Some("-----BEGIN PRIVATE KEY-----...".to_string()))
-//!     .maybe_key_file(None)  // explicitly None
+//! let config = Config::builder()
+//!     .storage(StorageBackend::Memory)
+//!     .frontend_url("http://localhost:3000")
 //!     .build();
 //! ```
 
 #![deny(unsafe_code)]
 
-use std::path::Path;
+use std::{net::SocketAddr, path::PathBuf};
 
 use bon::Builder;
+use clap::Parser;
 use inferadb_control_types::error::{Error, Result};
-use serde::{Deserialize, Serialize};
 
-/// Root configuration wrapper for unified config file support.
-///
-/// This allows both engine and control to read from the same YAML file,
-/// with each service reading its own section:
-///
-/// ```yaml
-/// engine:
-///   listen:
-///     http: "127.0.0.1:8080"
-///   # ... other engine config (ignored by control)
-///
-/// control:
-///   listen:
-///     http: "127.0.0.1:9090"
-///   # ... control config
-/// ```
-#[derive(Debug, Clone, Serialize, Deserialize, Default, Builder)]
-pub struct RootConfig {
-    /// Control-specific configuration
-    #[serde(default)]
-    #[builder(default)]
-    pub control: ControlConfig,
-    // Note: `engine` section may exist in the file but is ignored by control
+/// Default HTTP listen address.
+const DEFAULT_LISTEN: &str = "127.0.0.1:9090";
+
+/// Default master key file path.
+const DEFAULT_KEY_FILE: &str = "./data/master.key";
+
+/// Default frontend URL for email links.
+const DEFAULT_FRONTEND_URL: &str = "http://localhost:3000";
+
+/// Default log level filter string.
+const DEFAULT_LOG_LEVEL: &str = "info";
+
+/// Default email from address.
+const DEFAULT_EMAIL_FROM_ADDRESS: &str = "noreply@inferadb.com";
+
+/// Default email from display name.
+const DEFAULT_EMAIL_FROM_NAME: &str = "InferaDB";
+
+/// Default SMTP port.
+const DEFAULT_EMAIL_PORT: u16 = 587;
+
+/// Storage backend selection.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum, strum::Display)]
+#[strum(serialize_all = "lowercase")]
+pub enum StorageBackend {
+    /// In-memory storage (data lost on restart).
+    Memory,
+    /// Persistent storage via InferaDB Ledger.
+    #[default]
+    Ledger,
 }
 
-/// Configuration for the Control API
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+/// Log output format.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum, strum::Display)]
+#[strum(serialize_all = "lowercase")]
+pub enum LogFormat {
+    /// Automatically detect: JSON for non-TTY stdout, text otherwise.
+    #[default]
+    Auto,
+    /// JSON structured logging (recommended for production).
+    Json,
+    /// Human-readable text format.
+    Text,
+}
+
+/// Command-line interface for the InferaDB Control Plane.
+#[derive(Debug, Parser)]
+#[command(name = "inferadb-control")]
+#[command(version)]
+pub struct Cli {
+    /// Subcommand to run. If omitted, starts the server.
+    #[command(subcommand)]
+    pub command: Option<CliCommand>,
+
+    /// Server configuration (flattened so flags appear at top level).
+    #[command(flatten)]
+    pub config: Config,
+}
+
+/// CLI subcommands.
+#[derive(Debug, clap::Subcommand)]
+pub enum CliCommand {}
+
+/// Configuration for the InferaDB Control Plane.
+///
+/// All fields are configurable via CLI flags or environment variables.
+/// Precedence: CLI arg > env var > default value.
+///
+/// Sensitive fields (`pem`, `email_password`) use `hide_env_values` to
+/// prevent leaking secrets in `--help` output.
+#[derive(Debug, Clone, Builder, Parser)]
+#[command(name = "inferadb-control")]
+#[command(version)]
 #[builder(on(String, into))]
-pub struct ControlConfig {
-    /// Number of worker threads for the async runtime
-    #[serde(default = "default_threads")]
-    #[builder(default = num_cpus::get())]
-    pub threads: usize,
+pub struct Config {
+    // ── Server ───────────────────────────────────────────────────────
+    /// HTTP bind address.
+    #[arg(long = "listen", env = "INFERADB__CONTROL__LISTEN", default_value = DEFAULT_LISTEN)]
+    #[builder(default = default_listen())]
+    pub listen: SocketAddr,
 
-    /// Log level (trace, debug, info, warn, error)
-    #[serde(default = "default_logging")]
-    #[builder(default = "info".to_string())]
-    pub logging: String,
+    /// Tracing-subscriber filter string (e.g., info, debug, trace).
+    #[arg(long = "log-level", env = "INFERADB__CONTROL__LOG_LEVEL", default_value = DEFAULT_LOG_LEVEL)]
+    #[builder(default = DEFAULT_LOG_LEVEL.to_string())]
+    pub log_level: String,
 
-    /// Ed25519 private key in PEM format (optional - will auto-generate if not provided for
-    /// control API. If provided, the key is persisted across restarts.
+    /// Log output format: auto, json, or text.
+    #[arg(
+        long = "log-format",
+        env = "INFERADB__CONTROL__LOG_FORMAT",
+        value_enum,
+        default_value = "auto"
+    )]
+    #[builder(default)]
+    pub log_format: LogFormat,
+
+    // ── Identity & Encryption ────────────────────────────────────────
+    /// Ed25519 private key in PEM format for control identity.
     /// If not provided, a new keypair is generated on each startup.
+    #[arg(long = "pem", env = "INFERADB__CONTROL__PEM", hide_env_values = true)]
     pub pem: Option<String>,
 
-    /// Path to the master key file for encrypting private keys at rest.
-    ///
-    /// The key file contains 32 bytes of cryptographically secure random data
-    /// used as the AES-256-GCM encryption key for client certificate private keys.
-    ///
-    /// Behavior:
-    /// - If set and file exists: load the key from file
-    /// - If set but file missing: generate a new key and save to file
-    /// - If not set: generate a new key in the default location (./data/master.key)
-    ///
-    /// SECURITY:
-    /// - The key file is created with restrictive permissions (0600)
-    /// - Back up this file securely - losing it means losing access to encrypted keys
-    /// - In production, mount from a Kubernetes secret or secrets manager
-    #[serde(default = "default_key_file")]
-    pub key_file: Option<String>,
+    /// Path to the AES-256-GCM master key file for encrypting private keys at rest.
+    #[arg(long = "key-file", env = "INFERADB__CONTROL__KEY_FILE", default_value = DEFAULT_KEY_FILE)]
+    #[builder(default = PathBuf::from(DEFAULT_KEY_FILE))]
+    pub key_file: PathBuf,
 
-    #[serde(default = "default_storage")]
-    #[builder(default = "ledger".to_string())]
-    pub storage: String,
-    /// Ledger backend configuration (required when storage = "ledger")
-    #[serde(default)]
+    // ── Storage ──────────────────────────────────────────────────────
+    /// Storage backend: memory or ledger.
+    #[arg(
+        long = "storage",
+        env = "INFERADB__CONTROL__STORAGE",
+        value_enum,
+        default_value = "ledger"
+    )]
     #[builder(default)]
-    pub ledger: LedgerConfig,
-    #[serde(default)]
+    pub storage: StorageBackend,
+
+    /// Ledger gRPC endpoint URL. Required when storage=ledger.
+    #[arg(long = "ledger-endpoint", env = "INFERADB__CONTROL__LEDGER_ENDPOINT")]
+    pub ledger_endpoint: Option<String>,
+
+    /// Ledger client identifier for idempotency tracking. Required when storage=ledger.
+    #[arg(long = "ledger-client-id", env = "INFERADB__CONTROL__LEDGER_CLIENT_ID")]
+    pub ledger_client_id: Option<String>,
+
+    /// Ledger namespace ID for data scoping. Required when storage=ledger.
+    #[arg(long = "ledger-namespace-id", env = "INFERADB__CONTROL__LEDGER_NAMESPACE_ID")]
+    pub ledger_namespace_id: Option<i64>,
+
+    /// Optional ledger vault ID for finer-grained key scoping.
+    #[arg(long = "ledger-vault-id", env = "INFERADB__CONTROL__LEDGER_VAULT_ID")]
+    pub ledger_vault_id: Option<i64>,
+
+    // ── Email (SMTP) ─────────────────────────────────────────────────
+    /// SMTP host. Empty string disables email.
+    #[arg(long = "email-host", env = "INFERADB__CONTROL__EMAIL_HOST", default_value = "")]
     #[builder(default)]
-    pub listen: ListenConfig,
-    #[serde(default)]
-    #[builder(default)]
-    pub webauthn: WebAuthnConfig,
-    #[serde(default)]
-    #[builder(default)]
-    pub email: EmailConfig,
-    #[serde(default)]
-    #[builder(default)]
-    pub limits: LimitsConfig,
-    #[serde(default)]
-    #[builder(default)]
-    pub webhook: WebhookConfig,
-    #[serde(default)]
-    #[builder(default)]
-    pub frontend: FrontendConfig,
-}
+    pub email_host: String,
 
-/// Listen address configuration for API servers
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-#[builder(on(String, into))]
-pub struct ListenConfig {
-    /// Client-facing HTTP/REST API server address
-    /// Format: "host:port" (e.g., "127.0.0.1:9090")
-    #[serde(default = "default_http")]
-    #[builder(default = "127.0.0.1:9090".to_string())]
-    pub http: String,
+    /// SMTP port.
+    #[arg(long = "email-port", env = "INFERADB__CONTROL__EMAIL_PORT", default_value_t = DEFAULT_EMAIL_PORT)]
+    #[builder(default = DEFAULT_EMAIL_PORT)]
+    pub email_port: u16,
 
-    /// Client-facing gRPC API server address
-    /// Format: "host:port" (e.g., "127.0.0.1:9091")
-    #[serde(default = "default_grpc")]
-    #[builder(default = "127.0.0.1:9091".to_string())]
-    pub grpc: String,
-}
+    /// SMTP username.
+    #[arg(long = "email-username", env = "INFERADB__CONTROL__EMAIL_USERNAME")]
+    pub email_username: Option<String>,
 
-impl Default for ListenConfig {
-    fn default() -> Self {
-        Self { http: default_http(), grpc: default_grpc() }
-    }
-}
+    /// SMTP password.
+    #[arg(
+        long = "email-password",
+        env = "INFERADB__CONTROL__EMAIL_PASSWORD",
+        hide_env_values = true
+    )]
+    pub email_password: Option<String>,
 
-/// WebAuthn configuration for passkey authentication
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-#[builder(on(String, into))]
-pub struct WebAuthnConfig {
-    /// Relying Party ID (domain)
-    /// e.g., "inferadb.com" for production or "localhost" for development
-    #[serde(default = "default_webauthn_party")]
-    #[builder(default = "localhost".to_string())]
-    pub party: String,
+    /// From email address for outgoing messages.
+    #[arg(long = "email-from-address", env = "INFERADB__CONTROL__EMAIL_FROM_ADDRESS", default_value = DEFAULT_EMAIL_FROM_ADDRESS)]
+    #[builder(default = DEFAULT_EMAIL_FROM_ADDRESS.to_string())]
+    pub email_from_address: String,
 
-    /// Origin URL for WebAuthn
-    /// e.g., `https://app.inferadb.com` or `http://localhost:3000`
-    #[serde(default = "default_webauthn_origin")]
-    #[builder(default = "http://localhost:3000".to_string())]
-    pub origin: String,
-}
-
-impl Default for WebAuthnConfig {
-    fn default() -> Self {
-        Self { party: default_webauthn_party(), origin: default_webauthn_origin() }
-    }
-}
-
-fn default_webauthn_party() -> String {
-    "localhost".to_string()
-}
-
-fn default_webauthn_origin() -> String {
-    "http://localhost:3000".to_string()
-}
-
-/// Email configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-#[builder(on(String, into))]
-pub struct EmailConfig {
-    /// SMTP host
-    #[serde(default = "default_email_host")]
-    #[builder(default = "localhost".to_string())]
-    pub host: String,
-
-    /// SMTP port
-    #[serde(default = "default_email_port")]
-    #[builder(default = 587)]
-    pub port: u16,
-
-    /// SMTP username
-    pub username: Option<String>,
-
-    /// SMTP password (should be set via environment variable)
-    pub password: Option<String>,
-
-    /// From email address
-    #[serde(default = "default_email_address")]
-    #[builder(default = "noreply@inferadb.com".to_string())]
-    pub address: String,
-
-    /// From display name
-    #[serde(default = "default_email_name")]
-    #[builder(default = "InferaDB".to_string())]
-    pub name: String,
+    /// From display name for outgoing messages.
+    #[arg(long = "email-from-name", env = "INFERADB__CONTROL__EMAIL_FROM_NAME", default_value = DEFAULT_EMAIL_FROM_NAME)]
+    #[builder(default = DEFAULT_EMAIL_FROM_NAME.to_string())]
+    pub email_from_name: String,
 
     /// Allow insecure (unencrypted) SMTP connections.
-    ///
-    /// **WARNING**: Only enable this for local development/testing with tools like Mailpit.
-    /// Never enable in production as it transmits credentials in plain text.
-    #[serde(default)]
+    /// Only for local development with tools like Mailpit.
+    #[arg(long = "email-insecure", env = "INFERADB__CONTROL__EMAIL_INSECURE")]
     #[builder(default)]
-    pub insecure: bool,
+    pub email_insecure: bool,
+
+    // ── Frontend ─────────────────────────────────────────────────────
+    /// Base URL for email links (verification, password reset).
+    #[arg(long = "frontend-url", env = "INFERADB__CONTROL__FRONTEND_URL", default_value = DEFAULT_FRONTEND_URL)]
+    #[builder(default = DEFAULT_FRONTEND_URL.to_string())]
+    pub frontend_url: String,
+
+    // ── Mode Flags ───────────────────────────────────────────────────
+    /// Force development mode: uses in-memory storage regardless of --storage.
+    /// No environment variable — this must be an explicit CLI choice.
+    #[arg(long = "dev-mode")]
+    #[builder(default)]
+    pub dev_mode: bool,
 }
 
-impl Default for EmailConfig {
-    fn default() -> Self {
-        Self {
-            host: "localhost".to_string(),
-            port: default_email_port(),
-            username: None,
-            password: None,
-            address: "noreply@inferadb.com".to_string(),
-            name: default_email_name(),
-            insecure: false,
-        }
-    }
+fn default_listen() -> SocketAddr {
+    #[allow(clippy::expect_used)]
+    DEFAULT_LISTEN.parse().expect("valid default listen address")
 }
 
-/// Rate limits configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct LimitsConfig {
-    /// Login attempts per IP per hour
-    #[serde(default = "default_login_attempts_per_ip_per_hour")]
-    #[builder(default = 100)]
-    pub login_attempts_per_ip_per_hour: u32,
-
-    /// Registrations per IP per day
-    #[serde(default = "default_registrations_per_ip_per_day")]
-    #[builder(default = 5)]
-    pub registrations_per_ip_per_day: u32,
-
-    /// Email verification tokens per email per hour
-    #[serde(default = "default_email_verification_tokens_per_hour")]
-    #[builder(default = 5)]
-    pub email_verification_tokens_per_hour: u32,
-
-    /// Password reset tokens per user per hour
-    #[serde(default = "default_password_reset_tokens_per_hour")]
-    #[builder(default = 3)]
-    pub password_reset_tokens_per_hour: u32,
-}
-
-impl Default for LimitsConfig {
-    fn default() -> Self {
-        Self {
-            login_attempts_per_ip_per_hour: default_login_attempts_per_ip_per_hour(),
-            registrations_per_ip_per_day: default_registrations_per_ip_per_day(),
-            email_verification_tokens_per_hour: default_email_verification_tokens_per_hour(),
-            password_reset_tokens_per_hour: default_password_reset_tokens_per_hour(),
-        }
-    }
-}
-
-/// Frontend configuration for web UI
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-#[builder(on(String, into))]
-pub struct FrontendConfig {
-    /// Base URL for email links (verification, password reset)
-    /// Example: `https://app.inferadb.com` or `http://localhost:3000`
-    #[serde(default = "default_frontend_url")]
-    #[builder(default = "http://localhost:3000".to_string())]
-    pub url: String,
-}
-
-impl Default for FrontendConfig {
-    fn default() -> Self {
-        Self { url: default_frontend_url() }
-    }
-}
-
-/// Webhook configuration for cache invalidation
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct WebhookConfig {
-    /// Webhook request timeout in milliseconds
-    #[serde(default = "default_webhook_timeout")]
-    #[builder(default = 5000)]
-    pub timeout: u64,
-
-    /// Number of retry attempts on webhook failure
-    #[serde(default = "default_webhook_retries")]
-    #[builder(default = 0)]
-    pub retries: u8,
-}
-
-impl Default for WebhookConfig {
-    fn default() -> Self {
-        Self { timeout: default_webhook_timeout(), retries: default_webhook_retries() }
-    }
-}
-
-/// Ledger storage backend configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default, Builder)]
-#[builder(on(String, into))]
-pub struct LedgerConfig {
-    /// Ledger server endpoint URL
-    /// e.g., `http://localhost:50051` or `https://ledger.inferadb.com:50051`
-    pub endpoint: Option<String>,
-
-    /// Client ID for idempotency tracking
-    /// Should be unique per control instance to ensure correct duplicate detection
-    /// e.g., "control-prod-us-west-1a-001"
-    pub client_id: Option<String>,
-
-    /// Namespace ID for data scoping
-    /// All keys will be stored within this namespace
-    pub namespace_id: Option<i64>,
-
-    /// Optional vault ID for finer-grained key scoping
-    /// If set, keys are scoped to this specific vault within the namespace
-    pub vault_id: Option<i64>,
-}
-
-// Default value functions
-fn default_http() -> String {
-    "127.0.0.1:9090".to_string()
-}
-
-fn default_grpc() -> String {
-    "127.0.0.1:9091".to_string()
-}
-
-fn default_threads() -> usize {
-    num_cpus::get()
-}
-
-fn default_logging() -> String {
-    "info".to_string()
-}
-
-fn default_storage() -> String {
-    "ledger".to_string()
-}
-
-fn default_email_host() -> String {
-    "localhost".to_string()
-}
-
-fn default_email_port() -> u16 {
-    587
-}
-
-fn default_email_address() -> String {
-    "noreply@inferadb.com".to_string()
-}
-
-fn default_email_name() -> String {
-    "InferaDB".to_string()
-}
-
-fn default_login_attempts_per_ip_per_hour() -> u32 {
-    100
-}
-
-fn default_registrations_per_ip_per_day() -> u32 {
-    5
-}
-
-fn default_email_verification_tokens_per_hour() -> u32 {
-    5
-}
-
-fn default_password_reset_tokens_per_hour() -> u32 {
-    3
-}
-
-fn default_frontend_url() -> String {
-    "http://localhost:3000".to_string()
-}
-
-fn default_webhook_timeout() -> u64 {
-    5000 // 5 seconds (in milliseconds)
-}
-
-fn default_webhook_retries() -> u8 {
-    0 // Fire-and-forget
-}
-
-fn default_key_file() -> Option<String> {
-    Some("./data/master.key".to_string())
-}
-
-impl Default for ControlConfig {
-    fn default() -> Self {
-        Self {
-            threads: default_threads(),
-            logging: default_logging(),
-            storage: default_storage(),
-            ledger: LedgerConfig::default(),
-            listen: ListenConfig { http: default_http(), grpc: default_grpc() },
-            webauthn: WebAuthnConfig::default(),
-            key_file: default_key_file(),
-            email: EmailConfig {
-                host: "localhost".to_string(),
-                port: default_email_port(),
-                username: None,
-                password: None,
-                address: "noreply@inferadb.com".to_string(),
-                name: default_email_name(),
-                insecure: false,
-            },
-            limits: LimitsConfig {
-                login_attempts_per_ip_per_hour: default_login_attempts_per_ip_per_hour(),
-                registrations_per_ip_per_day: default_registrations_per_ip_per_day(),
-                email_verification_tokens_per_hour: default_email_verification_tokens_per_hour(),
-                password_reset_tokens_per_hour: default_password_reset_tokens_per_hour(),
-            },
-            pem: None,
-            webhook: WebhookConfig::default(),
-            frontend: FrontendConfig::default(),
-        }
-    }
-}
-
-impl ControlConfig {
-    /// Load configuration with layered precedence: defaults → file → env vars
+impl Config {
+    /// Validate cross-field business rules.
     ///
-    /// This function implements a proper configuration hierarchy:
-    /// 1. Start with hardcoded defaults (via `#[serde(default)]` annotations)
-    /// 2. Override with values from config file (if file exists and properties are set)
-    /// 3. Override with environment variables (if env vars are set)
-    ///
-    /// Each layer only overrides properties that are explicitly set, preserving
-    /// defaults for unspecified values.
-    ///
-    /// ## Unified Configuration Format
-    ///
-    /// This function supports the unified configuration format that allows both
-    /// engine and control to share the same config file:
-    ///
-    /// ```yaml
-    /// control:
-    ///   threads: 4
-    ///   logging: "info"
-    ///   listen:
-    ///     http: "127.0.0.1:9090"
-    ///   # ... control config
-    ///
-    /// engine:
-    ///   # ... engine config (ignored by control)
-    /// ```
-    ///
-    /// ## Environment Variables
-    ///
-    /// Environment variables use the `INFERADB_CTRL__` prefix with double-underscore
-    /// nesting, mapping directly to `ControlConfig` fields:
-    ///
-    /// - `INFERADB_CTRL__LISTEN__HTTP=0.0.0.0:9090`
-    /// - `INFERADB_CTRL__STORAGE=memory`
-    /// - `INFERADB_CTRL__LEDGER__ENDPOINT=http://localhost:50051`
-    /// - `INFERADB_CTRL__EMAIL__HOST=smtp.example.com`
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        // Layer 1 (defaults): handled by serde's #[serde(default)] annotations.
-        // Layer 2: Load file and extract the `control` section from the unified YAML.
-        // The file may contain both `engine:` and `control:` sections; we only care
-        // about `control:`.
-        let file_config = config::Config::builder()
-            .add_source(config::File::from(path.as_ref()).required(false))
-            .build()
-            .map_err(|e| Error::config(format!("Failed to build config: {e}")))?;
-
-        // Serialize the `control` section to a JSON value, then use it as a source.
-        // This extracts just the control-plane config from the unified file format.
-        let file_control: ControlConfig = file_config.get("control").unwrap_or_default();
-
-        // Serialize the file-loaded config as a config::Value source, then layer
-        // environment variables on top. The env prefix INFERADB_CTRL__ maps directly
-        // to ControlConfig fields: INFERADB_CTRL__LISTEN__HTTP → listen.http
-        let serialized = config::Config::try_from(&file_control)
-            .map_err(|e| Error::config(format!("Failed to serialize file config: {e}")))?;
-
-        let merged = config::Config::builder()
-            .add_source(serialized)
-            .add_source(
-                config::Environment::with_prefix("INFERADB_CTRL")
-                    .prefix_separator("__")
-                    .separator("__")
-                    .try_parsing(true),
-            )
-            .build()
-            .map_err(|e| Error::config(format!("Failed to merge config: {e}")))?;
-
-        merged
-            .try_deserialize()
-            .map_err(|e| Error::config(format!("Failed to deserialize config: {e}")))
-    }
-
-    /// Load configuration with defaults, never panicking
-    ///
-    /// Convenience wrapper around `load()` that logs warnings but never fails.
-    /// Always returns a valid configuration, falling back to defaults if needed.
-    pub fn load_or_default<P: AsRef<Path>>(path: P) -> Self {
-        match Self::load(path.as_ref()) {
-            Ok(config) => {
-                tracing::info!("Configuration loaded successfully from {:?}", path.as_ref());
-                config
-            },
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "Failed to load config from {:?}. Using defaults with environment overrides.",
-                    path.as_ref()
-                );
-
-                // Even if file loading fails, apply env vars to defaults
-                Self::default()
-            },
-        }
-    }
-
-    /// Validate configuration
+    /// Must be called after parsing and before using the config. Checks
+    /// ledger storage requirements, frontend URL format, and applies
+    /// dev-mode overrides.
     pub fn validate(&self) -> Result<()> {
-        // Validate listen addresses are parseable
-        self.listen.http.parse::<std::net::SocketAddr>().map_err(|e| {
-            Error::config(format!("listen.http '{}' is not valid: {}", self.listen.http, e))
-        })?;
-        self.listen.grpc.parse::<std::net::SocketAddr>().map_err(|e| {
-            Error::config(format!("listen.grpc '{}' is not valid: {}", self.listen.grpc, e))
-        })?;
-
-        // Validate storage backend
-        match self.storage.as_str() {
-            "memory" => {},
-            "ledger" => {
-                // Validate required ledger fields using let-else for early returns
-                let Some(endpoint) = self.ledger.endpoint.as_ref() else {
-                    return Err(Error::config(
-                        "ledger.endpoint is required when using Ledger backend".to_string(),
-                    ));
-                };
-                if self.ledger.client_id.is_none() {
-                    return Err(Error::config(
-                        "ledger.client_id is required when using Ledger backend".to_string(),
-                    ));
-                }
-                if self.ledger.namespace_id.is_none() {
-                    return Err(Error::config(
-                        "ledger.namespace_id is required when using Ledger backend".to_string(),
-                    ));
-                }
-                // Validate endpoint format
-                if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
-                    return Err(Error::config(format!(
-                        "ledger.endpoint must start with http:// or https://, got: {endpoint}"
-                    )));
-                }
-            },
-            _ => {
+        // Validate ledger storage requirements
+        if self.effective_storage() == StorageBackend::Ledger {
+            let Some(endpoint) = self.ledger_endpoint.as_ref() else {
+                return Err(Error::config("--ledger-endpoint is required when storage=ledger"));
+            };
+            if self.ledger_client_id.is_none() {
+                return Err(Error::config("--ledger-client-id is required when storage=ledger"));
+            }
+            if self.ledger_namespace_id.is_none() {
+                return Err(Error::config("--ledger-namespace-id is required when storage=ledger"));
+            }
+            if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
                 return Err(Error::config(format!(
-                    "Invalid storage backend: '{}'. Supported: 'memory', 'ledger'",
-                    self.storage
+                    "--ledger-endpoint must start with http:// or https://, got: {endpoint}"
                 )));
-            },
+            }
         }
 
-        // Note: key_file validation is handled at runtime when loading the key
-        // The MasterKey::load_or_generate() function will create the key file if needed
-
-        // Validate frontend.url format
-        if !self.frontend.url.starts_with("http://") && !self.frontend.url.starts_with("https://") {
-            return Err(Error::config(
-                "frontend.url must start with http:// or https://".to_string(),
-            ));
+        // Validate frontend URL format
+        if !self.frontend_url.starts_with("http://") && !self.frontend_url.starts_with("https://") {
+            return Err(Error::config("--frontend-url must start with http:// or https://"));
         }
 
-        if self.frontend.url.ends_with('/') {
-            return Err(Error::config("frontend.url must not end with trailing slash".to_string()));
+        if self.frontend_url.ends_with('/') {
+            return Err(Error::config("--frontend-url must not end with a trailing slash"));
         }
 
-        // Warn about localhost in production-like environments
-        if self.frontend.url.contains("localhost") || self.frontend.url.contains("127.0.0.1") {
+        if self.frontend_url.contains("localhost") || self.frontend_url.contains("127.0.0.1") {
             tracing::warn!(
-                "frontend.url contains localhost - this should only be used in development. \
-                 Production deployments should use a public domain."
+                "--frontend-url contains localhost — this should only be used in development"
             );
-        }
-
-        // Validate webhook.timeout is reasonable
-        if self.webhook.timeout == 0 {
-            return Err(Error::config("webhook.timeout must be greater than 0".to_string()));
-        }
-        if self.webhook.timeout > 60000 {
-            tracing::warn!(
-                timeout = self.webhook.timeout,
-                "webhook.timeout is very high (>60s). Consider using a lower timeout."
-            );
-        }
-
-        // Validate WebAuthn configuration
-        if self.webauthn.party.is_empty() {
-            return Err(Error::config("webauthn.party cannot be empty".to_string()));
-        }
-        if self.webauthn.origin.is_empty() {
-            return Err(Error::config("webauthn.origin cannot be empty".to_string()));
-        }
-        if !self.webauthn.origin.starts_with("http://")
-            && !self.webauthn.origin.starts_with("https://")
-        {
-            return Err(Error::config(
-                "webauthn.origin must start with http:// or https://".to_string(),
-            ));
         }
 
         Ok(())
     }
 
-    /// Apply environment-aware defaults for storage backend.
+    /// Returns whether email sending is enabled.
     ///
-    /// In development environment, if Ledger is the default but no Ledger configuration
-    /// is provided, automatically fall back to memory storage for convenience.
-    /// This allows `cargo run` to "just work" without requiring Ledger setup.
-    ///
-    /// In production or when Ledger configuration is explicitly provided,
-    /// no changes are made and validation will enforce proper configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `environment` - The environment name (e.g., "development", "staging", "production")
-    pub fn apply_environment_defaults(&mut self, environment: &str) {
-        // Only apply in development environment
-        if environment != "development" {
-            return;
-        }
+    /// Email is disabled when `email_host` is empty (the default).
+    pub fn is_email_enabled(&self) -> bool {
+        !self.email_host.is_empty()
+    }
 
-        // If storage is ledger (the default) and no ledger config is provided,
-        // fall back to memory for developer convenience
-        if self.storage == "ledger"
-            && self.ledger.endpoint.is_none()
-            && self.ledger.client_id.is_none()
-            && self.ledger.namespace_id.is_none()
-        {
-            tracing::info!(
-                "Development mode: No Ledger configuration provided, using memory storage. \
-                 Set storage='memory' explicitly or provide ledger config to suppress this message."
-            );
-            self.storage = "memory".to_string();
-        }
+    /// Returns the effective storage backend, accounting for dev-mode override.
+    ///
+    /// When `dev_mode` is true, always returns `Memory` regardless of the
+    /// `storage` field value.
+    pub fn effective_storage(&self) -> StorageBackend {
+        if self.dev_mode { StorageBackend::Memory } else { self.storage }
+    }
+
+    /// Returns whether dev-mode is enabled.
+    pub fn is_dev_mode(&self) -> bool {
+        self.dev_mode
     }
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, unsafe_code)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
+    // ── Default Values ───────────────────────────────────────────────
+
     #[test]
-    fn test_config_defaults() {
-        assert_eq!(default_http(), "127.0.0.1:9090");
-        assert_eq!(default_grpc(), "127.0.0.1:9091");
-        assert_eq!(default_storage(), "ledger"); // Ledger is now the default
-        assert_eq!(default_webauthn_party(), "localhost");
-        assert_eq!(default_webauthn_origin(), "http://localhost:3000");
+    fn defaults_match_expected_values() {
+        let config = Config::builder().build();
+
+        assert_eq!(config.listen, "127.0.0.1:9090".parse::<SocketAddr>().unwrap());
+        assert_eq!(config.log_level, "info");
+        assert_eq!(config.log_format, LogFormat::Auto);
+        assert!(config.pem.is_none());
+        assert_eq!(config.key_file, PathBuf::from("./data/master.key"));
+        assert_eq!(config.storage, StorageBackend::Ledger);
+        assert!(config.ledger_endpoint.is_none());
+        assert!(config.ledger_client_id.is_none());
+        assert!(config.ledger_namespace_id.is_none());
+        assert!(config.ledger_vault_id.is_none());
+        assert_eq!(config.email_host, "");
+        assert_eq!(config.email_port, 587);
+        assert!(config.email_username.is_none());
+        assert!(config.email_password.is_none());
+        assert_eq!(config.email_from_address, "noreply@inferadb.com");
+        assert_eq!(config.email_from_name, "InferaDB");
+        assert!(!config.email_insecure);
+        assert_eq!(config.frontend_url, "http://localhost:3000");
+        assert!(!config.dev_mode);
+    }
+
+    // ── Validation: Ledger Storage ───────────────────────────────────
+
+    #[test]
+    fn validate_rejects_ledger_without_endpoint() {
+        let config = Config::builder().storage(StorageBackend::Ledger).build();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("--ledger-endpoint is required"));
     }
 
     #[test]
-    fn test_storage_validation() {
-        let mut config = ControlConfig::default();
-        config.webauthn.party = "localhost".to_string();
-        config.webauthn.origin = "http://localhost:3000".to_string();
-        config.storage = "invalid".to_string();
+    fn validate_rejects_ledger_without_client_id() {
+        let config = Config::builder()
+            .storage(StorageBackend::Ledger)
+            .ledger_endpoint("http://localhost:50051")
+            .build();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("--ledger-client-id is required"));
+    }
 
-        // Invalid storage
+    #[test]
+    fn validate_rejects_ledger_without_namespace_id() {
+        let config = Config::builder()
+            .storage(StorageBackend::Ledger)
+            .ledger_endpoint("http://localhost:50051")
+            .ledger_client_id("control-test")
+            .build();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("--ledger-namespace-id is required"));
+    }
+
+    #[test]
+    fn validate_rejects_invalid_ledger_endpoint_scheme() {
+        let config = Config::builder()
+            .storage(StorageBackend::Ledger)
+            .ledger_endpoint("grpc://localhost:50051")
+            .ledger_client_id("control-test")
+            .maybe_ledger_namespace_id(Some(1))
+            .build();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("http://"));
+    }
+
+    #[test]
+    fn validate_passes_complete_ledger_config() {
+        let config = Config::builder()
+            .storage(StorageBackend::Ledger)
+            .ledger_endpoint("http://localhost:50051")
+            .ledger_client_id("control-test")
+            .maybe_ledger_namespace_id(Some(1))
+            .build();
+        assert!(config.validate().is_ok());
+    }
+
+    // ── Validation: Frontend URL ─────────────────────────────────────
+
+    #[test]
+    fn validate_rejects_frontend_url_without_scheme() {
+        let config = Config::builder()
+            .storage(StorageBackend::Memory)
+            .frontend_url("ftp://example.com")
+            .build();
         assert!(config.validate().is_err());
+    }
 
-        // Valid storage backends
-        config.storage = "memory".to_string();
-        assert!(config.validate().is_ok());
+    #[test]
+    fn validate_rejects_frontend_url_with_trailing_slash() {
+        let config = Config::builder()
+            .storage(StorageBackend::Memory)
+            .frontend_url("https://example.com/")
+            .build();
+        assert!(config.validate().is_err());
+    }
 
-        // Ledger requires configuration
-        config.storage = "ledger".to_string();
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("ledger.endpoint is required"));
-
-        // Ledger with valid config
-        config.ledger.endpoint = Some("http://localhost:50051".to_string());
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("ledger.client_id is required"));
-
-        config.ledger.client_id = Some("control-test".to_string());
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("ledger.namespace_id is required"));
-
-        config.ledger.namespace_id = Some(1);
+    #[test]
+    fn validate_passes_valid_https_frontend_url() {
+        let config = Config::builder()
+            .storage(StorageBackend::Memory)
+            .frontend_url("https://app.inferadb.com")
+            .build();
         assert!(config.validate().is_ok());
     }
 
+    // ── Validation: Memory Storage ───────────────────────────────────
+
     #[test]
-    fn test_builder_defaults_match_serde_defaults() {
-        // Build using bon builder
-        let built = ControlConfig::builder().build();
+    fn validate_passes_minimal_memory_config() {
+        let config = Config::builder().storage(StorageBackend::Memory).build();
+        assert!(config.validate().is_ok());
+    }
 
-        // Build using serde default
-        let serde_default = ControlConfig::default();
+    // ── Helper Methods ───────────────────────────────────────────────
 
-        // Verify all defaults match
-        assert_eq!(built.threads, serde_default.threads);
-        assert_eq!(built.logging, serde_default.logging);
-        assert_eq!(built.storage, serde_default.storage);
-        assert_eq!(built.listen.http, serde_default.listen.http);
-        assert_eq!(built.listen.grpc, serde_default.listen.grpc);
-        assert_eq!(built.webauthn.party, serde_default.webauthn.party);
-        assert_eq!(built.webauthn.origin, serde_default.webauthn.origin);
-        assert_eq!(built.email.host, serde_default.email.host);
-        assert_eq!(built.email.port, serde_default.email.port);
-        assert_eq!(built.email.address, serde_default.email.address);
-        assert_eq!(built.email.name, serde_default.email.name);
-        assert_eq!(built.email.insecure, serde_default.email.insecure);
-        assert_eq!(
-            built.limits.login_attempts_per_ip_per_hour,
-            serde_default.limits.login_attempts_per_ip_per_hour
-        );
-        assert_eq!(
-            built.limits.registrations_per_ip_per_day,
-            serde_default.limits.registrations_per_ip_per_day
-        );
-        assert_eq!(
-            built.limits.email_verification_tokens_per_hour,
-            serde_default.limits.email_verification_tokens_per_hour
-        );
-        assert_eq!(
-            built.limits.password_reset_tokens_per_hour,
-            serde_default.limits.password_reset_tokens_per_hour
-        );
-        assert_eq!(built.frontend.url, serde_default.frontend.url);
-        assert_eq!(built.webhook.timeout, serde_default.webhook.timeout);
-        assert_eq!(built.webhook.retries, serde_default.webhook.retries);
+    #[test]
+    fn is_email_enabled_returns_false_when_host_empty() {
+        let config = Config::builder().storage(StorageBackend::Memory).build();
+        assert!(!config.is_email_enabled());
     }
 
     #[test]
-    fn test_nested_config_builders() {
-        // Verify nested configs can also be built with bon builders
-        let listen = ListenConfig::builder().build();
-        assert_eq!(listen.http, "127.0.0.1:9090");
-        assert_eq!(listen.grpc, "127.0.0.1:9091");
-
-        let webauthn = WebAuthnConfig::builder().build();
-        assert_eq!(webauthn.party, "localhost");
-        assert_eq!(webauthn.origin, "http://localhost:3000");
-
-        let email = EmailConfig::builder().build();
-        assert_eq!(email.host, "localhost");
-        assert_eq!(email.port, 587);
-        assert_eq!(email.address, "noreply@inferadb.com");
-        assert_eq!(email.name, "InferaDB");
-
-        let limits = LimitsConfig::builder().build();
-        assert_eq!(limits.login_attempts_per_ip_per_hour, 100);
-        assert_eq!(limits.registrations_per_ip_per_day, 5);
-
-        let frontend = FrontendConfig::builder().build();
-        assert_eq!(frontend.url, "http://localhost:3000");
-
-        let webhook = WebhookConfig::builder().build();
-        assert_eq!(webhook.timeout, 5000);
-        assert_eq!(webhook.retries, 0);
-
-        let ledger = LedgerConfig::builder().build();
-        assert!(ledger.endpoint.is_none());
-        assert!(ledger.client_id.is_none());
+    fn is_email_enabled_returns_true_when_host_set() {
+        let config = Config::builder()
+            .storage(StorageBackend::Memory)
+            .email_host("smtp.example.com")
+            .build();
+        assert!(config.is_email_enabled());
     }
 
     #[test]
-    fn test_env_var_prefix_inferadb_ctrl() {
-        // INFERADB_CTRL__STORAGE=memory should be loaded by the config system.
-        // Use a non-existent config file path to test env-var-only loading.
-        let config_path = "/tmp/inferadb_test_nonexistent_config.yaml";
-
-        // SAFETY: test runs in isolation with nextest (one test per process)
-        unsafe {
-            std::env::set_var("INFERADB_CTRL__STORAGE", "memory");
-        }
-
-        let config = ControlConfig::load(config_path).unwrap();
-        assert_eq!(config.storage, "memory", "env var should set storage");
-
-        unsafe {
-            std::env::remove_var("INFERADB_CTRL__STORAGE");
-        }
+    fn effective_storage_returns_memory_in_dev_mode() {
+        let config = Config::builder().storage(StorageBackend::Ledger).dev_mode(true).build();
+        assert_eq!(config.effective_storage(), StorageBackend::Memory);
     }
 
     #[test]
-    fn test_env_var_nested_prefix() {
-        // INFERADB_CTRL__LISTEN__HTTP should set listen.http
-        let config_path = "/tmp/inferadb_test_nonexistent_nested.yaml";
+    fn effective_storage_returns_field_when_not_dev_mode() {
+        let config = Config::builder().storage(StorageBackend::Ledger).build();
+        assert_eq!(config.effective_storage(), StorageBackend::Ledger);
 
-        // SAFETY: test runs in isolation with nextest (one test per process)
-        unsafe {
-            std::env::set_var("INFERADB_CTRL__LISTEN__HTTP", "0.0.0.0:8080");
-        }
-
-        let config = ControlConfig::load(config_path).unwrap();
-        assert_eq!(config.listen.http, "0.0.0.0:8080", "nested env var should set listen.http");
-
-        unsafe {
-            std::env::remove_var("INFERADB_CTRL__LISTEN__HTTP");
-        }
+        let config = Config::builder().storage(StorageBackend::Memory).build();
+        assert_eq!(config.effective_storage(), StorageBackend::Memory);
     }
 
     #[test]
-    fn test_email_config_host_serde_default() {
-        // Deserializing EmailConfig without a `host` field should default to "localhost"
-        let yaml = "port: 25\n";
-        let email: EmailConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(email.host, "localhost", "host should default to 'localhost'");
+    fn dev_mode_skips_ledger_validation() {
+        let config = Config::builder().dev_mode(true).build();
+        // dev_mode forces Memory, so ledger fields aren't required
+        assert!(config.validate().is_ok());
+    }
+
+    // ── CLI Parsing ──────────────────────────────────────────────────
+
+    #[test]
+    fn cli_parse_dev_mode() {
+        let cli = Cli::try_parse_from(["test", "--dev-mode"]).unwrap();
+        assert!(cli.config.dev_mode);
     }
 
     #[test]
-    fn test_email_config_address_serde_default() {
-        // Deserializing EmailConfig without an `address` field should default
-        let yaml = "port: 25\n";
-        let email: EmailConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(
-            email.address, "noreply@inferadb.com",
-            "address should default to 'noreply@inferadb.com'"
-        );
+    fn cli_parse_storage_memory() {
+        let cli = Cli::try_parse_from(["test", "--storage", "memory"]).unwrap();
+        assert_eq!(cli.config.storage, StorageBackend::Memory);
     }
 
     #[test]
-    fn test_all_serde_defaults_match_builder_defaults() {
-        // Comprehensive audit: every field with #[builder(default)] must also have
-        // a matching #[serde(default)] producing the same value.
-        let built = ControlConfig::builder().build();
-        let yaml = "{}";
-        let serde_default: ControlConfig = serde_yaml::from_str(yaml).unwrap();
+    fn cli_parse_listen_address() {
+        let cli = Cli::try_parse_from(["test", "--listen", "0.0.0.0:8080"]).unwrap();
+        assert_eq!(cli.config.listen, "0.0.0.0:8080".parse::<SocketAddr>().unwrap());
+    }
 
-        // EmailConfig fields that were previously missing serde defaults
-        assert_eq!(
-            built.email.host, serde_default.email.host,
-            "EmailConfig.host serde default must match builder default"
-        );
-        assert_eq!(
-            built.email.address, serde_default.email.address,
-            "EmailConfig.address serde default must match builder default"
-        );
+    #[test]
+    fn cli_parse_log_format_json() {
+        let cli = Cli::try_parse_from(["test", "--log-format", "json"]).unwrap();
+        assert_eq!(cli.config.log_format, LogFormat::Json);
+    }
+
+    #[test]
+    fn cli_parse_log_format_text() {
+        let cli = Cli::try_parse_from(["test", "--log-format", "text"]).unwrap();
+        assert_eq!(cli.config.log_format, LogFormat::Text);
+    }
+
+    #[test]
+    fn cli_rejects_invalid_storage_value() {
+        let result = Cli::try_parse_from(["test", "--storage", "postgres"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cli_rejects_unknown_flags() {
+        let result = Cli::try_parse_from(["test", "--config", "foo.yaml"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cli_parse_all_ledger_fields() {
+        let cli = Cli::try_parse_from([
+            "test",
+            "--storage",
+            "ledger",
+            "--ledger-endpoint",
+            "http://ledger:50051",
+            "--ledger-client-id",
+            "ctrl-01",
+            "--ledger-namespace-id",
+            "42",
+            "--ledger-vault-id",
+            "7",
+        ])
+        .unwrap();
+
+        assert_eq!(cli.config.storage, StorageBackend::Ledger);
+        assert_eq!(cli.config.ledger_endpoint.as_deref(), Some("http://ledger:50051"));
+        assert_eq!(cli.config.ledger_client_id.as_deref(), Some("ctrl-01"));
+        assert_eq!(cli.config.ledger_namespace_id, Some(42));
+        assert_eq!(cli.config.ledger_vault_id, Some(7));
+    }
+
+    #[test]
+    fn cli_parse_email_fields() {
+        let cli = Cli::try_parse_from([
+            "test",
+            "--storage",
+            "memory",
+            "--email-host",
+            "smtp.example.com",
+            "--email-port",
+            "465",
+            "--email-username",
+            "user",
+            "--email-password",
+            "secret",
+            "--email-from-address",
+            "noreply@example.com",
+            "--email-from-name",
+            "MyApp",
+            "--email-insecure",
+        ])
+        .unwrap();
+
+        assert_eq!(cli.config.email_host, "smtp.example.com");
+        assert_eq!(cli.config.email_port, 465);
+        assert_eq!(cli.config.email_username.as_deref(), Some("user"));
+        assert_eq!(cli.config.email_password.as_deref(), Some("secret"));
+        assert_eq!(cli.config.email_from_address, "noreply@example.com");
+        assert_eq!(cli.config.email_from_name, "MyApp");
+        assert!(cli.config.email_insecure);
+    }
+
+    #[test]
+    fn cli_parse_key_file() {
+        let cli = Cli::try_parse_from(["test", "--key-file", "/data/master.key"]).unwrap();
+        assert_eq!(cli.config.key_file, PathBuf::from("/data/master.key"));
+    }
+
+    // ── Enum Display ─────────────────────────────────────────────────
+
+    #[test]
+    fn storage_backend_display() {
+        assert_eq!(StorageBackend::Memory.to_string(), "memory");
+        assert_eq!(StorageBackend::Ledger.to_string(), "ledger");
+    }
+
+    #[test]
+    fn log_format_display() {
+        assert_eq!(LogFormat::Auto.to_string(), "auto");
+        assert_eq!(LogFormat::Json.to_string(), "json");
+        assert_eq!(LogFormat::Text.to_string(), "text");
     }
 }

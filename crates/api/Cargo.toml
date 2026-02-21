@@ -44,7 +44,6 @@ uuid = { workspace = true }
 inferadb-control-test-fixtures = { path = "../test-fixtures" }
 inferadb-common-authn = ">=0.1.0-0"
 proptest = { workspace = true }
-rand_core = { version = "0.6", features = ["getrandom"] }
 sha2 = { workspace = true }
 
 [lints]

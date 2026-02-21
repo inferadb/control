@@ -10,7 +10,7 @@
 //! - Entity types: `inferadb_control_types::entities`
 //! - DTOs: `inferadb_control_types::dto`
 //! - Errors: `inferadb_control_types::Error`
-//! - Config: `inferadb_control_config::ControlConfig`
+//! - Config: `inferadb_control_config::Config`
 
 pub mod auth;
 pub mod clock;
@@ -33,7 +33,7 @@ pub use crypto::{MasterKey, PrivateKeyEncryptor, keypair};
 pub use email::{
     EmailSender, EmailService, EmailTemplate, InvitationAcceptedEmailTemplate,
     InvitationEmailTemplate, MockEmailSender, OrganizationDeletionWarningEmailTemplate,
-    PasswordResetEmailTemplate, RoleChangeEmailTemplate, SmtpConfig, SmtpEmailService,
+    PasswordResetEmailTemplate, RoleChangeEmailTemplate, SmtpEmailService,
     VerificationEmailTemplate,
 };
 pub use id::{IdGenerator, WorkerRegistry, acquire_worker_id};

@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Parser;
-use inferadb_control_config::ControlConfig;
+use inferadb_control_config::{Cli, LogFormat, StorageBackend};
 use inferadb_control_core::{
-    EmailService, IdGenerator, SmtpConfig, SmtpEmailService, WorkerRegistry, acquire_worker_id,
-    logging, startup,
+    EmailService, IdGenerator, SmtpEmailService, WorkerRegistry, acquire_worker_id, logging,
+    startup,
 };
 use inferadb_control_storage::{
     LedgerConfig as StorageLedgerConfig,
@@ -13,71 +13,40 @@ use inferadb_control_storage::{
 };
 use inferadb_control_types::ControlIdentity;
 
-#[derive(Parser, Debug)]
-#[command(name = "inferadb-control")]
-#[command(about = "InferaDB Control", long_about = None)]
-struct Args {
-    /// Path to configuration file
-    #[arg(short, long, default_value = "config.yaml")]
-    config: String,
-
-    /// Use JSON structured logging (default: auto-detect based on TTY)
-    #[arg(long)]
-    json_logs: bool,
-
-    /// Environment (development, staging, production)
-    #[arg(short, long, env = "ENVIRONMENT", default_value = "development")]
-    environment: String,
-
-    /// Force development mode with in-memory storage.
-    /// Use this flag for local development and testing without Ledger.
-    /// In production, Ledger storage is the default and required.
-    #[arg(long)]
-    dev_mode: bool,
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // Install the rustls crypto provider early, before any TLS operations.
-    // This is required for crates like `kube` that use rustls internally.
-    // Using aws-lc-rs as the provider for consistency with jsonwebtoken.
     // SAFETY: Crypto provider installation failure is unrecoverable at startup
     #[allow(clippy::expect_used)]
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    let args = Args::parse();
+    let cli = Cli::parse();
+    let config = cli.config;
 
-    // Clear terminal in development mode when running interactively
-    if args.environment != "production" && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+    // Clear terminal when running interactively with non-JSON output
+    if config.log_format != LogFormat::Json && std::io::IsTerminal::is_terminal(&std::io::stdout())
+    {
         print!("\x1B[2J\x1B[1;1H");
-    }
-
-    // Load configuration
-    let mut config = ControlConfig::load(&args.config)?;
-
-    // Apply environment-aware defaults (in development, auto-fallback to memory if no Ledger
-    // config)
-    config.apply_environment_defaults(&args.environment);
-
-    // Handle --dev-mode flag: force memory storage for development/testing
-    if args.dev_mode {
-        tracing::info!("Development mode enabled via --dev-mode flag: using memory storage");
-        config.storage = "memory".to_string();
     }
 
     config.validate()?;
 
-    // Initialize structured logging with environment-appropriate format
-    // Use Full format (matching server) in development, JSON in production
+    // Initialize structured logging
     let log_config = logging::LogConfig {
-        format: if args.json_logs || args.environment == "production" {
-            logging::LogFormat::Json
-        } else {
-            logging::LogFormat::Full // Match server's default output style
+        format: match config.log_format {
+            LogFormat::Json => logging::LogFormat::Json,
+            LogFormat::Text => logging::LogFormat::Full,
+            LogFormat::Auto => {
+                if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+                    logging::LogFormat::Full
+                } else {
+                    logging::LogFormat::Json
+                }
+            },
         },
-        filter: Some(config.logging.clone()),
+        filter: Some(config.log_level.clone()),
         ..Default::default()
     };
 
@@ -86,15 +55,14 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
-    // Get full path of configuration file
-    let config_path = std::fs::canonicalize(&args.config)
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| args.config.clone());
+    if config.is_dev_mode() {
+        tracing::info!("Development mode enabled via --dev-mode flag: using memory storage");
+    }
+
+    let effective_storage = config.effective_storage();
 
     // Display startup banner and configuration summary
-    let use_json = args.json_logs || args.environment == "production";
-    if !use_json {
-        // Create the private key entry based on whether it's configured
+    if config.log_format != LogFormat::Json {
         let private_key_entry = if let Some(ref pem) = config.pem {
             startup::ConfigEntry::new("Identity", "Private Key", startup::private_key_hint(pem))
         } else {
@@ -105,51 +73,40 @@ async fn main() -> Result<()> {
             name: "InferaDB",
             subtext: "Control",
             version: env!("CARGO_PKG_VERSION"),
-            environment: args.environment.clone(),
+            environment: if config.is_dev_mode() {
+                "development".to_string()
+            } else {
+                "production".to_string()
+            },
         })
         .entries(vec![
-            // General
-            startup::ConfigEntry::new("General", "Environment", &args.environment),
-            startup::ConfigEntry::new("General", "Configuration File", &config_path),
-            // Storage
-            startup::ConfigEntry::new("Storage", "Backend", &config.storage),
-            // Listen
-            startup::ConfigEntry::new("Listen", "HTTP", &config.listen.http),
-            startup::ConfigEntry::new("Listen", "gRPC", &config.listen.grpc),
+            startup::ConfigEntry::new("Storage", "Backend", effective_storage.to_string()),
+            startup::ConfigEntry::new("Listen", "HTTP", config.listen.to_string()),
             startup::ConfigEntry::separator("Listen"),
             private_key_entry,
         ])
         .display();
     } else {
-        tracing::info!(
-            version = env!("CARGO_PKG_VERSION"),
-            environment = %args.environment,
-            config_file = %args.config,
-            "Starting InferaDB Control"
-        );
+        tracing::info!(version = env!("CARGO_PKG_VERSION"), "Starting InferaDB Control");
     }
 
     // Storage backend
-    let storage_config = match config.storage.as_str() {
-        "memory" => StorageConfig::memory(),
-        "ledger" => {
-            // SAFETY: config.validate() ensures these fields are present when storage == "ledger"
+    let storage_config = match effective_storage {
+        StorageBackend::Memory => StorageConfig::memory(),
+        StorageBackend::Ledger => {
+            // config.validate() ensures these fields are present when storage == ledger
             #[allow(clippy::expect_used)]
             let ledger_config = StorageLedgerConfig {
-                endpoint: config.ledger.endpoint.clone().expect("validated"),
-                client_id: config.ledger.client_id.clone().expect("validated"),
-                namespace_id: config.ledger.namespace_id.expect("validated"),
-                vault_id: config.ledger.vault_id,
+                endpoint: config.ledger_endpoint.clone().expect("validated"),
+                client_id: config.ledger_client_id.clone().expect("validated"),
+                namespace_id: config.ledger_namespace_id.expect("validated"),
+                vault_id: config.ledger_vault_id,
             };
             StorageConfig::ledger(ledger_config)
         },
-        _ => anyhow::bail!(
-            "Invalid storage backend: '{}'. Supported: 'memory', 'ledger'",
-            config.storage
-        ),
     };
     let storage = Arc::new(create_storage_backend(&storage_config).await?);
-    startup::log_initialized(&format!("Storage ({})", config.storage));
+    startup::log_initialized(&format!("Storage ({effective_storage})"));
 
     // Acquire worker ID automatically (uses pod ordinal or random with collision detection)
     let worker_id = acquire_worker_id(storage.as_ref(), None)
@@ -161,17 +118,14 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to initialize ID generator: {e}"))?;
 
     // Start worker registry heartbeat to maintain registration
-    // Note: acquire_worker_id already registers the ID with TTL, so we only need to start the
-    // heartbeat
     let worker_registry = Arc::new(WorkerRegistry::new(storage.as_ref().clone(), worker_id));
     worker_registry.clone().start_heartbeat();
     startup::log_initialized(&format!("Worker ID ({worker_id})"));
 
-    // Identity for engine authentication (needs to be created before engine_client)
+    // Identity for engine authentication
     let control_identity = if let Some(ref pem) = config.pem {
         ControlIdentity::from_pem(pem)?
     } else {
-        // Generate new identity and display in formatted box
         let identity = ControlIdentity::generate();
         let pem = identity.to_pem()?;
         startup::print_generated_keypair(&pem, "pem");
@@ -188,24 +142,22 @@ async fn main() -> Result<()> {
     startup::log_initialized("Identity");
 
     // Initialize email service (if configured)
-    let email_service = if !config.email.host.is_empty() {
-        let smtp_config = SmtpConfig {
-            host: config.email.host.clone(),
-            port: config.email.port,
-            username: config.email.username.clone().unwrap_or_default(),
-            password: config.email.password.clone().unwrap_or_default(),
-            address: config.email.address.clone(),
-            name: config.email.name.clone(),
-            insecure: config.email.insecure,
-        };
-
-        match SmtpEmailService::new(smtp_config) {
+    let email_service = if config.is_email_enabled() {
+        match SmtpEmailService::new(
+            &config.email_host,
+            config.email_port,
+            config.email_username.as_deref().unwrap_or_default(),
+            config.email_password.as_deref().unwrap_or_default(),
+            config.email_from_address.clone(),
+            config.email_from_name.clone(),
+            config.email_insecure,
+        ) {
             Ok(smtp_service) => {
                 startup::log_initialized(&format!(
                     "Email service ({}:{}{})",
-                    config.email.host,
-                    config.email.port,
-                    if config.email.insecure { " [insecure]" } else { "" }
+                    config.email_host,
+                    config.email_port,
+                    if config.email_insecure { " [insecure]" } else { "" }
                 ));
                 Some(Arc::new(EmailService::new(Box::new(smtp_service))))
             },

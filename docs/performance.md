@@ -42,7 +42,7 @@ Control is designed for high performance:
 **Key Characteristics:**
 
 - **Password Hashing**: Argon2id with tuned parameters (~150ms per hash)
-- **Session Management**: Cookie-based with 30-day TTL (web) or 90-day (CLI/SDK)
+- **Session Management**: Cookie-based with 24-hour TTL (web), 7-day TTL (CLI), or 30-day TTL (SDK)
 - **Rate Limiting**: 100 login attempts/hour per IP prevents abuse
 
 ### Vault & Token Operations
@@ -216,7 +216,7 @@ Resource recommendations per instance:
 ### Infrastructure-Level
 
 1. **Load Balancing**
-   - Use health check endpoint: `/v1/health/ready`
+   - Use health check endpoint: `/readyz`
    - Sticky sessions not required
    - Distribute evenly across instances
 
@@ -270,17 +270,19 @@ See [`loadtests/README.md`](loadtests/README.md) for detailed load testing docum
 
 ### Configuration Parameters
 
-Key configuration settings for performance (in `config.yaml`):
+Key configuration settings for performance:
 
-```yaml
-control:
-  threads: 4 # Tokio worker threads (= CPU cores)
-  logging: "info"
+```bash
+# CLI flags
+inferadb-control --log-level info --storage ledger
 
-  limits:
-    login_attempts_per_ip_per_hour: 100
-    registrations_per_ip_per_day: 5
+# Or environment variables (INFERADB__CONTROL__ prefix)
+INFERADB__CONTROL__LOG_LEVEL=info
+INFERADB__CONTROL__STORAGE=ledger
 ```
+
+- **Tokio worker threads**: Uses the default (number of CPU cores). Not configurable.
+- **Rate limits**: Built-in defaults. Not configurable.
 
 ### Argon2 Tuning
 

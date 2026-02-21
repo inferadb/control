@@ -51,8 +51,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
-RUN useradd -r -u 65532 -s /sbin/nologin nonroot
+# Create non-root user and data directory for master key
+RUN useradd -r -u 65532 -s /sbin/nologin nonroot \
+    && mkdir -p /data && chown nonroot:nonroot /data
 
 USER nonroot:nonroot
 
@@ -61,19 +62,20 @@ WORKDIR /app
 # Copy the binary from builder
 COPY --from=builder --chown=nonroot:nonroot /app/target/release/inferadb-control /app/inferadb-control
 
-# Expose HTTP and gRPC ports
-EXPOSE 9090 9091 9092
+# Expose HTTP port
+EXPOSE 9090
 
 # Health check configuration
 HEALTHCHECK NONE
 
 # Set environment variables for production
-ENV RUST_LOG=info
+ENV INFERADB__CONTROL__LOG_LEVEL=info
 ENV RUST_BACKTRACE=1
+
+VOLUME ["/data"]
 
 # Run the binary
 ENTRYPOINT ["/app/inferadb-control"]
-CMD ["--config", "/etc/inferadb/config.yaml"]
 
 # ============================================================================
 # Build Instructions:
@@ -85,7 +87,8 @@ CMD ["--config", "/etc/inferadb/config.yaml"]
 #   docker build -t inferadb-control:v1.0.0 .
 #
 # Run the container:
-#   docker run -p 9090:9090 -p 9091:9091 -p 9092:9092 \
-#     -v $(pwd)/config.yaml:/etc/inferadb/config.yaml \
+#   docker run -p 9090:9090 \
+#     -e INFERADB__CONTROL__STORAGE=memory \
+#     -v inferadb-data:/data \
 #     inferadb-control:latest
 # ============================================================================

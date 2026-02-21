@@ -35,13 +35,13 @@ helm install inferadb-control ./helm \
 
 ### Key Parameters
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `replicaCount` | Number of Control replicas | `2` |
-| `config.storage` | Storage backend (`memory` or `ledger`) | `memory` |
-| `config.webauthn.party` | WebAuthn Relying Party ID (your domain) | `""` |
-| `config.webauthn.origin` | WebAuthn origin URL | `""` |
-| `discovery.mode` | Service discovery mode (`none`, `kubernetes`, `tailscale`) | `kubernetes` |
+| Parameter                | Description                                                | Default      |
+| ------------------------ | ---------------------------------------------------------- | ------------ |
+| `replicaCount`           | Number of Control replicas                                 | `2`          |
+| `config.storage`         | Storage backend (`memory` or `ledger`)                     | `memory`     |
+| `config.webauthn.party`  | WebAuthn Relying Party ID (your domain)                    | `""`         |
+| `config.webauthn.origin` | WebAuthn origin URL                                        | `""`         |
+| `discovery.mode`         | Service discovery mode (`none`, `kubernetes`, `tailscale`) | `kubernetes` |
 
 ### Storage Configuration
 
@@ -70,8 +70,8 @@ Required for passkey authentication:
 ```yaml
 config:
   webauthn:
-    party: "inferadb.com"           # Your domain (without protocol)
-    origin: "https://app.inferadb.com"  # Full URL users access
+    party: "inferadb.com" # Your domain (without protocol)
+    origin: "https://app.inferadb.com" # Full URL users access
 ```
 
 ### Email Configuration
@@ -150,7 +150,7 @@ externalSecrets:
     name: "vault-backend"
     kind: ClusterSecretStore
   data:
-    - secretKey: INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET
+    - secretKey: INFERADB__CONTROL__PEM
       remoteRef:
         key: inferadb/prod/control
         property: masterKey
@@ -195,10 +195,10 @@ serviceMonitor:
 
 ## Ports
 
-| Port | Name | Description |
-|------|------|-------------|
-| 9090 | http | REST API |
-| 9091 | grpc | gRPC API |
+| Port | Name | Description                                |
+| ---- | ---- | ------------------------------------------ |
+| 9090 | http | REST API                                   |
+| 9091 | grpc | gRPC API                                   |
 | 9092 | mesh | Internal mesh API for Engine communication |
 
 ## Upgrading

@@ -19,7 +19,7 @@ The **Control** is InferaDB's control plane, providing self-service capabilities
 
 - **Storage**: Ledger (production) or in-memory (development)
 - **Engine Communication**: gRPC for real-time vault synchronization
-- **Client APIs**: REST (Dashboard, CLI) and gRPC (SDKs)
+- **Client APIs**: REST (Dashboard, CLI, SDKs)
 - **Deployment**: Single-instance (dev/small deployments) or multi-instance HA (production)
 
 **Related Documentation**:
@@ -89,7 +89,7 @@ The **Control** is InferaDB's control plane, providing self-service capabilities
 ### System Design
 
 - [API Design](#api-design) - REST conventions and best practices
-- [Control → Engine Authentication](#control--engine-privileged-authentication) - gRPC inter-service communication
+- [Control → Engine Authentication](#control--engine-privileged-authentication) - Inter-service communication
 - [Engine API Integration](#engine-api-role-enforcement--tenant-isolation) - Role enforcement and tenant isolation
 - [Configuration](#configuration) - Environment variables and settings
 - [Multi-Instance Deployment](#multi-instance-deployment--distributed-coordination) - HA setup and leader election
@@ -128,7 +128,7 @@ We use the [idgenerator](https://crates.io/crates/idgenerator) crate for Twitter
 
 - **Worker ID**: Derived from server instance (0-1023)
   - For single-instance deployments: 0
-  - For multi-instance deployments: assigned via environment variable `INFERADB_CTRL__ID_GENERATION__WORKER_ID`
+  - For multi-instance deployments: assigned via environment variable or container orchestration (e.g., pod ordinal from StatefulSet)
   - Worker IDs must be statically assigned and unique across all instances
   - In Kubernetes: Use pod ordinal index from StatefulSet (e.g., `inferadb-control-0` → worker_id=0)
   - In Docker/VM: Assign via environment variable in deployment configuration
@@ -478,7 +478,7 @@ Lives under the `/v1/organizations/:org/clients/:client/certificates` API path.
 - **id** (Snowflake ID, required): Unique identifier
 - **client_id** (Snowflake ID, required): Client this certificate belongs to
 - **public_key** (bytes, required): Ed25519 public key (32 bytes)
-  - Exposed via JWKS endpoint for @engine to verify JWTs
+  - Used by @engine to verify JWTs
 - **private_key** (bytes, required): Ed25519 private key (64 bytes)
   - **Exposed ONLY during creation** (one-time display for developer to save)
   - After creation, never returned by any API endpoint
@@ -517,12 +517,12 @@ Lives under the `/v1/organizations/:org/clients/:client/certificates` API path.
 
 **Security**:
 
-- Private keys are encrypted at rest using AES-256-GCM with a master key derived from `INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET`
+- Private keys are encrypted at rest using AES-256-GCM with a master key provided via `--key-file` (CLI flag) or `INFERADB__CONTROL__KEY_FILE` (env var)
 - Private keys should be stored securely by client applications (e.g., HashiCorp Vault, AWS Secrets Manager)
 - Client applications use private keys to sign short-lived JWT assertions (max 60 seconds TTL)
 - Control validates client assertions using the certificate's public_key
 - Certificate rotation is recommended every 90 days (logged warnings but not enforced)
-- JWKS endpoint returns all active (non-revoked) certificates for a client
+- All active (non-revoked) certificates are available for JWT verification
 
 ---
 
@@ -1919,7 +1919,7 @@ Backend applications authenticate to @engine using **Client Assertion** (OAuth 2
 - Organizations create Clients via Dashboard or CLI
 - Each Client receives an Ed25519 key pair (client stores private key, Control stores public key)
 - Private keys shown only once during creation (developer saves securely)
-- Public keys published to JWKS endpoint for @engine verification
+- Public keys stored by Control for @engine JWT verification
 - Clients can be created, rotated, and revoked by organization Owners
 
 **Client Assertion Flow**:
@@ -2078,8 +2078,8 @@ Users can register and manage multiple passkeys for their account.
    - Determines highest VaultRole the user has
 4. Control generates private key JWT signed with Organization's key
 5. Control generates refresh token
-6. Client uses JWT as Bearer token for @engine gRPC/REST API calls
-7. @engine validates JWT signature against Organization's JWKS
+6. Client uses JWT as Bearer token for @engine API calls
+7. @engine validates JWT signature against Organization's public keys
 8. When JWT expires, client can use refresh token to get new JWT without re-authenticating
 
 **Endpoint**: `POST /v1/tokens/vault/:vault_id`
@@ -2760,91 +2760,6 @@ SDKs automatically:
 
 ---
 
-### JWKS Endpoint (for @engine verification)
-
-Control exposes organization public keys via JWKS (JSON Web Key Set) for @engine to verify JWTs.
-
-**Endpoint**: `GET /.well-known/jwks.json` (Global JWKS for all organizations)
-
-**Response**:
-
-```json
-{
-  "keys": [
-    {
-      "kty": "OKP",
-      "crv": "Ed25519",
-      "kid": "org-123456789-key-987654321",
-      "x": "<base64url-encoded-public-key>",
-      "use": "sig",
-      "alg": "EdDSA"
-    },
-    {
-      "kty": "OKP",
-      "crv": "Ed25519",
-      "kid": "org-111111111-key-222222222",
-      "x": "<base64url-encoded-public-key>",
-      "use": "sig",
-      "alg": "EdDSA"
-    }
-  ]
-}
-```
-
-**Endpoint**: `GET /v1/organizations/:org/jwks.json` (Organization-specific JWKS)
-
-**Response**:
-
-```json
-{
-  "keys": [
-    {
-      "kty": "OKP",
-      "crv": "Ed25519",
-      "kid": "org-123456789-key-987654321",
-      "x": "<base64url-encoded-public-key>",
-      "use": "sig",
-      "alg": "EdDSA"
-    }
-  ]
-}
-```
-
-**Behavior**:
-
-- Include Client entries where:
-  - `revoked_at IS NULL` (active clients), OR
-  - `revoked_at > (now - 5 minutes)` (recently revoked clients in grace period)
-- Keys are cached by @engine with TTL (5 minutes recommended)
-- @engine uses stale-while-revalidate pattern for JWKS caching (same as tenant JWT verification in @engine)
-- No authentication required (public endpoint)
-- Returns 404 if organization doesn't exist or has no active clients
-- Note: After 5 minutes, revoked clients are excluded from JWKS automatically (time-based, no additional field needed)
-
-**Key Rotation**:
-
-When using the `RotateClient` endpoint:
-
-1. Generate new Client (with new keypair)
-2. Add new key to JWKS immediately
-3. Set `revoked_at` on old client (does NOT delete it yet)
-4. Old client remains in JWKS for grace period (5 minutes) to allow in-flight JWTs to validate
-5. Return new client details to caller (including private key - one-time only)
-6. After 5 minutes, the time-based query `revoked_at > (now - 5 minutes)` automatically excludes the old client from JWKS responses
-
-**Important**: This atomic operation ensures at least one active client exists at all times, satisfying the constraint that "at least one active client must exist per Organization"
-
-When manually revoking a client (without rotation):
-
-1. Validate that this is NOT the last active client (error if it is)
-2. Set `revoked_at` on the client
-3. Client remains in JWKS for 5-minute grace period (automatically via time-based query)
-4. All new JWT signing requests will use a different active client
-
-**Note**: No background job is needed for JWKS cleanup - the time-based query ensures automatic exclusion of clients where `revoked_at <= (now - 5 minutes)`.
-
----
-
 ## Email Flows
 
 ### Email Verification
@@ -3026,7 +2941,6 @@ When manually revoking a client (without rotation):
 - `POST /v1/organizations/:org/clients/:client/certificates` - Create new certificate for client
 - `POST /v1/organizations/:org/clients/:client/certificates/:cert/revoke` - Revoke certificate
 - `DELETE /v1/organizations/:org/clients/:client/certificates/:cert` - Delete certificate (requires confirmation)
-- `GET /v1/organizations/:org/jwks.json` - Get organization's JWKS (all active certificates, public, no auth)
 
 #### Team Endpoints
 
@@ -3066,66 +2980,7 @@ When manually revoking a client (without rotation):
 
 #### Public Endpoints (No Authentication Required)
 
-- `GET /.well-known/jwks.json` - Global JWKS for all organizations
-- `GET /v1/health` - Health check endpoint
-
----
-
-### gRPC API
-
-**Services Exposed by Control**:
-
-1. **AuthService**: Authentication operations
-   - `LoginPassword(LoginPasswordRequest) → Session`
-   - `LoginPasskeyBegin(LoginPasskeyBeginRequest) → PasskeyChallenge`
-   - `LoginPasskeyFinish(LoginPasskeyFinishRequest) → Session`
-   - `Logout(SessionId) → Empty`
-   - `RequestPasswordReset(EmailAddress) → Empty`
-   - `ConfirmPasswordReset(ResetToken, NewPassword) → Empty`
-
-2. **UserService**: User management
-   - `RegisterUser(UserRegistration) → User`
-   - `GetUser(UserId) → User`
-   - `UpdateUser(UserId, UserUpdate) → User`
-   - `DeleteUser(UserId) → Empty`
-   - `AddEmail(UserId, Email) → UserEmail`
-   - `VerifyEmail(VerificationToken) → UserEmail`
-
-3. **OrganizationService**: Organization management
-   - `CreateOrganization(OrganizationCreate) → Organization`
-   - `GetOrganization(OrganizationId) → Organization`
-   - `ListOrganizations(UserId, Pagination) → OrganizationList`
-   - `UpdateOrganization(OrganizationId, OrganizationUpdate) → Organization`
-   - `DeleteOrganization(OrganizationId) → Empty`
-   - `InviteMember(OrganizationId, Email, Role) → OrganizationInvitation`
-   - `AcceptInvitation(InvitationToken) → OrganizationMember`
-   - `UpdateMemberRole(MemberId, NewRole) → OrganizationMember`
-   - `RemoveMember(MemberId) → Empty`
-   - `TransferOwnership(OrganizationId, NewOwnerUserId) → OrganizationMember`
-   - `CreateClient(OrganizationId, ClientName) → Client`
-   - `ListClients(OrganizationId) → ClientList`
-   - `RevokeClient(OrganizationId, ClientId) → Empty`
-   - `RotateClient(OrganizationId, OldClientId, NewClientName) → Client`
-
-4. **VaultService**: Vault management
-   - `CreateVault(OrganizationId, VaultCreate) → Vault`
-   - `GetVault(VaultId) → Vault`
-   - `ListVaults(OrganizationId, Pagination) → VaultList`
-   - `UpdateVault(VaultId, VaultUpdate) → Vault`
-   - `DeleteVault(VaultId) → Empty`
-   - `GrantTeamAccess(VaultId, TeamId, Role) → VaultTeamGrant`
-   - `GrantUserAccess(VaultId, UserId, Role) → VaultUserGrant`
-   - `RevokeTeamAccess(VaultTeamGrantId) → Empty`
-   - `RevokeUserAccess(VaultUserGrantId) → Empty`
-
-5. **TokenService**: Vault token generation
-   - `GenerateVaultToken(VaultId) → VaultToken` (returns JWT for @engine)
-
-**Services Consumed from @engine**:
-
-1. **VaultManagementService**:
-   - `CreateVault(VaultId, OrganizationId) → VaultStatus`
-   - `DeleteVault(VaultId) → Empty`
+- `GET /healthz` - Health check endpoint
 
 ---
 
@@ -3460,7 +3315,7 @@ engine_api:
 
 ```yaml
 management_auth:
-  jwks_url: "http://localhost:9092/.well-known/system-jwks.json"
+  jwks_url: "http://localhost:9090/.well-known/system-jwks.json"
   jwks_cache_ttl: 60 # Shorter cache for faster development iteration
   jti_replay_protection:
     enabled: false # Can be disabled in dev for faster iteration (NOT SAFE for production)
@@ -3756,30 +3611,11 @@ impl StorageEngine {
 
 **Security Guarantee**: Since `vault_id` comes from the **JWT (signed by Control)** and not from the client request body, clients cannot access other vaults' data by tampering with request parameters.
 
-### JWT Validation with JWKS Cache
+### JWT Validation with Key Cache
 
-The Engine API caches JWKS from Control to avoid fetching public keys on every request:
+The Engine API caches public keys from Control to avoid fetching them on every request:
 
-**JWKS Endpoint** (Control): `GET /.well-known/jwks.json`
-
-**Response**:
-
-```json
-{
-  "keys": [
-    {
-      "kid": "acme-key-2025-01",
-      "kty": "OKP",
-      "crv": "Ed25519",
-      "x": "base64url-encoded-public-key",
-      "use": "sig",
-      "alg": "EdDSA"
-    }
-  ]
-}
-```
-
-**Engine JWKS Cache**:
+**Engine Key Cache**:
 
 ```rust
 use moka::future::Cache;
@@ -3852,82 +3688,43 @@ auth:
 
 ## Configuration
 
-Configuration follows @engine patterns using YAML and environment variables.
+Control uses CLI-first configuration with environment variable overrides. There are no config files. See [`docs/guides/configuration.md`](guides/configuration.md) for the full reference.
 
-**Config File**: `config.yaml`
+**CLI example** (production):
 
-```yaml
-server:
-  public_rest: "0.0.0.0:9090" # Public REST API
-  public_grpc: "0.0.0.0:9091" # Public gRPC API
-  private_rest: "0.0.0.0:9092" # Internal REST API (JWKS, webhooks)
-
-storage:
-  backend: "memory" # or "ledger"
-  ledger:
-    endpoint: "https://ledger.inferadb.com"
-    client_id: "${LEDGER_CLIENT_ID}"
-    namespace_id: 1
-
-policy_service:
-  service_url: "http://localhost"
-  grpc_port: 8081
-  internal_port: 8082
-
-auth:
-  session_ttl_web: 2592000 # 30 days in seconds (SessionType::WEB)
-  session_ttl_cli: 7776000 # 90 days in seconds (SessionType::CLI)
-  session_ttl_sdk: 7776000 # 90 days in seconds (SessionType::SDK)
-  max_sessions_per_user: 10
-  password_reset_token_ttl: 3600 # 1 hour (token expiry for password reset)
-  email_verification_token_ttl: 86400 # 24 hours (token expiry for email verification)
-  password_min_length: 12 # Minimum password length
-  client_rotation_warning_days: 90 # Warn when clients are older than 90 days
-  key_encryption_secret: "${INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET}" # Required for encrypting Client private keys
-  webauthn:
-    rp_id: "inferadb.com"
-    rp_name: "InferaDB"
-    origin: "https://app.inferadb.com"
-
-cors:
-  enabled: true
-  allowed_origins:
-    - "http://localhost:3000" # Dashboard dev
-    - "https://app.inferadb.com" # Dashboard prod
-  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-  allowed_headers: ["Authorization", "Content-Type"]
-
-email:
-  smtp_host: "smtp.sendgrid.net"
-  smtp_port: 587
-  smtp_user: "apikey"
-  smtp_password: "${SMTP_PASSWORD}"
-  from_address: "noreply@inferadb.com"
-  from_name: "InferaDB"
-
-rate_limiting:
-  enabled: true
-  # Token generation limits (per user/email per hour)
-  email_verification_tokens_per_hour: 5
-  password_reset_tokens_per_hour: 3
-  # Authentication attempts (per IP per hour)
-  login_attempts_per_ip_per_hour: 100
-  # Registration limits (per IP per day)
-  registrations_per_ip_per_day: 5
-
-observability:
-  log_level: "info"
-  metrics_enabled: true
-  tracing_enabled: false # Enable in production
-  otlp_endpoint: "http://localhost:4317"
+```bash
+inferadb-control \
+  --listen 0.0.0.0:9090 \
+  --storage ledger \
+  --ledger-endpoint https://ledger.inferadb.com \
+  --key-file /run/secrets/master.key \
+  --frontend-url https://app.inferadb.com \
+  --email-host smtp.sendgrid.net \
+  --email-port 587 \
+  --email-username apikey \
+  --email-password "$SMTP_PASSWORD" \
+  --email-from-address noreply@inferadb.com \
+  --email-from-name InferaDB \
+  --log-level info
 ```
 
-**Environment Variable Overrides**:
+**Environment variable example** (prefix `INFERADB__CONTROL__`, flat structure):
 
-- `INFERADB_CTRL__STORAGE__BACKEND=ledger`
-- `INFERADB_CTRL__POLICY_SERVICE__SERVICE_URL=https://engine.inferadb.com`
-- `CONTROL_API_AUDIENCE=https://control.inferadb.com` - Expected JWT audience for Engine → Control authentication (defaults to `http://localhost:8081`)
-- `SMTP_PASSWORD=<secret>`
+```bash
+INFERADB__CONTROL__LISTEN=0.0.0.0:9090
+INFERADB__CONTROL__STORAGE=ledger
+INFERADB__CONTROL__LEDGER_ENDPOINT=https://ledger.inferadb.com
+INFERADB__CONTROL__KEY_FILE=/run/secrets/master.key
+INFERADB__CONTROL__FRONTEND_URL=https://app.inferadb.com
+INFERADB__CONTROL__EMAIL_HOST=smtp.sendgrid.net
+INFERADB__CONTROL__EMAIL_PASSWORD=<secret>
+```
+
+**Dev mode** (in-memory storage, no external dependencies):
+
+```bash
+inferadb-control --dev-mode
+```
 
 ---
 
@@ -3953,7 +3750,7 @@ Control is designed to run as multiple instances for high availability and horiz
 
 **Static Assignment (Recommended)**:
 
-- Each instance is assigned a unique worker ID via environment variable `INFERADB_CTRL__ID_GENERATION__WORKER_ID`
+- Each instance is assigned a unique worker ID via container orchestration or an entrypoint script
 - Worker IDs are static and must be unique across all running instances
 - Configuration examples:
   - Kubernetes StatefulSet: Use pod ordinal index
@@ -3980,11 +3777,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: INFERADB_CTRL__ID_GENERATION__WORKER_ID
-              value: "$(echo $POD_NAME | grep -oE '[0-9]+$')" # Extract ordinal
-          # For simple numeric extraction, use init container or entrypoint script:
-          # inferadb-control-0 → WORKER_ID=0
-          # inferadb-control-1 → WORKER_ID=1
+          # Worker ID is derived automatically from POD_NAME
+          # (e.g., inferadb-control-0 → worker_id=0)
 ```
 
 **Docker Compose Example**:
@@ -3995,17 +3789,17 @@ services:
   control-0:
     image: inferadb/control:latest
     environment:
-      INFERADB_CTRL__ID_GENERATION__WORKER_ID: 0
+      WORKER_ID: 0
 
   control-1:
     image: inferadb/control:latest
     environment:
-      INFERADB_CTRL__ID_GENERATION__WORKER_ID: 1
+      WORKER_ID: 1
 
   control-2:
     image: inferadb/control:latest
     environment:
-      INFERADB_CTRL__ID_GENERATION__WORKER_ID: 2
+      WORKER_ID: 2
 ```
 
 ### Background Job Coordination
@@ -4377,7 +4171,7 @@ pub async fn create_session_with_limit(
 
 Each instance should expose health and readiness endpoints for load balancer integration.
 
-**Health Endpoint** (`GET /v1/health`):
+**Health Endpoint** (`GET /healthz`):
 
 ```rust
 #[derive(Serialize)]
@@ -4407,7 +4201,7 @@ async fn health_check(state: AppState) -> Json<HealthStatus> {
 }
 ```
 
-**Readiness Endpoint** (`GET /v1/ready`):
+**Readiness Endpoint** (`GET /readyz`):
 
 Returns 200 OK only when the instance is ready to accept traffic (storage initialized and healthy).
 
@@ -4481,7 +4275,7 @@ async fn main() -> Result<()> {
 - 3 instances for high availability
 - Worker IDs: 0, 1, 2 (statically assigned)
 - Load balancer: Round-robin or least-connections
-- Health checks: `/health` endpoint every 10 seconds
+- Health checks: `/healthz` endpoint every 10 seconds
 - Graceful shutdown timeout: 30 seconds
 
 **Scaling Guidelines**:
@@ -5239,13 +5033,13 @@ Expose Prometheus metrics on `/metrics` endpoint:
 
 ### Health Checks
 
-**Liveness Probe** (`GET /v1/health/live`):
+**Liveness Probe** (`GET /livez`):
 
 - Returns 200 OK if process is running
 - Used by Kubernetes liveness probe
 - Never fails (unless process is dead)
 
-**Readiness Probe** (`GET /v1/health/ready`):
+**Readiness Probe** (`GET /readyz`):
 
 ```rust
 async fn readiness_check(state: AppState) -> Result<StatusCode> {
@@ -5263,7 +5057,7 @@ async fn readiness_check(state: AppState) -> Result<StatusCode> {
 }
 ```
 
-**Startup Probe** (`GET /v1/health/startup`):
+**Startup Probe** (`GET /startupz`):
 
 - Returns 200 OK only after initialization complete
 - Used by Kubernetes startup probe

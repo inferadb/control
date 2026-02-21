@@ -230,7 +230,7 @@ fn try_get_pod_ordinal() -> Option<u16> {
 /// This function randomly selects worker IDs and attempts to register them
 /// until one succeeds or the maximum number of attempts is reached.
 async fn acquire_random_worker_id<S: StorageBackend>(storage: &S) -> Result<u16> {
-    use rand::Rng;
+    use rand::RngExt;
 
     let mut rng = rand::rng();
     let mut attempted: std::collections::HashSet<u16> = std::collections::HashSet::new();

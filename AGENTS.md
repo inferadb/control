@@ -24,7 +24,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | `control` | Binary entrypoint                    |
 | `api`     | HTTP/gRPC handlers, middleware       |
 | `core`    | Auth, crypto, JWT, repos, entities   |
-| `config`  | Configuration loading                |
+| `config`  | CLI configuration (clap::Parser)     |
 | `storage` | Storage factory, backend abstraction |
 | `types`   | `Error` enum, `Result` alias         |
 
@@ -122,19 +122,41 @@ Activate at session start: `mcp__plugin_serena_serena__activate_project`
 
 ```bash
 docker-compose up -d
-export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 cargo run --bin inferadb-control -- --dev-mode  # in-memory storage
 ```
 
-REST `:9090` | gRPC `:9091` | Health `/healthz` | Metrics `/metrics`
+REST `:9090` | Health `/healthz` | Metrics `/metrics`
 
 ## Config
 
-Prefix: `INFERADB_CTRL__` (double underscore nesting)
+CLI-first configuration with `INFERADB__CONTROL__` env var prefix. CLI args override env vars override defaults.
 
-| Variable                      | Default  |
-| ----------------------------- | -------- |
-| `LISTEN__HTTP`                | 9090     |
-| `STORAGE`                     | ledger   |
-| `LEDGER__ENDPOINT`            | -        |
-| `AUTH__KEY_ENCRYPTION_SECRET` | required |
+```bash
+# Development
+inferadb-control --dev-mode
+
+# Production
+inferadb-control --storage ledger --ledger-endpoint https://ledger:50051 \
+  --ledger-client-id ctrl-01 --ledger-namespace-id 1 --log-format json
+```
+
+| Variable                                 | Default                 | Notes                        |
+| ---------------------------------------- | ----------------------- | ---------------------------- |
+| `INFERADB__CONTROL__LISTEN`              | `127.0.0.1:9090`        | HTTP bind address            |
+| `INFERADB__CONTROL__LOG_LEVEL`           | `info`                  | tracing filter               |
+| `INFERADB__CONTROL__LOG_FORMAT`          | `auto`                  | auto/json/text               |
+| `INFERADB__CONTROL__PEM`                 | —                       | Ed25519 PEM (auto-gen)       |
+| `INFERADB__CONTROL__KEY_FILE`            | `./data/master.key`     | Master key path              |
+| `INFERADB__CONTROL__STORAGE`             | `ledger`                | memory/ledger                |
+| `INFERADB__CONTROL__LEDGER_ENDPOINT`     | —                       | Required when storage=ledger |
+| `INFERADB__CONTROL__LEDGER_CLIENT_ID`    | —                       | Required when storage=ledger |
+| `INFERADB__CONTROL__LEDGER_NAMESPACE_ID` | —                       | Required when storage=ledger |
+| `INFERADB__CONTROL__LEDGER_VAULT_ID`     | —                       | Optional                     |
+| `INFERADB__CONTROL__EMAIL_HOST`          | `""`                    | Empty = email disabled       |
+| `INFERADB__CONTROL__EMAIL_PORT`          | `587`                   |                              |
+| `INFERADB__CONTROL__EMAIL_USERNAME`      | —                       |                              |
+| `INFERADB__CONTROL__EMAIL_PASSWORD`      | —                       |                              |
+| `INFERADB__CONTROL__EMAIL_FROM_ADDRESS`  | `noreply@inferadb.com`  |                              |
+| `INFERADB__CONTROL__EMAIL_FROM_NAME`     | `InferaDB`              |                              |
+| `INFERADB__CONTROL__EMAIL_INSECURE`      | `false`                 | Skip TLS verification        |
+| `INFERADB__CONTROL__FRONTEND_URL`        | `http://localhost:3000` | Base URL for email links     |

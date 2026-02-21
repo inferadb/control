@@ -38,7 +38,7 @@
 //! use std::sync::Arc;
 //! use inferadb_control_api::AppState;
 //!
-//! async fn example(storage: Arc<Backend>, config: Arc<ControlConfig>) {
+//! async fn example(storage: Arc<Backend>, config: Arc<Config>) {
 //!     let state = AppState::builder()
 //!         .storage(storage)
 //!         .config(config)
@@ -54,7 +54,7 @@
 
 use std::sync::Arc;
 
-use inferadb_control_config::ControlConfig;
+use inferadb_control_config::Config;
 use inferadb_control_core::startup;
 use inferadb_control_storage::Backend;
 use inferadb_control_types::ControlIdentity;
@@ -120,7 +120,7 @@ pub struct ServicesConfig {
 /// Start the Control API HTTP server
 pub async fn serve(
     storage: Arc<Backend>,
-    config: Arc<ControlConfig>,
+    config: Arc<Config>,
     worker_id: u16,
     services: ServicesConfig,
 ) -> anyhow::Result<()> {
@@ -138,7 +138,7 @@ pub async fn serve(
     let router = routes::create_router_with_state(state.clone());
 
     // Bind listener (address is already validated in config)
-    let listener = tokio::net::TcpListener::bind(&config.listen.http).await?;
+    let listener = tokio::net::TcpListener::bind(config.listen).await?;
 
     // Log ready status
     startup::log_ready("Control");

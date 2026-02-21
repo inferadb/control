@@ -5,124 +5,99 @@
         <a href="https://discord.gg/inferadb"><img src="https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
         <a href="#license"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg" alt="License" /></a>
     </p>
-    <p>Multi-tenant administration APIs with Kubernetes-native deployment and WebAuthn authentication</p>
+    <p><b>Multi-tenant administration APIs for authorization infrastructure.</b></p>
 </div>
 
 > [!IMPORTANT]
 > Under active development. Not production-ready.
 
+[InferaDB](https://inferadb.com) Control is the administration plane for InferaDB. It manages organizations, users, vaults, clients, and token issuance. Control authenticates operators via password, passkey, or OAuth, enforces RBAC across tenants, and issues vault-scoped JWTs consumed by the [InferaDB Engine](https://github.com/inferadb/engine). Data is persisted to [InferaDB Ledger](https://github.com/inferadb/ledger) for cryptographic auditability.
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Contributing](#contributing)
+- [Documentation](#documentation)
+- [Community](#community)
+- [License](#license)
+
+## Features
+
+- **Authentication** — Password, passkey (WebAuthn), OAuth, email verification, PKCE CLI flow
+- **Multi-Tenancy** — Organization-based isolation with role hierarchy (Owner > Admin > Member) and team permissions
+- **Vault Management** — Policy containers with user and team access grants
+- **Client Auth** — Ed25519 certificate lifecycle, RFC 7523 JWT assertions
+- **Token Issuance** — Vault-scoped JWTs with refresh token rotation for Engine API
+
 ## Quick Start
 
 ```bash
 git clone https://github.com/inferadb/control && cd control
-docker-compose up -d
-export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET=$(openssl rand -base64 32)
 mise trust && mise install
-cargo run --bin inferadb-control
+cargo run --bin inferadb-control -- --dev-mode
 ```
 
-| Endpoint | URL                             |
-| -------- | ------------------------------- |
-| REST API | `http://localhost:9090`         |
-| gRPC API | `http://localhost:9091`         |
-| Health   | `http://localhost:9090/healthz` |
-| Metrics  | `http://localhost:9090/metrics` |
+Dev mode uses in-memory storage and auto-generates an Ed25519 identity. The REST API is available at `http://localhost:9090`.
 
-## Features
+**Production:**
 
-| Feature              | Description                                  |
-| -------------------- | -------------------------------------------- |
-| **Authentication**   | Password, passkey, OAuth, email verification |
-| **Multi-Tenancy**    | Organization-based isolation with RBAC       |
-| **Vault Management** | Policy containers with access grants         |
-| **Client Auth**      | Ed25519 certificates, JWT assertions         |
-| **Token Issuance**   | Vault-scoped JWTs for Engine API             |
-
-## Architecture
-
-```mermaid
-graph TD
-    Bin[inferadb-control] --> API[inferadb-control-api]
-    Bin --> Config[inferadb-control-config]
-    API --> Core[inferadb-control-core]
-    Core --> Config
-    Core --> Storage[inferadb-control-storage]
-    Storage --> SharedStorage[inferadb-common-storage]
-    SharedStorage --> Memory[(Memory)]
-    SharedStorage --> StorageLedger[inferadb-common-storage-ledger]
-    StorageLedger --> Ledger[(InferaDB Ledger)]
+```bash
+inferadb-control \
+  --listen 0.0.0.0:9090 \
+  --storage ledger \
+  --ledger-endpoint http://ledger:50051 \
+  --ledger-client-id ctrl-prod-01 \
+  --ledger-namespace-id 1 \
+  --key-file /data/master.key \
+  --log-format json
 ```
-
-| Crate                    | Purpose                        |
-| ------------------------ | ------------------------------ |
-| inferadb-control         | Binary entrypoint              |
-| inferadb-control-api     | REST/gRPC handlers             |
-| inferadb-control-config  | Configuration loading          |
-| inferadb-control-const   | Shared constants               |
-| inferadb-control-core    | Business logic, entities       |
-| inferadb-control-storage | Repositories + storage factory |
-| inferadb-control-types   | Shared type definitions        |
 
 ## Configuration
 
-Environment variables use `INFERADB_CTRL__` prefix with double underscores for nesting:
+| CLI                     | Purpose                                          | Default                 |
+| ----------------------- | ------------------------------------------------ | ----------------------- |
+| `--listen`              | HTTP bind address                                | `127.0.0.1:9090`        |
+| `--storage`             | Storage backend: `memory` or `ledger`            | `ledger`                |
+| `--dev-mode`            | In-memory storage, relaxed security              |                         |
+| `--key-file`            | Path to Ed25519 PEM key                          | `./data/master.key`     |
+| `--pem`                 | Ed25519 PEM string (alternative to `--key-file`) |                         |
+| `--ledger-endpoint`     | Ledger gRPC endpoint                             |                         |
+| `--ledger-client-id`    | Ledger client identifier                         |                         |
+| `--ledger-namespace-id` | Ledger namespace ID                              |                         |
+| `--log-level`           | `trace`, `debug`, `info`, `warn`, `error`        | `info`                  |
+| `--log-format`          | `auto`, `json`, `text`                           | `auto`                  |
+| `--frontend-url`        | Frontend URL for CORS and email links            | `http://localhost:3000` |
 
-| Variable                              | Description                                   |
-| ------------------------------------- | --------------------------------------------- |
-| `INFERADB_CTRL__LISTEN__HTTP`         | HTTP listen address (default: `0.0.0.0:9090`) |
-| `INFERADB_CTRL__STORAGE`              | Storage backend: `memory` or `ledger`         |
-| `INFERADB_CTRL__LEDGER__ENDPOINT`     | Ledger server URL                             |
-| `INFERADB_CTRL__LEDGER__CLIENT_ID`    | Client ID for idempotency                     |
-| `INFERADB_CTRL__LEDGER__NAMESPACE_ID` | Namespace for data scoping                    |
+See [Configuration Reference](docs/guides/configuration.md) for environment variables, email/SMTP setup, and all options.
 
-See [config.yaml](config.yaml) for all options.
+## Contributing
 
-## Development
+### Prerequisites
+
+- Rust 1.92+
+- [mise](https://mise.jdx.dev/) for synchronized development tooling
+- [just](https://github.com/casey/just) for convenient development commands
+
+### Build and Test
 
 ```bash
-# Setup
 mise trust && mise install
 
-# Common tasks (requires just)
+just build     # Build workspace
 just test      # Run tests
 just lint      # Run clippy
 just fmt       # Format code
-just ci        # Run all checks
-
-# Manual commands
-cargo nextest run
-cargo +1.92 clippy --workspace --all-targets -- -D warnings
-cargo +nightly fmt --all
+just ci        # All checks
 ```
-
-## Deployment
-
-### Docker
-
-```bash
-docker run -p 9090:9090 inferadb/control:latest
-```
-
-### Kubernetes
-
-```bash
-helm install inferadb-control ./helm \
-  --namespace inferadb \
-  --create-namespace \
-  --set config.storage=ledger \
-  --set config.ledger.endpoint=http://ledger.inferadb:50051
-```
-
-See [helm/README.md](helm/README.md) for configuration options.
 
 ## Documentation
 
-| Topic           | Link                                               |
-| --------------- | -------------------------------------------------- |
-| Getting Started | [docs/getting-started.md](docs/getting-started.md) |
-| Authentication  | [docs/authentication.md](docs/authentication.md)   |
-| Architecture    | [docs/architecture.md](docs/architecture.md)       |
-| API Reference   | [openapi.yaml](openapi.yaml)                       |
+- [Getting Started](docs/getting-started.md) — First steps with Control
+- [Configuration Reference](docs/guides/configuration.md) — CLI flags, environment variables, email setup
+- [Authentication](docs/authentication.md) — Auth flows and session management
+- [Architecture](docs/architecture.md) — Crate structure and design decisions
+- [Deployment](docs/deployment.md) — Docker, Kubernetes, and Helm
+- [API Reference](openapi.yaml) — OpenAPI specification
 
 ## Community
 

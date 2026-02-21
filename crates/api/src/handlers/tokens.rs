@@ -105,7 +105,7 @@ pub async fn generate_vault_token(
         })?;
 
     // Create JWT signer
-    let master_key = MasterKey::load_or_generate(state.config.key_file.as_deref())?;
+    let master_key = MasterKey::load_or_generate(&state.config.key_file)?;
     let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
     let signer = JwtSigner::new(encryptor);
 
@@ -238,7 +238,7 @@ pub async fn refresh_vault_token(
         .ok_or_else(|| CoreError::authz("No active certificates available".to_string()))?;
 
     // Create JWT signer
-    let master_key = MasterKey::load_or_generate(state.config.key_file.as_deref())?;
+    let master_key = MasterKey::load_or_generate(&state.config.key_file)?;
     let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
     let signer = JwtSigner::new(encryptor);
 
@@ -484,7 +484,7 @@ pub async fn client_assertion_authenticate(
     }
 
     // Create JWT signer
-    let master_key = MasterKey::load_or_generate(state.config.key_file.as_deref())?;
+    let master_key = MasterKey::load_or_generate(&state.config.key_file)?;
     let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
     let signer = JwtSigner::new(encryptor);
 

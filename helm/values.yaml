@@ -49,8 +49,6 @@ securityContext:
 service:
   type: ClusterIP
   httpPort: 9090   # REST API
-  grpcPort: 9091   # gRPC API
-  meshPort: 9092   # Internal mesh API for Engine communication
   annotations: {}
   sessionAffinity: None
 
@@ -125,72 +123,40 @@ topologySpreadConstraints:
 # =============================================================================
 # InferaDB Control Configuration
 # =============================================================================
+# All config values map to INFERADB__CONTROL__ environment variables.
+# See `inferadb-control --help` for the full list of options.
 
 config:
-  # Logging level: trace, debug, info, warn, error
-  logging: "info"
+  # HTTP bind address
+  listen: "0.0.0.0:9090"
 
-  # Listen addresses
-  listen:
-    http: "0.0.0.0:9090"
-    grpc: "0.0.0.0:9091"
-    mesh: "0.0.0.0:9092"
+  # Logging
+  logLevel: "info"
+  logFormat: "json"
 
-  # Frontend URL (for email links, CORS, etc.)
+  # Frontend URL (for email verification and password reset links)
   frontendUrl: ""  # e.g., "https://app.inferadb.com"
+
+  # Master key file path
+  keyFile: "/data/master.key"
 
   # Storage backend: "memory" or "ledger"
   storage: "memory"
 
-  # Ledger configuration (only used when storage = "ledger")
-  ledger:
-    endpoint: "http://ledger.inferadb:50051"
-    client_id: "control-001"
-    namespace_id: 1
-    vault_id: 1
+  # Ledger configuration (required when storage = "ledger")
+  ledgerEndpoint: ""   # e.g., "http://ledger.inferadb:50051"
+  ledgerClientId: ""   # e.g., "control-001"
+  ledgerNamespaceId: "" # e.g., "1"
+  ledgerVaultId: ""    # optional
 
-  # WebAuthn (Passkey) configuration
-  # Required for passkey authentication
-  webauthn:
-    # Relying Party ID - typically your domain without protocol
-    party: ""  # e.g., "inferadb.com"
-    # Origin URL - must match the URL users access
-    origin: "" # e.g., "https://app.inferadb.com"
-
-  # Email configuration for verification, password reset, etc.
-  email:
-    enabled: false
-    host: ""
-    port: 587
-    username: ""
-    # password: set via secrets.email.password or externalSecrets
-    address: "noreply@example.com"
-    name: "InferaDB"
-    # TLS mode: "none", "starttls", "tls"
-    tls: "starttls"
-
-  # Rate limiting
-  limits:
-    loginAttemptsPerIpPerHour: 100
-    registrationsPerIpPerDay: 5
-    emailVerificationTokensPerHour: 5
-    passwordResetTokensPerHour: 3
-
-  # Engine mesh configuration
-  mesh:
-    # Static URL (when discovery is disabled)
-    url: ""  # e.g., "http://inferadb-engine:8082"
-    grpcPort: 8081
-    httpPort: 8082
-    timeout: 5000  # Timeout in milliseconds
-
-  # Cache invalidation configuration
-  cacheInvalidation:
-    timeout: 5000      # Timeout in milliseconds
-    retryAttempts: 2
-
-  # Optional: provide full config file as YAML string
-  configFile: ""
+  # Email (SMTP) — leave emailHost empty to disable email
+  emailHost: ""
+  emailPort: "587"
+  emailUsername: ""
+  # emailPassword: set via secrets.emailPassword
+  emailFromAddress: "noreply@inferadb.com"
+  emailFromName: "InferaDB"
+  emailInsecure: "false"
 
 # =============================================================================
 # Service Discovery Configuration
@@ -248,14 +214,11 @@ discovery:
 # =============================================================================
 
 secrets:
-  # Master encryption key for sensitive data (e.g., OAuth tokens)
-  # If not provided, will be generated on startup (not recommended for production)
-  # Generate with: openssl rand -base64 32
-  masterKey: ""
+  # Ed25519 PEM key for control identity (auto-generated if absent)
+  pem: ""
 
   # Email password (for SMTP authentication)
-  email:
-    password: ""
+  emailPassword: ""
 
   # Additional custom secrets
   additional: {}
@@ -268,11 +231,11 @@ externalSecrets:
     kind: SecretStore # or ClusterSecretStore
   refreshInterval: 1h
   data: []
-    # - secretKey: INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET
+    # - secretKey: INFERADB__CONTROL__PEM
     #   remoteRef:
     #     key: inferadb/prod/control
-    #     property: masterKey
-    # - secretKey: INFERADB_CTRL__EMAIL__PASSWORD
+    #     property: pem
+    # - secretKey: INFERADB__CONTROL__EMAIL_PASSWORD
     #   remoteRef:
     #     key: inferadb/prod/control
     #     property: emailPassword
@@ -348,9 +311,3 @@ serviceMonitor:
   relabelings: []
   metricRelabelings: []
 
-# External dependencies
-ledger:
-  enabled: false
-  serviceName: "ledger"
-  namespace: "inferadb"
-  port: 50051

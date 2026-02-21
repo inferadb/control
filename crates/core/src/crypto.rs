@@ -33,31 +33,27 @@ impl MasterKey {
     /// Load the master key from a file, or generate a new one if it doesn't exist.
     ///
     /// # Arguments
-    /// * `key_file` - Optional path to the key file. If None, uses default path.
+    /// * `key_file` - Path to the key file.
     ///
     /// # Behavior
     /// - If file exists: load and validate the 32-byte key
     /// - If file doesn't exist: generate a new key and save it
     /// - Creates parent directories if needed
     /// - Sets file permissions to 0600 (owner read/write only) on Unix
-    pub fn load_or_generate(key_file: Option<&str>) -> Result<Self> {
-        let default_path = "./data/master.key".to_string();
-        let path_str = key_file.unwrap_or(&default_path);
-        let path = Path::new(path_str);
-
-        if path.exists() {
-            Self::load_from_file(path)
+    pub fn load_or_generate(key_file: &Path) -> Result<Self> {
+        if key_file.exists() {
+            Self::load_from_file(key_file)
         } else {
-            tracing::info!(path = %path.display(), "Master key file not found, generating new key");
+            tracing::info!(path = %key_file.display(), "Master key file not found, generating new key");
             let key = Self::generate()?;
-            key.save_to_file(path)?;
+            key.save_to_file(key_file)?;
             Ok(key)
         }
     }
 
     /// Generate a new random 256-bit master key
     fn generate() -> Result<Self> {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         let key: [u8; 32] = rng.random();
         Ok(Self(key))
@@ -259,16 +255,15 @@ mod tests {
     fn test_master_key_generate_and_load() {
         let temp_dir = TempDir::new().unwrap();
         let key_path = temp_dir.path().join("test.key");
-        let key_path_str = key_path.to_str().unwrap();
 
         // First call should generate a new key
-        let key1 = MasterKey::load_or_generate(Some(key_path_str)).unwrap();
+        let key1 = MasterKey::load_or_generate(&key_path).unwrap();
 
         // File should exist now
         assert!(key_path.exists());
 
         // Second call should load the same key
-        let key2 = MasterKey::load_or_generate(Some(key_path_str)).unwrap();
+        let key2 = MasterKey::load_or_generate(&key_path).unwrap();
 
         // Keys should be identical
         assert_eq!(key1.as_bytes(), key2.as_bytes());
@@ -283,7 +278,7 @@ mod tests {
         fs::write(&key_path, b"too_short").unwrap();
 
         // Loading should fail
-        let result = MasterKey::load_or_generate(Some(key_path.to_str().unwrap()));
+        let result = MasterKey::load_or_generate(&key_path);
         assert!(result.is_err());
     }
 
@@ -291,13 +286,12 @@ mod tests {
     fn test_master_key_creates_parent_dirs() {
         let temp_dir = TempDir::new().unwrap();
         let key_path = temp_dir.path().join("nested").join("dir").join("test.key");
-        let key_path_str = key_path.to_str().unwrap();
 
         // Parent directories don't exist yet
         assert!(!key_path.parent().unwrap().exists());
 
         // Should create parent dirs and generate key
-        let _key = MasterKey::load_or_generate(Some(key_path_str)).unwrap();
+        let _key = MasterKey::load_or_generate(&key_path).unwrap();
 
         // File and parents should exist now
         assert!(key_path.exists());
@@ -307,9 +301,8 @@ mod tests {
     fn test_encryptor_from_master_key() {
         let temp_dir = TempDir::new().unwrap();
         let key_path = temp_dir.path().join("test.key");
-        let key_path_str = key_path.to_str().unwrap();
 
-        let master_key = MasterKey::load_or_generate(Some(key_path_str)).unwrap();
+        let master_key = MasterKey::load_or_generate(&key_path).unwrap();
         let encryptor = PrivateKeyEncryptor::from_master_key(&master_key).unwrap();
 
         // Should work for encryption/decryption

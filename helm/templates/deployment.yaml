@@ -40,31 +40,23 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args:
-            - --config
-            - /etc/inferadb/config.yaml
           ports:
             - name: http
               containerPort: 9090
               protocol: TCP
-            - name: grpc
-              containerPort: 9091
-              protocol: TCP
-            - name: mesh
-              containerPort: 9092
-              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "inferadb-control.configMapName" . }}
           env:
-            - name: RUST_LOG
-              value: {{ .Values.config.logging | quote }}
-            {{- if .Values.secrets.masterKey }}
-            - name: INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET
+            {{- if .Values.secrets.pem }}
+            - name: INFERADB__CONTROL__PEM
               valueFrom:
                 secretKeyRef:
                   name: {{ include "inferadb-control.secretName" . }}
-                  key: masterKey
+                  key: pem
             {{- end }}
-            {{- if and .Values.config.email.enabled .Values.secrets.email.password }}
-            - name: INFERADB_CTRL__EMAIL__PASSWORD
+            {{- if .Values.secrets.emailPassword }}
+            - name: INFERADB__CONTROL__EMAIL_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "inferadb-control.secretName" . }}
@@ -82,11 +74,10 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
-            - name: config
-              mountPath: /etc/inferadb
-              readOnly: true
             - name: tmp
               mountPath: /tmp
+            - name: data
+              mountPath: /data
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -146,10 +137,9 @@ spec:
             failureThreshold: 3
         {{- end }}
       volumes:
-        - name: config
-          configMap:
-            name: {{ include "inferadb-control.configMapName" . }}
         - name: tmp
+          emptyDir: {}
+        - name: data
           emptyDir: {}
         {{- if eq (include "inferadb-control.tailscaleEnabled" .) "true" }}
         - name: tailscale-state

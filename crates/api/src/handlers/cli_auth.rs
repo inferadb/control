@@ -151,7 +151,7 @@ pub async fn cli_token_exchange(
 
 /// Generate a cryptographically secure random code
 fn generate_secure_code(length: usize) -> Vec<u8> {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     (0..length).map(|_| rng.random()).collect()
 }

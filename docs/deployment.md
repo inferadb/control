@@ -12,13 +12,10 @@ This guide provides instructions for deploying InferaDB Control in production en
   - Storage: Minimal (logs only, data in RAM)
 
 - **Network**:
-  - Public REST port (default: 9090) - Client-facing REST API
-  - Public gRPC port (default: 9091) - Client-facing gRPC server
-  - Internal REST port (default: 9092) - Server-to-server communication (JWKS, etc.)
+  - HTTP port (default: 127.0.0.1:9090, localhost only) - REST API. Use `0.0.0.0:9090` in production to accept external connections.
   - Outbound access to:
-    - InferaDB policy engine (gRPC)
     - SMTP server (for email)
-    - Observability endpoints (metrics, tracing)
+    - InferaDB Ledger (if using ledger storage)
 
 ### Software Dependencies
 
@@ -27,95 +24,98 @@ This guide provides instructions for deploying InferaDB Control in production en
 
 ## Configuration
 
-### 1. Copy Production Config Template
+InferaDB Control uses CLI flags and environment variables for all configuration. There are no config files.
+
+### CLI Flags
 
 ```bash
-cp config.production.yaml config.yaml
+inferadb-control \
+  --listen 0.0.0.0:9090 \
+  --storage ledger \
+  --key-file /etc/inferadb/master.key \
+  --frontend-url https://dashboard.example.com \
+  --log-level info \
+  --log-format json \
+  --email-host smtp.example.com \
+  --email-port 587 \
+  --email-username "smtp-user" \
+  --email-password "smtp-pass" \
+  --email-from-address "noreply@example.com" \
+  --email-from-name "Your Company" \
+  --ledger-endpoint http://ledger:9200 \
+  --ledger-client-id your-client-id \
+  --ledger-namespace-id your-namespace-id \
+  --ledger-vault-id your-vault-id
 ```
 
-### 2. Configure Required Values
+| Flag                    | Type                   | Default                 | Description                                                     |
+| ----------------------- | ---------------------- | ----------------------- | --------------------------------------------------------------- |
+| `--listen`              | SocketAddr             | `127.0.0.1:9090`        | HTTP listen address (override to `0.0.0.0:9090` for production) |
+| `--storage`             | `memory`\|`ledger`     | `ledger`                | Storage backend                                                 |
+| `--dev-mode`            | flag                   | off                     | Forces memory storage, relaxes security                         |
+| `--key-file`            | PathBuf                | `./data/master.key`     | Path to Ed25519 master key file                                 |
+| `--pem`                 | String                 | —                       | Ed25519 PEM string (alternative to `--key-file`)                |
+| `--frontend-url`        | String                 | `http://localhost:3000` | Frontend URL for email links                                    |
+| `--log-level`           | String                 | `info`                  | Log level: trace, debug, info, warn, error                      |
+| `--log-format`          | `auto`\|`json`\|`text` | `auto`                  | Log output format                                               |
+| `--email-host`          | String                 | `""` (disabled)         | SMTP host (empty disables email)                                |
+| `--email-port`          | u16                    | `587`                   | SMTP port                                                       |
+| `--email-username`      | String                 | —                       | SMTP username                                                   |
+| `--email-password`      | String                 | —                       | SMTP password                                                   |
+| `--email-from-address`  | String                 | `noreply@inferadb.com`  | Sender email address                                            |
+| `--email-from-name`     | String                 | `InferaDB`              | Sender display name                                             |
+| `--email-insecure`      | flag                   | off                     | Disable SMTP TLS verification                                   |
+| `--ledger-endpoint`     | String                 | —                       | Ledger storage endpoint (required when storage=ledger)          |
+| `--ledger-client-id`    | String                 | —                       | Ledger client ID (required when storage=ledger)                 |
+| `--ledger-namespace-id` | String                 | —                       | Ledger namespace ID (required when storage=ledger)              |
+| `--ledger-vault-id`     | String                 | —                       | Ledger vault ID (optional)                                      |
 
-Edit `config.yaml` and replace all placeholder values marked with `<...>`:
+### Environment Variables
 
-#### Storage Backend
-
-```yaml
-storage:
-  backend: "memory" # Only implemented backend currently
-```
-
-#### Authentication Security
-
-```yaml
-auth:
-  key_encryption_secret: "<REPLACE-WITH-32+-BYTE-SECRET>"
-```
-
-**Action**: Generate a secure random secret (32+ bytes) for encrypting private keys:
+Every CLI flag can also be set via environment variable using the `INFERADB__CONTROL__` prefix with double underscores as separators. Hyphens in flag names become underscores:
 
 ```bash
-# Generate a 32-byte hex secret
-openssl rand -hex 32
-```
+# Listen address
+export INFERADB__CONTROL__LISTEN="0.0.0.0:9090"
 
-**CRITICAL**: Store this secret securely (environment variable or secrets manager). Never commit to version control.
+# Storage backend
+export INFERADB__CONTROL__STORAGE="ledger"
 
-#### WebAuthn Configuration
-
-```yaml
-auth:
-  webauthn:
-    rp_id: "example.com"
-    rp_name: "Your Company"
-    origin: "https://example.com"
-```
-
-**Action**: Set `rp_id` and `origin` to match your production domain. The `origin` must exactly match the browser origin (including protocol and port if non-standard).
-
-#### Email (SMTP)
-
-```yaml
-email:
-  smtp_host: "<SMTP-HOST>"
-  smtp_port: 587
-  smtp_username: "<SMTP-USERNAME>" # Optional
-  smtp_password: "<SMTP-PASSWORD>" # Optional
-  from_email: "noreply@example.com"
-  from_name: "Your Company"
-```
-
-**Action**: Configure your SMTP provider credentials. For security, use environment variables:
-
-```bash
-export SMTP_PASSWORD="your-password"
-```
-
-#### Policy Service (InferaDB Engine) Endpoint
-
-```yaml
-policy_service:
-  service_url: "http://inferadb-engine.inferadb" # K8s service name
-  grpc_port: 8081
-  internal_port: 8082
-```
-
-**Action**: Point to your InferaDB policy engine. The `service_url` is the base URL (K8s service name or internal hostname), and ports specify gRPC (for policy operations) and internal REST (for webhooks).
-
-### 3. Environment-Specific Overrides
-
-Use environment variables to override sensitive configuration:
-
-```bash
-# Key encryption secret (use INFERADB_CTRL__ prefix for all config overrides)
-export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="your-32-byte-secret"
+# Master key
+export INFERADB__CONTROL__KEY_FILE="/etc/inferadb/master.key"
+# Or provide the PEM string directly
+export INFERADB__CONTROL__PEM="-----BEGIN PRIVATE KEY-----..."
 
 # SMTP credentials
-export INFERADB_CTRL__EMAIL__SMTP_USERNAME="smtp-user"
-export INFERADB_CTRL__EMAIL__SMTP_PASSWORD="smtp-pass"
+export INFERADB__CONTROL__EMAIL_HOST="smtp.example.com"
+export INFERADB__CONTROL__EMAIL_PORT="587"
+export INFERADB__CONTROL__EMAIL_USERNAME="smtp-user"
+export INFERADB__CONTROL__EMAIL_PASSWORD="smtp-pass"
+export INFERADB__CONTROL__EMAIL_FROM_ADDRESS="noreply@example.com"
+export INFERADB__CONTROL__EMAIL_FROM_NAME="Your Company"
 
-# Worker ID (for multi-instance deployments)
-export INFERADB_CTRL__ID_GENERATION__WORKER_ID="0"
+# Ledger storage
+export INFERADB__CONTROL__LEDGER_ENDPOINT="http://ledger:9200"
+export INFERADB__CONTROL__LEDGER_CLIENT_ID="your-client-id"
+export INFERADB__CONTROL__LEDGER_NAMESPACE_ID="your-namespace-id"
+export INFERADB__CONTROL__LEDGER_VAULT_ID="your-vault-id"
+
+# Logging
+export INFERADB__CONTROL__LOG_LEVEL="info"
+export INFERADB__CONTROL__LOG_FORMAT="json"
 ```
+
+**CRITICAL**: Store secrets (PEM key, SMTP password) securely via a secrets manager or encrypted environment variables. Never commit them to version control.
+
+### Authentication Keys
+
+Generate an Ed25519 key pair for signing JWTs:
+
+```bash
+openssl genpkey -algorithm Ed25519 -out master.key
+```
+
+Provide the key via `--key-file` (path to the PEM file) or `--pem` (inline PEM string). The `--pem` flag is useful in containerized environments where mounting files is inconvenient.
 
 ## Single-Instance Deployment
 
@@ -123,16 +123,21 @@ export INFERADB_CTRL__ID_GENERATION__WORKER_ID="0"
 
 Deploy one instance of Control:
 
-```yaml
-id_generation:
-  worker_id: 0 # Fixed for single instance
+```bash
+inferadb-control \
+  --listen 0.0.0.0:9090 \
+  --storage ledger \
+  --key-file /etc/inferadb/master.key \
+  --ledger-endpoint http://ledger:9200 \
+  --ledger-client-id control-prod-01 \
+  --ledger-namespace-id 1
 ```
 
 ### Load Balancer (Optional)
 
 You can still use a load balancer for TLS termination and health checks:
 
-- **Health checks**: `GET /v1/health/ready`
+- **Health checks**: `GET /readyz`
 - **Session affinity**: Not required
 - **TLS termination**: Recommended at load balancer
 
@@ -150,12 +155,6 @@ spec:
     - name: http
       port: 80
       targetPort: 9090
-    - name: grpc
-      port: 9091
-      targetPort: 9091
-    - name: internal
-      port: 9092
-      targetPort: 9092
   type: LoadBalancer
 
 ---
@@ -201,25 +200,9 @@ spec:
 
 When Ledger backend is implemented, the following features will enable multi-instance HA deployments:
 
-### Worker ID Management (Future)
-
-Each instance will require a unique worker ID (0-1023) for Snowflake ID generation:
-
-```yaml
-id_generation:
-  worker_id: ${WORKER_ID} # Unique per instance
-```
-
 ### Leader Election (Future)
 
 Leader election will be automatically handled using Ledger:
-
-```yaml
-leader_election:
-  enabled: true
-  lease_ttl_seconds: 30
-  renewal_interval_seconds: 10
-```
 
 - Only the leader instance will run background jobs
 - Leadership will automatically transfer on failure
@@ -232,7 +215,7 @@ Control provides multiple health check endpoints:
 ### Liveness Probe
 
 ```bash
-GET /v1/health/live
+GET /livez
 ```
 
 Returns `200 OK` if the process is running. Use for Kubernetes liveness probes.
@@ -240,7 +223,7 @@ Returns `200 OK` if the process is running. Use for Kubernetes liveness probes.
 ### Readiness Probe
 
 ```bash
-GET /v1/health/ready
+GET /readyz
 ```
 
 Returns `200 OK` if the service is ready to accept traffic (storage accessible). Use for Kubernetes readiness probes.
@@ -248,7 +231,7 @@ Returns `200 OK` if the service is ready to accept traffic (storage accessible).
 ### Startup Probe
 
 ```bash
-GET /v1/health/startup
+GET /startupz
 ```
 
 Returns `200 OK` after initialization is complete. Use for Kubernetes startup probes.
@@ -256,7 +239,7 @@ Returns `200 OK` after initialization is complete. Use for Kubernetes startup pr
 ### Detailed Health Status
 
 ```bash
-GET /v1/health
+GET /healthz
 ```
 
 Returns JSON with detailed health information:
@@ -264,11 +247,13 @@ Returns JSON with detailed health information:
 ```json
 {
   "status": "healthy",
+  "service": "inferadb-control",
   "version": "0.1.0",
   "instance_id": 0,
-  "uptime": 3600,
+  "uptime_seconds": 3600,
   "storage_healthy": true,
-  "is_leader": true
+  "is_leader": true,
+  "details": null
 }
 ```
 
@@ -288,42 +273,30 @@ Control handles graceful shutdown on `SIGTERM` and `SIGINT`:
 
 ### Logging
 
-Logs are written to stdout in JSON format (structured logging).
+Logs are written to stdout. Configure via CLI flags:
 
-Configure log level:
+```bash
+inferadb-control --log-level info --log-format json
+```
 
-```yaml
-observability:
-  log_level: "info" # trace, debug, info, warn, error
+Or via environment variables:
+
+```bash
+export INFERADB__CONTROL__LOG_LEVEL="info"    # trace, debug, info, warn, error
+export INFERADB__CONTROL__LOG_FORMAT="json"   # auto, json, text
 ```
 
 ### Metrics
 
-Prometheus metrics are exposed at `/metrics` (if enabled):
-
-```yaml
-observability:
-  metrics_enabled: true
-```
+Prometheus metrics are exposed at `/metrics`:
 
 Key metrics:
 
 - HTTP request duration/count
-- gRPC call duration/count
 - Storage operation latency
 - Background job execution status
 - Leader election status
 - Rate limit hit counts
-
-### Distributed Tracing
-
-OpenTelemetry tracing support (optional):
-
-```yaml
-observability:
-  tracing_enabled: true
-  tracing_endpoint: "http://jaeger:4317" # OTLP endpoint
-```
 
 ## Security Best Practices
 
@@ -354,38 +327,37 @@ observability:
 
 ### 4. Rate Limiting
 
-Rate limits are enforced per IP:
+Rate limits are built-in defaults enforced per IP:
 
 - Login: 100/hour
 - Registration: 5/day
 - Email verification: 5/hour
 - Password reset: 3/hour
 
-Configure behind a reverse proxy that sets `X-Forwarded-For` headers correctly.
+These limits are not configurable via CLI flags or environment variables. Deploy behind a reverse proxy that sets `X-Forwarded-For` headers correctly.
 
 ### 5. CORS
 
-Configure CORS for your web dashboard:
+CORS is configured automatically based on `--frontend-url`. Set this to your web dashboard origin:
 
-```yaml
-cors:
-  allowed_origins:
-    - "https://dashboard.example.com"
-  allow_credentials: true
+```bash
+inferadb-control --frontend-url https://dashboard.example.com
 ```
 
 ## Deployment Checklist
 
-- [ ] Production config file created with `backend: "memory"` storage
+- [ ] Ed25519 master key generated and stored securely
 - [ ] Secrets stored securely (environment variables/secrets manager)
+- [ ] Storage backend selected (`--storage ledger` for production)
+- [ ] Ledger endpoint and credentials configured (if using ledger storage)
 - [ ] Sufficient RAM allocated (8GB+ recommended)
 - [ ] Data backup/export procedures documented
 - [ ] Load balancer configured with health checks (if using)
 - [ ] TLS certificates provisioned
-- [ ] CORS configured for web dashboard
+- [ ] `--frontend-url` set for CORS and email links
 - [ ] Email SMTP credentials configured and tested
-- [ ] Logging and monitoring configured
-- [ ] Disaster recovery plan established (understand data loss on restart)
+- [ ] Logging configured (`--log-level`, `--log-format`)
+- [ ] Disaster recovery plan established (understand data loss with memory storage)
 - [ ] Security review completed
 - [ ] Load testing performed
 - [ ] Team aware of single-instance limitation
@@ -411,7 +383,7 @@ cors:
 **Solutions**:
 
 1. Verify load balancer correctly forwards `X-Forwarded-For`
-2. Increase rate limits in config (if legitimate traffic)
+2. Rate limits are hardcoded; contact support if adjustments are needed
 3. Implement IP whitelisting for trusted sources
 
 ### Session Limit Exceeded
@@ -420,9 +392,8 @@ cors:
 
 **Solutions**:
 
-1. Increase `max_sessions_per_user` in config
-2. Review session cleanup job execution (check leader instance logs)
-3. Manually revoke old sessions via API
+1. Session limits are hardcoded; review session cleanup job execution in application logs
+2. Manually revoke old sessions via API
 
 ### Email Delivery Failures
 
@@ -439,7 +410,7 @@ cors:
 
 ### Updating Configuration
 
-1. Edit `config.yaml`
+1. Update CLI flags or environment variables
 2. Rolling restart of instances (zero-downtime)
 3. Verify health checks pass
 

@@ -27,47 +27,24 @@ cargo build --release
 
 ### 2. Configure the API
 
-Create a development configuration file:
+No configuration file is needed. InferaDB Control is configured entirely via CLI flags and environment variables (prefix `INFERADB__CONTROL__`).
 
-```bash
-cp config.yaml config.local.yaml
-```
+For development, `--dev-mode` handles everything: it uses in-memory storage and auto-generates an identity key.
 
-Edit `config.local.yaml` to match your environment:
-
-```yaml
-server:
-  # Combined address strings (host:port)
-  public_rest: "127.0.0.1:9090"
-  public_grpc: "127.0.0.1:9091"
-  private_rest: "0.0.0.0:9092" # Internal API for server-to-server
-
-storage:
-  backend: "memory" # Use in-memory backend for development
-
-auth:
-  key_encryption_secret: "dev-secret-key-at-least-32-bytes-long-for-aes256"
-
-observability:
-  log_level: "debug"
-```
-
-**Security Note**: Never commit `config.local.yaml` to version control. It's already in `.gitignore`.
+For production, use CLI flags such as `--listen`, `--storage`, `--key-file`, `--frontend-url`, etc. Run `inferadb-control --help` for the full list.
 
 ### 3. Start the API Server
 
 ```bash
-# Run with local config
-./target/release/inferadb-control --config config.local.yaml
+# Run in development mode (in-memory storage, auto-generated identity)
+./target/release/inferadb-control --dev-mode
 ```
 
 You should see output like:
 
 ```text
 2025-11-18T10:00:00.000Z INFO  Starting InferaDB Control
-2025-11-18T10:00:00.123Z INFO  Public REST server listening on 127.0.0.1:9090
-2025-11-18T10:00:00.234Z INFO  Public gRPC server listening on 127.0.0.1:9091
-2025-11-18T10:00:00.456Z INFO  Internal REST server listening on 0.0.0.0:9092
+2025-11-18T10:00:00.123Z INFO  HTTP server listening on 127.0.0.1:9090
 ```
 
 ## Quick Start Tutorial
@@ -77,7 +54,7 @@ You should see output like:
 Create your first user account:
 
 ```bash
-curl -X POST http://localhost:9090/v1/auth/register \
+curl -X POST http://localhost:9090/control/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "email": "alice@example.com",
@@ -107,7 +84,7 @@ Response:
 Login with your credentials:
 
 ```bash
-curl -X POST http://localhost:9090/v1/auth/login/password \
+curl -X POST http://localhost:9090/control/v1/auth/login/password \
   -H "Content-Type: application/json" \
   -d '{
     "email": "alice@example.com",
@@ -132,7 +109,7 @@ Response:
 Organizations are the top-level container for all resources:
 
 ```bash
-curl -X POST http://localhost:9090/v1/organizations \
+curl -X POST http://localhost:9090/control/v1/organizations \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -160,7 +137,7 @@ Response:
 Vaults store your authorization policies:
 
 ```bash
-curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/vaults \
+curl -X POST http://localhost:9090/control/v1/organizations/9876543210987654321/vaults \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -188,7 +165,7 @@ Response:
 Vault tokens are JWTs used to authorize requests to the InferaDB policy engine:
 
 ```bash
-curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/vaults/1111222233334444555/tokens \
+curl -X POST http://localhost:9090/control/v1/organizations/9876543210987654321/vaults/1111222233334444555/tokens \
   -H "Cookie: infera_session=sess_xyz789..."
 ```
 
@@ -207,10 +184,12 @@ Response:
 
 ### Step 6: Use the Vault Token
 
-Now you can use the vault token to make authorization requests to the InferaDB policy engine:
+Now you can use the vault token to make authorization requests to the **InferaDB Engine** (a separate service from Control):
 
 ```bash
 # Example: Check if user can read a document
+# Note: This request goes to InferaDB Engine, not Control.
+# See the Engine documentation for setup and endpoint details.
 curl -X POST http://localhost:8080/v1/authorize \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
   -H "Content-Type: application/json" \
@@ -229,7 +208,7 @@ Teams help you organize users and manage permissions:
 
 ```bash
 # 1. Create a team
-curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/teams \
+curl -X POST http://localhost:9090/control/v1/organizations/9876543210987654321/teams \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -240,7 +219,7 @@ curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/teams \
 # Response: {"id": 7777888899990000111, ...}
 
 # 2. Invite a team member
-curl -X POST http://localhost:9090/v1/teams/7777888899990000111/members \
+curl -X POST http://localhost:9090/control/v1/teams/7777888899990000111/members \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -249,7 +228,7 @@ curl -X POST http://localhost:9090/v1/teams/7777888899990000111/members \
   }'
 
 # 3. Grant team access to vault
-curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/vaults/1111222233334444555/team-grants \
+curl -X POST http://localhost:9090/control/v1/organizations/9876543210987654321/vaults/1111222233334444555/team-grants \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -264,7 +243,7 @@ OAuth clients allow applications to obtain vault tokens:
 
 ```bash
 # 1. Create a client
-curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/clients \
+curl -X POST http://localhost:9090/control/v1/organizations/9876543210987654321/clients \
   -H "Cookie: infera_session=sess_xyz789..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -276,7 +255,7 @@ curl -X POST http://localhost:9090/v1/organizations/9876543210987654321/clients 
 # Response: {"client_id": "client_abc123", "client_secret": "secret_xyz789", ...}
 
 # 2. Obtain token using client credentials
-curl -X POST http://localhost:9090/v1/oauth/token \
+curl -X POST http://localhost:9090/control/v1/oauth/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d 'grant_type=client_credentials&client_id=client_abc123&client_secret=secret_xyz789&scope=vault:1111222233334444555'
 
@@ -289,11 +268,11 @@ Review security events:
 
 ```bash
 # Get recent audit logs
-curl -X GET "http://localhost:9090/v1/organizations/9876543210987654321/audit-logs?limit=25" \
+curl -X GET "http://localhost:9090/control/v1/organizations/9876543210987654321/audit-logs?limit=25" \
   -H "Cookie: infera_session=sess_xyz789..."
 
 # Filter by event type
-curl -X GET "http://localhost:9090/v1/organizations/9876543210987654321/audit-logs?event_type=vault_token_generated" \
+curl -X GET "http://localhost:9090/control/v1/organizations/9876543210987654321/audit-logs?event_type=vault_token_generated" \
   -H "Cookie: infera_session=sess_xyz789..."
 ```
 
@@ -301,12 +280,12 @@ curl -X GET "http://localhost:9090/v1/organizations/9876543210987654321/audit-lo
 
 ### Using Environment Variables
 
-Override config values with environment variables (use `INFERADB_CTRL__` prefix with double underscores as separators):
+Override CLI flags with environment variables (use `INFERADB__CONTROL__` prefix with double underscores as separators):
 
 ```bash
-export INFERADB_CTRL__SERVER__PUBLIC_REST="127.0.0.1:8080"
-export INFERADB_CTRL__OBSERVABILITY__LOG_LEVEL=debug
-export INFERADB_CTRL__AUTH__KEY_ENCRYPTION_SECRET="your-secret-key"
+export INFERADB__CONTROL__LISTEN="127.0.0.1:8080"
+export INFERADB__CONTROL__LOG_LEVEL=debug
+export INFERADB__CONTROL__KEY_FILE="/path/to/key.pem"
 
 ./target/release/inferadb-control
 ```
@@ -333,28 +312,30 @@ cargo nextest run
 # Generate and open Rust docs
 cargo doc --open
 
-# View OpenAPI spec
-open http://localhost:9090/openapi.yaml
+# View OpenAPI spec (file in repo, not served by the API)
+open openapi.yaml
 ```
 
 ### Debugging
 
 Enable debug logging:
 
-```yaml
-# config.local.yaml
-observability:
-  log_level: "debug" # or "trace" for maximum detail
+```bash
+# Via CLI flag
+./target/release/inferadb-control --dev-mode --log-level debug
+
+# Or via environment variable
+export INFERADB__CONTROL__LOG_LEVEL=debug
 ```
 
 View structured logs:
 
 ```bash
 # Pretty-print JSON logs
-./target/release/inferadb-control-api | jq
+./target/release/inferadb-control | jq
 
 # Filter for errors
-./target/release/inferadb-control-api | jq 'select(.level == "ERROR")'
+./target/release/inferadb-control | jq 'select(.level == "ERROR")'
 ```
 
 ### Resetting the Database
@@ -365,7 +346,7 @@ If you need to start fresh with the in-memory backend:
 # Stop the API server (Ctrl+C)
 
 # Restart the API server (in-memory data is automatically cleared on restart)
-./target/release/inferadb-control --config config.local.yaml
+./target/release/inferadb-control --dev-mode
 ```
 
 **Note**: The in-memory backend stores all data in RAM. Restarting the server clears all data.
@@ -390,7 +371,7 @@ Now that you have the basics working, explore:
 
 **Solutions**:
 
-1. Verify `config.local.yaml` has `backend: "memory"` in the storage section
+1. Verify you are using `--storage memory` or `--dev-mode` (which defaults to memory)
 2. Check that you have sufficient memory available (at least 1GB free)
 3. Review error logs for specific issues
 
@@ -400,9 +381,9 @@ Now that you have the basics working, explore:
 
 **Solutions**:
 
-1. Change port in config: `public_rest: "127.0.0.1:8080"`
+1. Change port via CLI flag: `--listen 127.0.0.1:8080`
 2. Find and stop conflicting process: `lsof -i :9090`
-3. Use environment variable: `export INFERADB_CTRL__SERVER__PUBLIC_REST="127.0.0.1:8080"`
+3. Use environment variable: `export INFERADB__CONTROL__LISTEN="127.0.0.1:8080"`
 
 ### Key encryption secret too short
 
@@ -411,11 +392,11 @@ Now that you have the basics working, explore:
 **Solution**: Generate a proper secret:
 
 ```bash
-# Generate random 32-byte secret
-openssl rand -base64 32
+# Generate a PEM key file
+openssl genpkey -algorithm ed25519 -out key.pem
 
-# Add to config
-key_encryption_secret: "generated-secret-here"
+# Pass it via CLI flag
+./target/release/inferadb-control --key-file key.pem
 ```
 
 ### Session cookie not working
@@ -437,13 +418,7 @@ key_encryption_secret: "generated-secret-here"
 
 1. Wait before retrying (exponential backoff recommended)
 2. Reduce request frequency
-3. Check rate limiting config in `config.local.yaml`
-4. For testing, adjust limits in config:
-
-```yaml
-rate_limiting:
-  login_attempts_per_ip_per_hour: 1000 # Increase for testing
-```
+3. Rate limits use built-in defaults and are not currently configurable via CLI flags
 
 ## Getting Help
 

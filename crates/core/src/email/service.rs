@@ -30,61 +30,69 @@ pub trait EmailSender: Send + Sync {
     ) -> Result<()>;
 }
 
-/// SMTP configuration
-#[derive(Debug, Clone)]
-pub struct SmtpConfig {
-    /// SMTP server host
-    pub host: String,
-    /// SMTP server port
-    pub port: u16,
-    /// SMTP username
-    pub username: String,
-    /// SMTP password
-    pub password: String,
-    /// From email address
-    pub address: String,
-    /// From display name
-    pub name: String,
-    /// Allow insecure (unencrypted) SMTP connections.
-    /// Only for local development/testing with tools like Mailpit.
-    pub insecure: bool,
-}
-
 /// SMTP-based email service implementation
 pub struct SmtpEmailService {
-    config: SmtpConfig,
+    from_address: String,
+    from_name: String,
     transport: AsyncSmtpTransport<Tokio1Executor>,
 }
 
 impl SmtpEmailService {
-    /// Create a new SMTP email service
-    pub fn new(config: SmtpConfig) -> Result<Self> {
-        let transport = if config.insecure {
-            // Use unencrypted SMTP for local development/testing (e.g., Mailpit)
+    /// Create a new SMTP email service from individual configuration fields.
+    ///
+    /// # Arguments
+    ///
+    /// * `host` - SMTP server hostname
+    /// * `port` - SMTP server port
+    /// * `username` - SMTP username (empty string for no auth)
+    /// * `password` - SMTP password (empty string for no auth)
+    /// * `from_address` - Sender email address
+    /// * `from_name` - Sender display name
+    /// * `insecure` - Use unencrypted SMTP (development only)
+    pub fn new(
+        host: &str,
+        port: u16,
+        username: &str,
+        password: &str,
+        from_address: String,
+        from_name: String,
+        insecure: bool,
+    ) -> Result<Self> {
+        let transport = if insecure {
             tracing::warn!(
-                host = %config.host,
-                port = config.port,
+                host = %host,
+                port = port,
                 "Using insecure (unencrypted) SMTP transport - only use for local development!"
             );
-            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
-                .port(config.port)
-                .build()
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host).port(port).build()
         } else {
-            // Use STARTTLS for production
-            let creds = Credentials::new(config.username.clone(), config.password.clone());
-            AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)
+            let builder = AsyncSmtpTransport::<Tokio1Executor>::relay(host)
                 .map_err(|e| Error::internal(format!("Failed to create SMTP transport: {e}")))?
-                .port(config.port)
-                .credentials(creds)
-                .build()
+                .port(port);
+
+            let has_username = !username.is_empty();
+            let has_password = !password.is_empty();
+
+            if has_username != has_password {
+                return Err(Error::validation(
+                    "SMTP username and password must both be provided or both be empty",
+                ));
+            }
+
+            if has_username {
+                builder
+                    .credentials(Credentials::new(username.to_owned(), password.to_owned()))
+                    .build()
+            } else {
+                builder.build()
+            }
         };
 
-        Ok(Self { config, transport })
+        Ok(Self { from_address, from_name, transport })
     }
 
-    /// Get the from mailbox
     fn get_from_mailbox(&self) -> Result<Mailbox> {
-        format!("{} <{}>", self.config.name, self.config.address)
+        format!("{} <{}>", self.from_name, self.from_address)
             .parse()
             .map_err(|e| Error::internal(format!("Invalid from address: {e}")))
     }
@@ -243,40 +251,6 @@ mod tests {
     }
 
     #[test]
-    fn test_smtp_config() {
-        let config = SmtpConfig {
-            host: "smtp.example.com".to_string(),
-            port: 587,
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            address: "noreply@example.com".to_string(),
-            name: "Example App".to_string(),
-            insecure: false,
-        };
-
-        assert_eq!(config.host, "smtp.example.com");
-        assert_eq!(config.port, 587);
-        assert!(!config.insecure);
-    }
-
-    #[test]
-    fn test_smtp_config_insecure() {
-        let config = SmtpConfig {
-            host: "mailpit".to_string(),
-            port: 1025,
-            username: String::new(),
-            password: String::new(),
-            address: "test@inferadb.local".to_string(),
-            name: "InferaDB Test".to_string(),
-            insecure: true,
-        };
-
-        assert_eq!(config.host, "mailpit");
-        assert_eq!(config.port, 1025);
-        assert!(config.insecure);
-    }
-
-    #[test]
     fn test_email_uses_multipart_alternative() {
         let email = Message::builder()
             .from("sender@example.com".parse::<Mailbox>().unwrap())
@@ -346,8 +320,6 @@ mod tests {
             .unwrap();
 
         let formatted = String::from_utf8(email.formatted()).unwrap();
-
-        // The old implementation concatenated with "\n\n---\n\n" — this should not appear
         assert!(!formatted.contains("\n---\n"), "Email should not contain the old --- separator");
     }
 

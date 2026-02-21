@@ -15,9 +15,7 @@ graph TB
     end
 
     subgraph "API Layer"
-        REST[HTTP API<br/>Port 9090]
-        GRPC[gRPC API<br/>Port 9091]
-        Mesh[Mesh API<br/>Port 9092]
+        REST[HTTP REST API<br/>Port 9090]
     end
 
     subgraph "Application Layer"
@@ -52,14 +50,12 @@ graph TB
     Dashboard --> REST
     CLI --> REST
     Mobile --> REST
-    Dashboard --> GRPC
 
     REST --> Auth
     REST --> Org
     REST --> Vault
     REST --> Client
-    GRPC --> Auth
-    GRPC --> Token
+    REST --> Token
 
     Auth --> Entities
     Org --> Entities
@@ -79,12 +75,9 @@ graph TB
     Token --> Engine
     Email --> SMTP
     REST --> Metrics
-    GRPC --> Metrics
     REST --> Tracing
-    GRPC --> Tracing
 
     style REST fill:#4CAF50
-    style GRPC fill:#4CAF50
     style Storage fill:#2196F3
     style Engine fill:#FF9800
 ```
@@ -100,7 +93,7 @@ graph LR
     end
 
     subgraph "Control"
-        API[inferadb-control<br/>HTTP: 9090<br/>gRPC: 9091<br/>Mesh: 9092<br/>Storage: In-Memory]
+        API[inferadb-control<br/>HTTP: 9090<br/>Storage: In-Memory]
     end
 
     subgraph "Services"
@@ -476,9 +469,8 @@ graph LR
         Tokio[Tokio<br/>Async Runtime]
     end
 
-    subgraph "Web Frameworks"
+    subgraph "Web Framework"
         Axum[Axum<br/>HTTP Server]
-        Tonic[Tonic<br/>gRPC Server]
         Tower[Tower<br/>Middleware]
     end
 
@@ -502,9 +494,7 @@ graph LR
 
     Rust --> Tokio
     Tokio --> Axum
-    Tokio --> Tonic
     Axum --> Tower
-    Tonic --> Tower
 
     Tower --> LedgerDB
     Tower --> Memory
@@ -512,7 +502,7 @@ graph LR
     Axum --> Argon2
     Axum --> Ed25519
     Axum --> AES
-    Tonic --> JWT
+    Axum --> JWT
 
     Axum --> Tracing
     Axum --> Metrics

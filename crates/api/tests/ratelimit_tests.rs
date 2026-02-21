@@ -20,12 +20,14 @@ fn create_rate_limited_test_state(
     registration_max: u32,
 ) -> inferadb_control_api::handlers::AppState {
     use inferadb_control_api::handlers::AppState;
-    use inferadb_control_config::ControlConfig;
+    use inferadb_control_config::{Config, StorageBackend};
     use inferadb_control_storage::Backend;
 
     let backend = Backend::memory();
-    let config =
-        ControlConfig::builder().maybe_key_file(Some("/tmp/test-master.key".to_string())).build();
+    let config = Config::builder()
+        .storage(StorageBackend::Memory)
+        .key_file(std::path::PathBuf::from("/tmp/test-master.key"))
+        .build();
 
     let email_sender = Box::new(inferadb_control_core::MockEmailSender::new());
     let email_service = inferadb_control_core::EmailService::new(email_sender);

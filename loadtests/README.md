@@ -276,7 +276,7 @@ If you see many 429 responses:
 
 - Reduce concurrent users (`--vus`)
 - Increase ramp-up time in test stages
-- Adjust rate limits in `config.yaml`
+- Rate limits are built-in defaults (not configurable)
 
 ### High Latency
 

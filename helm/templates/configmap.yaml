@@ -5,84 +5,31 @@ metadata:
   labels:
     {{- include "inferadb-control.labels" . | nindent 4 }}
 data:
-  {{- if .Values.config.configFile }}
-  config.yaml: |
-    {{- .Values.config.configFile | nindent 4 }}
-  {{- else }}
-  config.yaml: |
-    control:
-      frontend:
-        url: {{ .Values.config.frontendUrl | quote }}
-
-      listen:
-        http: {{ .Values.config.listen.http | quote }}
-        grpc: {{ .Values.config.listen.grpc | quote }}
-        mesh: {{ .Values.config.listen.mesh | quote }}
-
-      storage: {{ .Values.config.storage | quote }}
-
-      {{- if eq .Values.config.storage "ledger" }}
-      ledger:
-        endpoint: {{ .Values.config.ledger.endpoint | quote }}
-        client_id: {{ .Values.config.ledger.client_id | quote }}
-        namespace_id: {{ .Values.config.ledger.namespace_id }}
-        vault_id: {{ .Values.config.ledger.vault_id }}
-      {{- end }}
-
-      {{- if or .Values.config.webauthn.party .Values.config.webauthn.origin }}
-      webauthn:
-        party: {{ .Values.config.webauthn.party | quote }}
-        origin: {{ .Values.config.webauthn.origin | quote }}
-      {{- end }}
-
-      {{- if .Values.config.email.enabled }}
-      email:
-        host: {{ .Values.config.email.host | quote }}
-        port: {{ .Values.config.email.port }}
-        {{- if .Values.config.email.username }}
-        username: {{ .Values.config.email.username | quote }}
-        {{- end }}
-        address: {{ .Values.config.email.address | quote }}
-        name: {{ .Values.config.email.name | quote }}
-        {{- if .Values.config.email.tls }}
-        tls: {{ .Values.config.email.tls | quote }}
-        {{- end }}
-      {{- end }}
-
-      limits:
-        login_attempts_per_ip_per_hour: {{ .Values.config.limits.loginAttemptsPerIpPerHour }}
-        registrations_per_ip_per_day: {{ .Values.config.limits.registrationsPerIpPerDay }}
-        email_verification_tokens_per_hour: {{ .Values.config.limits.emailVerificationTokensPerHour }}
-        password_reset_tokens_per_hour: {{ .Values.config.limits.passwordResetTokensPerHour }}
-
-      mesh:
-        {{- if .Values.config.mesh.url }}
-        url: {{ .Values.config.mesh.url | quote }}
-        {{- end }}
-        grpc: {{ .Values.config.mesh.grpcPort }}
-        port: {{ .Values.config.mesh.httpPort }}
-
-      cache_invalidation:
-        timeout_ms: {{ .Values.config.cacheInvalidation.timeout }}
-        retry_attempts: {{ .Values.config.cacheInvalidation.retryAttempts }}
-        {{- if eq .Values.discovery.mode "none" }}
-        http_endpoints: []
-        {{- else }}
-        discovery:
-          mode:
-            type: {{ .Values.discovery.mode | quote }}
-            {{- if eq .Values.discovery.mode "kubernetes" }}
-            label_selector: {{ .Values.discovery.engine.labelSelector | quote }}
-            namespace: {{ .Values.discovery.engine.namespace | quote }}
-            port: {{ .Values.discovery.engine.port }}
-            {{- end }}
-            {{- if eq .Values.discovery.mode "tailscale" }}
-            local_cluster: {{ .Values.discovery.tailscale.localCluster | quote }}
-            {{- if .Values.discovery.tailscale.remoteClusters }}
-            remote_clusters:
-              {{- toYaml .Values.discovery.tailscale.remoteClusters | nindent 14 }}
-            {{- end }}
-            {{- end }}
-          cache_ttl: {{ .Values.discovery.cacheTtl }}
-        {{- end }}
+  INFERADB__CONTROL__LISTEN: {{ .Values.config.listen | quote }}
+  INFERADB__CONTROL__LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  INFERADB__CONTROL__LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+  INFERADB__CONTROL__STORAGE: {{ .Values.config.storage | quote }}
+  INFERADB__CONTROL__KEY_FILE: {{ .Values.config.keyFile | quote }}
+  INFERADB__CONTROL__FRONTEND_URL: {{ .Values.config.frontendUrl | quote }}
+  {{- if .Values.config.ledgerEndpoint }}
+  INFERADB__CONTROL__LEDGER_ENDPOINT: {{ .Values.config.ledgerEndpoint | quote }}
+  {{- end }}
+  {{- if .Values.config.ledgerClientId }}
+  INFERADB__CONTROL__LEDGER_CLIENT_ID: {{ .Values.config.ledgerClientId | quote }}
+  {{- end }}
+  {{- if .Values.config.ledgerNamespaceId }}
+  INFERADB__CONTROL__LEDGER_NAMESPACE_ID: {{ .Values.config.ledgerNamespaceId | quote }}
+  {{- end }}
+  {{- if .Values.config.ledgerVaultId }}
+  INFERADB__CONTROL__LEDGER_VAULT_ID: {{ .Values.config.ledgerVaultId | quote }}
+  {{- end }}
+  {{- if .Values.config.emailHost }}
+  INFERADB__CONTROL__EMAIL_HOST: {{ .Values.config.emailHost | quote }}
+  INFERADB__CONTROL__EMAIL_PORT: {{ .Values.config.emailPort | quote }}
+  {{- if .Values.config.emailUsername }}
+  INFERADB__CONTROL__EMAIL_USERNAME: {{ .Values.config.emailUsername | quote }}
+  {{- end }}
+  INFERADB__CONTROL__EMAIL_FROM_ADDRESS: {{ .Values.config.emailFromAddress | quote }}
+  INFERADB__CONTROL__EMAIL_FROM_NAME: {{ .Values.config.emailFromName | quote }}
+  INFERADB__CONTROL__EMAIL_INSECURE: {{ .Values.config.emailInsecure | quote }}
   {{- end }}

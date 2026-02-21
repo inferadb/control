@@ -1,7 +1,7 @@
 use bon::bon;
 use chrono::{DateTime, Duration, Utc};
 use hex::encode as hex_encode;
-use rand::RngCore;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::{

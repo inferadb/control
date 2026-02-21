@@ -11,7 +11,7 @@ sequenceDiagram
     participant DB as Ledger
     participant Email as Email Service
 
-    User->>API: POST /v1/auth/register<br/>{email, password, name}
+    User->>API: POST /control/v1/auth/register<br/>{email, password, name}
 
     API->>API: Validate Input<br/>(email format, password strength)
 
@@ -57,7 +57,7 @@ sequenceDiagram
     participant API as Control
     participant DB as Ledger
 
-    User->>API: POST /v1/auth/login<br/>{email, password}
+    User->>API: POST /control/v1/auth/login/password<br/>{email, password}
 
     API->>DB: Get User by Email
     DB-->>API: User + Password Hash
@@ -96,7 +96,7 @@ sequenceDiagram
     participant DB as Ledger
     participant Engine as InferaDB Engine
 
-    App->>API: POST /v1/vaults/{vault_id}/token<br/>Cookie: infera_session={session_id}
+    App->>API: POST /control/v1/organizations/{org}/vaults/{vault}/tokens<br/>Cookie: infera_session={session_id}
 
     API->>DB: Validate Session
     DB-->>API: Session + User
@@ -145,7 +145,7 @@ sequenceDiagram
     participant API as Control
     participant DB as Ledger
 
-    User->>API: POST /v1/organizations<br/>{name, tier}<br/>Cookie: infera_session={session_id}
+    User->>API: POST /control/v1/organizations<br/>{name, tier}<br/>Cookie: infera_session={session_id}
 
     API->>DB: Validate Session
     DB-->>API: Session + User
@@ -177,7 +177,7 @@ sequenceDiagram
     participant API as Control
     participant DB as Ledger
 
-    Admin->>API: POST /v1/organizations/{org_id}/vaults/{vault_id}/access/users<br/>{user_id, role}<br/>Cookie: infera_session={session_id}
+    Admin->>API: POST /control/v1/organizations/{org}/vaults/{vault}/user-grants<br/>{user_id, role}<br/>Cookie: infera_session={session_id}
 
     API->>DB: Validate Session
     DB-->>API: Session + Admin User
@@ -222,7 +222,7 @@ sequenceDiagram
     participant API as Control
     participant DB as Ledger
 
-    Admin->>API: POST /v1/organizations/{org_id}/clients/{client_id}/certificates<br/>{name}<br/>Cookie: infera_session={session_id}
+    Admin->>API: POST /control/v1/organizations/{org}/clients/{client}/certificates<br/>{name}<br/>Cookie: infera_session={session_id}
 
     API->>DB: Validate Session
     DB-->>API: Session + Admin User
@@ -270,7 +270,7 @@ sequenceDiagram
     participant API as Control
     participant DB as Ledger
 
-    App->>API: POST /v1/vaults/token/refresh<br/>{refresh_token}
+    App->>API: POST /control/v1/tokens/refresh<br/>{refresh_token}
 
     API->>DB: Get Refresh Token
     DB-->>API: Token Details
@@ -315,7 +315,7 @@ sequenceDiagram
     participant API as Control
     participant DB as Ledger
 
-    User->>API: POST /v1/auth/verify-email<br/>{token}
+    User->>API: POST /control/v1/auth/verify-email<br/>{token}
 
     API->>DB: Get Verification Token
     DB-->>API: Token Details
@@ -356,7 +356,7 @@ sequenceDiagram
 
     rect rgb(240, 240, 240)
     Note over User,Email: Step 1: Request Reset
-    User->>API: POST /v1/auth/password-reset/request<br/>{email}
+    User->>API: POST /control/v1/auth/password-reset/request<br/>{email}
 
     API->>DB: Get User by Email
     DB-->>API: User Details
@@ -377,7 +377,7 @@ sequenceDiagram
 
     rect rgb(255, 250, 240)
     Note over User,DB: Step 2: Reset Password
-    User->>API: POST /v1/auth/password-reset/confirm<br/>{token, new_password}
+    User->>API: POST /control/v1/auth/password-reset/confirm<br/>{token, new_password}
 
     API->>DB: Get Reset Token
     DB-->>API: Token Details
@@ -470,7 +470,7 @@ sequenceDiagram
     participant Handler as Request Handler
     participant DB as Ledger
 
-    User->>API: POST /v1/organizations/{org_id}/vaults<br/>{name}<br/>Cookie: infera_session={session_id}
+    User->>API: POST /control/v1/organizations/{org}/vaults<br/>{name}<br/>Cookie: infera_session={session_id}
 
     API->>API: Extract Session Context<br/>(user_id, org_id, IP, user_agent)
 
@@ -487,7 +487,7 @@ sequenceDiagram
 
     API-->>User: 201 Created<br/>{vault}
 
-    Note over DB: Audit logs queryable via<br/>GET /v1/organizations/{org_id}/audit-logs
+    Note over DB: Audit logs queryable via<br/>GET /control/v1/organizations/{org}/audit-logs
 ```
 
 ## Team-Based Vault Access
@@ -540,7 +540,7 @@ sequenceDiagram
     participant RateLimit as Rate Limiter
     participant DB as Ledger
 
-    User->>API: POST /v1/auth/login<br/>(Request 1)
+    User->>API: POST /control/v1/auth/login/password<br/>(Request 1)
 
     API->>RateLimit: Check Rate Limit<br/>(category: auth.login, IP: x.x.x.x)
     RateLimit->>DB: Get Current Window Count
@@ -554,7 +554,7 @@ sequenceDiagram
 
     Note over User,DB: ... 9 more requests ...
 
-    User->>API: POST /v1/auth/login<br/>(Request 11)
+    User->>API: POST /control/v1/auth/login/password<br/>(Request 11)
 
     API->>RateLimit: Check Rate Limit
     RateLimit->>DB: Get Current Window Count

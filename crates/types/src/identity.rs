@@ -78,7 +78,7 @@ pub struct Jwk {
 impl ControlIdentity {
     /// Generate a new control identity with a random Ed25519 keypair.
     pub fn generate() -> Self {
-        use rand::RngCore;
+        use rand::Rng;
         use zeroize::Zeroize;
 
         let mut rng = rand::rng();
