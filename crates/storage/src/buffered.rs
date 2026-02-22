@@ -158,9 +158,12 @@ impl<S: StorageBackend + Clone + 'static> StorageBackend for BufferedBackend<S> 
         value: Vec<u8>,
         _ttl: Duration,
     ) -> StorageResult<()> {
-        // Buffer as a plain set — the transaction API does not support TTL.
-        // The entity-level expiry checks (e.g., is_expired()) handle TTL
-        // semantics in the repositories.
+        // TTL is silently dropped: transactions do not support per-key expiry.
+        //
+        // Repositories that need TTL within a transactional context must use the
+        // two-phase write pattern: commit the transaction first for atomicity,
+        // then call `set_with_ttl` on each key via the underlying storage backend.
+        // See `AuthorizationCodeRepository::create` for the canonical example.
         self.buffer.lock().await.push(BufferedWrite::Set { key, value });
         Ok(())
     }

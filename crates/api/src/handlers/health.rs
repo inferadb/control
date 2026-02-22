@@ -44,9 +44,6 @@ pub struct HealthResponse {
     /// Whether storage backend is healthy
     pub storage_healthy: bool,
 
-    /// Whether this instance is the leader
-    pub is_leader: bool,
-
     /// Additional details (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
@@ -104,7 +101,7 @@ pub async fn startupz_handler(State(state): State<AppState>) -> impl IntoRespons
 /// - Overall status (healthy/degraded/unhealthy)
 /// - Service name and version
 /// - Uptime in seconds
-/// - Storage and leader election status
+/// - Storage backend status
 pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse {
     // Check storage health
     let storage_healthy = state.storage.get(b"health_check".as_ref()).await.is_ok();
@@ -112,10 +109,6 @@ pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse
     // Get instance details from state
     let instance_id = state.worker_id;
     let start_time = state.start_time;
-    let is_leader = match &state.leader {
-        Some(leader) => leader.is_leader().await,
-        None => false,
-    };
 
     // Calculate uptime
     let uptime_seconds = SystemTime::now().duration_since(start_time).unwrap_or_default().as_secs();
@@ -130,7 +123,6 @@ pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse
         instance_id,
         uptime_seconds,
         storage_healthy,
-        is_leader,
         details: None,
     };
 

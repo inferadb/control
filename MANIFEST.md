@@ -31,7 +31,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | --------------- | ------------------------------------------------------------- |
 | `control`       | Binary entrypoint, CLI args, startup orchestration            |
 | `api`           | HTTP/gRPC handlers, middleware, routing                       |
-| `core`          | Auth, crypto, JWT, repositories, email, jobs, leader election |
+| `core`          | Auth, crypto, JWT, repositories, email                        |
 | `types`         | Error enum, entities, DTOs, identity                          |
 | `storage`       | Storage factory, backend abstraction, caching, coordination   |
 | `config`        | Configuration loading and validation                          |
@@ -75,7 +75,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 - Clean startup orchestration with explicit dependency ordering
 - `anyhow::Result` at the binary boundary is idiomatic — libraries return typed errors, binary aggregates with `anyhow`
 - Worker ID acquisition supports Kubernetes StatefulSet pod ordinals, explicit assignment, and random with collision detection
-- Leader election (`Coordinator` trait) exists in the storage crate but is not wired up at startup (`leader: None`), suggesting it's planned
+- `Coordinator` trait exists in the storage crate but has no active consumers in Control
 - No custom signal handling — relies on tokio's default via `inferadb_control_api::serve()`
 
 ---
@@ -90,7 +90,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 | Symbol              | Kind     | Description                                                                          |
 | ------------------- | -------- | ------------------------------------------------------------------------------------ |
-| `ServicesConfig`    | Struct   | Optional `leader`, `email_service`, `control_identity` (all `Option<Arc<...>>`)      |
+| `ServicesConfig`    | Struct   | Optional `email_service`, `control_identity` (all `Option<Arc<...>>`)                |
 | `serve()`           | Function | Creates `AppState`, builds router, binds TCP listener, serves with graceful shutdown |
 | `shutdown_signal()` | Function | Handles Ctrl+C and SIGTERM for graceful shutdown                                     |
 
@@ -207,7 +207,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 | Symbol                     | Kind             | Description                                                                                                                          |
 | -------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `AppState`                 | Struct (Builder) | `storage`, `config`, `worker_id`, `start_time`, `leader`, `email_service`, `control_identity`, `rate_limits`; `new_test()` for tests |
+| `AppState`                 | Struct (Builder) | `storage`, `config`, `worker_id`, `start_time`, `email_service`, `control_identity`, `rate_limits`; `new_test()` for tests          |
 | `ApiError`                 | Struct           | Wraps `CoreError`; implements `IntoResponse` with status code mapping and JSON error response (includes `code` field)                |
 | `ErrorResponse`            | Struct           | JSON error body: `error` (message), `code` (error code string), `details` (optional)                                                 |
 | `register()`               | Handler          | POST `/v1/auth/register` — Atomically creates user, email, verification token, session, org via `BufferedBackend`                    |
@@ -224,7 +224,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | `livez_handler()`    | Handler | Always 200 (Kubernetes liveness)                                       |
 | `readyz_handler()`   | Handler | Storage health check (Kubernetes readiness)                            |
 | `startupz_handler()` | Handler | Delegates to readyz (Kubernetes startup)                               |
-| `healthz_handler()`  | Handler | Full JSON response with storage health, leader status, uptime, version |
+| `healthz_handler()`  | Handler | Full JSON response with storage health, uptime, version               |
 
 #### `handlers/tokens.rs`
 
@@ -309,7 +309,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | `revoke_certificate()` | Handler | POST — Marks revoked in Control + Ledger; compensating rollback restores active state on Ledger failure                          |
 | `rotate_certificate()` | Handler | POST — Creates new cert with grace period, writes to Ledger; compensating deletion on Ledger failure                             |
 
-**Note:** All three certificate lifecycle handlers use compensating transactions — on Ledger write failure, Control state is rolled back. A background reconciliation job compares Control and Ledger state hourly.
+**Note:** All three certificate lifecycle handlers use compensating transactions — on Ledger write failure, Control state is rolled back. Revoked certificates are automatically cleaned up after 90 days by Ledger's TTL-based garbage collector.
 
 #### `handlers/vaults.rs`
 
@@ -393,7 +393,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 | Test File                            | Tests | Coverage                                                                                                                                     |
 | ------------------------------------ | ----- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `audit_log_tests.rs`                 | 6     | Audit log creation, listing, filtering, pagination, owner-only access                                                                        |
+| `audit_log_tests.rs`                 | 5     | Audit log creation, listing, filtering, pagination, owner-only access                                                                        |
 | `auth_tests.rs`                      | 21    | Login (valid/invalid/enumeration), logout, verify-email, password-reset (enumeration fix), cookie attributes                                 |
 | `cli_auth_tests.rs`                  | 5     | Full PKCE flow, wrong verifier, replay prevention, expired code, unauthenticated                                                             |
 | `client_tests.rs`                    | 13    | Client CRUD, certificate CRUD, rotation, Ledger integration, audit log                                                                       |
@@ -420,7 +420,7 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | `token_tests.rs`                     | 11    | Generate (including manager role), refresh, replay, revocation, client assertion (unknown kid, revoked cert, JTI replay, expired, wrong sig) |
 | `vault_tests.rs`                     | 8     | CRUD, user/team grant access, team grant deletion, grant isolation                                                                           |
 
-**Total: 775 tests** (195 integration across 26 test files + unit + property-based across all crates)
+**Total: 759 tests** (194 integration across 26 test files + unit + property-based across all crates)
 
 ---
 
@@ -476,18 +476,6 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 
 **Insight:** Well-designed multi-strategy: explicit > K8s ordinal > random with collision detection. Custom epoch is 2024-01-01T00:00:00Z.
 
-### `src/jobs.rs`
-
-**Purpose:** Background job scheduler that runs periodic cleanup on the leader instance only.
-
-| Symbol                     | Kind     | Description                                                                                                                                                                   |
-| -------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BackgroundJobs<S>`        | Struct   | Scheduler with shutdown flag, task handles, optional `signing_key_store`                                                                                                      |
-| `BackgroundJobs::start()`  | Method   | Spawns: session cleanup, token cleanup, refresh token cleanup, authz code cleanup, audit log retention (90d), revoked cert cleanup (90d), certificate reconciliation (hourly) |
-| `BackgroundJobs::stop()`   | Method   | Signals shutdown, aborts handles                                                                                                                                              |
-| `reconcile_certificates()` | Method   | Compares Control and Ledger certificate state, logs divergences with structured fields                                                                                        |
-| `org_id_from_kid()`        | Function | Parses org_id from kid format `org-{org_id}-client-{client_id}-cert-{cert_id}`                                                                                                |
-
 ### `src/jwt.rs`
 
 **Purpose:** JWT signing/verification for vault-scoped access tokens using Ed25519 (EdDSA).
@@ -498,19 +486,6 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | `JwtSigner`                       | Struct | Signing/verification service wrapping `PrivateKeyEncryptor`                                |
 | `JwtSigner::sign_vault_token()`   | Method | Signs claims via `to_pkcs8_der()` (no hardcoded ASN.1), includes `kid` header              |
 | `JwtSigner::verify_vault_token()` | Method | Verifies JWT with audience validation enabled (`REQUIRED_AUDIENCE`)                        |
-
-### `src/leader.rs`
-
-**Purpose:** Leader election using storage as distributed lock with TTL-based lease.
-
-| Symbol                     | Kind   | Description                                                                   |
-| -------------------------- | ------ | ----------------------------------------------------------------------------- |
-| `LeaderElection<S>`        | Struct | Coordinator with storage, instance ID, leader status flag, shutdown flag      |
-| `try_acquire_leadership()` | Method | Atomic acquisition via `compare_and_set(key, None, value)` (insert-if-absent) |
-| `renew_lease()`            | Method | CAS with `expected: Some(our_value)` — prevents stale leader from overwriting |
-| `release_leadership()`     | Method | CAS-guarded deletion — prevents one leader from deleting another's lease      |
-| `is_leader()`              | Method | Cached local check via `RwLock<bool>`                                         |
-| `start_lease_renewal()`    | Method | Background renewal (10s interval, 30s TTL)                                    |
 
 ### `src/logging.rs`
 
@@ -532,7 +507,6 @@ inferadb-control (bin) → api → core → storage → inferadb-common-storage 
 | `record_http_request()` | Function | Counter + histogram                           |
 | `record_auth_attempt()` | Function | Counter by type/success                       |
 | `record_db_query()`     | Function | Histogram for DB latency                      |
-| `set_is_leader()`       | Function | Gauge (1.0 or 0.0)                            |
 | `set_clock_skew()`      | Function | `clock_skew_seconds` gauge for NTP monitoring |
 
 ### `src/ratelimit.rs`
@@ -629,7 +603,6 @@ All 22 repositories (across 18 files) follow a consistent pattern:
 | `create()`               | Store audit log entry                                 |
 | `get()`                  | By ID                                                 |
 | `list_by_organization()` | Paginated with filters (scans all, filters in memory) |
-| `delete_older_than()`    | Retention cleanup                                     |
 
 #### `repository/authorization_code.rs`
 
@@ -656,8 +629,6 @@ All 22 repositories (across 18 files) follow a consistent pattern:
 | ----------------------------- | ------------------------------------------------------- |
 | `create()`                    | Globally-unique `kid` enforcement                       |
 | `get_by_kid()`                | O(1) lookup — performance-critical for JWT verification |
-| `list_all_active()`           | Scans `cert:` prefix, filters by key format             |
-| `delete_revoked_older_than()` | 90-day retention cleanup                                |
 
 #### `repository/jti_replay_protection.rs`
 
@@ -702,7 +673,7 @@ Type aliases over `SecureTokenRepository<S, T>` with entity-specific convenience
 
 #### `repository/user_session.rs`
 
-Concurrent session limits (evicts oldest at `MAX_CONCURRENT_SESSIONS`), sliding window activity, revocation, cleanup.
+Concurrent session limits (evicts oldest at `MAX_CONCURRENT_SESSIONS`), sliding window activity, revocation. Storage-layer TTL on all session keys with two-phase write pattern.
 
 #### `repository/vault.rs`
 
@@ -710,7 +681,7 @@ Three repositories: `VaultRepository`, `VaultUserGrantRepository`, `VaultTeamGra
 
 #### `repository/vault_refresh_token.rs`
 
-Five index keys per token. Supports session-bound and client-bound tokens. Bulk revocation by session/client/vault.
+Four index keys per token (session and client indexes are mutually exclusive). Supports session-bound and client-bound tokens. Bulk revocation by session/client/vault. State-aware TTL: active tokens use remaining expiry, used tokens get 5-minute rotation grace window, revoked tokens get 60-second cleanup TTL.
 
 #### `repository/vault_schema.rs`
 
@@ -1000,8 +971,8 @@ Re-exports `Metrics`, `MetricsSnapshot`, `MetricsCollector` from shared storage 
 2. **Consistent builder pattern** via `bon::Builder` with `#[builder(on(String, into))]` everywhere
 3. **Strong error handling** — `Error` enum with factory methods, no `.unwrap()` in production code; `ErrorResponse` includes machine-readable `code` field
 4. **Security hardening** — Argon2id passwords, AES-256-GCM key encryption, Ed25519 JWT signing with audience validation, JTI replay protection, PKCE, rate limiting (wired into routes), audit logging, HTML-escaped email templates, constant-time password reset responses, `Zeroizing<Vec<u8>>` for key material
-5. **Distributed systems design** — Worker ID coordination, atomic leader election (CAS-based), NTP clock validation (rsntp), TTL-based cleanup, certificate reconciliation
-6. **Comprehensive test suite** — 760 tests: integration (26 test files, 195 tests), unit, property-based (proptest); covers all API endpoints, RBAC, rate limiting, PKCE, tier limits, cascading deletions, concurrent sessions
+5. **Distributed systems design** — Worker ID coordination, NTP clock validation (rsntp), TTL-based lifecycle delegation to Ledger GC
+6. **Comprehensive test suite** — 759 tests: integration (26 test files, 194 tests), unit, property-based (proptest); covers all API endpoints, RBAC, rate limiting, PKCE, tier limits, cascading deletions, concurrent sessions
 7. **Clean architecture** — Clear crate boundaries, trait-based abstractions, repository pattern, `BufferedBackend` for cross-repo atomicity
 8. **DRY token entities** — `SecureToken` base type eliminates structural duplication between verification and reset tokens
 9. **Production-grade caching** — `moka::sync::Cache` (TinyLFU, lock-free reads) replaces custom O(n) LRU; O(1) repository count indexes with self-healing counters

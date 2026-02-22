@@ -179,7 +179,6 @@ async fn main() -> Result<()> {
         config.clone(),
         worker_id,
         inferadb_control_api::ServicesConfig {
-            leader: None,
             email_service,
             control_identity: Some(control_identity),
         },

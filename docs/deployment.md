@@ -196,18 +196,6 @@ spec:
 - Implement automated backup scripts
 - Plan migration strategy for when Ledger backend is available
 
-## Future: Multi-Instance Deployment
-
-When Ledger backend is implemented, the following features will enable multi-instance HA deployments:
-
-### Leader Election (Future)
-
-Leader election will be automatically handled using Ledger:
-
-- Only the leader instance will run background jobs
-- Leadership will automatically transfer on failure
-- No manual intervention required
-
 ## Health Checks
 
 Control provides multiple health check endpoints:
@@ -252,7 +240,6 @@ Returns JSON with detailed health information:
   "instance_id": 0,
   "uptime_seconds": 3600,
   "storage_healthy": true,
-  "is_leader": true,
   "details": null
 }
 ```
@@ -263,9 +250,8 @@ Control handles graceful shutdown on `SIGTERM` and `SIGINT`:
 
 1. Stop accepting new requests
 2. Wait for in-flight requests to complete (up to 30 seconds)
-3. Release leader lease (if leader)
-4. Cleanup worker registration
-5. Exit
+3. Cleanup worker registration
+4. Exit
 
 **Kubernetes**: Set `terminationGracePeriodSeconds: 60` to allow sufficient time for graceful shutdown.
 
@@ -294,8 +280,6 @@ Key metrics:
 
 - HTTP request duration/count
 - Storage operation latency
-- Background job execution status
-- Leader election status
 - Rate limit hit counts
 
 ## Security Best Practices
@@ -392,7 +376,7 @@ inferadb-control --frontend-url https://dashboard.example.com
 
 **Solutions**:
 
-1. Session limits are hardcoded; review session cleanup job execution in application logs
+1. Session limits are hardcoded; expired sessions are automatically cleaned up by Ledger's TTL garbage collector
 2. Manually revoke old sessions via API
 
 ### Email Delivery Failures
@@ -419,7 +403,6 @@ inferadb-control --frontend-url https://dashboard.example.com
 1. Add/remove instances
 2. Ensure unique worker IDs
 3. Update load balancer backends
-4. Leader election automatically adjusts
 
 ## Support
 

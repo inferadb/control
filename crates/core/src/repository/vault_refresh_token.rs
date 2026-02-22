@@ -1,8 +1,17 @@
+use std::time::Duration;
+
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
     entities::VaultRefreshToken,
     error::{Error, Result},
 };
+
+/// TTL for used tokens during the rotation grace window.
+/// Concurrent requests may still reference the old token during rotation.
+const USED_TOKEN_RESIDUAL_TTL: Duration = Duration::from_secs(5 * 60);
+
+/// TTL for revoked tokens before Ledger GC removes them.
+const REVOKED_TOKEN_RESIDUAL_TTL: Duration = Duration::from_secs(60);
 
 /// Repository for VaultRefreshToken entity operations
 ///
@@ -45,6 +54,77 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     /// Generate key for client's token index
     fn client_token_index_key(client_id: i64, token_id: i64) -> Vec<u8> {
         format!("vault_refresh_token:client:{client_id}:{token_id}").into_bytes()
+    }
+
+    /// Compute the appropriate TTL for a token based on its current state.
+    fn compute_ttl(token: &VaultRefreshToken) -> Duration {
+        if token.is_used() {
+            USED_TOKEN_RESIDUAL_TTL
+        } else if token.is_revoked() {
+            REVOKED_TOKEN_RESIDUAL_TTL
+        } else {
+            let now = chrono::Utc::now();
+            let secs = if token.expires_at > now {
+                (token.expires_at - now).num_seconds().max(1) as u64
+            } else {
+                1
+            };
+            Duration::from_secs(secs)
+        }
+    }
+
+    /// Write all token keys with the given TTL.
+    ///
+    /// Used after transaction commit (two-phase pattern) and for state
+    /// updates that need to set or reset TTL on every key.
+    async fn set_all_keys_with_ttl(&self, token: &VaultRefreshToken, ttl: Duration) -> Result<()> {
+        let token_data = serde_json::to_vec(token)
+            .map_err(|e| Error::internal(format!("Failed to serialize token: {e}")))?;
+
+        self.storage
+            .set_with_ttl(Self::token_key(token.id), token_data, ttl)
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set token TTL: {e}")))?;
+
+        self.storage
+            .set_with_ttl(
+                Self::token_lookup_key(&token.token),
+                token.id.to_le_bytes().to_vec(),
+                ttl,
+            )
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set token lookup TTL: {e}")))?;
+
+        self.storage
+            .set_with_ttl(
+                Self::vault_token_index_key(token.vault_id, token.id),
+                token.id.to_le_bytes().to_vec(),
+                ttl,
+            )
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set vault index TTL: {e}")))?;
+
+        if let Some(session_id) = token.user_session_id {
+            self.storage
+                .set_with_ttl(
+                    Self::session_token_index_key(session_id, token.id),
+                    token.id.to_le_bytes().to_vec(),
+                    ttl,
+                )
+                .await
+                .map_err(|e| Error::internal(format!("Failed to set session index TTL: {e}")))?;
+        } else if let Some(client_id) = token.org_api_key_id {
+            self.storage
+                .set_with_ttl(
+                    Self::client_token_index_key(client_id, token.id),
+                    token.id.to_le_bytes().to_vec(),
+                    ttl,
+                )
+                .await
+                .map_err(|e| Error::internal(format!("Failed to set client index TTL: {e}")))?;
+        }
+
+        Ok(())
     }
 
     /// Create a new vault refresh token
@@ -90,6 +170,10 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
             .await
             .map_err(|e| Error::internal(format!("Failed to commit token creation: {e}")))?;
 
+        // Apply TTL to all keys (two-phase pattern: transaction for atomicity, then TTL)
+        let ttl = Self::compute_ttl(&token);
+        self.set_all_keys_with_ttl(&token, ttl).await?;
+
         Ok(())
     }
 
@@ -134,16 +218,13 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     }
 
     /// Update a token (for marking as used or revoked)
+    ///
+    /// Applies state-aware TTL to all keys: used tokens get a 5-minute
+    /// rotation grace window, revoked tokens get a 60-second residual,
+    /// and active tokens retain their remaining TTL.
     pub async fn update(&self, token: &VaultRefreshToken) -> Result<()> {
-        let token_data = serde_json::to_vec(token)
-            .map_err(|e| Error::internal(format!("Failed to serialize token: {e}")))?;
-
-        self.storage
-            .set(Self::token_key(token.id), token_data)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to update token: {e}")))?;
-
-        Ok(())
+        let ttl = Self::compute_ttl(token);
+        self.set_all_keys_with_ttl(token, ttl).await
     }
 
     /// List all tokens for a vault
@@ -262,93 +343,6 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
 
         Ok(revoked_count)
     }
-
-    /// Delete expired, used, or revoked tokens (for cleanup jobs)
-    ///
-    /// This method scans all refresh tokens and deletes those that are:
-    /// - Expired (past their expires_at timestamp)
-    /// - Already used (used_at is set)
-    /// - Revoked (revoked_at is set)
-    ///
-    /// Returns the number of tokens deleted.
-    pub async fn delete_expired(&self) -> Result<usize> {
-        let prefix = "vault_refresh_token:";
-        let start_key = prefix.as_bytes().to_vec();
-        let end_key = {
-            let mut key = start_key.clone();
-            key.push(0xFF);
-            key
-        };
-
-        let kvs = self
-            .storage
-            .get_range(start_key..end_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to scan refresh tokens: {e}")))?;
-
-        let mut deleted_count = 0;
-        let now = chrono::Utc::now();
-
-        for kv in kvs {
-            // Only process main token records (not index keys)
-            let key_str = String::from_utf8_lossy(&kv.key);
-            if key_str.contains(":token:")
-                || key_str.contains(":vault:")
-                || key_str.contains(":session:")
-                || key_str.contains(":client:")
-            {
-                continue;
-            }
-
-            // Try to deserialize as a token
-            let Ok(token) = serde_json::from_slice::<VaultRefreshToken>(&kv.value) else {
-                continue;
-            };
-
-            // Check if token should be deleted (expired, used, or revoked)
-            let should_delete =
-                token.expires_at < now || token.used_at.is_some() || token.revoked_at.is_some();
-
-            if should_delete {
-                // Delete main token record
-                self.storage
-                    .delete(&kv.key)
-                    .await
-                    .map_err(|e| Error::internal(format!("Failed to delete token: {e}")))?;
-
-                // Delete token lookup index
-                self.storage
-                    .delete(&Self::token_lookup_key(&token.token))
-                    .await
-                    .map_err(|e| Error::internal(format!("Failed to delete token lookup: {e}")))?;
-
-                // Delete vault index
-                self.storage
-                    .delete(&Self::vault_token_index_key(token.vault_id, token.id))
-                    .await
-                    .map_err(|e| Error::internal(format!("Failed to delete vault index: {e}")))?;
-
-                // Delete session or client index
-                if let Some(session_id) = token.user_session_id {
-                    self.storage
-                        .delete(&Self::session_token_index_key(session_id, token.id))
-                        .await
-                        .map_err(|e| {
-                            Error::internal(format!("Failed to delete session index: {e}"))
-                        })?;
-                } else if let Some(client_id) = token.org_api_key_id {
-                    self.storage
-                        .delete(&Self::client_token_index_key(client_id, token.id))
-                        .await
-                        .map_err(|e| Error::internal(format!("Failed to delete client index: {e}")))?;
-                }
-
-                deleted_count += 1;
-            }
-        }
-
-        Ok(deleted_count)
-    }
 }
 
 #[cfg(test)]
@@ -361,6 +355,13 @@ mod tests {
 
     fn create_test_repo() -> VaultRefreshTokenRepository<MemoryBackend> {
         VaultRefreshTokenRepository::new(MemoryBackend::new())
+    }
+
+    fn create_test_repo_with_storage() -> (VaultRefreshTokenRepository<MemoryBackend>, MemoryBackend)
+    {
+        let storage = MemoryBackend::new();
+        let repo = VaultRefreshTokenRepository::new(storage.clone());
+        (repo, storage)
     }
 
     #[tokio::test]
@@ -666,128 +667,144 @@ mod tests {
         assert!(token2_after.is_revoked());
     }
 
-    #[tokio::test]
-    async fn test_delete_expired_removes_expired_tokens() {
-        let repo = create_test_repo();
+    // ========================================================================
+    // TTL Tests
+    // ========================================================================
 
-        // Create a token with past expiration (expired)
-        let expired_token = VaultRefreshToken::new_for_session()
+    #[tokio::test]
+    async fn test_create_token_sets_ttl_on_all_keys() {
+        let (repo, storage) = create_test_repo_with_storage();
+        let token = VaultRefreshToken::new_for_session()
             .id(1)
             .vault_id(100)
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
-            .ttl_seconds(-3600) // Expired 1 hour ago
+            .ttl_seconds(2)
             .create()
             .unwrap();
+        let token_str = token.token.clone();
 
-        // Create a valid token
-        let valid_token = VaultRefreshToken::new_for_session()
-            .id(2)
-            .vault_id(100)
-            .organization_id(200)
-            .vault_role(VaultRole::Reader)
-            .user_session_id(300)
-            .ttl_seconds(3600) // Expires in 1 hour
-            .create()
-            .unwrap();
+        repo.create(token).await.unwrap();
 
-        repo.create(expired_token.clone()).await.unwrap();
-        repo.create(valid_token.clone()).await.unwrap();
-
-        // Delete expired tokens
-        let deleted_count = repo.delete_expired().await.unwrap();
-        assert_eq!(deleted_count, 1);
-
-        // Expired token should be gone
-        assert!(repo.get(1).await.unwrap().is_none());
-
-        // Valid token should still exist
-        assert!(repo.get(2).await.unwrap().is_some());
+        // All 4 keys should exist immediately
+        assert!(storage.get(b"vault_refresh_token:1").await.unwrap().is_some());
+        assert!(
+            storage
+                .get(format!("vault_refresh_token:token:{token_str}").as_bytes())
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(storage.get(b"vault_refresh_token:vault:100:1").await.unwrap().is_some());
+        assert!(storage.get(b"vault_refresh_token:session:300:1").await.unwrap().is_some());
     }
 
     #[tokio::test]
-    async fn test_delete_expired_removes_used_and_revoked_tokens() {
-        let repo = create_test_repo();
-
-        // Create a used token
-        let mut used_token = VaultRefreshToken::new_for_session()
+    async fn test_token_keys_expire_from_storage() {
+        let (repo, storage) = create_test_repo_with_storage();
+        let token = VaultRefreshToken::new_for_session()
             .id(1)
             .vault_id(100)
             .organization_id(200)
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
+            .ttl_seconds(2)
             .create()
             .unwrap();
-        used_token.mark_used();
+        let token_str = token.token.clone();
 
-        // Create a revoked token
-        let mut revoked_token = VaultRefreshToken::new_for_client()
-            .id(2)
+        repo.create(token).await.unwrap();
+
+        // Wait for TTL to expire
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        // All 4 keys should be absent from raw storage
+        assert!(
+            storage.get(b"vault_refresh_token:1").await.unwrap().is_none(),
+            "main record should be expired"
+        );
+        assert!(
+            storage
+                .get(format!("vault_refresh_token:token:{token_str}").as_bytes())
+                .await
+                .unwrap()
+                .is_none(),
+            "token lookup should be expired"
+        );
+        assert!(
+            storage.get(b"vault_refresh_token:vault:100:1").await.unwrap().is_none(),
+            "vault index should be expired"
+        );
+        assert!(
+            storage.get(b"vault_refresh_token:session:300:1").await.unwrap().is_none(),
+            "session index should be expired"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mark_used_sets_residual_ttl() {
+        let (repo, storage) = create_test_repo_with_storage();
+        let mut token = VaultRefreshToken::new_for_session()
+            .id(1)
+            .vault_id(100)
+            .organization_id(200)
+            .vault_role(VaultRole::Reader)
+            .user_session_id(300)
+            .ttl_seconds(2)
+            .create()
+            .unwrap();
+
+        repo.create(token.clone()).await.unwrap();
+
+        // Mark as used (sets USED_TOKEN_RESIDUAL_TTL = 5 min)
+        token.mark_used();
+        repo.update(&token).await.unwrap();
+
+        // Wait past the original 2-second creation TTL
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        // Keys should still exist because mark_used set a 5-minute residual TTL
+        assert!(
+            storage.get(b"vault_refresh_token:1").await.unwrap().is_some(),
+            "used token should persist with 5-minute residual TTL"
+        );
+        assert!(
+            storage.get(b"vault_refresh_token:vault:100:1").await.unwrap().is_some(),
+            "vault index should persist with residual TTL"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_revoke_sets_residual_ttl() {
+        let (repo, storage) = create_test_repo_with_storage();
+        let mut token = VaultRefreshToken::new_for_client()
+            .id(1)
             .vault_id(100)
             .organization_id(200)
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
-            .create()
-            .unwrap();
-        revoked_token.mark_revoked();
-
-        // Create a valid token
-        let valid_token = VaultRefreshToken::new_for_session()
-            .id(3)
-            .vault_id(100)
-            .organization_id(200)
-            .vault_role(VaultRole::Reader)
-            .user_session_id(300)
+            .ttl_seconds(2)
             .create()
             .unwrap();
 
-        repo.create(used_token).await.unwrap();
-        repo.create(revoked_token).await.unwrap();
-        repo.create(valid_token).await.unwrap();
+        repo.create(token.clone()).await.unwrap();
 
-        // Delete used/revoked tokens
-        let deleted_count = repo.delete_expired().await.unwrap();
-        assert_eq!(deleted_count, 2);
+        // Revoke (sets REVOKED_TOKEN_RESIDUAL_TTL = 60s)
+        token.mark_revoked();
+        repo.update(&token).await.unwrap();
 
-        // Used and revoked tokens should be gone
-        assert!(repo.get(1).await.unwrap().is_none());
-        assert!(repo.get(2).await.unwrap().is_none());
+        // Wait past the original 2-second creation TTL
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
-        // Valid token should still exist
-        assert!(repo.get(3).await.unwrap().is_some());
-    }
-
-    #[tokio::test]
-    async fn test_delete_expired_cleans_up_indexes() {
-        let repo = create_test_repo();
-
-        // Create an expired token
-        let expired_token = VaultRefreshToken::new_for_session()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
-            .vault_role(VaultRole::Reader)
-            .user_session_id(300)
-            .ttl_seconds(-3600)
-            .create()
-            .unwrap();
-        let token_str = expired_token.token.clone();
-
-        repo.create(expired_token).await.unwrap();
-
-        // Verify token exists via lookup
-        assert!(repo.get_by_token(&token_str).await.unwrap().is_some());
-        assert_eq!(repo.list_by_vault(100).await.unwrap().len(), 1);
-        assert_eq!(repo.list_by_session(300).await.unwrap().len(), 1);
-
-        // Delete expired tokens
-        let deleted_count = repo.delete_expired().await.unwrap();
-        assert_eq!(deleted_count, 1);
-
-        // All indexes should be cleaned up
-        assert!(repo.get_by_token(&token_str).await.unwrap().is_none());
-        assert_eq!(repo.list_by_vault(100).await.unwrap().len(), 0);
-        assert_eq!(repo.list_by_session(300).await.unwrap().len(), 0);
+        // Keys should still exist because revoke set a 60-second residual TTL
+        assert!(
+            storage.get(b"vault_refresh_token:1").await.unwrap().is_some(),
+            "revoked token should persist with 60s residual TTL"
+        );
+        assert!(
+            storage.get(b"vault_refresh_token:client:400:1").await.unwrap().is_some(),
+            "client index should persist with residual TTL"
+        );
     }
 }

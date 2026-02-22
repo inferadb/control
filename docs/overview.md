@@ -92,9 +92,9 @@ The **Control** is InferaDB's control plane, providing self-service capabilities
 - [Control → Engine Authentication](#control--engine-privileged-authentication) - Inter-service communication
 - [Engine API Integration](#engine-api-role-enforcement--tenant-isolation) - Role enforcement and tenant isolation
 - [Configuration](#configuration) - Environment variables and settings
-- [Multi-Instance Deployment](#multi-instance-deployment--distributed-coordination) - HA setup and leader election
+- [Multi-Instance Deployment](#multi-instance-deployment--distributed-coordination) - HA setup and worker coordination
 - [Multi-Tenancy & Data Isolation](#multi-tenancy--data-isolation) - Tenant separation guarantees
-- [Soft Delete & Cleanup](#soft-delete--cleanup) - Grace periods and background jobs
+- [Soft Delete & Cleanup](#soft-delete--cleanup) - Grace periods and TTL-based cleanup
 
 ### Operations
 
@@ -513,7 +513,7 @@ Lives under the `/v1/organizations/:org/clients/:client/certificates` API path.
 
 **Cascade Delete**: When Client is deleted, all ClientCertificate entries are soft-deleted.
 
-**Cleanup**: Revoked certificates older than 90 days are automatically hard-deleted by background job.
+**Cleanup**: Revoked certificates are automatically expired after 90 days by Ledger's TTL garbage collector.
 
 **Security**:
 
@@ -961,7 +961,7 @@ Enum defining Vault access roles (hard-coded).
 
 ### VaultRefreshToken
 
-Represents a refresh token for vault-scoped JWTs. Enables long-running operations and background jobs to refresh their Engine API access tokens without re-authenticating. Not exposed via REST API (internal use only).
+Represents a refresh token for vault-scoped JWTs. Enables long-running operations and automation to refresh their Engine API access tokens without re-authenticating. Not exposed via REST API (internal use only).
 
 **Data**:
 
@@ -983,7 +983,7 @@ Represents a refresh token for vault-scoped JWTs. Enables long-running operation
 - **created_at** (DateTime UTC, required): When refresh token was created
 - **expires_at** (DateTime UTC, required): When refresh token expires
   - 24 hours for user session tokens
-  - 7 days for API key tokens (supports periodic background jobs)
+  - 7 days for API key tokens (supports periodic automation)
 - **used_at** (DateTime UTC, optional): When refresh token was used (single-use)
   - Set on first successful refresh
   - Subsequent refresh attempts with same token are rejected
@@ -1007,7 +1007,7 @@ Represents a refresh token for vault-scoped JWTs. Enables long-running operation
 - **Permission Changes**: Refresh tokens do NOT automatically reflect permission changes
   - If user's vault access is revoked, refresh token remains valid until expiry
   - Clients should handle 403 errors and re-authenticate to get updated permissions
-- **Cleanup**: Expired and used refresh tokens are cleaned up by background job after 7 days
+- **Cleanup**: Expired and used refresh tokens are automatically cleaned up by Ledger's TTL garbage collector
 
 **Security Properties**:
 
@@ -1339,7 +1339,7 @@ fn user_has_org_permission(
 
 1. Soft-deleted entities are **never visible** via API endpoints (treated as non-existent)
 2. Soft-deleted entities are only accessible via admin/debug endpoints (not exposed to users)
-3. After 90-day grace period, background cleanup job performs hard deletion
+3. After 90-day grace period, Ledger's TTL garbage collector automatically removes the entity
 
 ### When a UserEmail is set as primary
 
@@ -1462,14 +1462,6 @@ fn user_has_org_permission(
    - @engine returns 403 if permissions were revoked
    - Client should handle 403 by re-authenticating to get updated permissions
 
-**Background cleanup job**:
-
-1. Runs every 24 hours
-2. Hard-delete VaultRefreshToken entries where:
-   - `expires_at < (now - 7 days)` (expired tokens beyond grace period), OR
-   - `used_at IS NOT NULL AND used_at < (now - 7 days)` (used tokens beyond grace period)
-3. Keeps recent history for debugging and audit purposes
-
 **When a used refresh token is presented again** (replay attack detection):
 
 1. Detect that `used_at IS NOT NULL`
@@ -1570,7 +1562,7 @@ Phase 4: Revoke old certificate (when convenient)
 11. User clicks "Revoke" on old certificate
 12. System sets `revoked_at = now()` on old certificate
 13. Old certificate remains visible for 90 days for audit purposes
-14. Background job auto-deletes after 90 days
+14. Ledger's TTL garbage collector auto-deletes after 90 days
 ```
 
 **When revoking a certificate** (`POST /v1/organizations/:org/clients/:client/certificates/:cert/revoke`):
@@ -1690,7 +1682,7 @@ Response includes:
 1. Set Vault.sync_status = FAILED
 2. Keep Vault entity in Control (do not delete)
 3. **Manual retry**: Admin can trigger retry via `POST /v1/vaults/:vault/retry-sync`
-4. **Automatic retry**: Background job retries failed syncs every 5 minutes (up to 3 attempts)
+4. **Automatic retry**: Failed syncs can be retried via the admin endpoint (up to 3 attempts)
 5. After 3 failed attempts:
    - Send alert to organization Owners
    - Vault remains in FAILED state until manual intervention
@@ -1702,7 +1694,7 @@ Response includes:
 2. Set Vault.deleted_at = now() (vault marked as deleted in Control)
 3. Cascade soft-delete all VaultTeamGrant and VaultUserGrant entries
 4. **Orphaned data**: @engine vault data remains until cleanup succeeds
-5. **Automatic retry**: Background job retries failed deletions every hour (indefinitely until success)
+5. **Automatic retry**: Failed deletions can be retried via the admin endpoint
 6. Vault name remains reserved (cannot reuse) until deletion succeeds at @engine
 7. Alert operators after 24 hours of failed deletion attempts
 
@@ -1762,7 +1754,7 @@ Response includes:
   - Cannot be used as primary email for sensitive operations
   - Cannot invite other users to organizations (Admins/Owners only, requires verified email)
   - Cannot create additional organizations beyond the default one (requires verified email)
-- Users receive periodic reminders to verify their email (background job sends reminders at day 3, 7, 14, 30)
+- Users receive periodic reminders to verify their email (planned: reminders at day 3, 7, 14, 30)
 - After 30 days without verification, account functionality becomes limited:
   - Can only access existing resources (read-only mode for organizations, vaults, teams)
   - Cannot create new vaults, teams, or organizations
@@ -3802,160 +3794,19 @@ services:
       WORKER_ID: 2
 ```
 
-### Background Job Coordination
+### Data Lifecycle
 
-Background jobs (cleanup, email retries, token expiration) must run on exactly one instance at a time to avoid duplicate work.
+Data lifecycle (expiry, retention, cleanup) is fully delegated to Ledger's native TTL garbage collector. All time-sensitive entities have `expires_at` set at write time:
 
-**Leader Election via Ledger**:
+- **Sessions**: TTL matches session type duration (24h web, 7d CLI, 30d SDK); reset on activity
+- **Refresh tokens**: TTL matches token lifetime; short residual TTL on use/revocation
+- **Secure tokens**: TTL matches token expiry (24h email verification, 1h password reset)
+- **Audit logs**: 90-day TTL set at creation
+- **Revoked certificates**: 90-day TTL set at revocation; active certificates are permanent
 
-We use Ledger's atomic compare-and-set operations for distributed leader election without external dependencies.
+Ledger's `TtlGarbageCollector` runs every 60 seconds on the Raft leader, automatically expiring entities where `expires_at < now()`. Ledger's read service additionally filters expired entities at query time, so callers never see stale data even between GC cycles.
 
-**Implementation**:
-
-```rust
-use ledger_client::*;
-use std::time::{Duration, SystemTime};
-
-const LEADER_LEASE_TTL: Duration = Duration::from_secs(30);
-const LEADER_KEY: &str = "mgmt/leader/background_jobs";
-
-pub struct LeaderElection {
-    db: Database,
-    worker_id: u16,
-    instance_id: String,  // Unique instance identifier (UUID)
-}
-
-impl LeaderElection {
-    pub async fn try_become_leader(&self) -> Result<bool> {
-        let db = &self.db;
-
-        db.run(|tx, _| async move {
-            // Read current leader
-            let current_leader = tx.get(LEADER_KEY.as_bytes(), false).await?;
-
-            match current_leader {
-                Some(leader_data) => {
-                    let leader: LeaderRecord = bincode::deserialize(&leader_data)?;
-                    let now = SystemTime::now();
-
-                    // Check if lease expired
-                    if leader.expires_at < now {
-                        // Lease expired, claim leadership
-                        let new_leader = LeaderRecord {
-                            instance_id: self.instance_id.clone(),
-                            worker_id: self.worker_id,
-                            acquired_at: now,
-                            expires_at: now + LEADER_LEASE_TTL,
-                        };
-                        tx.set(LEADER_KEY.as_bytes(), &bincode::serialize(&new_leader)?);
-                        return Ok(true);  // We are now leader
-                    } else if leader.instance_id == self.instance_id {
-                        // We are already leader, renew lease
-                        let renewed_leader = LeaderRecord {
-                            expires_at: now + LEADER_LEASE_TTL,
-                            ..leader
-                        };
-                        tx.set(LEADER_KEY.as_bytes(), &bincode::serialize(&renewed_leader)?);
-                        return Ok(true);  // Still leader
-                    } else {
-                        // Another instance is leader
-                        return Ok(false);
-                    }
-                }
-                None => {
-                    // No leader exists, claim leadership
-                    let now = SystemTime::now();
-                    let new_leader = LeaderRecord {
-                        instance_id: self.instance_id.clone(),
-                        worker_id: self.worker_id,
-                        acquired_at: now,
-                        expires_at: now + LEADER_LEASE_TTL,
-                    };
-                    tx.set(LEADER_KEY.as_bytes(), &bincode::serialize(&new_leader)?);
-                    return Ok(true);
-                }
-            }
-        }).await
-    }
-
-    pub async fn run_with_leadership<F, Fut>(&self, task: F) -> Result<()>
-    where
-        F: Fn() -> Fut,
-        Fut: std::future::Future<Output = Result<()>>,
-    {
-        loop {
-            match self.try_become_leader().await {
-                Ok(true) => {
-                    // We are leader, run the task
-                    info!("Instance {} acquired leadership for background jobs", self.instance_id);
-
-                    // Run task until lease expires or we lose leadership
-                    let task_result = tokio::time::timeout(
-                        LEADER_LEASE_TTL / 2,  // Run for half the lease duration
-                        task()
-                    ).await;
-
-                    match task_result {
-                        Ok(Ok(())) => {
-                            // Task completed successfully, renew lease
-                            continue;
-                        }
-                        Ok(Err(e)) => {
-                            warn!("Background job error: {}", e);
-                            // Continue trying to maintain leadership
-                            continue;
-                        }
-                        Err(_) => {
-                            // Timeout reached, renew lease in next iteration
-                            continue;
-                        }
-                    }
-                }
-                Ok(false) => {
-                    // Another instance is leader, wait before retrying
-                    tokio::time::sleep(Duration::from_secs(10)).await;
-                }
-                Err(e) => {
-                    error!("Leader election error: {}", e);
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                }
-            }
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct LeaderRecord {
-    instance_id: String,
-    worker_id: u16,
-    acquired_at: SystemTime,
-    expires_at: SystemTime,
-}
-```
-
-**Background Job Runner**:
-
-```rust
-pub async fn run_background_jobs(leader_election: Arc<LeaderElection>) {
-    leader_election.run_with_leadership(|| async {
-        // Run cleanup job
-        cleanup_expired_sessions().await?;
-        cleanup_expired_tokens().await?;
-        cleanup_soft_deleted_entities().await?;
-        send_pending_emails().await?;
-
-        Ok(())
-    }).await;
-}
-```
-
-**Properties**:
-
-- ✅ No external coordination service required (uses Ledger)
-- ✅ Automatic failover if leader crashes (lease expires)
-- ✅ Single active leader at any time (prevents duplicate work)
-- ✅ Graceful leadership transitions (lease-based)
-- ✅ Works with any number of instances
+No application-level background jobs, leader election, or cleanup infrastructure is required.
 
 ### Rate Limiting in Multi-Instance Deployments
 
@@ -4182,12 +4033,10 @@ struct HealthStatus {
     worker_id: u16,           // Snowflake worker ID
     uptime_seconds: u64,      // Time since startup
     storage_healthy: bool,    // Ledger connection status
-    is_leader: bool,          // Whether this instance is leader for background jobs
 }
 
 async fn health_check(state: AppState) -> Json<HealthStatus> {
     let storage_healthy = state.db.check_health().await.is_ok();
-    let is_leader = state.leader_election.is_leader().await;
 
     Json(HealthStatus {
         status: if storage_healthy { "healthy" } else { "unhealthy" },
@@ -4196,7 +4045,6 @@ async fn health_check(state: AppState) -> Json<HealthStatus> {
         worker_id: state.worker_id,
         uptime_seconds: state.started_at.elapsed().as_secs(),
         storage_healthy,
-        is_leader,
     })
 }
 ```
@@ -4403,7 +4251,7 @@ Control is designed as a **true multi-tenant SaaS platform** supporting thousand
 **7. Failure Isolation**:
 
 - **Vault sync failures**: Failed vault creation in one org doesn't affect other orgs
-- **Background jobs**: Scoped to specific organizations, failures don't cascade
+- **Data lifecycle**: TTL-based expiry via Ledger GC, no cross-tenant impact
 - **Storage transactions**: Ledger ACID transactions ensure partial failures rollback cleanly
 - **Worker ID collision**: Independent worker IDs prevent cross-instance data corruption
 
@@ -4938,35 +4786,9 @@ pub async fn delete_vault_with_retry(vault_id: i64) -> Result<()> {
 - Logs admin intervention in audit trail
 - Returns current deletion status
 
-**Background Job** (runs every 15 minutes):
-
-```rust
-async fn retry_failed_vault_deletions() -> Result<()> {
-    let failed_vaults = db.find_vaults_with_status(
-        VaultDeletionStatus::DeleteFailed { .. }
-    ).await?;
-
-    for vault in failed_vaults {
-        // Only retry if last attempt was > 1 hour ago
-        if let Some(VaultDeletionStatus::DeleteFailed { last_attempt_at, retry_count, .. })
-            = vault.deletion_status
-        {
-            if last_attempt_at.elapsed()? > Duration::from_secs(3600) && retry_count < 10 {
-                info!("Retrying vault deletion for vault {} (attempt {})", vault.id, retry_count + 1);
-                delete_vault_with_retry(vault.id).await.ok();  // Best effort
-            }
-        }
-    }
-
-    Ok(())
-}
-```
-
 **Properties**:
 
-- ✅ Automatic retry with exponential backoff
-- ✅ Manual admin intervention available
-- ✅ Background job for stuck deletions
+- ✅ Manual admin intervention available via retry endpoint
 - ✅ Owner notifications for failures
 - ✅ Audit trail for all deletion attempts
 
@@ -5029,7 +4851,6 @@ Expose Prometheus metrics on `/metrics` endpoint:
 - `inferadb_ctrl_active_sessions{session_type}`: Current active sessions
 - `inferadb_ctrl_organizations_total`: Total organizations
 - `inferadb_ctrl_vaults_total{status}`: Total vaults by sync status
-- `inferadb_ctrl_is_leader`: Whether this instance is background job leader (0 or 1)
 
 ### Health Checks
 
@@ -5048,11 +4869,6 @@ async fn readiness_check(state: AppState) -> Result<StatusCode> {
         return Ok(StatusCode::SERVICE_UNAVAILABLE);
     }
 
-    // Check leader election health (if applicable)
-    if state.config.multi_instance && !state.leader_election.is_responsive().await {
-        return Ok(StatusCode::SERVICE_UNAVAILABLE);
-    }
-
     Ok(StatusCode::OK)
 }
 ```
@@ -5064,7 +4880,7 @@ async fn readiness_check(state: AppState) -> Result<StatusCode> {
 - Includes:
   - Database connection established
   - JWKS cache initialized
-  - Background jobs started
+  - Worker ID acquired
 
 ### Tracing (Optional, Production Recommended)
 

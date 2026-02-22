@@ -1,8 +1,13 @@
+use std::time::Duration;
+
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
     entities::ClientCertificate,
     error::{Error, Result},
 };
+
+/// Retention period for revoked certificates (90 days from revocation)
+const REVOKED_CERT_RETENTION: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 
 /// Repository for ClientCertificate entity operations
 ///
@@ -153,68 +158,41 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
         Ok(all_certs.into_iter().filter(|c| c.is_active()).collect())
     }
 
-    /// List all active certificates across all clients (for JWKS endpoints)
-    pub async fn list_all_active(&self) -> Result<Vec<ClientCertificate>> {
-        let prefix = "cert:".to_string();
-        let start = prefix.clone().into_bytes();
-        let end = "cert~".to_string().into_bytes();
+    /// Apply TTL to all 3 storage keys for a certificate
+    ///
+    /// Used when revoking a certificate to set a 90-day retention period
+    /// after which all keys (main record, KID index, client index) are
+    /// automatically expired by Ledger's GC.
+    async fn set_all_keys_with_ttl(&self, cert: &ClientCertificate, ttl: Duration) -> Result<()> {
+        let cert_data = serde_json::to_vec(cert)
+            .map_err(|e| Error::internal(format!("Failed to serialize certificate: {e}")))?;
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
+        self.storage
+            .set_with_ttl(Self::cert_key(cert.id), cert_data, ttl)
             .await
-            .map_err(|e| Error::internal(format!("Failed to get all certificates: {e}")))?;
+            .map_err(|e| Error::internal(format!("Failed to set TTL on cert key: {e}")))?;
 
-        tracing::debug!(kv_count = kvs.len(), "list_all_active: Retrieved KV pairs from storage");
+        self.storage
+            .set_with_ttl(Self::cert_kid_index_key(&cert.kid), cert.id.to_le_bytes().to_vec(), ttl)
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set TTL on kid index: {e}")))?;
 
-        let mut certs = Vec::new();
-        let mut skipped_indexes = 0;
-        let mut invalid_json = 0;
-        let mut inactive_certs = 0;
+        self.storage
+            .set_with_ttl(
+                Self::cert_client_index_key(cert.client_id, cert.id),
+                cert.id.to_le_bytes().to_vec(),
+                ttl,
+            )
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set TTL on client index: {e}")))?;
 
-        for kv in kvs {
-            // Only process actual certificate records, not indexes
-            let key_str = String::from_utf8_lossy(&kv.key);
-            if !key_str.starts_with("cert:kid:") && !key_str.starts_with("cert:client:") {
-                match serde_json::from_slice::<ClientCertificate>(&kv.value) {
-                    Ok(cert) => {
-                        if cert.is_active() {
-                            tracing::debug!(
-                                cert_id = cert.id,
-                                kid = %cert.kid,
-                                "Found active certificate"
-                            );
-                            certs.push(cert);
-                        } else {
-                            inactive_certs += 1;
-                        }
-                    },
-                    Err(e) => {
-                        tracing::warn!(
-                            key = %key_str,
-                            error = %e,
-                            "Failed to deserialize certificate"
-                        );
-                        invalid_json += 1;
-                    },
-                }
-            } else {
-                skipped_indexes += 1;
-            }
-        }
-
-        tracing::debug!(
-            active_certs = certs.len(),
-            inactive_certs,
-            skipped_indexes,
-            invalid_json,
-            "list_all_active: Summary"
-        );
-
-        Ok(certs)
+        Ok(())
     }
 
     /// Update a certificate (typically for marking as used, revoked, or deleted)
+    ///
+    /// When the certificate has been revoked, sets a 90-day TTL on all 3 keys
+    /// so revoked certificates are automatically cleaned up by Ledger's GC.
     pub async fn update(&self, cert: ClientCertificate) -> Result<()> {
         // Verify certificate exists
         let existing = self
@@ -227,15 +205,19 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
             return Err(Error::validation("Certificate kid cannot be changed".to_string()));
         }
 
-        // Serialize updated certificate
-        let cert_data = serde_json::to_vec(&cert)
-            .map_err(|e| Error::internal(format!("Failed to serialize certificate: {e}")))?;
+        if cert.is_revoked() {
+            // Revoked certificates get a 90-day TTL on all 3 keys
+            self.set_all_keys_with_ttl(&cert, REVOKED_CERT_RETENTION).await?;
+        } else {
+            // Non-revoked updates only write the main record (no TTL)
+            let cert_data = serde_json::to_vec(&cert)
+                .map_err(|e| Error::internal(format!("Failed to serialize certificate: {e}")))?;
 
-        // Update certificate record
-        self.storage
-            .set(Self::cert_key(cert.id), cert_data)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to update certificate: {e}")))?;
+            self.storage
+                .set(Self::cert_key(cert.id), cert_data)
+                .await
+                .map_err(|e| Error::internal(format!("Failed to update certificate: {e}")))?;
+        }
 
         Ok(())
     }
@@ -283,68 +265,12 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
         let certs = self.list_active_by_client(client_id).await?;
         Ok(certs.len())
     }
-
-    /// Delete revoked certificates that were revoked before the given cutoff date.
-    ///
-    /// This is used by the background cleanup job to remove old revoked certificates
-    /// after the retention period (e.g., 90 days).
-    ///
-    /// Returns the number of certificates deleted.
-    pub async fn delete_revoked_older_than(
-        &self,
-        cutoff: chrono::DateTime<chrono::Utc>,
-    ) -> Result<usize> {
-        // Get all certificates by scanning the cert: prefix
-        let prefix = "cert:".to_string();
-        let start = prefix.clone().into_bytes();
-        let end = "cert~".to_string().into_bytes();
-
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to scan certificates: {e}")))?;
-
-        let mut deleted_count = 0;
-
-        for kv in kvs {
-            // Only process actual certificate records, not indexes
-            let key_str = String::from_utf8_lossy(&kv.key);
-            if key_str.starts_with("cert:kid:") || key_str.starts_with("cert:client:") {
-                continue;
-            }
-
-            // Try to deserialize the certificate
-            let cert: ClientCertificate = match serde_json::from_slice(&kv.value) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-
-            // Check if certificate is revoked and older than cutoff
-            if let Some(revoked_at) = cert.revoked_at
-                && revoked_at < cutoff
-            {
-                // Delete the certificate and its indexes
-                if let Err(e) = self.delete(cert.id).await {
-                    tracing::warn!(
-                        cert_id = cert.id,
-                        error = %e,
-                        "Failed to delete old revoked certificate"
-                    );
-                    continue;
-                }
-                deleted_count += 1;
-            }
-        }
-
-        Ok(deleted_count)
-    }
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use inferadb_control_storage::Backend;
+    use inferadb_control_storage::{Backend, MemoryBackend, backend::StorageBackend};
 
     use super::*;
 
@@ -524,54 +450,102 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_delete_revoked_older_than() {
-        let repo = create_test_repo();
-        let cert1 = create_test_cert(1, 100, 200, "Cert 1").unwrap();
-        let mut cert2 = create_test_cert(2, 100, 200, "Cert 2").unwrap();
-        let cert3 = create_test_cert(3, 100, 200, "Cert 3").unwrap();
+    async fn test_revoke_sets_ttl_on_all_keys() {
+        let storage = MemoryBackend::new();
+        let repo = ClientCertificateRepository::new(storage.clone());
 
-        repo.create(cert1).await.unwrap();
-        repo.create(cert2.clone()).await.unwrap();
-        repo.create(cert3).await.unwrap();
-
-        // Revoke cert2
-        cert2.mark_revoked(888);
-        repo.update(cert2).await.unwrap();
-
-        // Delete revoked certs older than now (should delete cert2)
-        let cutoff = chrono::Utc::now() + chrono::Duration::seconds(1);
-        let deleted = repo.delete_revoked_older_than(cutoff).await.unwrap();
-        assert_eq!(deleted, 1);
-
-        // cert2 should be gone
-        assert!(repo.get(2).await.unwrap().is_none());
-
-        // cert1 and cert3 should still exist
-        assert!(repo.get(1).await.unwrap().is_some());
-        assert!(repo.get(3).await.unwrap().is_some());
-
-        // Running again should delete nothing
-        let deleted = repo.delete_revoked_older_than(cutoff).await.unwrap();
-        assert_eq!(deleted, 0);
-    }
-
-    #[tokio::test]
-    async fn test_delete_revoked_older_than_respects_cutoff() {
-        let repo = create_test_repo();
-        let mut cert = create_test_cert(1, 100, 200, "Cert 1").unwrap();
+        let mut cert = create_test_cert_with(1, 100, 200, "TTL Test").unwrap();
+        let kid = cert.kid.clone();
 
         repo.create(cert.clone()).await.unwrap();
 
-        // Revoke the cert
+        // All 3 keys should exist after creation
+        assert!(storage.get(b"cert:1").await.unwrap().is_some());
+        assert!(storage.get(format!("cert:kid:{kid}").as_bytes()).await.unwrap().is_some());
+        assert!(storage.get(b"cert:client:100:1").await.unwrap().is_some());
+
+        // Revoke the certificate
         cert.mark_revoked(888);
         repo.update(cert).await.unwrap();
 
-        // Use a cutoff in the past (should not delete the cert since it was just revoked)
-        let cutoff = chrono::Utc::now() - chrono::Duration::days(1);
-        let deleted = repo.delete_revoked_older_than(cutoff).await.unwrap();
-        assert_eq!(deleted, 0);
+        // All 3 keys should still exist with TTL applied
+        assert!(storage.get(b"cert:1").await.unwrap().is_some());
+        assert!(storage.get(format!("cert:kid:{kid}").as_bytes()).await.unwrap().is_some());
+        assert!(storage.get(b"cert:client:100:1").await.unwrap().is_some());
+    }
 
-        // Cert should still exist
-        assert!(repo.get(1).await.unwrap().is_some());
+    #[tokio::test]
+    async fn test_active_cert_has_no_ttl() {
+        let storage = MemoryBackend::new();
+        let repo = ClientCertificateRepository::new(storage.clone());
+
+        let mut cert = create_test_cert_with(2, 100, 200, "Active TTL").unwrap();
+
+        repo.create(cert.clone()).await.unwrap();
+
+        // Mark as used (not revoked) — should NOT set TTL
+        cert.mark_used();
+        repo.update(cert).await.unwrap();
+
+        // Key should still exist (no TTL to expire)
+        assert!(storage.get(b"cert:2").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_revoked_cert_keys_expire_from_storage() {
+        let storage = MemoryBackend::new();
+        let repo = ClientCertificateRepository::new(storage.clone());
+
+        let mut cert = create_test_cert_with(3, 100, 200, "Expire Test").unwrap();
+        let kid = cert.kid.clone();
+
+        repo.create(cert.clone()).await.unwrap();
+
+        // Revoke with a short TTL by directly calling set_all_keys_with_ttl
+        cert.mark_revoked(888);
+        // First update normally (sets 90-day TTL), then override with short TTL for test
+        let cert_data = serde_json::to_vec(&cert).unwrap();
+        let short_ttl = std::time::Duration::from_secs(1);
+        storage.set_with_ttl(b"cert:3".to_vec(), cert_data, short_ttl).await.unwrap();
+        storage
+            .set_with_ttl(
+                format!("cert:kid:{kid}").into_bytes(),
+                3_i64.to_le_bytes().to_vec(),
+                short_ttl,
+            )
+            .await
+            .unwrap();
+        storage
+            .set_with_ttl(b"cert:client:100:3".to_vec(), 3_i64.to_le_bytes().to_vec(), short_ttl)
+            .await
+            .unwrap();
+
+        // Keys should exist immediately
+        assert!(storage.get(b"cert:3").await.unwrap().is_some());
+
+        // Wait for TTL expiry
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // All 3 keys should be absent
+        assert!(storage.get(b"cert:3").await.unwrap().is_none());
+        assert!(storage.get(format!("cert:kid:{kid}").as_bytes()).await.unwrap().is_none());
+        assert!(storage.get(b"cert:client:100:3").await.unwrap().is_none());
+    }
+
+    fn create_test_cert_with(
+        id: i64,
+        client_id: i64,
+        org_id: i64,
+        name: &str,
+    ) -> Result<ClientCertificate> {
+        ClientCertificate::builder()
+            .id(id)
+            .client_id(client_id)
+            .organization_id(org_id)
+            .public_key("public_key_base64".to_string())
+            .private_key_encrypted("encrypted_private_key_base64".to_string())
+            .name(name.to_string())
+            .created_by_user_id(999)
+            .create()
     }
 }

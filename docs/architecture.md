@@ -126,7 +126,7 @@ graph TB
     end
 
     subgraph "Control Instances"
-        API1[Instance 1<br/>Worker ID: 0<br/>Leader]
+        API1[Instance 1<br/>Worker ID: 0]
         API2[Instance 2<br/>Worker ID: 1]
         API3[Instance 3<br/>Worker ID: 2]
     end
@@ -147,7 +147,7 @@ graph TB
     LB --> API2
     LB --> API3
 
-    API1 -.Leader Election.-> Ledger1
+    API1 -.Heartbeat.-> Ledger1
     API2 -.Heartbeat.-> Ledger1
     API3 -.Heartbeat.-> Ledger1
 
@@ -183,7 +183,7 @@ graph TB
 
 ## Multi-Instance Coordination
 
-How multiple Control instances coordinate for leader election and distributed ID generation:
+How multiple Control instances coordinate for distributed ID generation:
 
 ```mermaid
 sequenceDiagram
@@ -192,22 +192,11 @@ sequenceDiagram
     participant API3 as Instance 3
     participant Ledger as Ledger
 
-    Note over API1,Ledger: Startup & Leader Election
+    Note over API1,Ledger: Startup & Worker Registration
 
     API1->>Ledger: Register Worker ID 0 + Heartbeat
     API2->>Ledger: Register Worker ID 1 + Heartbeat
     API3->>Ledger: Register Worker ID 2 + Heartbeat
-
-    API1->>Ledger: Try Acquire Leader Lock
-    Ledger-->>API1: Lock Acquired (Leader)
-
-    API2->>Ledger: Try Acquire Leader Lock
-    Ledger-->>API2: Lock Held (Follower)
-
-    API3->>Ledger: Try Acquire Leader Lock
-    Ledger-->>API3: Lock Held (Follower)
-
-    Note over API1,Ledger: Background Jobs (Leader Only)
 
     loop Every 10 seconds
         API1->>Ledger: Update Heartbeat
@@ -215,28 +204,9 @@ sequenceDiagram
         API3->>Ledger: Update Heartbeat
     end
 
-    loop Every 30 seconds (Leader Only)
-        API1->>Ledger: Cleanup Expired Sessions
-        API1->>Ledger: Cleanup Expired Tokens
-        API1->>Ledger: Send Email Queue
-    end
-
-    Note over API1,Ledger: Leader Failure & Re-election
-
-    API1-xAPI1: Crash/Shutdown
-
-    loop Every 5 seconds
-        API2->>Ledger: Check Leader Health
-        API2->>Ledger: Try Acquire Leader Lock
-        Ledger-->>API2: Lock Acquired (New Leader)
-    end
-
-    Note over API2,Ledger: New Leader Takes Over
-
-    loop Every 30 seconds (New Leader)
-        API2->>Ledger: Cleanup Expired Sessions
-        API2->>Ledger: Cleanup Expired Tokens
-    end
+    Note over API1,Ledger: Data Lifecycle (All Instances)
+    Note over Ledger: TTL GC runs every 60s on Raft leader
+    Note over Ledger: Expired entities filtered at read time
 ```
 
 ## ID Generation Strategy
@@ -341,7 +311,6 @@ graph TB
 
         subgraph "System"
             SYS1["workers/active/{worker_id}"]
-            SYS2["leader/lock"]
             SYS3["jti_replay/{jti}"]
         end
     end
@@ -523,7 +492,7 @@ graph TB
     subgraph "Horizontal Scaling"
         H1[Add More<br/>API Instances]
         H2[Worker ID<br/>Assignment]
-        H3[Leader Election<br/>Failover]
+        H3[TTL-based<br/>Lifecycle]
     end
 
     subgraph "Vertical Scaling"

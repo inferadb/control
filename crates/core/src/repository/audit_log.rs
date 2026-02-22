@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use chrono::{DateTime, Utc};
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
@@ -6,6 +8,9 @@ use inferadb_control_types::{
 };
 
 const PREFIX_AUDIT_LOG: &str = "audit_log:";
+
+/// Audit log retention period (90 days)
+const AUDIT_LOG_RETENTION: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 
 /// Query filters for audit logs
 #[derive(Debug, Clone, Default)]
@@ -38,7 +43,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
         let value = serde_json::to_vec(&log)
             .map_err(|e| Error::internal(format!("Failed to serialize audit log: {e}")))?;
         self.storage
-            .set(key, value)
+            .set_with_ttl(key, value, AUDIT_LOG_RETENTION)
             .await
             .map_err(|e| Error::internal(format!("Failed to write audit log: {e}")))?;
         Ok(())
@@ -124,40 +129,6 @@ impl<S: StorageBackend> AuditLogRepository<S> {
         Ok((paginated_logs, total))
     }
 
-    /// Delete audit logs older than the specified date
-    ///
-    /// Returns the number of logs deleted
-    pub async fn delete_older_than(&self, cutoff_date: DateTime<Utc>) -> Result<usize> {
-        let start_key = PREFIX_AUDIT_LOG.as_bytes().to_vec();
-        let end_key = {
-            let mut key = start_key.clone();
-            key.push(0xFF);
-            key
-        };
-
-        let kvs = self
-            .storage
-            .get_range(start_key..end_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to scan audit logs: {e}")))?;
-
-        let mut deleted_count = 0;
-
-        for kv in kvs {
-            if let Ok(log) = serde_json::from_slice::<AuditLog>(&kv.value)
-                && log.created_at < cutoff_date
-            {
-                self.storage
-                    .delete(&kv.key)
-                    .await
-                    .map_err(|e| Error::internal(format!("Failed to delete audit log: {e}")))?;
-                deleted_count += 1;
-            }
-        }
-
-        Ok(deleted_count)
-    }
-
     fn key(id: i64) -> Vec<u8> {
         format!("{PREFIX_AUDIT_LOG}{id}").into_bytes()
     }
@@ -166,7 +137,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use inferadb_control_storage::MemoryBackend;
+    use inferadb_control_storage::{MemoryBackend, backend::StorageBackend};
     use inferadb_control_types::entities::AuditEventType;
 
     use super::*;
@@ -184,5 +155,52 @@ mod tests {
         repo.create(log.clone()).await.unwrap();
         let retrieved = repo.get(log.id).await.unwrap();
         assert!(retrieved.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_create_sets_ttl() {
+        let storage = MemoryBackend::new();
+        let repo = AuditLogRepository::new(storage.clone());
+
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::UserLogin)
+            .organization_id(1)
+            .user_id(100)
+            .ip_address("192.168.1.1")
+            .build();
+        let log_id = log.id;
+
+        repo.create(log).await.unwrap();
+
+        // Key should exist immediately after creation
+        let key = format!("audit_log:{log_id}");
+        assert!(storage.get(key.as_bytes()).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_audit_log_expires_from_storage() {
+        let storage = MemoryBackend::new();
+
+        // Write directly with a short TTL to verify MemoryBackend TTL behavior
+        let log = AuditLog::builder()
+            .event_type(AuditEventType::UserLogin)
+            .organization_id(1)
+            .user_id(100)
+            .ip_address("192.168.1.1")
+            .build();
+        let log_id = log.id;
+        let key = format!("audit_log:{log_id}");
+        let value = serde_json::to_vec(&log).unwrap();
+
+        storage.set_with_ttl(key.as_bytes().to_vec(), value, Duration::from_secs(1)).await.unwrap();
+
+        // Key should exist immediately
+        assert!(storage.get(key.as_bytes()).await.unwrap().is_some());
+
+        // Wait for TTL expiry
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // Key should be absent after TTL expiry
+        assert!(storage.get(key.as_bytes()).await.unwrap().is_none());
     }
 }

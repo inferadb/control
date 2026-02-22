@@ -87,8 +87,6 @@ async fn test_healthz_returns_json_with_expected_fields() {
         json["storage_healthy"].as_bool().unwrap(),
         "Storage should be healthy with in-memory backend"
     );
-    // is_leader is false in tests (no leader election configured)
-    assert!(json["is_leader"].is_boolean(), "is_leader should be a boolean");
 }
 
 #[tokio::test]

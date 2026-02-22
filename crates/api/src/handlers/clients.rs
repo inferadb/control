@@ -510,7 +510,7 @@ pub async fn get_certificate(
 ///
 /// Revokes the certificate, preventing it from being used for authentication.
 /// The certificate record is retained for audit purposes and will be automatically
-/// cleaned up after 90 days by a background job.
+/// cleaned up after 90 days by Ledger's TTL-based garbage collector.
 ///
 /// This handler:
 /// 1. Marks the certificate as revoked in Control's database

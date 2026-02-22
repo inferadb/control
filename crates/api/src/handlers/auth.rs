@@ -35,7 +35,6 @@ pub struct AppState {
     pub worker_id: u16,
     #[builder(default = std::time::SystemTime::now())]
     pub start_time: std::time::SystemTime,
-    pub leader: Option<Arc<inferadb_control_core::LeaderElection<Backend>>>,
     pub email_service: Option<Arc<inferadb_control_core::EmailService>>,
     pub control_identity: Option<Arc<inferadb_control_types::ControlIdentity>>,
     #[builder(default)]

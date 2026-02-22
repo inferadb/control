@@ -17,9 +17,7 @@ pub mod clock;
 pub mod crypto;
 pub mod email;
 pub mod id;
-pub mod jobs;
 pub mod jwt;
-pub mod leader;
 pub mod logging;
 pub mod metrics;
 pub mod ratelimit;
@@ -37,9 +35,7 @@ pub use email::{
     VerificationEmailTemplate,
 };
 pub use id::{IdGenerator, WorkerRegistry, acquire_worker_id};
-pub use jobs::BackgroundJobs;
 pub use jwt::{JwtSigner, VaultTokenClaims};
-pub use leader::LeaderElection;
 pub use ratelimit::{RateLimit, RateLimitResult, RateLimiter, categories, limits};
 pub use repository::{
     AuditLogFilters, AuditLogRepository, AuthorizationCodeRepository, ClientCertificateRepository,

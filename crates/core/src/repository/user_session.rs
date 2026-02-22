@@ -1,9 +1,15 @@
+use std::time::Duration;
+
 use inferadb_control_const::limits::MAX_CONCURRENT_SESSIONS;
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
     entities::UserSession,
     error::{Error, Result},
 };
+
+/// TTL applied to revoked sessions, allowing a brief window for in-flight
+/// requests to observe the revocation before Ledger GC removes the record.
+const REVOKED_SESSION_TTL: Duration = Duration::from_secs(60);
 
 /// Repository for UserSession entity operations
 ///
@@ -36,6 +42,40 @@ impl<S: StorageBackend> UserSessionRepository<S> {
         format!("session:active:{id}").into_bytes()
     }
 
+    /// Write all 3 session keys with the given TTL.
+    ///
+    /// This is used after transaction commit (two-phase pattern) and for
+    /// non-transactional updates that need to set or reset TTL on every key.
+    async fn set_all_keys_with_ttl(&self, session: &UserSession, ttl: Duration) -> Result<()> {
+        let session_data = serde_json::to_vec(session)
+            .map_err(|e| Error::internal(format!("Failed to serialize session: {e}")))?;
+
+        self.storage
+            .set_with_ttl(Self::session_key(session.id), session_data, ttl)
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set session TTL: {e}")))?;
+
+        self.storage
+            .set_with_ttl(
+                Self::user_session_index_key(session.user_id, session.id),
+                session.id.to_le_bytes().to_vec(),
+                ttl,
+            )
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set user session index TTL: {e}")))?;
+
+        self.storage
+            .set_with_ttl(
+                Self::active_session_index_key(session.id),
+                session.id.to_le_bytes().to_vec(),
+                ttl,
+            )
+            .await
+            .map_err(|e| Error::internal(format!("Failed to set active session index TTL: {e}")))?;
+
+        Ok(())
+    }
+
     /// Create a new session
     ///
     /// Sessions are automatically stored with TTL based on their expiry time
@@ -60,13 +100,10 @@ impl<S: StorageBackend> UserSessionRepository<S> {
         let session_data = serde_json::to_vec(&session)
             .map_err(|e| Error::internal(format!("Failed to serialize session: {e}")))?;
 
-        // Calculate TTL in seconds from now until expiry
-        let _ttl_seconds =
-            session.time_until_expiry().map(|d| d.num_seconds().max(0) as u64).unwrap_or(0);
+        let ttl_seconds =
+            session.time_until_expiry().map(|d| d.num_seconds().max(1) as u64).unwrap_or(1);
 
-        // Expired sessions are filtered out in get() since transactions don't support TTL
-
-        // Use transaction for atomicity
+        // Use transaction for atomicity (TTL is applied after commit via two-phase pattern)
         let mut txn = self
             .storage
             .transaction()
@@ -76,19 +113,22 @@ impl<S: StorageBackend> UserSessionRepository<S> {
         // Store session record
         txn.set(Self::session_key(session.id), session_data);
 
-        // Store user's session index with TTL
+        // Store user's session index
         txn.set(
             Self::user_session_index_key(session.user_id, session.id),
             session.id.to_le_bytes().to_vec(),
         );
 
-        // Store active session index with TTL
+        // Store active session index
         txn.set(Self::active_session_index_key(session.id), session.id.to_le_bytes().to_vec());
 
         // Commit transaction
         txn.commit()
             .await
             .map_err(|e| Error::internal(format!("Failed to commit session creation: {e}")))?;
+
+        // Apply TTL to all keys (two-phase pattern: transaction for atomicity, then TTL)
+        self.set_all_keys_with_ttl(&session, Duration::from_secs(ttl_seconds)).await?;
 
         Ok(())
     }
@@ -174,7 +214,8 @@ impl<S: StorageBackend> UserSessionRepository<S> {
 
     /// Update session activity (sliding window expiry)
     ///
-    /// This extends the session expiry time and updates last activity
+    /// This extends the session expiry time, updates last activity, and resets
+    /// TTL on all 3 storage keys to the full session type duration.
     pub async fn update_activity(&self, id: i64) -> Result<()> {
         let mut session = self
             .get(id)
@@ -182,10 +223,15 @@ impl<S: StorageBackend> UserSessionRepository<S> {
             .ok_or_else(|| Error::not_found("Session not found or expired".to_string()))?;
 
         session.update_activity();
-        self.update(session).await
+
+        let ttl = Duration::from_secs(session.session_type.ttl_seconds() as u64);
+        self.set_all_keys_with_ttl(&session, ttl).await
     }
 
     /// Revoke a session (soft delete)
+    ///
+    /// Sets a short residual TTL so the revoked record remains briefly
+    /// visible for in-flight requests, then Ledger GC removes it.
     pub async fn revoke(&self, id: i64) -> Result<()> {
         let mut session = self
             .get(id)
@@ -193,7 +239,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
             .ok_or_else(|| Error::not_found("Session not found or expired".to_string()))?;
 
         session.revoke();
-        self.update(session).await
+        self.set_all_keys_with_ttl(&session, REVOKED_SESSION_TTL).await
     }
 
     /// Revoke all sessions for a user
@@ -239,37 +285,6 @@ impl<S: StorageBackend> UserSessionRepository<S> {
         Ok(())
     }
 
-    /// Clean up expired sessions
-    ///
-    /// This should be called periodically to remove expired sessions
-    /// Note: With TTL-aware storage backends, this may not be necessary
-    pub async fn cleanup_expired(&self) -> Result<usize> {
-        // Get all active session indexes
-        let start = b"session:active:".to_vec();
-        let end = b"session:active:~".to_vec();
-
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get active sessions: {e}")))?;
-
-        let mut cleaned = 0;
-
-        for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
-
-            // Try to get session - if expired, it will return None
-            if self.get(id).await?.is_none() {
-                // Session is expired or revoked, delete it
-                self.delete(id).await?;
-                cleaned += 1;
-            }
-        }
-
-        Ok(cleaned)
-    }
-
     /// Check if a session exists and is active
     pub async fn is_active(&self, id: i64) -> Result<bool> {
         Ok(self.get(id).await?.is_some())
@@ -279,6 +294,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use chrono::Utc;
     use inferadb_control_storage::MemoryBackend;
     use inferadb_control_types::entities::SessionType;
 
@@ -441,5 +457,115 @@ mod tests {
 
         // Session 11 should be active
         assert!(repo.is_active(11).await.unwrap());
+    }
+
+    // ========================================================================
+    // TTL Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_create_session_sets_ttl_on_all_keys() {
+        let storage = MemoryBackend::new();
+        let repo = UserSessionRepository::new(storage.clone());
+
+        let mut session = create_test_session(1, 100, SessionType::Web).await;
+        session.expires_at = Utc::now() + chrono::Duration::seconds(2);
+
+        repo.create(session).await.unwrap();
+
+        // All 3 keys should exist in raw storage immediately after creation
+        assert!(storage.get(b"session:1").await.unwrap().is_some());
+        assert!(storage.get(b"session:user:100:1").await.unwrap().is_some());
+        assert!(storage.get(b"session:active:1").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_update_activity_resets_ttl_on_all_keys() {
+        let storage = MemoryBackend::new();
+        let repo = UserSessionRepository::new(storage.clone());
+
+        let mut session = create_test_session(1, 100, SessionType::Web).await;
+        session.expires_at = Utc::now() + chrono::Duration::seconds(2);
+
+        repo.create(session).await.unwrap();
+
+        // update_activity resets TTL to the full session type duration (24h for Web)
+        repo.update_activity(1).await.unwrap();
+
+        // Wait past the original 2-second TTL
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        // All 3 keys should still exist because update_activity reset TTL to 24h
+        assert!(
+            storage.get(b"session:1").await.unwrap().is_some(),
+            "session key should persist after TTL reset"
+        );
+        assert!(
+            storage.get(b"session:user:100:1").await.unwrap().is_some(),
+            "user index key should persist after TTL reset"
+        );
+        assert!(
+            storage.get(b"session:active:1").await.unwrap().is_some(),
+            "active index key should persist after TTL reset"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_revoke_session_sets_residual_ttl() {
+        let storage = MemoryBackend::new();
+        let repo = UserSessionRepository::new(storage.clone());
+
+        let mut session = create_test_session(1, 100, SessionType::Web).await;
+        session.expires_at = Utc::now() + chrono::Duration::seconds(2);
+
+        repo.create(session).await.unwrap();
+
+        // Revoke immediately — sets REVOKED_SESSION_TTL (60s), overwriting the 2s creation TTL
+        repo.revoke(1).await.unwrap();
+
+        // Wait past the original 2-second TTL
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        // All 3 keys should still exist because revoke set a 60-second residual TTL
+        assert!(
+            storage.get(b"session:1").await.unwrap().is_some(),
+            "session key should persist with 60s residual TTL"
+        );
+        assert!(
+            storage.get(b"session:user:100:1").await.unwrap().is_some(),
+            "user index key should persist with 60s residual TTL"
+        );
+        assert!(
+            storage.get(b"session:active:1").await.unwrap().is_some(),
+            "active index key should persist with 60s residual TTL"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_session_keys_expire_from_storage() {
+        let storage = MemoryBackend::new();
+        let repo = UserSessionRepository::new(storage.clone());
+
+        let mut session = create_test_session(1, 100, SessionType::Web).await;
+        session.expires_at = Utc::now() + chrono::Duration::seconds(2);
+
+        repo.create(session).await.unwrap();
+
+        // Wait for TTL to expire
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        // All 3 keys should be absent from raw storage
+        assert!(
+            storage.get(b"session:1").await.unwrap().is_none(),
+            "session key should be expired from storage"
+        );
+        assert!(
+            storage.get(b"session:user:100:1").await.unwrap().is_none(),
+            "user index key should be expired from storage"
+        );
+        assert!(
+            storage.get(b"session:active:1").await.unwrap().is_none(),
+            "active index key should be expired from storage"
+        );
     }
 }

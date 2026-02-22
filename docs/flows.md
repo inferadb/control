@@ -402,65 +402,6 @@ sequenceDiagram
     end
 ```
 
-## Multi-Instance Leader Election Flow
-
-```mermaid
-sequenceDiagram
-    participant I1 as Instance 1
-    participant I2 as Instance 2
-    participant I3 as Instance 3
-    participant Ledger as Ledger
-
-    rect rgb(240, 255, 240)
-    Note over I1,Ledger: Startup & Initial Leader Election
-
-    I1->>Ledger: Acquire Leader Lock
-    Ledger-->>I1: Lock Acquired → LEADER
-
-    I2->>Ledger: Acquire Leader Lock
-    Ledger-->>I2: Lock Held → FOLLOWER
-
-    I3->>Ledger: Acquire Leader Lock
-    Ledger-->>I3: Lock Held → FOLLOWER
-    end
-
-    rect rgb(255, 255, 240)
-    Note over I1,Ledger: Normal Operations
-
-    loop Every 10s - All Instances
-        I1->>Ledger: Renew Leader Lock
-        I2->>Ledger: Update Heartbeat
-        I3->>Ledger: Update Heartbeat
-    end
-
-    loop Every 30s - Leader Only
-        I1->>Ledger: Cleanup Expired Sessions
-        I1->>Ledger: Cleanup Expired Tokens
-        I1->>Ledger: Send Email Queue
-    end
-    end
-
-    rect rgb(255, 240, 240)
-    Note over I1,Ledger: Leader Failure Scenario
-
-    I1-xI1: Leader Crashes
-
-    I2->>Ledger: Detect Stale Lock (no renewal)
-    I2->>Ledger: Attempt Lock Acquisition
-    Ledger-->>I2: Lock Acquired → LEADER
-
-    I3->>Ledger: Attempt Lock Acquisition
-    Ledger-->>I3: Lock Held → FOLLOWER
-
-    Note over I2: Instance 2 is now leader
-
-    loop Every 30s - New Leader
-        I2->>Ledger: Cleanup Expired Sessions
-        I2->>Ledger: Cleanup Expired Tokens
-    end
-    end
-```
-
 ## Audit Log Flow
 
 ```mermaid
@@ -565,40 +506,6 @@ sequenceDiagram
     API-->>User: 429 Too Many Requests<br/>Retry-After: 60
 
     Note over User: Wait for window to reset
-```
-
-## Session Cleanup (Background Job)
-
-```mermaid
-sequenceDiagram
-    participant Leader as Leader Instance
-    participant DB as Ledger
-
-    loop Every 30 seconds (Leader Only)
-        Leader->>DB: Query Expired Sessions<br/>(expired_at < now())
-
-        DB-->>Leader: List of Expired Sessions
-
-        loop For Each Expired Session
-            Leader->>DB: Soft Delete Session
-        end
-
-        Leader->>DB: Query Expired Tokens<br/>(expires_at < now())
-
-        DB-->>Leader: List of Expired Tokens
-
-        loop For Each Expired Token
-            Leader->>DB: Delete Token
-        end
-
-        Leader->>DB: Query Expired JTI Entries<br/>(expires_at < now())
-
-        DB-->>Leader: List of Expired JTIs
-
-        loop For Each Expired JTI
-            Leader->>DB: Delete JTI Entry
-        end
-    end
 ```
 
 ## Further Reading

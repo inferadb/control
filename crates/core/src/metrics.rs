@@ -51,7 +51,6 @@ pub fn init() {
         describe_gauge!("active_sessions", "Number of currently active sessions");
         describe_gauge!("organizations_total", "Total number of organizations");
         describe_gauge!("vaults_total", "Total number of vaults");
-        describe_gauge!("is_leader", "Whether this instance is the leader (1) or not (0)");
         describe_gauge!("discovered_endpoints", "Number of currently discovered server endpoints");
         describe_gauge!("clock_skew_seconds", "Measured clock skew against NTP in seconds");
     });
@@ -134,11 +133,6 @@ pub fn set_organizations_total(count: i64) {
 /// Set the total number of vaults
 pub fn set_vaults_total(count: i64) {
     gauge!("vaults_total").set(count as f64);
-}
-
-/// Set whether this instance is the leader
-pub fn set_is_leader(is_leader: bool) {
-    gauge!("is_leader").set(if is_leader { 1.0 } else { 0.0 });
 }
 
 /// Record a discovery cache hit
@@ -263,8 +257,6 @@ mod tests {
         set_active_sessions(150);
         set_organizations_total(42);
         set_vaults_total(105);
-        set_is_leader(true);
-        set_is_leader(false);
         set_clock_skew(0.042);
     }
 

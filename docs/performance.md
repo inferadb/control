@@ -116,8 +116,7 @@ Control is designed for high performance:
 Horizontal scaling features:
 
 1. **Stateless Design**: No in-memory state beyond configuration
-2. **Leader Election**: Ledger-based coordination for background jobs
-3. **Worker IDs**: Unique Snowflake ID generation per instance (0-1023)
+2. **Worker IDs**: Unique Snowflake ID generation per instance (0-1023)
 4. **Load Balancing**: Round-robin or least-connections
 
 **Scaling Guidelines:**
@@ -160,7 +159,7 @@ Resource recommendations per instance:
 
 - **Sharding**: Data distributed across cluster nodes
 - **Replication**: 3x replication by default
-- **Failover**: Automatic leader election via Raft consensus
+- **Failover**: Automatic failover via Raft consensus
 
 **Ledger Cluster Sizing:**
 
@@ -194,7 +193,6 @@ Resource recommendations per instance:
    - Health checks: Highest priority (no DB access)
    - Authentication: High priority
    - List operations: Medium priority
-   - Background jobs: Low priority
 
 ### Database-Level
 
@@ -224,7 +222,6 @@ Resource recommendations per instance:
    - Prometheus metrics at `/metrics`
    - Alert on p95 > 1000ms
    - Alert on error rate > 5%
-   - Alert on leader election failures
 
 3. **Autoscaling**
    - Scale up: CPU > 70% for 5 minutes
@@ -329,7 +326,6 @@ Adjustments:
 1. Check logs for error patterns
 2. Review rate limiting metrics (429 responses)
 3. Check database connectivity
-4. Review leader election status
 
 **Solutions:**
 
@@ -350,7 +346,7 @@ Adjustments:
 
 **Solutions:**
 
-- Session cleanup job should run every 30s (leader only)
+- Expired sessions are automatically cleaned up by Ledger's TTL garbage collector
 - Restart instances periodically (rolling restart)
 - Report bug if leak confirmed
 

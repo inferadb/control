@@ -43,7 +43,6 @@
 //!         .storage(storage)
 //!         .config(config)
 //!         .worker_id(1)
-//!         .maybe_leader(None)           // Optional leader election
 //!         .maybe_email_service(None)    // Optional email service
 //!         .maybe_control_identity(None) // Optional control identity
 //!         .build();
@@ -112,7 +111,6 @@ async fn shutdown_signal() {
 
 /// Configuration for optional services in the Control API
 pub struct ServicesConfig {
-    pub leader: Option<Arc<inferadb_control_core::LeaderElection<Backend>>>,
     pub email_service: Option<Arc<inferadb_control_core::EmailService>>,
     pub control_identity: Option<Arc<ControlIdentity>>,
 }
@@ -129,7 +127,6 @@ pub async fn serve(
         .storage(storage.clone())
         .config(config.clone())
         .worker_id(worker_id)
-        .maybe_leader(services.leader)
         .maybe_email_service(services.email_service)
         .maybe_control_identity(services.control_identity)
         .build();

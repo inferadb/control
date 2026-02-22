@@ -31,7 +31,7 @@ pub enum SkewSeverity {
 /// Distributed systems require synchronized clocks for:
 /// - Snowflake ID ordering across instances
 /// - TTL-based token expiration consistency
-/// - Lease timing in leader election
+/// - Lease timing in distributed coordination
 ///
 /// Queries NTP servers asynchronously via `rsntp`, falling back to
 /// system tools (`chronyc`, `ntpdate`) when direct NTP is unavailable.
