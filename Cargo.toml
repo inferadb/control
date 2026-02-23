@@ -99,7 +99,7 @@ webauthn-rs = { version = "0.5", features = [
 ] }
 
 # Enum derive macros
-strum = { version = "0.27", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 
 # Snowflake ID generation
 idgenerator = "2"
