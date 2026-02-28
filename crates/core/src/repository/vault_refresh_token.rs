@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
+    VaultSlug,
     entities::VaultRefreshToken,
     error::{Error, Result},
 };
@@ -18,7 +19,7 @@ const REVOKED_TOKEN_RESIDUAL_TTL: Duration = Duration::from_secs(60);
 /// Key schema:
 /// - vault_refresh_token:{id} -> VaultRefreshToken data
 /// - vault_refresh_token:token:{token} -> token_id (for token lookup)
-/// - vault_refresh_token:vault:{vault_id}:{id} -> token_id (for vault's token lookups)
+/// - vault_refresh_token:vault:{vault}:{id} -> token_id (for vault's token lookups)
 /// - vault_refresh_token:session:{session_id}:{id} -> token_id (for session's token lookups)
 /// - vault_refresh_token:client:{client_id}:{id} -> token_id (for client's token lookups)
 pub struct VaultRefreshTokenRepository<S: StorageBackend> {
@@ -32,7 +33,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     }
 
     /// Generate key for token by ID
-    fn token_key(id: i64) -> Vec<u8> {
+    fn token_key(id: u64) -> Vec<u8> {
         format!("vault_refresh_token:{id}").into_bytes()
     }
 
@@ -42,17 +43,17 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     }
 
     /// Generate key for vault's token index
-    fn vault_token_index_key(vault_id: i64, token_id: i64) -> Vec<u8> {
-        format!("vault_refresh_token:vault:{vault_id}:{token_id}").into_bytes()
+    fn vault_token_index_key(vault: VaultSlug, token_id: u64) -> Vec<u8> {
+        format!("vault_refresh_token:vault:{vault}:{token_id}").into_bytes()
     }
 
     /// Generate key for session's token index
-    fn session_token_index_key(session_id: i64, token_id: i64) -> Vec<u8> {
+    fn session_token_index_key(session_id: u64, token_id: u64) -> Vec<u8> {
         format!("vault_refresh_token:session:{session_id}:{token_id}").into_bytes()
     }
 
     /// Generate key for client's token index
-    fn client_token_index_key(client_id: i64, token_id: i64) -> Vec<u8> {
+    fn client_token_index_key(client_id: u64, token_id: u64) -> Vec<u8> {
         format!("vault_refresh_token:client:{client_id}:{token_id}").into_bytes()
     }
 
@@ -97,7 +98,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
 
         self.storage
             .set_with_ttl(
-                Self::vault_token_index_key(token.vault_id, token.id),
+                Self::vault_token_index_key(token.vault, token.id),
                 token.id.to_le_bytes().to_vec(),
                 ttl,
             )
@@ -148,7 +149,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
 
         // Store vault's token index
         txn.set(
-            Self::vault_token_index_key(token.vault_id, token.id),
+            Self::vault_token_index_key(token.vault, token.id),
             token.id.to_le_bytes().to_vec(),
         );
 
@@ -178,7 +179,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     }
 
     /// Get a token by ID
-    pub async fn get(&self, id: i64) -> Result<Option<VaultRefreshToken>> {
+    pub async fn get(&self, id: u64) -> Result<Option<VaultRefreshToken>> {
         let key = Self::token_key(id);
         let data = self
             .storage
@@ -210,7 +211,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid token lookup data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -228,10 +229,10 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     }
 
     /// List all tokens for a vault
-    pub async fn list_by_vault(&self, vault_id: i64) -> Result<Vec<VaultRefreshToken>> {
-        let prefix = format!("vault_refresh_token:vault:{vault_id}:");
+    pub async fn list_by_vault(&self, vault: VaultSlug) -> Result<Vec<VaultRefreshToken>> {
+        let prefix = format!("vault_refresh_token:vault:{vault}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("vault_refresh_token:vault:{vault_id}~").into_bytes();
+        let end = format!("vault_refresh_token:vault:{vault}~").into_bytes();
 
         let kvs = self
             .storage
@@ -241,7 +242,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
 
         let mut tokens = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(token) = self.get(id).await? {
                 tokens.push(token);
             }
@@ -251,7 +252,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     }
 
     /// List all tokens for a session
-    pub async fn list_by_session(&self, session_id: i64) -> Result<Vec<VaultRefreshToken>> {
+    pub async fn list_by_session(&self, session_id: u64) -> Result<Vec<VaultRefreshToken>> {
         let prefix = format!("vault_refresh_token:session:{session_id}:");
         let start = prefix.clone().into_bytes();
         let end = format!("vault_refresh_token:session:{session_id}~").into_bytes();
@@ -264,7 +265,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
 
         let mut tokens = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(token) = self.get(id).await? {
                 tokens.push(token);
             }
@@ -274,7 +275,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     }
 
     /// List all tokens for a client
-    pub async fn list_by_client(&self, client_id: i64) -> Result<Vec<VaultRefreshToken>> {
+    pub async fn list_by_client(&self, client_id: u64) -> Result<Vec<VaultRefreshToken>> {
         let prefix = format!("vault_refresh_token:client:{client_id}:");
         let start = prefix.clone().into_bytes();
         let end = format!("vault_refresh_token:client:{client_id}~").into_bytes();
@@ -287,7 +288,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
 
         let mut tokens = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(token) = self.get(id).await? {
                 tokens.push(token);
             }
@@ -297,7 +298,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     }
 
     /// Revoke all tokens for a session (called when session is deleted)
-    pub async fn revoke_by_session(&self, session_id: i64) -> Result<usize> {
+    pub async fn revoke_by_session(&self, session_id: u64) -> Result<usize> {
         let tokens = self.list_by_session(session_id).await?;
         let mut revoked_count = 0;
 
@@ -313,7 +314,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     }
 
     /// Revoke all tokens for a client (called when client is deleted/revoked)
-    pub async fn revoke_by_client(&self, client_id: i64) -> Result<usize> {
+    pub async fn revoke_by_client(&self, client_id: u64) -> Result<usize> {
         let tokens = self.list_by_client(client_id).await?;
         let mut revoked_count = 0;
 
@@ -329,8 +330,8 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     }
 
     /// Revoke all tokens for a vault (called when vault is deleted)
-    pub async fn revoke_by_vault(&self, vault_id: i64) -> Result<usize> {
-        let tokens = self.list_by_vault(vault_id).await?;
+    pub async fn revoke_by_vault(&self, vault: VaultSlug) -> Result<usize> {
+        let tokens = self.list_by_vault(vault).await?;
         let mut revoked_count = 0;
 
         for mut token in tokens {
@@ -349,7 +350,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::MemoryBackend;
-    use inferadb_control_types::entities::VaultRole;
+    use inferadb_control_types::{OrganizationSlug, entities::VaultRole};
 
     use super::*;
 
@@ -369,8 +370,8 @@ mod tests {
         let repo = create_test_repo();
         let token = VaultRefreshToken::new_for_session()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .create()
@@ -387,8 +388,8 @@ mod tests {
         let repo = create_test_repo();
         let token = VaultRefreshToken::new_for_client()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
             .create()
@@ -405,8 +406,8 @@ mod tests {
         let repo = create_test_repo();
         let token = VaultRefreshToken::new_for_session()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .create()
@@ -431,8 +432,8 @@ mod tests {
         let repo = create_test_repo();
         let mut token = VaultRefreshToken::new_for_session()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .create()
@@ -454,24 +455,24 @@ mod tests {
 
         let token1 = VaultRefreshToken::new_for_session()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_client()
             .id(2)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
             .create()
             .unwrap();
         let token3 = VaultRefreshToken::new_for_session()
             .id(3)
-            .vault_id(999)
-            .organization_id(200)
+            .vault(VaultSlug::from(999_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .create()
@@ -481,10 +482,10 @@ mod tests {
         repo.create(token2).await.unwrap();
         repo.create(token3).await.unwrap();
 
-        let vault_100_tokens = repo.list_by_vault(100).await.unwrap();
+        let vault_100_tokens = repo.list_by_vault(VaultSlug::from(100_u64)).await.unwrap();
         assert_eq!(vault_100_tokens.len(), 2);
 
-        let vault_999_tokens = repo.list_by_vault(999).await.unwrap();
+        let vault_999_tokens = repo.list_by_vault(VaultSlug::from(999_u64)).await.unwrap();
         assert_eq!(vault_999_tokens.len(), 1);
     }
 
@@ -494,24 +495,24 @@ mod tests {
 
         let token1 = VaultRefreshToken::new_for_session()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_session()
             .id(2)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .create()
             .unwrap();
         let token3 = VaultRefreshToken::new_for_session()
             .id(3)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(999)
             .create()
@@ -534,24 +535,24 @@ mod tests {
 
         let token1 = VaultRefreshToken::new_for_client()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
             .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_client()
             .id(2)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
             .create()
             .unwrap();
         let token3 = VaultRefreshToken::new_for_client()
             .id(3)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Writer)
             .org_api_key_id(999)
             .create()
@@ -574,16 +575,16 @@ mod tests {
 
         let token1 = VaultRefreshToken::new_for_session()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_session()
             .id(2)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .create()
@@ -607,16 +608,16 @@ mod tests {
 
         let token1 = VaultRefreshToken::new_for_client()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
             .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_client()
             .id(2)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
             .create()
@@ -640,16 +641,16 @@ mod tests {
 
         let token1 = VaultRefreshToken::new_for_session()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .create()
             .unwrap();
         let token2 = VaultRefreshToken::new_for_client()
             .id(2)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
             .create()
@@ -658,7 +659,7 @@ mod tests {
         repo.create(token1).await.unwrap();
         repo.create(token2).await.unwrap();
 
-        let revoked_count = repo.revoke_by_vault(100).await.unwrap();
+        let revoked_count = repo.revoke_by_vault(VaultSlug::from(100_u64)).await.unwrap();
         assert_eq!(revoked_count, 2);
 
         let token1_after = repo.get(1).await.unwrap().unwrap();
@@ -676,8 +677,8 @@ mod tests {
         let (repo, storage) = create_test_repo_with_storage();
         let token = VaultRefreshToken::new_for_session()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .ttl_seconds(2)
@@ -705,8 +706,8 @@ mod tests {
         let (repo, storage) = create_test_repo_with_storage();
         let token = VaultRefreshToken::new_for_session()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .ttl_seconds(2)
@@ -747,8 +748,8 @@ mod tests {
         let (repo, storage) = create_test_repo_with_storage();
         let mut token = VaultRefreshToken::new_for_session()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
             .user_session_id(300)
             .ttl_seconds(2)
@@ -780,8 +781,8 @@ mod tests {
         let (repo, storage) = create_test_repo_with_storage();
         let mut token = VaultRefreshToken::new_for_client()
             .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Writer)
             .org_api_key_id(400)
             .ttl_seconds(2)

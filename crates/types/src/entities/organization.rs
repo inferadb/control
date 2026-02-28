@@ -2,7 +2,10 @@ use bon::bon;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
+use crate::{
+    OrganizationSlug,
+    error::{Error, Result},
+};
 
 /// Organization tier enum defining resource limits
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,7 +57,7 @@ impl OrganizationTier {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Organization {
     /// Unique identifier for the organization
-    pub id: i64,
+    pub id: OrganizationSlug,
     /// Organization name (must be unique globally)
     pub name: String,
     /// Organization tier determining resource limits
@@ -81,7 +84,7 @@ impl Organization {
     ///
     /// Returns an error if validation fails
     #[builder(on(String, into), finish_fn = create)]
-    pub fn new(id: i64, name: String, tier: OrganizationTier) -> Result<Self> {
+    pub fn new(id: OrganizationSlug, name: String, tier: OrganizationTier) -> Result<Self> {
         Self::validate_name(&name)?;
 
         Ok(Self {
@@ -199,11 +202,11 @@ impl OrganizationRole {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrganizationMember {
     /// Unique identifier for this membership
-    pub id: i64,
-    /// Organization ID
-    pub organization_id: i64,
+    pub id: u64,
+    /// Organization
+    pub organization: OrganizationSlug,
     /// User ID
-    pub user_id: i64,
+    pub user_id: u64,
     /// Member's role in the organization
     pub role: OrganizationRole,
     /// When the membership was created
@@ -212,8 +215,13 @@ pub struct OrganizationMember {
 
 impl OrganizationMember {
     /// Create a new organization member
-    pub fn new(id: i64, organization_id: i64, user_id: i64, role: OrganizationRole) -> Self {
-        Self { id, organization_id, user_id, role, created_at: Utc::now() }
+    pub fn new(
+        id: u64,
+        organization: OrganizationSlug,
+        user_id: u64,
+        role: OrganizationRole,
+    ) -> Self {
+        Self { id, organization, user_id, role, created_at: Utc::now() }
     }
 
     /// Update the member's role
@@ -235,14 +243,14 @@ mod tests {
     #[test]
     fn test_create_organization() {
         let org = Organization::builder()
-            .id(1)
+            .id(OrganizationSlug::from(1_u64))
             .name("Test Org")
             .tier(OrganizationTier::TierDevV1)
             .create();
         assert!(org.is_ok());
 
         let org = org.unwrap();
-        assert_eq!(org.id, 1);
+        assert_eq!(org.id, OrganizationSlug::from(1_u64));
         assert_eq!(org.name, "Test Org");
         assert_eq!(org.tier, OrganizationTier::TierDevV1);
         assert!(!org.is_deleted());
@@ -250,12 +258,18 @@ mod tests {
 
     #[test]
     fn test_validate_name_empty() {
-        let result =
-            Organization::builder().id(1).name("").tier(OrganizationTier::TierDevV1).create();
+        let result = Organization::builder()
+            .id(OrganizationSlug::from(1_u64))
+            .name("")
+            .tier(OrganizationTier::TierDevV1)
+            .create();
         assert!(result.is_err());
 
-        let result =
-            Organization::builder().id(1).name("   ").tier(OrganizationTier::TierDevV1).create();
+        let result = Organization::builder()
+            .id(OrganizationSlug::from(1_u64))
+            .name("   ")
+            .tier(OrganizationTier::TierDevV1)
+            .create();
         assert!(result.is_err());
     }
 
@@ -263,7 +277,7 @@ mod tests {
     fn test_validate_name_too_long() {
         let long_name = "a".repeat(101);
         let result = Organization::builder()
-            .id(1)
+            .id(OrganizationSlug::from(1_u64))
             .name(long_name)
             .tier(OrganizationTier::TierDevV1)
             .create();
@@ -273,7 +287,7 @@ mod tests {
     #[test]
     fn test_set_name() {
         let mut org = Organization::builder()
-            .id(1)
+            .id(OrganizationSlug::from(1_u64))
             .name("Old Name")
             .tier(OrganizationTier::TierDevV1)
             .create()
@@ -289,7 +303,7 @@ mod tests {
     #[test]
     fn test_soft_delete() {
         let mut org = Organization::builder()
-            .id(1)
+            .id(OrganizationSlug::from(1_u64))
             .name("Test Org")
             .tier(OrganizationTier::TierDevV1)
             .create()
@@ -317,10 +331,15 @@ mod tests {
 
     #[test]
     fn test_create_organization_member() {
-        let member = OrganizationMember::new(1, 100, 200, OrganizationRole::Member);
-        assert_eq!(member.id, 1);
-        assert_eq!(member.organization_id, 100);
-        assert_eq!(member.user_id, 200);
+        let member = OrganizationMember::new(
+            1_u64,
+            OrganizationSlug::from(100_u64),
+            200_u64,
+            OrganizationRole::Member,
+        );
+        assert_eq!(member.id, 1_u64);
+        assert_eq!(member.organization, OrganizationSlug::from(100_u64));
+        assert_eq!(member.user_id, 200_u64);
         assert_eq!(member.role, OrganizationRole::Member);
     }
 
@@ -341,7 +360,12 @@ mod tests {
 
     #[test]
     fn test_member_set_role() {
-        let mut member = OrganizationMember::new(1, 100, 200, OrganizationRole::Member);
+        let mut member = OrganizationMember::new(
+            1_u64,
+            OrganizationSlug::from(100_u64),
+            200_u64,
+            OrganizationRole::Member,
+        );
         assert_eq!(member.role, OrganizationRole::Member);
 
         member.set_role(OrganizationRole::Admin);
@@ -353,17 +377,32 @@ mod tests {
 
     #[test]
     fn test_member_has_permission() {
-        let owner = OrganizationMember::new(1, 100, 200, OrganizationRole::Owner);
+        let owner = OrganizationMember::new(
+            1_u64,
+            OrganizationSlug::from(100_u64),
+            200_u64,
+            OrganizationRole::Owner,
+        );
         assert!(owner.has_permission(OrganizationRole::Member));
         assert!(owner.has_permission(OrganizationRole::Admin));
         assert!(owner.has_permission(OrganizationRole::Owner));
 
-        let admin = OrganizationMember::new(2, 100, 201, OrganizationRole::Admin);
+        let admin = OrganizationMember::new(
+            2_u64,
+            OrganizationSlug::from(100_u64),
+            201_u64,
+            OrganizationRole::Admin,
+        );
         assert!(admin.has_permission(OrganizationRole::Member));
         assert!(admin.has_permission(OrganizationRole::Admin));
         assert!(!admin.has_permission(OrganizationRole::Owner));
 
-        let member = OrganizationMember::new(3, 100, 202, OrganizationRole::Member);
+        let member = OrganizationMember::new(
+            3_u64,
+            OrganizationSlug::from(100_u64),
+            202_u64,
+            OrganizationRole::Member,
+        );
         assert!(member.has_permission(OrganizationRole::Member));
         assert!(!member.has_permission(OrganizationRole::Admin));
         assert!(!member.has_permission(OrganizationRole::Owner));
@@ -372,7 +411,7 @@ mod tests {
     #[test]
     fn test_suspend_organization() {
         let mut org = Organization::builder()
-            .id(1)
+            .id(OrganizationSlug::from(1_u64))
             .name("Test Org")
             .tier(OrganizationTier::TierDevV1)
             .create()
@@ -388,7 +427,7 @@ mod tests {
     #[test]
     fn test_suspended_not_deleted() {
         let mut org = Organization::builder()
-            .id(1)
+            .id(OrganizationSlug::from(1_u64))
             .name("Test Org")
             .tier(OrganizationTier::TierDevV1)
             .create()

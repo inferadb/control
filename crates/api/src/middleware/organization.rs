@@ -8,7 +8,7 @@ use axum::{
 };
 use inferadb_control_core::{OrganizationMemberRepository, OrganizationRepository};
 use inferadb_control_types::{
-    Error as CoreError,
+    Error as CoreError, OrganizationSlug,
     entities::{OrganizationMember, OrganizationRole},
 };
 
@@ -21,7 +21,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct OrganizationContext {
     /// Organization ID from the path
-    pub organization_id: i64,
+    pub organization: OrganizationSlug,
     /// User's membership in the organization
     pub member: OrganizationMember,
 }
@@ -60,7 +60,7 @@ pub async fn require_organization_member(
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    // Extract org_id from the named {org} path parameter set by axum's router
+    // Extract organization from the named {org} path parameter set by axum's router
     let Path(params): Path<HashMap<String, String>> =
         request.extract_parts().await.map_err(|_| {
             CoreError::internal(
@@ -68,14 +68,14 @@ pub async fn require_organization_member(
             )
         })?;
 
-    let org_id = params
+    let organization = params
         .get("org")
         .ok_or_else(|| {
             CoreError::internal(
                 "Organization middleware applied to route without {org} parameter".to_string(),
             )
         })?
-        .parse::<i64>()
+        .parse::<OrganizationSlug>()
         .map_err(|_| CoreError::validation("Invalid organization ID in path".to_string()))?;
 
     // Get session context (should be set by require_session middleware)
@@ -86,14 +86,14 @@ pub async fn require_organization_member(
     // Check if user is a member of the organization
     let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
     let member = member_repo
-        .get_by_org_and_user(org_id, session_ctx.user_id)
+        .get_by_org_and_user(organization, session_ctx.user_id)
         .await?
         .ok_or_else(|| CoreError::authz("You are not a member of this organization".to_string()))?;
 
     // Verify organization exists and is not deleted
     let org_repo = OrganizationRepository::new((*state.storage).clone());
     let org = org_repo
-        .get(org_id)
+        .get(organization)
         .await?
         .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
@@ -114,7 +114,7 @@ pub async fn require_organization_member(
     }
 
     // Attach organization context to request extensions
-    request.extensions_mut().insert(OrganizationContext { organization_id: org_id, member });
+    request.extensions_mut().insert(OrganizationContext { organization, member });
 
     Ok(next.run(request).await)
 }

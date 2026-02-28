@@ -5,13 +5,13 @@ use axum::{
 };
 use inferadb_control_core::IdGenerator;
 use inferadb_control_test_fixtures::{
-    create_test_app, create_test_state, create_vault, get_org_id, register_user,
+    create_test_app, create_test_state, create_vault, get_organization, register_user,
 };
 use serde_json::json;
 use tower::ServiceExt;
 
-/// Helper to create a vault and return (org_id, vault_id, session)
-async fn setup_vault(app: &axum::Router, worker_id: u16) -> (i64, i64, String) {
+/// Helper to create a vault and return (organization, vault, session)
+async fn setup_vault(app: &axum::Router, worker_id: u16) -> (u64, u64, String) {
     let _ = IdGenerator::init(worker_id);
     let session = register_user(
         app,
@@ -21,18 +21,18 @@ async fn setup_vault(app: &axum::Router, worker_id: u16) -> (i64, i64, String) {
     )
     .await;
 
-    let org_id = get_org_id(app, &session).await;
-    let (vault_id, _) =
-        create_vault(app, &session, org_id, &format!("schema-test-vault-{worker_id}")).await;
+    let organization = get_organization(app, &session).await;
+    let (vault, _) =
+        create_vault(app, &session, organization, &format!("schema-test-vault-{worker_id}")).await;
 
-    (org_id, vault_id, session)
+    (organization, vault, session)
 }
 
 #[tokio::test]
 async fn test_deploy_schema() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 100).await;
+    let (organization, vault, session) = setup_vault(&app, 100).await;
 
     // Deploy a schema
     let response = app
@@ -41,7 +41,7 @@ async fn test_deploy_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/schemas"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
@@ -64,7 +64,7 @@ async fn test_deploy_schema() {
 
     assert_eq!(json["schema"]["version"], "1.0.0");
     assert_eq!(json["schema"]["description"], "Initial schema with User entity");
-    assert_eq!(json["schema"]["vault_id"], vault_id);
+    assert_eq!(json["schema"]["vault"], vault);
     // Schema starts as DEPLOYED (we skip validation in the handler currently)
     assert!(
         json["schema"]["status"] == "DEPLOYED" || json["schema"]["status"] == "VALIDATING",
@@ -77,7 +77,7 @@ async fn test_deploy_schema() {
 async fn test_deploy_schema_auto_version_increment() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 101).await;
+    let (organization, vault, session) = setup_vault(&app, 101).await;
 
     // Deploy first schema
     let response = app
@@ -85,7 +85,7 @@ async fn test_deploy_schema_auto_version_increment() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -111,7 +111,7 @@ async fn test_deploy_schema_auto_version_increment() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -136,7 +136,7 @@ async fn test_deploy_schema_auto_version_increment() {
 async fn test_deploy_schema_explicit_version() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 102).await;
+    let (organization, vault, session) = setup_vault(&app, 102).await;
 
     // Deploy with explicit version
     let response = app
@@ -144,7 +144,7 @@ async fn test_deploy_schema_explicit_version() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -170,7 +170,7 @@ async fn test_deploy_schema_explicit_version() {
 async fn test_list_schemas() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 103).await;
+    let (organization, vault, session) = setup_vault(&app, 103).await;
 
     // Deploy multiple schemas
     for i in 0..3 {
@@ -178,7 +178,7 @@ async fn test_list_schemas() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                    .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                     .header("cookie", format!("infera_session={session}"))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -200,7 +200,7 @@ async fn test_list_schemas() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -221,14 +221,14 @@ async fn test_list_schemas() {
 async fn test_get_schema_by_version() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 104).await;
+    let (organization, vault, session) = setup_vault(&app, 104).await;
 
     // Deploy a schema
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -249,7 +249,9 @@ async fn test_get_schema_by_version() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/1.0.0"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/vaults/{vault}/schemas/1.0.0"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -270,14 +272,14 @@ async fn test_get_schema_by_version() {
 async fn test_activate_schema() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 105).await;
+    let (organization, vault, session) = setup_vault(&app, 105).await;
 
     // Deploy a schema
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -299,7 +301,7 @@ async fn test_activate_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/1.0.0/activate"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/schemas/1.0.0/activate"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -321,14 +323,14 @@ async fn test_activate_schema() {
 async fn test_get_current_schema() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 106).await;
+    let (organization, vault, session) = setup_vault(&app, 106).await;
 
     // Deploy and activate a schema
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -349,7 +351,7 @@ async fn test_get_current_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/1.0.0/activate"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/schemas/1.0.0/activate"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -365,7 +367,7 @@ async fn test_get_current_schema() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/current"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/schemas/current"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -386,14 +388,14 @@ async fn test_get_current_schema() {
 async fn test_rollback_schema() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 107).await;
+    let (organization, vault, session) = setup_vault(&app, 107).await;
 
     // Deploy first schema
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -414,7 +416,7 @@ async fn test_rollback_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/1.0.0/activate"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/schemas/1.0.0/activate"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -428,7 +430,7 @@ async fn test_rollback_schema() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -449,7 +451,7 @@ async fn test_rollback_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/1.1.0/activate"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/schemas/1.1.0/activate"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -465,7 +467,7 @@ async fn test_rollback_schema() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/rollback"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/schemas/rollback"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
@@ -495,14 +497,14 @@ async fn test_rollback_schema() {
 async fn test_schema_diff() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 108).await;
+    let (organization, vault, session) = setup_vault(&app, 108).await;
 
     // Deploy two schemas
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -521,7 +523,7 @@ async fn test_schema_diff() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -543,7 +545,7 @@ async fn test_schema_diff() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/diff?from=1.0.0&to=1.1.0"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/schemas/diff?from=1.0.0&to=1.1.0"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -567,7 +569,7 @@ async fn test_schema_diff() {
 async fn test_deploy_schema_duplicate_version_rejected() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 109).await;
+    let (organization, vault, session) = setup_vault(&app, 109).await;
 
     // Deploy first schema with explicit version
     let response = app
@@ -575,7 +577,7 @@ async fn test_deploy_schema_duplicate_version_rejected() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -598,7 +600,7 @@ async fn test_deploy_schema_duplicate_version_rejected() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -621,7 +623,7 @@ async fn test_deploy_schema_duplicate_version_rejected() {
 async fn test_get_nonexistent_schema_returns_404() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 110).await;
+    let (organization, vault, session) = setup_vault(&app, 110).await;
 
     // Try to get a schema that doesn't exist
     let response = app
@@ -630,7 +632,7 @@ async fn test_get_nonexistent_schema_returns_404() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/99.99.99"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/schemas/99.99.99"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -646,14 +648,14 @@ async fn test_get_nonexistent_schema_returns_404() {
 async fn test_get_current_schema_when_none_active_returns_404() {
     let state = create_test_state();
     let app = create_test_app(state.clone());
-    let (org_id, vault_id, session) = setup_vault(&app, 111).await;
+    let (organization, vault, session) = setup_vault(&app, 111).await;
 
     // Deploy a schema but don't activate it
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/schemas"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -675,7 +677,7 @@ async fn test_get_current_schema_when_none_active_returns_404() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/schemas/current"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/schemas/current"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())

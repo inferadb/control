@@ -26,7 +26,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
     }
 
     /// Generate key for certificate by ID
-    fn cert_key(id: i64) -> Vec<u8> {
+    fn cert_key(id: u64) -> Vec<u8> {
         format!("cert:{id}").into_bytes()
     }
 
@@ -36,7 +36,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
     }
 
     /// Generate key for certificate by client index
-    fn cert_client_index_key(client_id: i64, idx: i64) -> Vec<u8> {
+    fn cert_client_index_key(client_id: u64, idx: u64) -> Vec<u8> {
         format!("cert:client:{client_id}:{idx}").into_bytes()
     }
 
@@ -89,7 +89,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
     }
 
     /// Get a certificate by ID
-    pub async fn get(&self, id: i64) -> Result<Option<ClientCertificate>> {
+    pub async fn get(&self, id: u64) -> Result<Option<ClientCertificate>> {
         let key = Self::cert_key(id);
         let data = self
             .storage
@@ -122,7 +122,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid certificate kid index data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -130,7 +130,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
     }
 
     /// List all certificates for a client (including revoked and deleted)
-    pub async fn list_by_client(&self, client_id: i64) -> Result<Vec<ClientCertificate>> {
+    pub async fn list_by_client(&self, client_id: u64) -> Result<Vec<ClientCertificate>> {
         let prefix = format!("cert:client:{client_id}:");
         let start = prefix.clone().into_bytes();
         let end = format!("cert:client:{client_id}~").into_bytes();
@@ -143,7 +143,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
 
         let mut certs = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(cert) = self.get(id).await? {
                 certs.push(cert);
             }
@@ -153,7 +153,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
     }
 
     /// List active (non-revoked, non-deleted) certificates for a client
-    pub async fn list_active_by_client(&self, client_id: i64) -> Result<Vec<ClientCertificate>> {
+    pub async fn list_active_by_client(&self, client_id: u64) -> Result<Vec<ClientCertificate>> {
         let all_certs = self.list_by_client(client_id).await?;
         Ok(all_certs.into_iter().filter(|c| c.is_active()).collect())
     }
@@ -223,7 +223,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
     }
 
     /// Delete a certificate (removes all indexes)
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get the certificate first to clean up indexes
         let cert = self
             .get(id)
@@ -255,13 +255,13 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
     }
 
     /// Count certificates for a client
-    pub async fn count_by_client(&self, client_id: i64) -> Result<usize> {
+    pub async fn count_by_client(&self, client_id: u64) -> Result<usize> {
         let certs = self.list_by_client(client_id).await?;
         Ok(certs.len())
     }
 
     /// Count active certificates for a client
-    pub async fn count_active_by_client(&self, client_id: i64) -> Result<usize> {
+    pub async fn count_active_by_client(&self, client_id: u64) -> Result<usize> {
         let certs = self.list_active_by_client(client_id).await?;
         Ok(certs.len())
     }
@@ -271,6 +271,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::{Backend, MemoryBackend, backend::StorageBackend};
+    use inferadb_control_types::OrganizationSlug;
 
     use super::*;
 
@@ -279,26 +280,26 @@ mod tests {
     }
 
     fn create_test_cert(
-        id: i64,
-        client_id: i64,
-        org_id: i64,
+        id: u64,
+        client_id: u64,
+        organization: OrganizationSlug,
         name: &str,
     ) -> Result<ClientCertificate> {
         ClientCertificate::builder()
             .id(id)
             .client_id(client_id)
-            .organization_id(org_id)
+            .organization(organization)
             .public_key("public_key_base64".to_string())
             .private_key_encrypted("encrypted_private_key_base64".to_string())
             .name(name.to_string())
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
     }
 
     #[tokio::test]
     async fn test_create_and_get_cert() {
         let repo = create_test_repo();
-        let cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+        let cert = create_test_cert(1, 100, OrganizationSlug::from(200_u64), "Test Cert").unwrap();
         let kid = cert.kid.clone();
 
         repo.create(cert.clone()).await.unwrap();
@@ -313,10 +314,10 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_kid_rejected() {
         let repo = create_test_repo();
-        let cert1 = create_test_cert(1, 100, 200, "Cert 1").unwrap();
+        let cert1 = create_test_cert(1, 100, OrganizationSlug::from(200_u64), "Cert 1").unwrap();
 
-        // Create second cert with same kid (by using same cert_id, client_id, and org_id)
-        let cert2 = create_test_cert(1, 100, 200, "Cert 2").unwrap();
+        // Create second cert with same kid (by using same cert_id, client_id, and organization)
+        let cert2 = create_test_cert(1, 100, OrganizationSlug::from(200_u64), "Cert 2").unwrap();
 
         repo.create(cert1).await.unwrap();
 
@@ -328,9 +329,9 @@ mod tests {
     #[tokio::test]
     async fn test_list_by_client() {
         let repo = create_test_repo();
-        let cert1 = create_test_cert(1, 100, 200, "Cert 1").unwrap();
-        let cert2 = create_test_cert(2, 100, 200, "Cert 2").unwrap();
-        let cert3 = create_test_cert(3, 101, 200, "Cert 3").unwrap();
+        let cert1 = create_test_cert(1, 100, OrganizationSlug::from(200_u64), "Cert 1").unwrap();
+        let cert2 = create_test_cert(2, 100, OrganizationSlug::from(200_u64), "Cert 2").unwrap();
+        let cert3 = create_test_cert(3, 101, OrganizationSlug::from(200_u64), "Cert 3").unwrap();
 
         repo.create(cert1).await.unwrap();
         repo.create(cert2).await.unwrap();
@@ -346,7 +347,8 @@ mod tests {
     #[tokio::test]
     async fn test_revoke_cert() {
         let repo = create_test_repo();
-        let mut cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+        let mut cert =
+            create_test_cert(1, 100, OrganizationSlug::from(200_u64), "Test Cert").unwrap();
 
         repo.create(cert.clone()).await.unwrap();
         assert!(cert.is_active());
@@ -367,7 +369,8 @@ mod tests {
     #[tokio::test]
     async fn test_soft_delete_cert() {
         let repo = create_test_repo();
-        let mut cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+        let mut cert =
+            create_test_cert(1, 100, OrganizationSlug::from(200_u64), "Test Cert").unwrap();
 
         repo.create(cert.clone()).await.unwrap();
 
@@ -386,7 +389,8 @@ mod tests {
     #[tokio::test]
     async fn test_mark_used() {
         let repo = create_test_repo();
-        let mut cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+        let mut cert =
+            create_test_cert(1, 100, OrganizationSlug::from(200_u64), "Test Cert").unwrap();
 
         repo.create(cert.clone()).await.unwrap();
         assert!(cert.last_used_at.is_none());
@@ -401,7 +405,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_cert() {
         let repo = create_test_repo();
-        let cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+        let cert = create_test_cert(1, 100, OrganizationSlug::from(200_u64), "Test Cert").unwrap();
         let kid = cert.kid.clone();
 
         repo.create(cert).await.unwrap();
@@ -416,7 +420,8 @@ mod tests {
     #[tokio::test]
     async fn test_kid_immutable() {
         let repo = create_test_repo();
-        let mut cert = create_test_cert(1, 100, 200, "Test Cert").unwrap();
+        let mut cert =
+            create_test_cert(1, 100, OrganizationSlug::from(200_u64), "Test Cert").unwrap();
 
         repo.create(cert.clone()).await.unwrap();
 
@@ -430,9 +435,10 @@ mod tests {
     #[tokio::test]
     async fn test_count_certs() {
         let repo = create_test_repo();
-        let cert1 = create_test_cert(1, 100, 200, "Cert 1").unwrap();
-        let mut cert2 = create_test_cert(2, 100, 200, "Cert 2").unwrap();
-        let cert3 = create_test_cert(3, 100, 200, "Cert 3").unwrap();
+        let cert1 = create_test_cert(1, 100, OrganizationSlug::from(200_u64), "Cert 1").unwrap();
+        let mut cert2 =
+            create_test_cert(2, 100, OrganizationSlug::from(200_u64), "Cert 2").unwrap();
+        let cert3 = create_test_cert(3, 100, OrganizationSlug::from(200_u64), "Cert 3").unwrap();
 
         repo.create(cert1).await.unwrap();
         repo.create(cert2.clone()).await.unwrap();
@@ -454,7 +460,8 @@ mod tests {
         let storage = MemoryBackend::new();
         let repo = ClientCertificateRepository::new(storage.clone());
 
-        let mut cert = create_test_cert_with(1, 100, 200, "TTL Test").unwrap();
+        let mut cert =
+            create_test_cert_with(1, 100, OrganizationSlug::from(200_u64), "TTL Test").unwrap();
         let kid = cert.kid.clone();
 
         repo.create(cert.clone()).await.unwrap();
@@ -479,7 +486,8 @@ mod tests {
         let storage = MemoryBackend::new();
         let repo = ClientCertificateRepository::new(storage.clone());
 
-        let mut cert = create_test_cert_with(2, 100, 200, "Active TTL").unwrap();
+        let mut cert =
+            create_test_cert_with(2, 100, OrganizationSlug::from(200_u64), "Active TTL").unwrap();
 
         repo.create(cert.clone()).await.unwrap();
 
@@ -496,7 +504,8 @@ mod tests {
         let storage = MemoryBackend::new();
         let repo = ClientCertificateRepository::new(storage.clone());
 
-        let mut cert = create_test_cert_with(3, 100, 200, "Expire Test").unwrap();
+        let mut cert =
+            create_test_cert_with(3, 100, OrganizationSlug::from(200_u64), "Expire Test").unwrap();
         let kid = cert.kid.clone();
 
         repo.create(cert.clone()).await.unwrap();
@@ -510,13 +519,13 @@ mod tests {
         storage
             .set_with_ttl(
                 format!("cert:kid:{kid}").into_bytes(),
-                3_i64.to_le_bytes().to_vec(),
+                3_u64.to_le_bytes().to_vec(),
                 short_ttl,
             )
             .await
             .unwrap();
         storage
-            .set_with_ttl(b"cert:client:100:3".to_vec(), 3_i64.to_le_bytes().to_vec(), short_ttl)
+            .set_with_ttl(b"cert:client:100:3".to_vec(), 3_u64.to_le_bytes().to_vec(), short_ttl)
             .await
             .unwrap();
 
@@ -533,19 +542,19 @@ mod tests {
     }
 
     fn create_test_cert_with(
-        id: i64,
-        client_id: i64,
-        org_id: i64,
+        id: u64,
+        client_id: u64,
+        organization: OrganizationSlug,
         name: &str,
     ) -> Result<ClientCertificate> {
         ClientCertificate::builder()
             .id(id)
             .client_id(client_id)
-            .organization_id(org_id)
+            .organization(organization)
             .public_key("public_key_base64".to_string())
             .private_key_encrypted("encrypted_private_key_base64".to_string())
             .name(name.to_string())
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
     }
 }

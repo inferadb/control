@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::entities::{SchemaDeploymentStatus, SchemaVersion};
+use crate::{
+    VaultSlug,
+    entities::{SchemaDeploymentStatus, SchemaVersion},
+};
 
 // ============================================================================
 // Request/Response Types - Schema Management
@@ -27,12 +30,12 @@ pub struct DeploySchemaResponse {
 /// Schema information for API responses
 #[derive(Debug, Serialize)]
 pub struct SchemaInfo {
-    pub id: i64,
-    pub vault_id: i64,
+    pub id: u64,
+    pub vault: VaultSlug,
     pub version: String,
     pub description: String,
     pub status: SchemaDeploymentStatus,
-    pub author_user_id: i64,
+    pub author_user_id: u64,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activated_at: Option<String>,
@@ -41,15 +44,15 @@ pub struct SchemaInfo {
 /// Detailed schema response including definition
 #[derive(Debug, Serialize)]
 pub struct SchemaDetail {
-    pub id: i64,
-    pub vault_id: i64,
+    pub id: u64,
+    pub vault: VaultSlug,
     pub version: String,
     pub definition: String,
     pub description: String,
     pub status: SchemaDeploymentStatus,
     pub error_message: Option<String>,
-    pub author_user_id: i64,
-    pub parent_version_id: Option<i64>,
+    pub author_user_id: u64,
+    pub parent_version_id: Option<u64>,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activated_at: Option<String>,
@@ -192,7 +195,7 @@ impl From<&crate::entities::VaultSchema> for SchemaInfo {
     fn from(schema: &crate::entities::VaultSchema) -> Self {
         Self {
             id: schema.id,
-            vault_id: schema.vault_id,
+            vault: schema.vault,
             version: schema.version.to_string(),
             description: schema.description.clone(),
             status: schema.status,
@@ -213,7 +216,7 @@ impl From<&crate::entities::VaultSchema> for SchemaDetail {
     fn from(schema: &crate::entities::VaultSchema) -> Self {
         Self {
             id: schema.id,
-            vault_id: schema.vault_id,
+            vault: schema.vault,
             version: schema.version.to_string(),
             definition: schema.definition.clone(),
             description: schema.description.clone(),

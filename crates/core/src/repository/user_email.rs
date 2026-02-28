@@ -22,12 +22,12 @@ impl<S: StorageBackend> UserEmailRepository<S> {
     }
 
     /// Generate key for email by ID
-    fn email_key(id: i64) -> Vec<u8> {
+    fn email_key(id: u64) -> Vec<u8> {
         format!("user_email:{id}").into_bytes()
     }
 
     /// Generate key for user's email index
-    fn user_email_index_key(user_id: i64, email: &str) -> Vec<u8> {
+    fn user_email_index_key(user_id: u64, email: &str) -> Vec<u8> {
         format!("user_email:user:{}:{}", user_id, email.to_lowercase()).into_bytes()
     }
 
@@ -37,7 +37,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
     }
 
     /// Generate key for primary email index
-    fn primary_email_index_key(user_id: i64) -> Vec<u8> {
+    fn primary_email_index_key(user_id: u64) -> Vec<u8> {
         format!("user_email:user:{user_id}:primary").into_bytes()
     }
 
@@ -108,7 +108,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
     }
 
     /// Get an email by ID
-    pub async fn get(&self, id: i64) -> Result<Option<UserEmail>> {
+    pub async fn get(&self, id: u64) -> Result<Option<UserEmail>> {
         let key = Self::email_key(id);
         let data = self
             .storage
@@ -140,7 +140,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid email ID in email index".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -148,7 +148,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
     }
 
     /// Get user's primary email
-    pub async fn get_primary_email(&self, user_id: i64) -> Result<Option<UserEmail>> {
+    pub async fn get_primary_email(&self, user_id: u64) -> Result<Option<UserEmail>> {
         let primary_key = Self::primary_email_index_key(user_id);
         let id_data = self
             .storage
@@ -161,7 +161,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid email ID in primary index".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -169,7 +169,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
     }
 
     /// Get all emails for a user
-    pub async fn get_user_emails(&self, user_id: i64) -> Result<Vec<UserEmail>> {
+    pub async fn get_user_emails(&self, user_id: u64) -> Result<Vec<UserEmail>> {
         // Use range query to get all emails for this user
         let prefix = format!("user_email:user:{user_id}:");
         let start = prefix.clone().into_bytes();
@@ -192,7 +192,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
             if kv.value.len() != 8 {
                 continue; // Skip invalid entries
             }
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(email) = self.get(id).await? {
                 emails.push(email);
             }
@@ -268,7 +268,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
     }
 
     /// Delete an email and all associated indexes
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get email to remove indexes
         let email =
             self.get(id).await?.ok_or_else(|| Error::not_found("Email not found".to_string()))?;
@@ -314,7 +314,7 @@ mod tests {
 
     use super::*;
 
-    async fn create_test_email(id: i64, user_id: i64, email: &str, primary: bool) -> UserEmail {
+    async fn create_test_email(id: u64, user_id: u64, email: &str, primary: bool) -> UserEmail {
         UserEmail::builder()
             .id(id)
             .user_id(user_id)

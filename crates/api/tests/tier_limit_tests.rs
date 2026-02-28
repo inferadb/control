@@ -10,7 +10,7 @@ use axum::{
 };
 use inferadb_control_core::IdGenerator;
 use inferadb_control_test_fixtures::{
-    body_json, create_test_app, create_test_state, create_vault, get_org_id, register_user,
+    body_json, create_test_app, create_test_state, create_vault, get_organization, register_user,
 };
 use serde_json::json;
 use tower::ServiceExt;
@@ -19,14 +19,14 @@ use tower::ServiceExt;
 async fn create_team_request(
     app: &axum::Router,
     session: &str,
-    org_id: i64,
+    organization: u64,
     name: &str,
 ) -> axum::http::Response<Body> {
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -46,14 +46,14 @@ async fn create_team_request(
 async fn create_vault_request(
     app: &axum::Router,
     session: &str,
-    org_id: i64,
+    organization: u64,
     name: &str,
 ) -> axum::http::Response<Body> {
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -73,14 +73,14 @@ async fn create_vault_request(
 async fn delete_team_request(
     app: &axum::Router,
     session: &str,
-    org_id: i64,
-    team_id: i64,
+    organization: u64,
+    team_id: u64,
 ) -> axum::http::Response<Body> {
     app.clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -93,14 +93,14 @@ async fn delete_team_request(
 async fn delete_vault_request(
     app: &axum::Router,
     session: &str,
-    org_id: i64,
-    vault_id: i64,
+    organization: u64,
+    vault: u64,
 ) -> axum::http::Response<Body> {
     app.clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -117,15 +117,15 @@ async fn test_vault_tier_limit_enforced() {
 
     let session =
         register_user(&app, "tiervaultuser", "tiervault@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
 
     // Dev tier allows 5 vaults — create all 5
     for i in 1..=5 {
-        let (..) = create_vault(&app, &session, org_id, &format!("vault-{i}")).await;
+        let (..) = create_vault(&app, &session, organization, &format!("vault-{i}")).await;
     }
 
     // 6th vault should be rejected with 402
-    let response = create_vault_request(&app, &session, org_id, "vault-6").await;
+    let response = create_vault_request(&app, &session, organization, "vault-6").await;
     assert_eq!(response.status(), StatusCode::PAYMENT_REQUIRED);
 
     let json = body_json(response).await;
@@ -141,11 +141,12 @@ async fn test_team_tier_limit_enforced() {
 
     let session =
         register_user(&app, "tierteamuser", "tierteam@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
 
     // Dev tier allows 3 teams — create all 3
     for i in 1..=3 {
-        let response = create_team_request(&app, &session, org_id, &format!("team-{i}")).await;
+        let response =
+            create_team_request(&app, &session, organization, &format!("team-{i}")).await;
         assert!(
             response.status().is_success(),
             "Team {i} creation should succeed, got {}",
@@ -154,7 +155,7 @@ async fn test_team_tier_limit_enforced() {
     }
 
     // 4th team should be rejected with 402
-    let response = create_team_request(&app, &session, org_id, "team-4").await;
+    let response = create_team_request(&app, &session, organization, "team-4").await;
     assert_eq!(response.status(), StatusCode::PAYMENT_REQUIRED);
 
     let json = body_json(response).await;
@@ -171,25 +172,25 @@ async fn test_soft_deleted_vaults_dont_count_against_limit() {
     let session =
         register_user(&app, "tiersoftdeluser", "tiersoftdel@example.com", "securepassword123")
             .await;
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
 
     // Create 5 vaults (at the limit)
-    let mut vault_ids = Vec::new();
+    let mut vaults = Vec::new();
     for i in 1..=5 {
-        let (vault_id, _) = create_vault(&app, &session, org_id, &format!("vault-{i}")).await;
-        vault_ids.push(vault_id);
+        let (vault, _) = create_vault(&app, &session, organization, &format!("vault-{i}")).await;
+        vaults.push(vault);
     }
 
     // Confirm we're at the limit
-    let response = create_vault_request(&app, &session, org_id, "vault-over-limit").await;
+    let response = create_vault_request(&app, &session, organization, "vault-over-limit").await;
     assert_eq!(response.status(), StatusCode::PAYMENT_REQUIRED);
 
     // Delete one vault
-    let response = delete_vault_request(&app, &session, org_id, vault_ids[0]).await;
+    let response = delete_vault_request(&app, &session, organization, vaults[0]).await;
     assert!(response.status().is_success(), "Vault deletion should succeed");
 
     // Now we should be able to create a new vault (4 active + 1 deleted = under limit)
-    let response = create_vault_request(&app, &session, org_id, "vault-replacement").await;
+    let response = create_vault_request(&app, &session, organization, "vault-replacement").await;
     assert!(
         response.status().is_success(),
         "Creating vault after deletion should succeed, got {}",
@@ -206,27 +207,28 @@ async fn test_soft_deleted_teams_dont_count_against_limit() {
     let session =
         register_user(&app, "tierteamdeluser", "tierteamdel@example.com", "securepassword123")
             .await;
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
 
     // Create 3 teams (at the limit)
     let mut team_ids = Vec::new();
     for i in 1..=3 {
-        let response = create_team_request(&app, &session, org_id, &format!("team-{i}")).await;
+        let response =
+            create_team_request(&app, &session, organization, &format!("team-{i}")).await;
         assert!(response.status().is_success(), "Team {i} creation should succeed");
         let json = body_json(response).await;
-        team_ids.push(json["team"]["id"].as_i64().expect("Should have team ID"));
+        team_ids.push(json["team"]["id"].as_u64().expect("Should have team ID"));
     }
 
     // Confirm we're at the limit
-    let response = create_team_request(&app, &session, org_id, "team-over-limit").await;
+    let response = create_team_request(&app, &session, organization, "team-over-limit").await;
     assert_eq!(response.status(), StatusCode::PAYMENT_REQUIRED);
 
     // Delete one team
-    let response = delete_team_request(&app, &session, org_id, team_ids[0]).await;
+    let response = delete_team_request(&app, &session, organization, team_ids[0]).await;
     assert!(response.status().is_success(), "Team deletion should succeed");
 
     // Now we should be able to create a new team (2 active + 1 deleted = under limit)
-    let response = create_team_request(&app, &session, org_id, "team-replacement").await;
+    let response = create_team_request(&app, &session, organization, "team-replacement").await;
     assert!(
         response.status().is_success(),
         "Creating team after deletion should succeed, got {}",
@@ -242,15 +244,15 @@ async fn test_tier_limit_error_response_format() {
 
     let session =
         register_user(&app, "tierfmtuser", "tierfmt@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
 
     // Fill up vault limit
     for i in 1..=5 {
-        let (..) = create_vault(&app, &session, org_id, &format!("vault-{i}")).await;
+        let (..) = create_vault(&app, &session, organization, &format!("vault-{i}")).await;
     }
 
     // Verify error response structure
-    let response = create_vault_request(&app, &session, org_id, "vault-overflow").await;
+    let response = create_vault_request(&app, &session, organization, "vault-overflow").await;
     assert_eq!(response.status(), StatusCode::PAYMENT_REQUIRED);
 
     let json = body_json(response).await;

@@ -15,7 +15,7 @@ const TOKEN_EXPIRY_HOURS: i64 = 24;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserEmailVerificationToken {
     /// UserEmail ID this token is for
-    pub user_email_id: i64,
+    pub user_email_id: u64,
 
     /// Shared secure token fields (id, token, created_at, expires_at, used_at)
     #[serde(flatten)]
@@ -32,7 +32,7 @@ impl UserEmailVerificationToken {
     /// * `user_email_id` - ID of the UserEmail to verify
     /// * `token` - The verification token (must be 64 hex characters)
     #[builder(on(String, into), finish_fn = create)]
-    pub fn new(id: i64, user_email_id: i64, token: String) -> Result<Self> {
+    pub fn new(id: u64, user_email_id: u64, token: String) -> Result<Self> {
         let secure_token = SecureToken::new(id, token, Duration::hours(TOKEN_EXPIRY_HOURS))?;
         Ok(Self { user_email_id, secure_token })
     }
@@ -87,7 +87,7 @@ impl SecureTokenEntity for UserEmailVerificationToken {
         &mut self.secure_token
     }
 
-    fn foreign_key_id(&self) -> i64 {
+    fn foreign_key_id(&self) -> u64 {
         self.user_email_id
     }
 }

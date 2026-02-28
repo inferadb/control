@@ -99,7 +99,7 @@ pub async fn list_emails(
 pub async fn update_email(
     State(state): State<AppState>,
     Extension(ctx): Extension<SessionContext>,
-    Path(email_id): Path<i64>,
+    Path(email_id): Path<u64>,
     Json(payload): Json<SetPrimaryEmailRequest>,
 ) -> Result<Json<EmailOperationResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
@@ -200,7 +200,7 @@ pub async fn verify_email(
 pub async fn resend_verification(
     State(state): State<AppState>,
     Extension(ctx): Extension<SessionContext>,
-    Path(email_id): Path<i64>,
+    Path(email_id): Path<u64>,
 ) -> Result<Json<ResendVerificationResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
 
@@ -257,7 +257,7 @@ pub async fn resend_verification(
 pub async fn delete_email(
     State(state): State<AppState>,
     Extension(ctx): Extension<SessionContext>,
-    Path(email_id): Path<i64>,
+    Path(email_id): Path<u64>,
 ) -> Result<Json<EmailOperationResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
 
@@ -322,8 +322,8 @@ mod tests {
 
     async fn create_test_user_and_session(
         storage: Arc<Backend>,
-        user_id: i64,
-        session_id: i64,
+        user_id: u64,
+        session_id: u64,
     ) -> (User, UserSession) {
         let user = User::builder().id(user_id).name("testuser").create().unwrap();
         let user_repo = UserRepository::new((*storage).clone());

@@ -1,5 +1,6 @@
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
+    OrganizationSlug,
     entities::Client,
     error::{Error, Result},
 };
@@ -8,9 +9,9 @@ use inferadb_control_types::{
 ///
 /// Key schema:
 /// - client:{id} -> Client data
-/// - client:org:{org_id}:{idx} -> client_id (for org listing)
-/// - client:name:{org_id}:{name_lowercase} -> client_id (for duplicate name checking)
-/// - client:org_active_count:{org_id} -> i64 (active client count per org)
+/// - client:org:{organization}:{idx} -> client_id (for org listing)
+/// - client:name:{organization}:{name_lowercase} -> client_id (for duplicate name checking)
+/// - client:org_active_count:{organization} -> u64 (active client count per org)
 pub struct ClientRepository<S: StorageBackend> {
     storage: S,
 }
@@ -22,45 +23,45 @@ impl<S: StorageBackend> ClientRepository<S> {
     }
 
     /// Generate key for client by ID
-    fn client_key(id: i64) -> Vec<u8> {
+    fn client_key(id: u64) -> Vec<u8> {
         format!("client:{id}").into_bytes()
     }
 
     /// Generate key for client by organization index
-    fn client_org_index_key(org_id: i64, idx: i64) -> Vec<u8> {
-        format!("client:org:{org_id}:{idx}").into_bytes()
+    fn client_org_index_key(organization: OrganizationSlug, idx: u64) -> Vec<u8> {
+        format!("client:org:{organization}:{idx}").into_bytes()
     }
 
     /// Generate key for client by name (for duplicate checking)
-    fn client_name_index_key(org_id: i64, name: &str) -> Vec<u8> {
-        format!("client:name:{}:{}", org_id, name.to_lowercase()).into_bytes()
+    fn client_name_index_key(organization: OrganizationSlug, name: &str) -> Vec<u8> {
+        format!("client:name:{}:{}", organization, name.to_lowercase()).into_bytes()
     }
 
     /// Key for per-organization active client count
-    fn org_active_count_key(org_id: i64) -> Vec<u8> {
-        format!("client:org_active_count:{org_id}").into_bytes()
+    fn org_active_count_key(organization: OrganizationSlug) -> Vec<u8> {
+        format!("client:org_active_count:{organization}").into_bytes()
     }
 
     /// Read the raw active count from storage, returning None if uninitialized or corrupt
-    async fn get_raw_active_count(&self, org_id: i64) -> Result<Option<i64>> {
-        let key = Self::org_active_count_key(org_id);
+    async fn get_raw_active_count(&self, organization: OrganizationSlug) -> Result<Option<u64>> {
+        let key = Self::org_active_count_key(organization);
         let data = self
             .storage
             .get(&key)
             .await
             .map_err(|e| Error::internal(format!("Failed to get client active count: {e}")))?;
         match data {
-            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_i64_id(&bytes)?)),
+            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_u64_id(&bytes)?)),
             _ => Ok(None),
         }
     }
 
     /// Recount active clients by scanning all entities and update the counter
-    async fn recount_active(&self, org_id: i64) -> Result<usize> {
-        let active = self.list_active_by_organization(org_id).await?;
+    async fn recount_active(&self, organization: OrganizationSlug) -> Result<usize> {
+        let active = self.list_active_by_organization(organization).await?;
         let count = active.len();
         self.storage
-            .set(Self::org_active_count_key(org_id), (count as i64).to_le_bytes().to_vec())
+            .set(Self::org_active_count_key(organization), (count as u64).to_le_bytes().to_vec())
             .await
             .map_err(|e| Error::internal(format!("Failed to set client active count: {e}")))?;
         Ok(count)
@@ -80,7 +81,7 @@ impl<S: StorageBackend> ClientRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Check for duplicate name within organization
-        let name_key = Self::client_name_index_key(client.organization_id, &client.name);
+        let name_key = Self::client_name_index_key(client.organization, &client.name);
         if self
             .storage
             .get(&name_key)
@@ -99,7 +100,7 @@ impl<S: StorageBackend> ClientRepository<S> {
 
         // Store organization index
         txn.set(
-            Self::client_org_index_key(client.organization_id, client.id),
+            Self::client_org_index_key(client.organization, client.id),
             client.id.to_le_bytes().to_vec(),
         );
 
@@ -107,8 +108,8 @@ impl<S: StorageBackend> ClientRepository<S> {
         txn.set(name_key, client.id.to_le_bytes().to_vec());
 
         // Increment active count for the organization
-        let active_count_key = Self::org_active_count_key(client.organization_id);
-        let current_active = self.get_raw_active_count(client.organization_id).await?.unwrap_or(0);
+        let active_count_key = Self::org_active_count_key(client.organization);
+        let current_active = self.get_raw_active_count(client.organization).await?.unwrap_or(0);
         txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
 
         // Commit transaction
@@ -120,7 +121,7 @@ impl<S: StorageBackend> ClientRepository<S> {
     }
 
     /// Get a client by ID
-    pub async fn get(&self, id: i64) -> Result<Option<Client>> {
+    pub async fn get(&self, id: u64) -> Result<Option<Client>> {
         let key = Self::client_key(id);
         let data = self
             .storage
@@ -139,10 +140,13 @@ impl<S: StorageBackend> ClientRepository<S> {
     }
 
     /// List all clients for an organization (including soft-deleted)
-    pub async fn list_by_organization(&self, org_id: i64) -> Result<Vec<Client>> {
-        let prefix = format!("client:org:{org_id}:");
+    pub async fn list_by_organization(
+        &self,
+        organization: OrganizationSlug,
+    ) -> Result<Vec<Client>> {
+        let prefix = format!("client:org:{organization}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("client:org:{org_id}~").into_bytes();
+        let end = format!("client:org:{organization}~").into_bytes();
 
         let kvs = self
             .storage
@@ -152,7 +156,7 @@ impl<S: StorageBackend> ClientRepository<S> {
 
         let mut clients = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(client) = self.get(id).await? {
                 clients.push(client);
             }
@@ -162,8 +166,11 @@ impl<S: StorageBackend> ClientRepository<S> {
     }
 
     /// List active (non-deleted) clients for an organization
-    pub async fn list_active_by_organization(&self, org_id: i64) -> Result<Vec<Client>> {
-        let all_clients = self.list_by_organization(org_id).await?;
+    pub async fn list_active_by_organization(
+        &self,
+        organization: OrganizationSlug,
+    ) -> Result<Vec<Client>> {
+        let all_clients = self.list_by_organization(organization).await?;
         Ok(all_clients.into_iter().filter(|c| !c.is_deleted()).collect())
     }
 
@@ -193,10 +200,10 @@ impl<S: StorageBackend> ClientRepository<S> {
         // If name changed, update name index
         if existing.name != client.name {
             // Delete old name index
-            txn.delete(Self::client_name_index_key(existing.organization_id, &existing.name));
+            txn.delete(Self::client_name_index_key(existing.organization, &existing.name));
 
             // Check for duplicate new name
-            let new_name_key = Self::client_name_index_key(client.organization_id, &client.name);
+            let new_name_key = Self::client_name_index_key(client.organization, &client.name);
             if self
                 .storage
                 .get(&new_name_key)
@@ -218,16 +225,14 @@ impl<S: StorageBackend> ClientRepository<S> {
 
         // Adjust active count on soft-delete or undelete transitions
         if soft_delete_transition {
-            let active_count_key = Self::org_active_count_key(client.organization_id);
-            let current_active =
-                self.get_raw_active_count(client.organization_id).await?.unwrap_or(0);
+            let active_count_key = Self::org_active_count_key(client.organization);
+            let current_active = self.get_raw_active_count(client.organization).await?.unwrap_or(0);
             if current_active > 0 {
                 txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
             }
         } else if undelete_transition {
-            let active_count_key = Self::org_active_count_key(client.organization_id);
-            let current_active =
-                self.get_raw_active_count(client.organization_id).await?.unwrap_or(0);
+            let active_count_key = Self::org_active_count_key(client.organization);
+            let current_active = self.get_raw_active_count(client.organization).await?.unwrap_or(0);
             txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
         }
 
@@ -243,7 +248,7 @@ impl<S: StorageBackend> ClientRepository<S> {
     }
 
     /// Delete a client (removes all indexes)
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get the client first to clean up indexes
         let client = self
             .get(id)
@@ -261,16 +266,15 @@ impl<S: StorageBackend> ClientRepository<S> {
         txn.delete(Self::client_key(id));
 
         // Delete organization index
-        txn.delete(Self::client_org_index_key(client.organization_id, client.id));
+        txn.delete(Self::client_org_index_key(client.organization, client.id));
 
         // Delete name index
-        txn.delete(Self::client_name_index_key(client.organization_id, &client.name));
+        txn.delete(Self::client_name_index_key(client.organization, &client.name));
 
         // Decrement active count if the client was not soft-deleted
         if !client.is_deleted() {
-            let active_count_key = Self::org_active_count_key(client.organization_id);
-            let current_active =
-                self.get_raw_active_count(client.organization_id).await?.unwrap_or(0);
+            let active_count_key = Self::org_active_count_key(client.organization);
+            let current_active = self.get_raw_active_count(client.organization).await?.unwrap_or(0);
             if current_active > 0 {
                 txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
             }
@@ -285,9 +289,9 @@ impl<S: StorageBackend> ClientRepository<S> {
     }
 
     /// Count clients in an organization by counting index keys
-    pub async fn count_by_organization(&self, org_id: i64) -> Result<usize> {
-        let start = format!("client:org:{org_id}:").into_bytes();
-        let end = format!("client:org:{org_id}~").into_bytes();
+    pub async fn count_by_organization(&self, organization: OrganizationSlug) -> Result<usize> {
+        let start = format!("client:org:{organization}:").into_bytes();
+        let end = format!("client:org:{organization}~").into_bytes();
         let kvs =
             self.storage.get_range(start..end).await.map_err(|e| {
                 Error::internal(format!("Failed to count organization clients: {e}"))
@@ -301,10 +305,13 @@ impl<S: StorageBackend> ClientRepository<S> {
     /// and delete operations. Under concurrent writes, the counter is eventually consistent:
     /// reads outside the transaction may observe stale values, but self-healing on the next
     /// read corrects any drift.
-    pub async fn count_active_by_organization(&self, org_id: i64) -> Result<usize> {
-        match self.get_raw_active_count(org_id).await? {
-            Some(count) if count >= 0 => Ok(count as usize),
-            _ => self.recount_active(org_id).await,
+    pub async fn count_active_by_organization(
+        &self,
+        organization: OrganizationSlug,
+    ) -> Result<usize> {
+        match self.get_raw_active_count(organization).await? {
+            Some(count) => Ok(count as usize),
+            _ => self.recount_active(organization).await,
         }
     }
 }
@@ -313,6 +320,7 @@ impl<S: StorageBackend> ClientRepository<S> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::Backend;
+    use inferadb_control_types::OrganizationSlug;
 
     use super::*;
 
@@ -320,19 +328,19 @@ mod tests {
         ClientRepository::new(Backend::memory())
     }
 
-    fn create_test_client(id: i64, org_id: i64, name: &str) -> Result<Client> {
+    fn create_test_client(id: u64, organization: OrganizationSlug, name: &str) -> Result<Client> {
         Client::builder()
             .id(id)
-            .organization_id(org_id)
+            .organization(organization)
             .name(name.to_string())
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
     }
 
     #[tokio::test]
     async fn test_create_and_get_client() {
         let repo = create_test_repo();
-        let client = create_test_client(1, 100, "Test Client").unwrap();
+        let client = create_test_client(1, OrganizationSlug::from(100_u64), "Test Client").unwrap();
 
         repo.create(client.clone()).await.unwrap();
 
@@ -343,8 +351,10 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_name_rejected() {
         let repo = create_test_repo();
-        let client1 = create_test_client(1, 100, "Test Client").unwrap();
-        let client2 = create_test_client(2, 100, "Test Client").unwrap();
+        let client1 =
+            create_test_client(1, OrganizationSlug::from(100_u64), "Test Client").unwrap();
+        let client2 =
+            create_test_client(2, OrganizationSlug::from(100_u64), "Test Client").unwrap();
 
         repo.create(client1).await.unwrap();
 
@@ -356,25 +366,28 @@ mod tests {
     #[tokio::test]
     async fn test_list_by_organization() {
         let repo = create_test_repo();
-        let client1 = create_test_client(1, 100, "Client 1").unwrap();
-        let client2 = create_test_client(2, 100, "Client 2").unwrap();
-        let client3 = create_test_client(3, 200, "Client 3").unwrap();
+        let client1 = create_test_client(1, OrganizationSlug::from(100_u64), "Client 1").unwrap();
+        let client2 = create_test_client(2, OrganizationSlug::from(100_u64), "Client 2").unwrap();
+        let client3 = create_test_client(3, OrganizationSlug::from(200_u64), "Client 3").unwrap();
 
         repo.create(client1).await.unwrap();
         repo.create(client2).await.unwrap();
         repo.create(client3).await.unwrap();
 
-        let org_100_clients = repo.list_by_organization(100).await.unwrap();
+        let org_100_clients =
+            repo.list_by_organization(OrganizationSlug::from(100_u64)).await.unwrap();
         assert_eq!(org_100_clients.len(), 2);
 
-        let org_200_clients = repo.list_by_organization(200).await.unwrap();
+        let org_200_clients =
+            repo.list_by_organization(OrganizationSlug::from(200_u64)).await.unwrap();
         assert_eq!(org_200_clients.len(), 1);
     }
 
     #[tokio::test]
     async fn test_update_client_name() {
         let repo = create_test_repo();
-        let mut client = create_test_client(1, 100, "Original Name").unwrap();
+        let mut client =
+            create_test_client(1, OrganizationSlug::from(100_u64), "Original Name").unwrap();
 
         repo.create(client.clone()).await.unwrap();
 
@@ -388,8 +401,9 @@ mod tests {
     #[tokio::test]
     async fn test_update_client_name_duplicate() {
         let repo = create_test_repo();
-        let client1 = create_test_client(1, 100, "Client 1").unwrap();
-        let mut client2 = create_test_client(2, 100, "Client 2").unwrap();
+        let client1 = create_test_client(1, OrganizationSlug::from(100_u64), "Client 1").unwrap();
+        let mut client2 =
+            create_test_client(2, OrganizationSlug::from(100_u64), "Client 2").unwrap();
 
         repo.create(client1).await.unwrap();
         repo.create(client2.clone()).await.unwrap();
@@ -404,7 +418,8 @@ mod tests {
     #[tokio::test]
     async fn test_soft_delete_client() {
         let repo = create_test_repo();
-        let mut client = create_test_client(1, 100, "Test Client").unwrap();
+        let mut client =
+            create_test_client(1, OrganizationSlug::from(100_u64), "Test Client").unwrap();
 
         repo.create(client.clone()).await.unwrap();
 
@@ -417,18 +432,19 @@ mod tests {
         assert!(retrieved.is_deleted());
 
         // But not in active list
-        let active = repo.list_active_by_organization(100).await.unwrap();
+        let active =
+            repo.list_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap();
         assert_eq!(active.len(), 0);
 
         // Still in full list
-        let all = repo.list_by_organization(100).await.unwrap();
+        let all = repo.list_by_organization(OrganizationSlug::from(100_u64)).await.unwrap();
         assert_eq!(all.len(), 1);
     }
 
     #[tokio::test]
     async fn test_delete_client() {
         let repo = create_test_repo();
-        let client = create_test_client(1, 100, "Test Client").unwrap();
+        let client = create_test_client(1, OrganizationSlug::from(100_u64), "Test Client").unwrap();
 
         repo.create(client).await.unwrap();
         assert!(repo.get(1).await.unwrap().is_some());
@@ -440,97 +456,144 @@ mod tests {
     #[tokio::test]
     async fn test_count_clients() {
         let repo = create_test_repo();
-        let client1 = create_test_client(1, 100, "Client 1").unwrap();
-        let mut client2 = create_test_client(2, 100, "Client 2").unwrap();
-        let client3 = create_test_client(3, 100, "Client 3").unwrap();
+        let client1 = create_test_client(1, OrganizationSlug::from(100_u64), "Client 1").unwrap();
+        let mut client2 =
+            create_test_client(2, OrganizationSlug::from(100_u64), "Client 2").unwrap();
+        let client3 = create_test_client(3, OrganizationSlug::from(100_u64), "Client 3").unwrap();
 
         repo.create(client1).await.unwrap();
         repo.create(client2.clone()).await.unwrap();
         repo.create(client3).await.unwrap();
 
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 3);
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 3);
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 3);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            3
+        );
 
         // Soft delete one
         client2.mark_deleted();
         repo.update(client2).await.unwrap();
 
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 3);
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 3);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            2
+        );
     }
 
     #[tokio::test]
     async fn test_active_count_tracks_hard_delete() {
         let repo = create_test_repo();
-        let client1 = create_test_client(1, 100, "Client 1").unwrap();
-        let client2 = create_test_client(2, 100, "Client 2").unwrap();
+        let client1 = create_test_client(1, OrganizationSlug::from(100_u64), "Client 1").unwrap();
+        let client2 = create_test_client(2, OrganizationSlug::from(100_u64), "Client 2").unwrap();
 
         repo.create(client1).await.unwrap();
         repo.create(client2).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            2
+        );
 
         repo.delete(1).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 1);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            1
+        );
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 1);
     }
 
     #[tokio::test]
     async fn test_active_count_hard_delete_after_soft_delete() {
         let repo = create_test_repo();
-        let mut client = create_test_client(1, 100, "Client 1").unwrap();
+        let mut client =
+            create_test_client(1, OrganizationSlug::from(100_u64), "Client 1").unwrap();
         repo.create(client.clone()).await.unwrap();
 
         // Soft delete, then hard delete — should not double-decrement
         client.mark_deleted();
         repo.update(client).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            0
+        );
 
         repo.delete(1).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            0
+        );
     }
 
     #[tokio::test]
     async fn test_active_count_self_heals_on_missing_counter() {
         let repo = create_test_repo();
-        let client1 = create_test_client(1, 100, "Client 1").unwrap();
+        let client1 = create_test_client(1, OrganizationSlug::from(100_u64), "Client 1").unwrap();
         repo.create(client1).await.unwrap();
 
         // Delete the counter key to simulate migration
-        repo.storage.delete(&ClientRepository::<Backend>::org_active_count_key(100)).await.unwrap();
+        repo.storage
+            .delete(&ClientRepository::<Backend>::org_active_count_key(OrganizationSlug::from(
+                100_u64,
+            )))
+            .await
+            .unwrap();
 
         // Should self-heal by recounting
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            1
+        );
     }
 
     #[tokio::test]
     async fn test_active_count_tracks_undelete() {
         let repo = create_test_repo();
-        let mut client = create_test_client(1, 100, "Client 1").unwrap();
+        let mut client =
+            create_test_client(1, OrganizationSlug::from(100_u64), "Client 1").unwrap();
         repo.create(client.clone()).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            1
+        );
 
         // Soft delete
         client.mark_deleted();
         repo.update(client.clone()).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            0
+        );
 
         // Undelete by clearing deleted_at
         client.deleted_at = None;
         repo.update(client).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            1
+        );
     }
 
     #[tokio::test]
     async fn test_count_independent_per_org() {
         let repo = create_test_repo();
-        let client1 = create_test_client(1, 100, "Client 1").unwrap();
-        let client2 = create_test_client(2, 200, "Client 2").unwrap();
+        let client1 = create_test_client(1, OrganizationSlug::from(100_u64), "Client 1").unwrap();
+        let client2 = create_test_client(2, OrganizationSlug::from(200_u64), "Client 2").unwrap();
 
         repo.create(client1).await.unwrap();
         repo.create(client2).await.unwrap();
 
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
-        assert_eq!(repo.count_active_by_organization(200).await.unwrap(), 1);
-        assert_eq!(repo.count_active_by_organization(300).await.unwrap(), 0);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            1
+        );
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(200_u64)).await.unwrap(),
+            1
+        );
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(300_u64)).await.unwrap(),
+            0
+        );
     }
 }

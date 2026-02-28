@@ -1,5 +1,6 @@
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
+    VaultSlug,
     entities::{SchemaDeploymentStatus, SchemaVersion, VaultSchema},
     error::{Error, Result},
 };
@@ -8,9 +9,9 @@ use inferadb_control_types::{
 ///
 /// Key schema:
 /// - vault_schema:{id} -> VaultSchema data
-/// - vault_schema:vault:{vault_id}:{idx} -> schema_id (for vault's schemas listing)
-/// - vault_schema:vault_version:{vault_id}:{version_string} -> schema_id (for version lookup)
-/// - vault_schema:vault_active:{vault_id} -> schema_id (for active schema lookup)
+/// - vault_schema:vault:{vault}:{idx} -> schema_id (for vault's schemas listing)
+/// - vault_schema:vault_version:{vault}:{version_string} -> schema_id (for version lookup)
+/// - vault_schema:vault_active:{vault} -> schema_id (for active schema lookup)
 pub struct VaultSchemaRepository<S: StorageBackend> {
     storage: S,
 }
@@ -22,23 +23,23 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     }
 
     /// Generate key for schema by ID
-    fn schema_key(id: i64) -> Vec<u8> {
+    fn schema_key(id: u64) -> Vec<u8> {
         format!("vault_schema:{id}").into_bytes()
     }
 
     /// Generate key for vault's schema index
-    fn vault_schema_index_key(vault_id: i64, schema_id: i64) -> Vec<u8> {
-        format!("vault_schema:vault:{vault_id}:{schema_id}").into_bytes()
+    fn vault_schema_index_key(vault: VaultSlug, schema_id: u64) -> Vec<u8> {
+        format!("vault_schema:vault:{vault}:{schema_id}").into_bytes()
     }
 
     /// Generate key for vault-version unique constraint
-    fn vault_version_index_key(vault_id: i64, version: &SchemaVersion) -> Vec<u8> {
-        format!("vault_schema:vault_version:{vault_id}:{version}").into_bytes()
+    fn vault_version_index_key(vault: VaultSlug, version: &SchemaVersion) -> Vec<u8> {
+        format!("vault_schema:vault_version:{vault}:{version}").into_bytes()
     }
 
     /// Generate key for vault's active schema
-    fn vault_active_schema_key(vault_id: i64) -> Vec<u8> {
-        format!("vault_schema:vault_active:{vault_id}").into_bytes()
+    fn vault_active_schema_key(vault: VaultSlug) -> Vec<u8> {
+        format!("vault_schema:vault_active:{vault}").into_bytes()
     }
 
     /// Create a new schema version
@@ -55,7 +56,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Check for duplicate version within vault
-        let version_key = Self::vault_version_index_key(schema.vault_id, &schema.version);
+        let version_key = Self::vault_version_index_key(schema.vault, &schema.version);
         if self
             .storage
             .get(&version_key)
@@ -74,7 +75,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
 
         // Store vault schema index
         txn.set(
-            Self::vault_schema_index_key(schema.vault_id, schema.id),
+            Self::vault_schema_index_key(schema.vault, schema.id),
             schema.id.to_le_bytes().to_vec(),
         );
 
@@ -90,7 +91,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     }
 
     /// Get a schema by ID
-    pub async fn get(&self, id: i64) -> Result<Option<VaultSchema>> {
+    pub async fn get(&self, id: u64) -> Result<Option<VaultSchema>> {
         let key = Self::schema_key(id);
         let data = self
             .storage
@@ -111,10 +112,10 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     /// Get a schema by vault and version
     pub async fn get_by_version(
         &self,
-        vault_id: i64,
+        vault: VaultSlug,
         version: &SchemaVersion,
     ) -> Result<Option<VaultSchema>> {
-        let index_key = Self::vault_version_index_key(vault_id, version);
+        let index_key = Self::vault_version_index_key(vault, version);
         let data = self
             .storage
             .get(&index_key)
@@ -126,7 +127,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid schema index data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -134,8 +135,8 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     }
 
     /// Get the active schema for a vault
-    pub async fn get_active(&self, vault_id: i64) -> Result<Option<VaultSchema>> {
-        let key = Self::vault_active_schema_key(vault_id);
+    pub async fn get_active(&self, vault: VaultSlug) -> Result<Option<VaultSchema>> {
+        let key = Self::vault_active_schema_key(vault);
         let data = self
             .storage
             .get(&key)
@@ -147,7 +148,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid active schema index data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -155,9 +156,9 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     }
 
     /// List all schemas for a vault, ordered by version (newest first)
-    pub async fn list_by_vault(&self, vault_id: i64) -> Result<Vec<VaultSchema>> {
-        let start = format!("vault_schema:vault:{vault_id}:").into_bytes();
-        let end = format!("vault_schema:vault:{vault_id}~").into_bytes();
+    pub async fn list_by_vault(&self, vault: VaultSlug) -> Result<Vec<VaultSchema>> {
+        let start = format!("vault_schema:vault:{vault}:").into_bytes();
+        let end = format!("vault_schema:vault:{vault}~").into_bytes();
 
         let kvs = self
             .storage
@@ -167,7 +168,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
 
         let mut schemas = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(schema) = self.get(id).await? {
                 schemas.push(schema);
             }
@@ -200,7 +201,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     }
 
     /// Activate a schema version (and deactivate the current active one)
-    pub async fn activate(&self, schema_id: i64) -> Result<VaultSchema> {
+    pub async fn activate(&self, schema_id: u64) -> Result<VaultSchema> {
         // Get the schema to activate
         let mut schema = self
             .get(schema_id)
@@ -222,7 +223,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Deactivate the current active schema if any
-        if let Some(mut current_active) = self.get_active(schema.vault_id).await?
+        if let Some(mut current_active) = self.get_active(schema.vault).await?
             && current_active.id != schema_id
         {
             current_active.mark_superseded();
@@ -240,7 +241,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         txn.set(Self::schema_key(schema.id), schema_data);
 
         // Update active schema index
-        txn.set(Self::vault_active_schema_key(schema.vault_id), schema.id.to_le_bytes().to_vec());
+        txn.set(Self::vault_active_schema_key(schema.vault), schema.id.to_le_bytes().to_vec());
 
         // Commit transaction
         txn.commit()
@@ -251,7 +252,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     }
 
     /// Rollback to a previous schema version
-    pub async fn rollback(&self, schema_id: i64) -> Result<VaultSchema> {
+    pub async fn rollback(&self, schema_id: u64) -> Result<VaultSchema> {
         // Get the schema to rollback to
         let schema = self
             .get(schema_id)
@@ -260,7 +261,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
 
         // Get the current active schema
         let current_active = self
-            .get_active(schema.vault_id)
+            .get_active(schema.vault)
             .await?
             .ok_or_else(|| Error::validation("No active schema to rollback from".to_string()))?;
 
@@ -293,7 +294,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
 
         // Update active schema index
         txn.set(
-            Self::vault_active_schema_key(reactivated.vault_id),
+            Self::vault_active_schema_key(reactivated.vault),
             reactivated.id.to_le_bytes().to_vec(),
         );
 
@@ -310,19 +311,19 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     }
 
     /// Get the latest version number for a vault
-    pub async fn get_latest_version(&self, vault_id: i64) -> Result<Option<SchemaVersion>> {
-        let schemas = self.list_by_vault(vault_id).await?;
+    pub async fn get_latest_version(&self, vault: VaultSlug) -> Result<Option<SchemaVersion>> {
+        let schemas = self.list_by_vault(vault).await?;
         Ok(schemas.first().map(|s| s.version.clone()))
     }
 
     /// Count schemas for a vault
-    pub async fn count_by_vault(&self, vault_id: i64) -> Result<usize> {
-        let schemas = self.list_by_vault(vault_id).await?;
+    pub async fn count_by_vault(&self, vault: VaultSlug) -> Result<usize> {
+        let schemas = self.list_by_vault(vault).await?;
         Ok(schemas.len())
     }
 
     /// Delete a schema (for cleanup - normally schemas are retained for history)
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get the schema first to clean up indexes
         let schema = self
             .get(id)
@@ -345,10 +346,10 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         txn.delete(Self::schema_key(id));
 
         // Delete vault schema index
-        txn.delete(Self::vault_schema_index_key(schema.vault_id, schema.id));
+        txn.delete(Self::vault_schema_index_key(schema.vault, schema.id));
 
         // Delete version index
-        txn.delete(Self::vault_version_index_key(schema.vault_id, &schema.version));
+        txn.delete(Self::vault_version_index_key(schema.vault, &schema.version));
 
         // Commit transaction
         txn.commit()
@@ -361,10 +362,10 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     /// List schemas by status for a vault
     pub async fn list_by_vault_and_status(
         &self,
-        vault_id: i64,
+        vault: VaultSlug,
         status: SchemaDeploymentStatus,
     ) -> Result<Vec<VaultSchema>> {
-        let all_schemas = self.list_by_vault(vault_id).await?;
+        let all_schemas = self.list_by_vault(vault).await?;
         Ok(all_schemas.into_iter().filter(|s| s.status == status).collect())
     }
 }
@@ -381,26 +382,30 @@ mod tests {
     }
 
     fn create_test_schema(
-        id: i64,
-        vault_id: i64,
+        id: u64,
+        vault: VaultSlug,
         version: SchemaVersion,
         definition: &str,
     ) -> Result<VaultSchema> {
         VaultSchema::builder()
             .id(id)
-            .vault_id(vault_id)
+            .vault(vault)
             .version(version)
             .definition(definition.to_string())
-            .author_user_id(999)
+            .author_user_id(999_u64)
             .description("Test schema".to_string())
             .create()
+    }
+
+    fn v(id: u64) -> VaultSlug {
+        VaultSlug::from(id)
     }
 
     #[tokio::test]
     async fn test_create_and_get_schema() {
         let repo = create_test_repo();
         let schema =
-            create_test_schema(1, 100, SchemaVersion::initial(), "entity User {}").unwrap();
+            create_test_schema(1, v(100), SchemaVersion::initial(), "entity User {}").unwrap();
 
         repo.create(schema.clone()).await.unwrap();
 
@@ -408,7 +413,7 @@ mod tests {
         assert!(retrieved.is_some());
         let retrieved = retrieved.unwrap();
         assert_eq!(retrieved.id, 1);
-        assert_eq!(retrieved.vault_id, 100);
+        assert_eq!(retrieved.vault, v(100));
         assert_eq!(retrieved.version, SchemaVersion::initial());
     }
 
@@ -416,9 +421,9 @@ mod tests {
     async fn test_duplicate_version_rejected() {
         let repo = create_test_repo();
         let schema1 =
-            create_test_schema(1, 100, SchemaVersion::initial(), "entity User {}").unwrap();
+            create_test_schema(1, v(100), SchemaVersion::initial(), "entity User {}").unwrap();
         let schema2 =
-            create_test_schema(2, 100, SchemaVersion::initial(), "entity Group {}").unwrap();
+            create_test_schema(2, v(100), SchemaVersion::initial(), "entity Group {}").unwrap();
 
         repo.create(schema1).await.unwrap();
 
@@ -433,22 +438,22 @@ mod tests {
         let v1 = SchemaVersion::new(1, 0, 0);
         let v2 = SchemaVersion::new(2, 0, 0);
 
-        let schema1 = create_test_schema(1, 100, v1.clone(), "entity User {}").unwrap();
-        let schema2 = create_test_schema(2, 100, v2.clone(), "entity Group {}").unwrap();
+        let schema1 = create_test_schema(1, v(100), v1.clone(), "entity User {}").unwrap();
+        let schema2 = create_test_schema(2, v(100), v2.clone(), "entity Group {}").unwrap();
 
         repo.create(schema1).await.unwrap();
         repo.create(schema2).await.unwrap();
 
-        let retrieved = repo.get_by_version(100, &v1).await.unwrap();
+        let retrieved = repo.get_by_version(v(100), &v1).await.unwrap();
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().id, 1);
 
-        let retrieved = repo.get_by_version(100, &v2).await.unwrap();
+        let retrieved = repo.get_by_version(v(100), &v2).await.unwrap();
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().id, 2);
 
         // Non-existent version
-        let retrieved = repo.get_by_version(100, &SchemaVersion::new(3, 0, 0)).await.unwrap();
+        let retrieved = repo.get_by_version(v(100), &SchemaVersion::new(3, 0, 0)).await.unwrap();
         assert!(retrieved.is_none());
     }
 
@@ -459,16 +464,16 @@ mod tests {
         let v2 = SchemaVersion::new(1, 1, 0);
         let v3 = SchemaVersion::new(2, 0, 0);
 
-        let schema1 = create_test_schema(1, 100, v1, "entity User {}").unwrap();
-        let schema2 = create_test_schema(2, 100, v2, "entity Group {}").unwrap();
-        let schema3 = create_test_schema(3, 100, v3, "entity Folder {}").unwrap();
+        let schema1 = create_test_schema(1, v(100), v1, "entity User {}").unwrap();
+        let schema2 = create_test_schema(2, v(100), v2, "entity Group {}").unwrap();
+        let schema3 = create_test_schema(3, v(100), v3, "entity Folder {}").unwrap();
 
         // Create in random order
         repo.create(schema2).await.unwrap();
         repo.create(schema1).await.unwrap();
         repo.create(schema3).await.unwrap();
 
-        let schemas = repo.list_by_vault(100).await.unwrap();
+        let schemas = repo.list_by_vault(v(100)).await.unwrap();
         assert_eq!(schemas.len(), 3);
 
         // Should be ordered newest first
@@ -481,7 +486,7 @@ mod tests {
     async fn test_activate_schema() {
         let repo = create_test_repo();
         let mut schema =
-            create_test_schema(1, 100, SchemaVersion::initial(), "entity User {}").unwrap();
+            create_test_schema(1, v(100), SchemaVersion::initial(), "entity User {}").unwrap();
 
         // Mark as deployed so it can be activated
         schema.mark_deployed();
@@ -492,7 +497,7 @@ mod tests {
         assert!(activated.is_active());
 
         // Verify it's the active schema
-        let active = repo.get_active(100).await.unwrap();
+        let active = repo.get_active(v(100)).await.unwrap();
         assert!(active.is_some());
         assert_eq!(active.unwrap().id, 1);
     }
@@ -503,8 +508,8 @@ mod tests {
         let v1 = SchemaVersion::new(1, 0, 0);
         let v2 = SchemaVersion::new(2, 0, 0);
 
-        let mut schema1 = create_test_schema(1, 100, v1, "entity User {}").unwrap();
-        let mut schema2 = create_test_schema(2, 100, v2, "entity Group {}").unwrap();
+        let mut schema1 = create_test_schema(1, v(100), v1, "entity User {}").unwrap();
+        let mut schema2 = create_test_schema(2, v(100), v2, "entity Group {}").unwrap();
 
         schema1.mark_deployed();
         schema2.mark_deployed();
@@ -527,7 +532,7 @@ mod tests {
         assert!(second.is_active());
 
         // Active should be second
-        let active = repo.get_active(100).await.unwrap().unwrap();
+        let active = repo.get_active(v(100)).await.unwrap().unwrap();
         assert_eq!(active.id, 2);
     }
 
@@ -537,8 +542,8 @@ mod tests {
         let v1 = SchemaVersion::new(1, 0, 0);
         let v2 = SchemaVersion::new(2, 0, 0);
 
-        let mut schema1 = create_test_schema(1, 100, v1, "entity User {}").unwrap();
-        let mut schema2 = create_test_schema(2, 100, v2, "entity Group {}").unwrap();
+        let mut schema1 = create_test_schema(1, v(100), v1, "entity User {}").unwrap();
+        let mut schema2 = create_test_schema(2, v(100), v2, "entity Group {}").unwrap();
 
         schema1.mark_deployed();
         schema2.mark_deployed();
@@ -559,7 +564,7 @@ mod tests {
         assert_eq!(second.status, SchemaDeploymentStatus::RolledBack);
 
         // Active should be first again
-        let active = repo.get_active(100).await.unwrap().unwrap();
+        let active = repo.get_active(v(100)).await.unwrap().unwrap();
         assert_eq!(active.id, 1);
     }
 
@@ -567,7 +572,7 @@ mod tests {
     async fn test_cannot_activate_validating_schema() {
         let repo = create_test_repo();
         let schema =
-            create_test_schema(1, 100, SchemaVersion::initial(), "entity User {}").unwrap();
+            create_test_schema(1, v(100), SchemaVersion::initial(), "entity User {}").unwrap();
 
         // Schema is in Validating status by default
         repo.create(schema).await.unwrap();
@@ -581,7 +586,7 @@ mod tests {
     async fn test_cannot_delete_active_schema() {
         let repo = create_test_repo();
         let mut schema =
-            create_test_schema(1, 100, SchemaVersion::initial(), "entity User {}").unwrap();
+            create_test_schema(1, v(100), SchemaVersion::initial(), "entity User {}").unwrap();
 
         schema.mark_deployed();
         repo.create(schema).await.unwrap();
@@ -596,7 +601,7 @@ mod tests {
     async fn test_delete_inactive_schema() {
         let repo = create_test_repo();
         let mut schema =
-            create_test_schema(1, 100, SchemaVersion::initial(), "entity User {}").unwrap();
+            create_test_schema(1, v(100), SchemaVersion::initial(), "entity User {}").unwrap();
 
         schema.mark_failed("Syntax error".to_string());
         repo.create(schema).await.unwrap();
@@ -613,17 +618,17 @@ mod tests {
         let v1 = SchemaVersion::new(1, 0, 0);
         let v2 = SchemaVersion::new(1, 2, 3);
 
-        let schema1 = create_test_schema(1, 100, v1, "entity User {}").unwrap();
-        let schema2 = create_test_schema(2, 100, v2.clone(), "entity Group {}").unwrap();
+        let schema1 = create_test_schema(1, v(100), v1, "entity User {}").unwrap();
+        let schema2 = create_test_schema(2, v(100), v2.clone(), "entity Group {}").unwrap();
 
         repo.create(schema1).await.unwrap();
         repo.create(schema2).await.unwrap();
 
-        let latest = repo.get_latest_version(100).await.unwrap();
+        let latest = repo.get_latest_version(v(100)).await.unwrap();
         assert_eq!(latest, Some(v2));
 
         // Empty vault
-        let latest = repo.get_latest_version(999).await.unwrap();
+        let latest = repo.get_latest_version(v(999)).await.unwrap();
         assert!(latest.is_none());
     }
 
@@ -632,11 +637,11 @@ mod tests {
         let repo = create_test_repo();
 
         let mut schema1 =
-            create_test_schema(1, 100, SchemaVersion::new(1, 0, 0), "entity User {}").unwrap();
+            create_test_schema(1, v(100), SchemaVersion::new(1, 0, 0), "entity User {}").unwrap();
         let mut schema2 =
-            create_test_schema(2, 100, SchemaVersion::new(2, 0, 0), "entity Group {}").unwrap();
+            create_test_schema(2, v(100), SchemaVersion::new(2, 0, 0), "entity Group {}").unwrap();
         let mut schema3 =
-            create_test_schema(3, 100, SchemaVersion::new(3, 0, 0), "entity Folder {}").unwrap();
+            create_test_schema(3, v(100), SchemaVersion::new(3, 0, 0), "entity Folder {}").unwrap();
 
         schema1.mark_deployed();
         schema2.mark_failed("Error".to_string());
@@ -647,11 +652,11 @@ mod tests {
         repo.create(schema3).await.unwrap();
 
         let deployed =
-            repo.list_by_vault_and_status(100, SchemaDeploymentStatus::Deployed).await.unwrap();
+            repo.list_by_vault_and_status(v(100), SchemaDeploymentStatus::Deployed).await.unwrap();
         assert_eq!(deployed.len(), 2);
 
         let failed =
-            repo.list_by_vault_and_status(100, SchemaDeploymentStatus::Failed).await.unwrap();
+            repo.list_by_vault_and_status(v(100), SchemaDeploymentStatus::Failed).await.unwrap();
         assert_eq!(failed.len(), 1);
     }
 }

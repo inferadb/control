@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuthorizationCode {
     /// Unique code ID (Snowflake ID)
-    pub id: i64,
+    pub id: u64,
 
     /// The authorization code itself (cryptographically random)
     pub code: String,
 
     /// User session ID this code is bound to
-    pub session_id: i64,
+    pub session_id: u64,
 
     /// PKCE code challenge (base64url encoded SHA256 of code_verifier)
     pub code_challenge: String,
@@ -51,9 +51,9 @@ impl AuthorizationCode {
     ///
     /// A new AuthorizationCode instance
     pub fn new(
-        id: i64,
+        id: u64,
         code: String,
-        session_id: i64,
+        session_id: u64,
         code_challenge: String,
         code_challenge_method: String,
     ) -> Self {

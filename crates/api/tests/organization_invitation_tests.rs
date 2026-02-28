@@ -78,7 +78,7 @@ async fn test_create_and_list_invitations() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organization"]["id"].as_i64().unwrap();
+    let organization = json["organization"]["id"].as_u64().unwrap();
 
     // Create an invitation
     let response = app
@@ -86,7 +86,7 @@ async fn test_create_and_list_invitations() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/invitations"))
+                .uri(format!("/control/v1/organizations/{organization}/invitations"))
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={session_cookie}"))
                 .body(Body::from(
@@ -114,7 +114,7 @@ async fn test_create_and_list_invitations() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/invitations"))
+                .uri(format!("/control/v1/organizations/{organization}/invitations"))
                 .header("cookie", format!("infera_session={session_cookie}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -200,7 +200,7 @@ async fn test_delete_invitation() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organization"]["id"].as_i64().unwrap();
+    let organization = json["organization"]["id"].as_u64().unwrap();
 
     // Create invitation
     let response = app
@@ -208,7 +208,7 @@ async fn test_delete_invitation() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/invitations"))
+                .uri(format!("/control/v1/organizations/{organization}/invitations"))
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={session_cookie}"))
                 .body(Body::from(
@@ -225,7 +225,7 @@ async fn test_delete_invitation() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let invitation_id = json["invitation"]["id"].as_i64().unwrap();
+    let invitation_id = json["invitation"]["id"].as_u64().unwrap();
 
     // Delete invitation
     let response = app
@@ -233,7 +233,9 @@ async fn test_delete_invitation() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/control/v1/organizations/{org_id}/invitations/{invitation_id}"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/invitations/{invitation_id}"
+                ))
                 .header("cookie", format!("infera_session={session_cookie}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -249,7 +251,7 @@ async fn test_delete_invitation() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/invitations"))
+                .uri(format!("/control/v1/organizations/{organization}/invitations"))
                 .header("cookie", format!("infera_session={session_cookie}"))
                 .body(Body::empty())
                 .unwrap(),

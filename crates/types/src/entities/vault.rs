@@ -2,7 +2,10 @@ use bon::bon;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
+use crate::{
+    OrganizationSlug, VaultSlug,
+    error::{Error, Result},
+};
 
 /// Vault entity for managing authorization policies
 ///
@@ -10,8 +13,8 @@ use crate::error::{Error, Result};
 /// Each vault belongs to an organization and can have user/team access grants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Vault {
-    pub id: i64,
-    pub organization_id: i64,
+    pub id: VaultSlug,
+    pub organization: OrganizationSlug,
     pub name: String,
     /// Optional description of the vault
     #[serde(default)]
@@ -71,23 +74,23 @@ impl VaultRole {
 /// User access grant for a vault
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultUserGrant {
-    pub id: i64,
-    pub vault_id: i64,
-    pub user_id: i64,
+    pub id: u64,
+    pub vault: VaultSlug,
+    pub user_id: u64,
     pub role: VaultRole,
     pub granted_at: DateTime<Utc>,
-    pub granted_by_user_id: i64,
+    pub granted_by_user_id: u64,
 }
 
 /// Team access grant for a vault
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultTeamGrant {
-    pub id: i64,
-    pub vault_id: i64,
-    pub team_id: i64,
+    pub id: u64,
+    pub vault: VaultSlug,
+    pub team_id: u64,
     pub role: VaultRole,
     pub granted_at: DateTime<Utc>,
-    pub granted_by_user_id: i64,
+    pub granted_by_user_id: u64,
 }
 
 #[bon]
@@ -95,17 +98,17 @@ impl Vault {
     /// Create a new vault
     #[builder(on(String, into), finish_fn = create)]
     pub fn new(
-        id: i64,
-        organization_id: i64,
+        id: VaultSlug,
+        organization: OrganizationSlug,
         name: String,
         description: Option<String>,
-        _created_by_user_id: i64,
+        _created_by_user_id: u64,
     ) -> Result<Self> {
         Self::validate_name(&name)?;
 
         Ok(Self {
             id,
-            organization_id,
+            organization,
             name,
             description: description.unwrap_or_default(),
             created_at: Utc::now(),
@@ -170,26 +173,26 @@ impl Vault {
 impl VaultUserGrant {
     /// Create a new user grant
     pub fn new(
-        id: i64,
-        vault_id: i64,
-        user_id: i64,
+        id: u64,
+        vault: VaultSlug,
+        user_id: u64,
         role: VaultRole,
-        granted_by_user_id: i64,
+        granted_by_user_id: u64,
     ) -> Self {
-        Self { id, vault_id, user_id, role, granted_at: Utc::now(), granted_by_user_id }
+        Self { id, vault, user_id, role, granted_at: Utc::now(), granted_by_user_id }
     }
 }
 
 impl VaultTeamGrant {
     /// Create a new team grant
     pub fn new(
-        id: i64,
-        vault_id: i64,
-        team_id: i64,
+        id: u64,
+        vault: VaultSlug,
+        team_id: u64,
         role: VaultRole,
-        granted_by_user_id: i64,
+        granted_by_user_id: u64,
     ) -> Self {
-        Self { id, vault_id, team_id, role, granted_at: Utc::now(), granted_by_user_id }
+        Self { id, vault, team_id, role, granted_at: Utc::now(), granted_by_user_id }
     }
 }
 
@@ -201,15 +204,15 @@ mod tests {
     #[test]
     fn test_create_vault() {
         let vault = Vault::builder()
-            .id(1)
-            .organization_id(100)
+            .id(VaultSlug::from(1_u64))
+            .organization(OrganizationSlug::from(100_u64))
             .name("Test Vault")
             .description("Test description")
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
             .unwrap();
-        assert_eq!(vault.id, 1);
-        assert_eq!(vault.organization_id, 100);
+        assert_eq!(vault.id, VaultSlug::from(1_u64));
+        assert_eq!(vault.organization, OrganizationSlug::from(100_u64));
         assert_eq!(vault.name, "Test Vault");
         assert_eq!(vault.description, "Test description");
         assert_eq!(vault.sync_status, VaultSyncStatus::Pending);
@@ -220,10 +223,10 @@ mod tests {
     #[test]
     fn test_create_vault_without_description() {
         let vault = Vault::builder()
-            .id(1)
-            .organization_id(100)
+            .id(VaultSlug::from(1_u64))
+            .organization(OrganizationSlug::from(100_u64))
             .name("Test Vault")
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
             .unwrap();
         assert_eq!(vault.description, "");
@@ -241,10 +244,10 @@ mod tests {
     #[test]
     fn test_mark_synced() {
         let mut vault = Vault::builder()
-            .id(1)
-            .organization_id(100)
+            .id(VaultSlug::from(1_u64))
+            .organization(OrganizationSlug::from(100_u64))
             .name("Test")
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
             .unwrap();
         vault.mark_synced();
@@ -255,10 +258,10 @@ mod tests {
     #[test]
     fn test_mark_sync_failed() {
         let mut vault = Vault::builder()
-            .id(1)
-            .organization_id(100)
+            .id(VaultSlug::from(1_u64))
+            .organization(OrganizationSlug::from(100_u64))
             .name("Test")
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
             .unwrap();
         vault.mark_sync_failed("Connection error".to_string());
@@ -269,10 +272,10 @@ mod tests {
     #[test]
     fn test_mark_deleted() {
         let mut vault = Vault::builder()
-            .id(1)
-            .organization_id(100)
+            .id(VaultSlug::from(1_u64))
+            .organization(OrganizationSlug::from(100_u64))
             .name("Test")
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
             .unwrap();
         assert!(!vault.is_deleted());
@@ -296,21 +299,33 @@ mod tests {
 
     #[test]
     fn test_create_user_grant() {
-        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
-        assert_eq!(grant.id, 1);
-        assert_eq!(grant.vault_id, 100);
-        assert_eq!(grant.user_id, 200);
+        let grant = VaultUserGrant::new(
+            1_u64,
+            VaultSlug::from(100_u64),
+            200_u64,
+            VaultRole::Reader,
+            999_u64,
+        );
+        assert_eq!(grant.id, 1_u64);
+        assert_eq!(grant.vault, VaultSlug::from(100_u64));
+        assert_eq!(grant.user_id, 200_u64);
         assert_eq!(grant.role, VaultRole::Reader);
-        assert_eq!(grant.granted_by_user_id, 999);
+        assert_eq!(grant.granted_by_user_id, 999_u64);
     }
 
     #[test]
     fn test_create_team_grant() {
-        let grant = VaultTeamGrant::new(1, 100, 300, VaultRole::Writer, 999);
-        assert_eq!(grant.id, 1);
-        assert_eq!(grant.vault_id, 100);
-        assert_eq!(grant.team_id, 300);
+        let grant = VaultTeamGrant::new(
+            1_u64,
+            VaultSlug::from(100_u64),
+            300_u64,
+            VaultRole::Writer,
+            999_u64,
+        );
+        assert_eq!(grant.id, 1_u64);
+        assert_eq!(grant.vault, VaultSlug::from(100_u64));
+        assert_eq!(grant.team_id, 300_u64);
         assert_eq!(grant.role, VaultRole::Writer);
-        assert_eq!(grant.granted_by_user_id, 999);
+        assert_eq!(grant.granted_by_user_id, 999_u64);
     }
 }

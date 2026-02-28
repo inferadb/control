@@ -25,7 +25,7 @@ impl<S: StorageBackend> AuthorizationCodeRepository<S> {
     }
 
     /// Generate key for session's code index
-    fn session_code_index_key(session_id: i64, code: &str) -> Vec<u8> {
+    fn session_code_index_key(session_id: u64, code: &str) -> Vec<u8> {
         format!("authz_code:session:{session_id}:{code}").into_bytes()
     }
 
@@ -189,7 +189,7 @@ mod tests {
 
     use super::*;
 
-    fn create_test_code(id: i64, code: &str, session_id: i64) -> AuthorizationCode {
+    fn create_test_code(id: u64, code: &str, session_id: u64) -> AuthorizationCode {
         AuthorizationCode::new(
             id,
             code.to_string(),

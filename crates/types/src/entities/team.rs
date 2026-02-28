@@ -2,7 +2,10 @@ use bon::bon;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
+use crate::{
+    OrganizationSlug,
+    error::{Error, Result},
+};
 
 /// Organization team entity for grouping users
 ///
@@ -10,8 +13,8 @@ use crate::error::{Error, Result};
 /// Team members can be granted specific permissions, and teams can be granted vault access.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrganizationTeam {
-    pub id: i64,
-    pub organization_id: i64,
+    pub id: u64,
+    pub organization: OrganizationSlug,
     pub name: String,
     /// Optional description of the team
     #[serde(default)]
@@ -26,9 +29,9 @@ pub struct OrganizationTeam {
 /// to manage the team (add/remove members, update team settings).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrganizationTeamMember {
-    pub id: i64,
-    pub team_id: i64,
-    pub user_id: i64,
+    pub id: u64,
+    pub team_id: u64,
+    pub user_id: u64,
     /// Whether this member is a manager of the team
     pub manager: bool,
     pub created_at: DateTime<Utc>,
@@ -121,10 +124,10 @@ impl OrganizationPermission {
 /// Grants a specific organization permission to all members of a team.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrganizationTeamPermission {
-    pub id: i64,
-    pub team_id: i64,
+    pub id: u64,
+    pub team_id: u64,
     pub permission: OrganizationPermission,
-    pub granted_by_user_id: i64,
+    pub granted_by_user_id: u64,
     pub granted_at: DateTime<Utc>,
 }
 
@@ -133,8 +136,8 @@ impl OrganizationTeam {
     /// Create a new organization team
     #[builder(on(String, into), finish_fn = create)]
     pub fn new(
-        id: i64,
-        organization_id: i64,
+        id: u64,
+        organization: OrganizationSlug,
         name: String,
         description: Option<String>,
     ) -> Result<Self> {
@@ -142,7 +145,7 @@ impl OrganizationTeam {
 
         Ok(Self {
             id,
-            organization_id,
+            organization,
             name: name.trim().to_string(),
             description: description.unwrap_or_default(),
             created_at: Utc::now(),
@@ -197,7 +200,7 @@ impl OrganizationTeam {
 
 impl OrganizationTeamMember {
     /// Create a new team member
-    pub fn new(id: i64, team_id: i64, user_id: i64, manager: bool) -> Self {
+    pub fn new(id: u64, team_id: u64, user_id: u64, manager: bool) -> Self {
         Self { id, team_id, user_id, manager, created_at: Utc::now() }
     }
 
@@ -210,10 +213,10 @@ impl OrganizationTeamMember {
 impl OrganizationTeamPermission {
     /// Create a new team permission grant
     pub fn new(
-        id: i64,
-        team_id: i64,
+        id: u64,
+        team_id: u64,
         permission: OrganizationPermission,
-        granted_by_user_id: i64,
+        granted_by_user_id: u64,
     ) -> Self {
         Self { id, team_id, permission, granted_by_user_id, granted_at: Utc::now() }
     }
@@ -227,13 +230,13 @@ mod tests {
     #[test]
     fn test_create_team() {
         let team = OrganizationTeam::builder()
-            .id(1)
-            .organization_id(100)
+            .id(1_u64)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Engineering Team")
             .create()
             .unwrap();
-        assert_eq!(team.id, 1);
-        assert_eq!(team.organization_id, 100);
+        assert_eq!(team.id, 1_u64);
+        assert_eq!(team.organization, OrganizationSlug::from(100_u64));
         assert_eq!(team.name, "Engineering Team");
         assert!(!team.is_deleted());
     }
@@ -251,8 +254,8 @@ mod tests {
     #[test]
     fn test_set_team_name() {
         let mut team = OrganizationTeam::builder()
-            .id(1)
-            .organization_id(100)
+            .id(1_u64)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Old Name")
             .create()
             .unwrap();
@@ -267,8 +270,8 @@ mod tests {
     #[test]
     fn test_team_soft_delete() {
         let mut team = OrganizationTeam::builder()
-            .id(1)
-            .organization_id(100)
+            .id(1_u64)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Test Team")
             .create()
             .unwrap();
@@ -280,25 +283,25 @@ mod tests {
 
     #[test]
     fn test_create_team_member() {
-        let member = OrganizationTeamMember::new(1, 100, 200, false);
-        assert_eq!(member.id, 1);
-        assert_eq!(member.team_id, 100);
-        assert_eq!(member.user_id, 200);
+        let member = OrganizationTeamMember::new(1_u64, 100_u64, 200_u64, false);
+        assert_eq!(member.id, 1_u64);
+        assert_eq!(member.team_id, 100_u64);
+        assert_eq!(member.user_id, 200_u64);
         assert!(!member.manager);
     }
 
     #[test]
     fn test_create_team_manager() {
-        let member = OrganizationTeamMember::new(1, 100, 200, true);
-        assert_eq!(member.id, 1);
-        assert_eq!(member.team_id, 100);
-        assert_eq!(member.user_id, 200);
+        let member = OrganizationTeamMember::new(1_u64, 100_u64, 200_u64, true);
+        assert_eq!(member.id, 1_u64);
+        assert_eq!(member.team_id, 100_u64);
+        assert_eq!(member.user_id, 200_u64);
         assert!(member.manager);
     }
 
     #[test]
     fn test_set_manager_flag() {
-        let mut member = OrganizationTeamMember::new(1, 100, 200, false);
+        let mut member = OrganizationTeamMember::new(1_u64, 100_u64, 200_u64, false);
         assert!(!member.manager);
 
         member.set_manager(true);
@@ -311,15 +314,15 @@ mod tests {
     #[test]
     fn test_create_team_permission() {
         let permission = OrganizationTeamPermission::new(
-            1,
-            100,
+            1_u64,
+            100_u64,
             OrganizationPermission::OrgPermClientCreate,
-            999,
+            999_u64,
         );
-        assert_eq!(permission.id, 1);
-        assert_eq!(permission.team_id, 100);
+        assert_eq!(permission.id, 1_u64);
+        assert_eq!(permission.team_id, 100_u64);
         assert_eq!(permission.permission, OrganizationPermission::OrgPermClientCreate);
-        assert_eq!(permission.granted_by_user_id, 999);
+        assert_eq!(permission.granted_by_user_id, 999_u64);
     }
 
     #[test]

@@ -1,7 +1,10 @@
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
-use crate::entities::{VaultRole, VaultSyncStatus};
+use crate::{
+    OrganizationSlug, VaultSlug,
+    entities::{VaultRole, VaultSyncStatus},
+};
 
 // ============================================================================
 // Request/Response Types - Vault Management
@@ -21,20 +24,20 @@ pub struct CreateVaultResponse {
 
 #[derive(Debug, Serialize)]
 pub struct VaultInfo {
-    pub id: i64,
+    pub id: VaultSlug,
     pub name: String,
     pub description: String,
-    pub organization_id: i64,
+    pub organization: OrganizationSlug,
     pub sync_status: VaultSyncStatus,
     pub created_at: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct VaultResponse {
-    pub id: i64,
+    pub id: VaultSlug,
     pub name: String,
     pub description: String,
-    pub organization_id: i64,
+    pub organization: OrganizationSlug,
     pub sync_status: VaultSyncStatus,
     pub sync_error: Option<String>,
     pub created_at: String,
@@ -63,7 +66,7 @@ pub struct UpdateVaultResponse {
 
 #[derive(Debug, Serialize)]
 pub struct VaultDetail {
-    pub id: i64,
+    pub id: VaultSlug,
     pub name: String,
     pub description: String,
 }
@@ -79,7 +82,7 @@ pub struct DeleteVaultResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateUserGrantRequest {
-    pub user_id: i64,
+    pub user_id: u64,
     pub role: VaultRole,
 }
 
@@ -90,12 +93,12 @@ pub struct CreateUserGrantResponse {
 
 #[derive(Debug, Serialize)]
 pub struct UserGrantResponse {
-    pub id: i64,
-    pub vault_id: i64,
-    pub user_id: i64,
+    pub id: u64,
+    pub vault: VaultSlug,
+    pub user_id: u64,
     pub role: VaultRole,
     pub granted_at: String,
-    pub granted_by_user_id: i64,
+    pub granted_by_user_id: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -110,7 +113,7 @@ pub struct UpdateUserGrantRequest {
 
 #[derive(Debug, Serialize)]
 pub struct UpdateUserGrantResponse {
-    pub id: i64,
+    pub id: u64,
     pub role: VaultRole,
 }
 
@@ -125,7 +128,7 @@ pub struct DeleteUserGrantResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateTeamGrantRequest {
-    pub team_id: i64,
+    pub team_id: u64,
     pub role: VaultRole,
 }
 
@@ -136,12 +139,12 @@ pub struct CreateTeamGrantResponse {
 
 #[derive(Debug, Serialize)]
 pub struct TeamGrantResponse {
-    pub id: i64,
-    pub vault_id: i64,
-    pub team_id: i64,
+    pub id: u64,
+    pub vault: VaultSlug,
+    pub team_id: u64,
     pub role: VaultRole,
     pub granted_at: String,
-    pub granted_by_user_id: i64,
+    pub granted_by_user_id: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -156,7 +159,7 @@ pub struct UpdateTeamGrantRequest {
 
 #[derive(Debug, Serialize)]
 pub struct UpdateTeamGrantResponse {
-    pub id: i64,
+    pub id: u64,
     pub role: VaultRole,
 }
 

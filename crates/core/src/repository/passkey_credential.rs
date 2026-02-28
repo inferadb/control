@@ -23,12 +23,12 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
     }
 
     /// Generate key for passkey by ID
-    fn passkey_key(id: i64) -> Vec<u8> {
+    fn passkey_key(id: u64) -> Vec<u8> {
         format!("passkey:{id}").into_bytes()
     }
 
     /// Generate key for user's passkey index
-    fn user_passkey_index_key(user_id: i64, passkey_id: i64) -> Vec<u8> {
+    fn user_passkey_index_key(user_id: u64, passkey_id: u64) -> Vec<u8> {
         format!("passkey:user:{user_id}:{passkey_id}").into_bytes()
     }
 
@@ -82,7 +82,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
     }
 
     /// Get a passkey credential by ID
-    pub async fn get(&self, id: i64) -> Result<Option<PasskeyCredential>> {
+    pub async fn get(&self, id: u64) -> Result<Option<PasskeyCredential>> {
         let key = Self::passkey_key(id);
         let data = self
             .storage
@@ -117,7 +117,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid credential ID index data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -125,7 +125,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
     }
 
     /// Get all passkey credentials for a user
-    pub async fn get_user_credentials(&self, user_id: i64) -> Result<Vec<PasskeyCredential>> {
+    pub async fn get_user_credentials(&self, user_id: u64) -> Result<Vec<PasskeyCredential>> {
         let start = format!("passkey:user:{user_id}:").into_bytes();
         let mut end = start.clone();
         // Increment the last byte to create an exclusive end range
@@ -141,7 +141,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
 
         let mut credentials = Vec::new();
         for kv in items {
-            let Ok(credential_id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(credential_id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(credential) = self.get(credential_id).await? {
                 credentials.push(credential);
             }
@@ -166,7 +166,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
     }
 
     /// Delete a passkey credential
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get the credential first to access indexes
         let credential = self
             .get(id)
@@ -198,7 +198,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
     }
 
     /// Delete all passkey credentials for a user (used during user deletion)
-    pub async fn delete_user_credentials(&self, user_id: i64) -> Result<()> {
+    pub async fn delete_user_credentials(&self, user_id: u64) -> Result<()> {
         let credentials = self.get_user_credentials(user_id).await?;
 
         for credential in credentials {

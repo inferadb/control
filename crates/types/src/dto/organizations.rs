@@ -1,13 +1,13 @@
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
-use crate::entities::OrganizationRole;
+use crate::{OrganizationSlug, entities::OrganizationRole};
 
 /// Organization response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OrganizationResponse {
     /// Organization ID
-    pub id: i64,
+    pub id: OrganizationSlug,
     /// Organization name
     pub name: String,
     /// Organization tier
@@ -93,9 +93,9 @@ pub struct ResumeOrganizationResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OrganizationMemberResponse {
     /// Member ID
-    pub id: i64,
+    pub id: u64,
     /// User ID
-    pub user_id: i64,
+    pub user_id: u64,
     /// Member role
     pub role: String,
     /// When the member joined
@@ -138,7 +138,7 @@ pub struct RemoveMemberResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InvitationResponse {
     /// Invitation ID
-    pub id: i64,
+    pub id: u64,
     /// Email address
     pub email: String,
     /// Role
@@ -148,7 +148,7 @@ pub struct InvitationResponse {
     /// When expires
     pub expires_at: String,
     /// User who created the invitation
-    pub invited_by_user_id: i64,
+    pub invited_by_user_id: u64,
     /// Invitation token (only included when creating invitation)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
@@ -206,7 +206,7 @@ pub struct DeleteInvitationResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TransferOwnershipRequest {
     /// User ID of the new owner (must be existing member)
-    pub new_owner_user_id: i64,
+    pub new_owner_user_id: u64,
 }
 
 /// Response for ownership transfer
@@ -239,7 +239,7 @@ pub enum OrganizationStatus {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OrganizationServerResponse {
     /// Organization ID
-    pub id: i64,
+    pub id: OrganizationSlug,
     /// Organization name
     pub name: String,
     /// Organization status (Active, Suspended, or Deleted)

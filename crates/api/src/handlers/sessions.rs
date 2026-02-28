@@ -65,7 +65,7 @@ pub async fn list_sessions(
 /// Revokes a session by ID. Users can revoke their own sessions.
 pub async fn revoke_session(
     State(state): State<AppState>,
-    Path(session_id): Path<i64>,
+    Path(session_id): Path<u64>,
     request: Request,
 ) -> Result<Json<RevokeSessionResponse>> {
     // Extract session context from middleware
@@ -154,8 +154,8 @@ mod tests {
 
     async fn create_test_session_in_storage(
         storage: Arc<Backend>,
-        session_id: i64,
-        user_id: i64,
+        session_id: u64,
+        user_id: u64,
     ) -> UserSession {
         let session = UserSession::builder()
             .id(session_id)

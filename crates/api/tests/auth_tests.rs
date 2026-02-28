@@ -15,9 +15,12 @@ use inferadb_control_storage::{Backend, BufferedBackend};
 use inferadb_control_test_fixtures::{
     create_test_app, create_test_state, extract_session_cookie, register_user,
 };
-use inferadb_control_types::entities::{
-    Organization, OrganizationMember, OrganizationRole, OrganizationTier, SessionType, User,
-    UserEmail, UserEmailVerificationToken, UserSession,
+use inferadb_control_types::{
+    OrganizationSlug,
+    entities::{
+        Organization, OrganizationMember, OrganizationRole, OrganizationTier, SessionType, User,
+        UserEmail, UserEmailVerificationToken, UserSession,
+    },
 };
 use serde_json::json;
 use tower::ServiceExt;
@@ -158,7 +161,7 @@ async fn test_registration_commits_all_entities_atomically() {
     let email_id = IdGenerator::next_id();
     let session_id = IdGenerator::next_id();
     let token_id = IdGenerator::next_id();
-    let org_id = IdGenerator::next_id();
+    let organization = OrganizationSlug::from(IdGenerator::next_id());
     let member_id = IdGenerator::next_id();
 
     // 1. Create user
@@ -196,7 +199,7 @@ async fn test_registration_commits_all_entities_atomically() {
 
     // 5. Create organization
     let org = Organization::builder()
-        .id(org_id)
+        .id(organization)
         .name("Charlie's Org")
         .tier(OrganizationTier::TierDevV1)
         .create()
@@ -204,7 +207,7 @@ async fn test_registration_commits_all_entities_atomically() {
     repos.org.create(org).await.unwrap();
 
     // 6. Create org member
-    let member = OrganizationMember::new(member_id, org_id, user_id, OrganizationRole::Owner);
+    let member = OrganizationMember::new(member_id, organization, user_id, OrganizationRole::Owner);
     repos.org_member.create(member).await.unwrap();
 
     // Before commit: nothing on real storage
@@ -236,7 +239,7 @@ async fn test_registration_commits_all_entities_atomically() {
         "Session should exist after commit"
     );
     assert!(
-        post_repos.org.get(org_id).await.unwrap().is_some(),
+        post_repos.org.get(organization).await.unwrap().is_some(),
         "Organization should exist after commit"
     );
     assert!(

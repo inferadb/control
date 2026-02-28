@@ -7,7 +7,9 @@ use axum::{
     response::Response,
 };
 use inferadb_control_core::{VaultRepository, VaultUserGrantRepository};
-use inferadb_control_types::{Error as CoreError, entities::VaultRole};
+use inferadb_control_types::{
+    Error as CoreError, OrganizationSlug, VaultSlug, entities::VaultRole,
+};
 
 use crate::{
     handlers::auth::{ApiError, AppState},
@@ -18,9 +20,9 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct VaultContext {
     /// Vault ID from the path
-    pub vault_id: i64,
+    pub vault: VaultSlug,
     /// Organization ID (from organization context)
-    pub organization_id: i64,
+    pub organization: OrganizationSlug,
     /// User's role in the vault (resolved from grants)
     pub role: VaultRole,
 }
@@ -70,7 +72,7 @@ pub async fn require_vault_access(
         CoreError::internal("Organization context not found in request extensions".to_string())
     })?;
 
-    // Extract vault_id from the named {vault} path parameter set by axum's router
+    // Extract vault from the named {vault} path parameter set by axum's router
     let Path(params): Path<HashMap<String, String>> =
         request.extract_parts().await.map_err(|_| {
             CoreError::internal(
@@ -78,20 +80,20 @@ pub async fn require_vault_access(
             )
         })?;
 
-    let vault_id = params
+    let vault = params
         .get("vault")
         .ok_or_else(|| {
             CoreError::internal(
                 "Vault middleware applied to route without {vault} parameter".to_string(),
             )
         })?
-        .parse::<i64>()
+        .parse::<VaultSlug>()
         .map_err(|_| CoreError::validation("Invalid vault ID in path".to_string()))?;
 
     // Verify vault exists and belongs to the organization
     let vault_repo = VaultRepository::new((*state.storage).clone());
     let vault = vault_repo
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
@@ -99,20 +101,20 @@ pub async fn require_vault_access(
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Resolve user's vault role
-    let role = get_user_vault_role(&state, vault_id, org_ctx.member.user_id).await?;
+    let role = get_user_vault_role(&state, vault.id, org_ctx.member.user_id).await?;
 
     let role =
         role.ok_or_else(|| CoreError::authz("You do not have access to this vault".to_string()))?;
 
     // Attach vault context to request extensions
     request.extensions_mut().insert(VaultContext {
-        vault_id,
-        organization_id: org_ctx.organization_id,
+        vault: vault.id,
+        organization: org_ctx.organization,
         role,
     });
 
@@ -125,14 +127,14 @@ pub async fn require_vault_access(
 /// Returns None if the user has no access to the vault.
 pub async fn get_user_vault_role(
     state: &AppState,
-    vault_id: i64,
-    user_id: i64,
+    vault: VaultSlug,
+    user_id: u64,
 ) -> Result<Option<VaultRole>, ApiError> {
     use inferadb_control_core::{OrganizationTeamMemberRepository, VaultTeamGrantRepository};
 
     // Check direct user grant first
     let user_grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
-    if let Some(grant) = user_grant_repo.get_by_vault_and_user(vault_id, user_id).await? {
+    if let Some(grant) = user_grant_repo.get_by_vault_and_user(vault, user_id).await? {
         return Ok(Some(grant.role));
     }
 
@@ -148,7 +150,7 @@ pub async fn get_user_vault_role(
 
     for membership in user_teams {
         if let Some(team_grant) =
-            team_grant_repo.get_by_vault_and_team(vault_id, membership.team_id).await?
+            team_grant_repo.get_by_vault_and_team(vault, membership.team_id).await?
         {
             match highest_role {
                 None => highest_role = Some(team_grant.role),

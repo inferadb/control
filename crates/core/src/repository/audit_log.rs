@@ -3,6 +3,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
+    OrganizationSlug,
     entities::{AuditEventType, AuditLog, AuditResourceType},
     error::{Error, Result},
 };
@@ -16,7 +17,7 @@ const AUDIT_LOG_RETENTION: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 #[derive(Debug, Clone, Default)]
 pub struct AuditLogFilters {
     /// Filter by actor (user_id)
-    pub actor: Option<i64>,
+    pub actor: Option<u64>,
     /// Filter by event type
     pub action: Option<AuditEventType>,
     /// Filter by resource type
@@ -49,7 +50,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
         Ok(())
     }
 
-    pub async fn get(&self, id: i64) -> Result<Option<AuditLog>> {
+    pub async fn get(&self, id: u64) -> Result<Option<AuditLog>> {
         let key = Self::key(id);
         match self.storage.get(&key).await {
             Ok(Some(value)) => {
@@ -66,16 +67,16 @@ impl<S: StorageBackend> AuditLogRepository<S> {
     /// List audit logs for an organization with optional filters and pagination
     pub async fn list_by_organization(
         &self,
-        organization_id: i64,
+        organization: OrganizationSlug,
         filters: AuditLogFilters,
-        limit: i64,
-        offset: i64,
+        limit: u64,
+        offset: u64,
     ) -> Result<(Vec<AuditLog>, usize)> {
         // For in-memory backend, we need to scan all logs
         // In production with Ledger, we would use indexes
 
         // This is a simplified implementation that scans all logs
-        // In a real implementation, we would use a secondary index on organization_id + created_at
+        // In a real implementation, we would use a secondary index on organization + created_at
 
         let start_key = PREFIX_AUDIT_LOG.as_bytes().to_vec();
         let end_key = {
@@ -94,7 +95,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
             kvs.into_iter().filter_map(|kv| serde_json::from_slice(&kv.value).ok()).collect();
 
         // Filter by organization
-        all_logs.retain(|log| log.organization_id == Some(organization_id));
+        all_logs.retain(|log| log.organization == Some(organization));
 
         // Apply filters
         if let Some(actor) = filters.actor {
@@ -129,7 +130,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
         Ok((paginated_logs, total))
     }
 
-    fn key(id: i64) -> Vec<u8> {
+    fn key(id: u64) -> Vec<u8> {
         format!("{PREFIX_AUDIT_LOG}{id}").into_bytes()
     }
 }
@@ -148,7 +149,7 @@ mod tests {
         let repo = AuditLogRepository::new(storage);
         let log = AuditLog::builder()
             .event_type(AuditEventType::UserLogin)
-            .organization_id(1)
+            .organization(OrganizationSlug::from(1_u64))
             .user_id(100)
             .ip_address("192.168.1.1")
             .build();
@@ -164,7 +165,7 @@ mod tests {
 
         let log = AuditLog::builder()
             .event_type(AuditEventType::UserLogin)
-            .organization_id(1)
+            .organization(OrganizationSlug::from(1_u64))
             .user_id(100)
             .ip_address("192.168.1.1")
             .build();
@@ -184,7 +185,7 @@ mod tests {
         // Write directly with a short TTL to verify MemoryBackend TTL behavior
         let log = AuditLog::builder()
             .event_type(AuditEventType::UserLogin)
-            .organization_id(1)
+            .organization(OrganizationSlug::from(1_u64))
             .user_id(100)
             .ip_address("192.168.1.1")
             .build();

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::{
+    OrganizationSlug,
     error::{Error, Result},
     id::IdGenerator,
 };
@@ -113,7 +114,7 @@ pub enum AuditResourceType {
 /// # Storage
 ///
 /// Audit logs are stored with the following indexes:
-/// - `organization_id` + `created_at` (for organization-scoped queries)
+/// - `organization` + `created_at` (for organization-scoped queries)
 /// - `user_id` + `created_at` (for user activity tracking)
 /// - `event_type` + `created_at` (for event type filtering)
 ///
@@ -126,16 +127,16 @@ pub enum AuditResourceType {
 pub struct AuditLog {
     /// Unique identifier
     #[builder(default = IdGenerator::next_id())]
-    pub id: i64,
+    pub id: u64,
 
-    /// Organization ID (if applicable)
-    pub organization_id: Option<i64>,
+    /// Organization (if applicable)
+    pub organization: Option<OrganizationSlug>,
 
     /// User ID who performed the action (if applicable)
-    pub user_id: Option<i64>,
+    pub user_id: Option<u64>,
 
     /// Client ID that performed the action (if applicable)
-    pub client_id: Option<i64>,
+    pub client_id: Option<u64>,
 
     /// Type of event
     pub event_type: AuditEventType,
@@ -144,7 +145,7 @@ pub struct AuditLog {
     pub resource_type: Option<AuditResourceType>,
 
     /// ID of the resource affected
-    pub resource_id: Option<i64>,
+    pub resource_id: Option<u64>,
 
     /// Additional event data (JSON)
     pub event_data: Option<JsonValue>,
@@ -163,10 +164,10 @@ pub struct AuditLog {
 impl AuditLog {
     /// Validate the audit log entry
     pub fn validate(&self) -> Result<()> {
-        // At least one of organization_id, user_id, or client_id must be set
-        if self.organization_id.is_none() && self.user_id.is_none() && self.client_id.is_none() {
+        // At least one of organization, user_id, or client_id must be set
+        if self.organization.is_none() && self.user_id.is_none() && self.client_id.is_none() {
             return Err(Error::validation(
-                "At least one of organization_id, user_id, or client_id must be set".to_string(),
+                "At least one of organization, user_id, or client_id must be set".to_string(),
             ));
         }
 
@@ -185,13 +186,13 @@ mod tests {
     fn test_create_audit_log() {
         let log = AuditLog::builder()
             .event_type(AuditEventType::UserLogin)
-            .organization_id(1)
-            .user_id(100)
+            .organization(OrganizationSlug::from(1_u64))
+            .user_id(100_u64)
             .build();
 
         assert_eq!(log.event_type, AuditEventType::UserLogin);
-        assert_eq!(log.organization_id, Some(1));
-        assert_eq!(log.user_id, Some(100));
+        assert_eq!(log.organization, Some(OrganizationSlug::from(1_u64)));
+        assert_eq!(log.user_id, Some(100_u64));
         assert!(log.validate().is_ok());
     }
 
@@ -199,22 +200,22 @@ mod tests {
     fn test_audit_log_with_resource() {
         let log = AuditLog::builder()
             .event_type(AuditEventType::VaultCreated)
-            .organization_id(1)
-            .user_id(100)
+            .organization(OrganizationSlug::from(1_u64))
+            .user_id(100_u64)
             .resource_type(AuditResourceType::Vault)
-            .resource_id(500)
+            .resource_id(500_u64)
             .build();
 
         assert_eq!(log.resource_type, Some(AuditResourceType::Vault));
-        assert_eq!(log.resource_id, Some(500));
+        assert_eq!(log.resource_id, Some(500_u64));
     }
 
     #[test]
     fn test_audit_log_with_data() {
         let log = AuditLog::builder()
             .event_type(AuditEventType::OrganizationMemberRoleChanged)
-            .organization_id(1)
-            .user_id(100)
+            .organization(OrganizationSlug::from(1_u64))
+            .user_id(100_u64)
             .event_data(json!({
                 "old_role": "member",
                 "new_role": "admin"
@@ -228,8 +229,8 @@ mod tests {
     fn test_audit_log_with_ip_and_user_agent() {
         let log = AuditLog::builder()
             .event_type(AuditEventType::UserLogin)
-            .organization_id(1)
-            .user_id(100)
+            .organization(OrganizationSlug::from(1_u64))
+            .user_id(100_u64)
             .ip_address("192.168.1.1")
             .user_agent("Mozilla/5.0")
             .build();

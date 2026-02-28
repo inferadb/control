@@ -19,7 +19,7 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
     /// Returns all tokens (used and unused) for the user.
     pub async fn get_by_user(
         &self,
-        user_id: i64,
+        user_id: u64,
     ) -> inferadb_control_types::error::Result<Vec<UserPasswordResetToken>> {
         self.get_by_foreign_key(user_id).await
     }

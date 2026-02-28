@@ -14,13 +14,13 @@ use inferadb_control_api::middleware::{
 };
 use inferadb_control_core::IdGenerator;
 use inferadb_control_test_fixtures::{
-    create_test_app, create_test_state, get_org_id, register_user,
+    create_test_app, create_test_state, get_organization, register_user,
 };
 use serde_json::json;
 use tower::ServiceExt;
 
-/// Helper: register user, get session and org_id
-async fn setup_user_and_org(app: &Router, seed: i32) -> (String, i64) {
+/// Helper: register user, get session and organization
+async fn setup_user_and_org(app: &Router, seed: i32) -> (String, u64) {
     let session = register_user(
         app,
         &format!("mwuser{seed}"),
@@ -29,9 +29,9 @@ async fn setup_user_and_org(app: &Router, seed: i32) -> (String, i64) {
     )
     .await;
 
-    let org_id = get_org_id(app, &session).await;
+    let organization = get_organization(app, &session).await;
 
-    (session, org_id)
+    (session, organization)
 }
 
 /// Verify organization middleware correctly extracts {org} from standard route structure.
@@ -44,7 +44,7 @@ async fn test_org_middleware_extracts_id_from_standard_routes() {
     let state = create_test_state();
     let app = create_test_app(state);
 
-    let (session, org_id) = setup_user_and_org(&app, 1).await;
+    let (session, organization) = setup_user_and_org(&app, 1).await;
 
     // GET /control/v1/organizations/{org} — standard org-scoped route
     let response = app
@@ -52,7 +52,7 @@ async fn test_org_middleware_extracts_id_from_standard_routes() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}"))
+                .uri(format!("/control/v1/organizations/{organization}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -64,7 +64,7 @@ async fn test_org_middleware_extracts_id_from_standard_routes() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["organization"]["id"], org_id);
+    assert_eq!(json["organization"]["id"], organization);
 }
 
 /// Verify vault middleware correctly extracts {vault} from nested route structure.
@@ -78,7 +78,7 @@ async fn test_vault_middleware_extracts_id_from_nested_routes() {
     let state = create_test_state();
     let app = create_test_app(state);
 
-    let (session, org_id) = setup_user_and_org(&app, 2).await;
+    let (session, organization) = setup_user_and_org(&app, 2).await;
 
     // Create a vault
     let response = app
@@ -86,7 +86,7 @@ async fn test_vault_middleware_extracts_id_from_nested_routes() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -104,7 +104,7 @@ async fn test_vault_middleware_extracts_id_from_nested_routes() {
     assert_eq!(response.status(), StatusCode::CREATED);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let create_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let vault_id = create_json["vault"]["id"].as_i64().expect("Should have vault ID");
+    let vault = create_json["vault"]["id"].as_u64().expect("Should have vault ID");
 
     // GET /control/v1/organizations/{org}/vaults/{vault} — both middleware layers extract IDs
     let response = app
@@ -112,7 +112,7 @@ async fn test_vault_middleware_extracts_id_from_nested_routes() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -123,7 +123,7 @@ async fn test_vault_middleware_extracts_id_from_nested_routes() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["id"], vault_id);
+    assert_eq!(json["id"], vault);
     assert_eq!(json["name"], "mw-test-vault");
 }
 
@@ -139,7 +139,7 @@ async fn test_org_middleware_works_with_different_route_prefix() {
 
     // Register a user and org through the standard app
     let standard_app = create_test_app(state.clone());
-    let (session, org_id) = setup_user_and_org(&standard_app, 3).await;
+    let (session, organization) = setup_user_and_org(&standard_app, 3).await;
 
     // Build a custom router with a completely different prefix structure.
     // The old hardcoded approach (segments[4]) would fail here because
@@ -148,7 +148,7 @@ async fn test_org_middleware_works_with_different_route_prefix() {
         Extension(org_ctx): Extension<OrganizationContext>,
     ) -> impl IntoResponse {
         axum::Json(json!({
-            "org_id": org_ctx.organization_id,
+            "organization": org_ctx.organization,
             "role": format!("{:?}", org_ctx.member.role),
         }))
     }
@@ -163,7 +163,7 @@ async fn test_org_middleware_works_with_different_route_prefix() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/api/v2/orgs/{org_id}/info"))
+                .uri(format!("/api/v2/orgs/{organization}/info"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -174,7 +174,7 @@ async fn test_org_middleware_works_with_different_route_prefix() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["org_id"], org_id);
+    assert_eq!(json["organization"], organization);
 }
 
 /// Verify vault middleware works when routes use a different path structure.
@@ -187,7 +187,7 @@ async fn test_vault_middleware_works_with_different_route_structure() {
     let state = create_test_state();
 
     let standard_app = create_test_app(state.clone());
-    let (session, org_id) = setup_user_and_org(&standard_app, 4).await;
+    let (session, organization) = setup_user_and_org(&standard_app, 4).await;
 
     // Create a vault through the standard app
     let response = standard_app
@@ -195,7 +195,7 @@ async fn test_vault_middleware_works_with_different_route_structure() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -213,16 +213,16 @@ async fn test_vault_middleware_works_with_different_route_structure() {
     assert_eq!(response.status(), StatusCode::CREATED);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let create_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let vault_id = create_json["vault"]["id"].as_i64().expect("Should have vault ID");
+    let vault = create_json["vault"]["id"].as_u64().expect("Should have vault ID");
 
     // Custom route with completely different structure
     async fn vault_check_handler(
         Extension(org_ctx): Extension<OrganizationContext>,
-        Path((_org, vault_id)): Path<(i64, i64)>,
+        Path((_org, vault)): Path<(i64, i64)>,
     ) -> impl IntoResponse {
         axum::Json(json!({
-            "org_id": org_ctx.organization_id,
-            "vault_id": vault_id,
+            "organization": org_ctx.organization,
+            "vault": vault,
         }))
     }
 
@@ -236,7 +236,7 @@ async fn test_vault_middleware_works_with_different_route_structure() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v3/{org_id}/v/{vault_id}/check"))
+                .uri(format!("/v3/{organization}/v/{vault}/check"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -247,6 +247,6 @@ async fn test_vault_middleware_works_with_different_route_structure() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["org_id"], org_id);
-    assert_eq!(json["vault_id"], vault_id);
+    assert_eq!(json["organization"], organization);
+    assert_eq!(json["vault"], vault);
 }

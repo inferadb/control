@@ -20,7 +20,7 @@ impl<S: StorageBackend> UserRepository<S> {
     }
 
     /// Generate key for user by ID
-    fn user_key(id: i64) -> Vec<u8> {
+    fn user_key(id: u64) -> Vec<u8> {
         format!("user:{id}").into_bytes()
     }
 
@@ -61,7 +61,7 @@ impl<S: StorageBackend> UserRepository<S> {
     }
 
     /// Get a user by ID
-    pub async fn get(&self, id: i64) -> Result<Option<User>> {
+    pub async fn get(&self, id: u64) -> Result<Option<User>> {
         let key = Self::user_key(id);
         let data = self
             .storage
@@ -95,7 +95,7 @@ impl<S: StorageBackend> UserRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid user ID in name index".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -143,7 +143,7 @@ impl<S: StorageBackend> UserRepository<S> {
     }
 
     /// Soft delete a user
-    pub async fn soft_delete(&self, id: i64) -> Result<()> {
+    pub async fn soft_delete(&self, id: u64) -> Result<()> {
         let mut user =
             self.get(id).await?.ok_or_else(|| Error::not_found("User not found".to_string()))?;
 
@@ -154,7 +154,7 @@ impl<S: StorageBackend> UserRepository<S> {
     /// Hard delete a user and all associated indexes
     ///
     /// Warning: This permanently removes the user from storage
-    pub async fn hard_delete(&self, id: i64) -> Result<()> {
+    pub async fn hard_delete(&self, id: u64) -> Result<()> {
         // Get user to remove name index
         let user = self.get(id).await?;
 
@@ -181,7 +181,7 @@ impl<S: StorageBackend> UserRepository<S> {
     }
 
     /// Check if a user exists by ID (excluding soft-deleted)
-    pub async fn exists(&self, id: i64) -> Result<bool> {
+    pub async fn exists(&self, id: u64) -> Result<bool> {
         Ok(self.get(id).await?.is_some())
     }
 
@@ -198,7 +198,7 @@ mod tests {
 
     use super::*;
 
-    async fn create_test_user(id: i64, name: &str) -> User {
+    async fn create_test_user(id: u64, name: &str) -> User {
         User::builder().id(id).name(name.to_string()).create().unwrap()
     }
 

@@ -5,7 +5,7 @@ use axum::{
 };
 use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_test_fixtures::{create_test_app, create_test_state, register_user};
-use inferadb_control_types::entities::AuditEventType;
+use inferadb_control_types::{OrganizationSlug, entities::AuditEventType};
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -34,7 +34,7 @@ async fn test_create_client() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create client
     let response = app
@@ -42,7 +42,7 @@ async fn test_create_client() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -92,7 +92,7 @@ async fn test_list_clients() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create multiple clients
     for (name, desc) in [
@@ -104,7 +104,7 @@ async fn test_list_clients() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                    .uri(format!("/control/v1/organizations/{organization}/clients"))
                     .header("cookie", format!("infera_session={session}"))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -126,7 +126,7 @@ async fn test_list_clients() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -167,14 +167,14 @@ async fn test_create_certificate() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -191,7 +191,7 @@ async fn test_create_certificate() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
+    let client_id = json["client"]["id"].as_u64().unwrap();
 
     // Create certificate
     let response = app
@@ -199,7 +199,9 @@ async fn test_create_certificate() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -225,9 +227,9 @@ async fn test_create_certificate() {
     assert!(json["private_key"].is_string());
     assert_eq!(json["certificate"]["is_active"], true);
 
-    // Verify kid format: org-{org_id}-client-{client_id}-cert-{cert_id}
+    // Verify kid format: org-{organization}-client-{client_id}-cert-{cert_id}
     let kid = json["certificate"]["kid"].as_str().unwrap();
-    assert!(kid.starts_with(&format!("org-{org_id}-client-{client_id}-cert-")));
+    assert!(kid.starts_with(&format!("org-{organization}-client-{client_id}-cert-")));
 }
 
 #[tokio::test]
@@ -254,14 +256,14 @@ async fn test_revoke_certificate() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -278,7 +280,7 @@ async fn test_revoke_certificate() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
+    let client_id = json["client"]["id"].as_u64().unwrap();
 
     // Create certificate
     let response = app
@@ -286,7 +288,9 @@ async fn test_revoke_certificate() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -302,7 +306,7 @@ async fn test_revoke_certificate() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let cert_id = json["certificate"]["id"].as_i64().unwrap();
+    let cert_id = json["certificate"]["id"].as_u64().unwrap();
 
     // Revoke certificate (DELETE method)
     let response = app
@@ -311,7 +315,7 @@ async fn test_revoke_certificate() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/clients/{client_id}/certificates/{cert_id}"
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates/{cert_id}"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -328,7 +332,7 @@ async fn test_revoke_certificate() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/clients/{client_id}/certificates/{cert_id}"
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates/{cert_id}"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -367,14 +371,14 @@ async fn test_delete_client() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -391,7 +395,7 @@ async fn test_delete_client() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
+    let client_id = json["client"]["id"].as_u64().unwrap();
 
     // Delete client
     let response = app
@@ -399,7 +403,7 @@ async fn test_delete_client() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/clients/{client_id}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -414,7 +418,7 @@ async fn test_delete_client() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/clients/{client_id}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -455,7 +459,7 @@ async fn test_rotate_certificate() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create client
     let response = app
@@ -463,7 +467,7 @@ async fn test_rotate_certificate() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -480,7 +484,7 @@ async fn test_rotate_certificate() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
+    let client_id = json["client"]["id"].as_u64().unwrap();
 
     // Create initial certificate
     let response = app
@@ -488,7 +492,9 @@ async fn test_rotate_certificate() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -506,7 +512,7 @@ async fn test_rotate_certificate() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let original_cert_id = json["certificate"]["id"].as_i64().unwrap();
+    let original_cert_id = json["certificate"]["id"].as_u64().unwrap();
     let original_kid = json["certificate"]["kid"].as_str().unwrap();
 
     // Rotate the certificate with a 60 second grace period
@@ -516,7 +522,7 @@ async fn test_rotate_certificate() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/clients/{client_id}/certificates/{original_cert_id}/rotate"
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates/{original_cert_id}/rotate"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
@@ -539,7 +545,7 @@ async fn test_rotate_certificate() {
 
     // Verify rotation response structure
     assert_eq!(json["certificate"]["name"], "rotated-certificate");
-    assert!(json["certificate"]["id"].as_i64().unwrap() != original_cert_id);
+    assert!(json["certificate"]["id"].as_u64().unwrap() != original_cert_id);
     assert!(json["certificate"]["kid"].as_str().unwrap() != original_kid);
     assert!(json["private_key"].is_string());
     assert!(json["valid_from"].is_string());
@@ -575,7 +581,7 @@ async fn test_rotate_certificate_default_grace_period() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create client
     let response = app
@@ -583,7 +589,7 @@ async fn test_rotate_certificate_default_grace_period() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -600,7 +606,7 @@ async fn test_rotate_certificate_default_grace_period() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
+    let client_id = json["client"]["id"].as_u64().unwrap();
 
     // Create initial certificate
     let response = app
@@ -608,7 +614,9 @@ async fn test_rotate_certificate_default_grace_period() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -624,7 +632,7 @@ async fn test_rotate_certificate_default_grace_period() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let cert_id = json["certificate"]["id"].as_i64().unwrap();
+    let cert_id = json["certificate"]["id"].as_u64().unwrap();
 
     // Rotate without specifying grace_period_seconds (should use default of 300)
     let response = app
@@ -633,7 +641,7 @@ async fn test_rotate_certificate_default_grace_period() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/clients/{client_id}/certificates/{cert_id}/rotate"
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates/{cert_id}/rotate"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
@@ -687,7 +695,7 @@ async fn test_rotate_revoked_certificate_fails() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create client
     let response = app
@@ -695,7 +703,7 @@ async fn test_rotate_revoked_certificate_fails() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -712,7 +720,7 @@ async fn test_rotate_revoked_certificate_fails() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
+    let client_id = json["client"]["id"].as_u64().unwrap();
 
     // Create certificate
     let response = app
@@ -720,7 +728,9 @@ async fn test_rotate_revoked_certificate_fails() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -736,7 +746,7 @@ async fn test_rotate_revoked_certificate_fails() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let cert_id = json["certificate"]["id"].as_i64().unwrap();
+    let cert_id = json["certificate"]["id"].as_u64().unwrap();
 
     // Revoke the certificate
     let response = app
@@ -745,7 +755,7 @@ async fn test_rotate_revoked_certificate_fails() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/clients/{client_id}/certificates/{cert_id}"
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates/{cert_id}"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -763,7 +773,7 @@ async fn test_rotate_revoked_certificate_fails() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/clients/{client_id}/certificates/{cert_id}/rotate"
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates/{cert_id}/rotate"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
@@ -786,7 +796,7 @@ async fn test_rotate_revoked_certificate_fails() {
 ///
 /// This integration test verifies that when a certificate is created:
 /// 1. The certificate is saved to the database
-/// 2. The public signing key is written to Ledger (in org namespace)
+/// 2. The public signing key is written to Ledger (scoped to the organization)
 /// 3. The key can be retrieved using the `PublicSigningKeyStore` trait
 #[tokio::test]
 async fn test_certificate_creation_writes_to_ledger() {
@@ -813,7 +823,7 @@ async fn test_certificate_creation_writes_to_ledger() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create client
     let response = app
@@ -821,7 +831,7 @@ async fn test_certificate_creation_writes_to_ledger() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -838,7 +848,7 @@ async fn test_certificate_creation_writes_to_ledger() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
+    let client_id = json["client"]["id"].as_u64().unwrap();
 
     // Create certificate
     let response = app
@@ -846,7 +856,9 @@ async fn test_certificate_creation_writes_to_ledger() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -871,7 +883,7 @@ async fn test_certificate_creation_writes_to_ledger() {
     // Verify the public signing key was written to Ledger storage
     let signing_key_store = state.storage.signing_key_store();
     let stored_key = signing_key_store
-        .get_key(org_id.into(), kid)
+        .get_key(organization.into(), kid)
         .await
         .expect("get_key should not fail")
         .expect("key should exist in Ledger storage");
@@ -879,7 +891,7 @@ async fn test_certificate_creation_writes_to_ledger() {
     // Verify key properties
     assert_eq!(stored_key.kid, kid);
     assert_eq!(stored_key.public_key.as_str(), public_key_from_response);
-    assert_eq!(i64::from(stored_key.client_id), client_id);
+    assert_eq!(u64::from(stored_key.client_id), client_id);
     assert!(stored_key.active, "key should be active");
     assert!(stored_key.revoked_at.is_none(), "key should not be revoked");
 }
@@ -915,7 +927,7 @@ async fn test_certificate_revocation_updates_ledger() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create client
     let response = app
@@ -923,7 +935,7 @@ async fn test_certificate_revocation_updates_ledger() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -940,7 +952,7 @@ async fn test_certificate_revocation_updates_ledger() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
+    let client_id = json["client"]["id"].as_u64().unwrap();
 
     // Create certificate
     let response = app
@@ -948,7 +960,9 @@ async fn test_certificate_revocation_updates_ledger() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -964,13 +978,13 @@ async fn test_certificate_revocation_updates_ledger() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let cert_id = json["certificate"]["id"].as_i64().unwrap();
+    let cert_id = json["certificate"]["id"].as_u64().unwrap();
     let kid = json["certificate"]["kid"].as_str().unwrap().to_string();
 
     // Verify key is active before revocation
     let signing_key_store = state.storage.signing_key_store();
     let key_before = signing_key_store
-        .get_key(org_id.into(), &kid)
+        .get_key(organization.into(), &kid)
         .await
         .expect("get_key should not fail")
         .expect("key should exist");
@@ -985,7 +999,7 @@ async fn test_certificate_revocation_updates_ledger() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/clients/{client_id}/certificates/{cert_id}"
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates/{cert_id}"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -998,7 +1012,7 @@ async fn test_certificate_revocation_updates_ledger() {
 
     // Verify key is now revoked in Ledger storage
     let key_after = signing_key_store
-        .get_key(org_id.into(), &kid)
+        .get_key(organization.into(), &kid)
         .await
         .expect("get_key should not fail")
         .expect("key should still exist after revocation");
@@ -1038,7 +1052,7 @@ async fn test_certificate_rotation_writes_to_ledger() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create client
     let response = app
@@ -1046,7 +1060,7 @@ async fn test_certificate_rotation_writes_to_ledger() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -1063,7 +1077,7 @@ async fn test_certificate_rotation_writes_to_ledger() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
+    let client_id = json["client"]["id"].as_u64().unwrap();
 
     // Create initial certificate
     let response = app
@@ -1071,7 +1085,9 @@ async fn test_certificate_rotation_writes_to_ledger() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -1087,7 +1103,7 @@ async fn test_certificate_rotation_writes_to_ledger() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let original_cert_id = json["certificate"]["id"].as_i64().unwrap();
+    let original_cert_id = json["certificate"]["id"].as_u64().unwrap();
     let original_kid = json["certificate"]["kid"].as_str().unwrap().to_string();
 
     // Rotate the certificate
@@ -1097,7 +1113,7 @@ async fn test_certificate_rotation_writes_to_ledger() {
             Request::builder()
                 .method("POST")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/clients/{client_id}/certificates/{original_cert_id}/rotate"
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates/{original_cert_id}/rotate"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
@@ -1124,7 +1140,7 @@ async fn test_certificate_rotation_writes_to_ledger() {
 
     // Original key should still exist and be active
     let original_key = signing_key_store
-        .get_key(org_id.into(), &original_kid)
+        .get_key(organization.into(), &original_kid)
         .await
         .expect("get_key should not fail")
         .expect("original key should still exist");
@@ -1134,7 +1150,7 @@ async fn test_certificate_rotation_writes_to_ledger() {
 
     // New rotated key should exist
     let new_key = signing_key_store
-        .get_key(org_id.into(), new_kid)
+        .get_key(organization.into(), new_kid)
         .await
         .expect("get_key should not fail")
         .expect("new rotated key should exist");
@@ -1177,7 +1193,7 @@ async fn test_certificate_revocation_creates_audit_log() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create client
     let response = app
@@ -1185,7 +1201,7 @@ async fn test_certificate_revocation_creates_audit_log() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -1202,7 +1218,7 @@ async fn test_certificate_revocation_creates_audit_log() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
+    let client_id = json["client"]["id"].as_u64().unwrap();
 
     // Create certificate
     let response = app
@@ -1210,7 +1226,9 @@ async fn test_certificate_revocation_creates_audit_log() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -1226,7 +1244,7 @@ async fn test_certificate_revocation_creates_audit_log() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let cert_id = json["certificate"]["id"].as_i64().unwrap();
+    let cert_id = json["certificate"]["id"].as_u64().unwrap();
 
     // Revoke the certificate
     let response = app
@@ -1235,7 +1253,7 @@ async fn test_certificate_revocation_creates_audit_log() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/clients/{client_id}/certificates/{cert_id}"
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates/{cert_id}"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -1250,7 +1268,12 @@ async fn test_certificate_revocation_creates_audit_log() {
     let repos = RepositoryContext::new((*state.storage).clone());
     let (logs, _total) = repos
         .audit_log
-        .list_by_organization(org_id, inferadb_control_core::AuditLogFilters::default(), 100, 0)
+        .list_by_organization(
+            OrganizationSlug::from(organization),
+            inferadb_control_core::AuditLogFilters::default(),
+            100,
+            0,
+        )
         .await
         .expect("list_by_organization should not fail");
 
@@ -1261,7 +1284,7 @@ async fn test_certificate_revocation_creates_audit_log() {
         .expect("should have a ClientCertificateRevoked audit log");
 
     // Verify audit log contains correct information
-    assert_eq!(revoke_log.organization_id, Some(org_id));
+    assert_eq!(revoke_log.organization, Some(OrganizationSlug::from(organization)));
     assert!(revoke_log.user_id.is_some(), "audit log should have user_id");
     assert_eq!(revoke_log.client_id, Some(client_id));
     assert_eq!(revoke_log.resource_id, Some(cert_id));
@@ -1317,7 +1340,7 @@ async fn test_engine_rejects_tokens_after_revocation() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create client
     let response = app
@@ -1325,7 +1348,7 @@ async fn test_engine_rejects_tokens_after_revocation() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -1342,7 +1365,7 @@ async fn test_engine_rejects_tokens_after_revocation() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let client_id = json["client"]["id"].as_i64().unwrap();
+    let client_id = json["client"]["id"].as_u64().unwrap();
 
     // Create certificate - this returns the private key
     let response = app
@@ -1350,7 +1373,9 @@ async fn test_engine_rejects_tokens_after_revocation() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -1368,7 +1393,7 @@ async fn test_engine_rejects_tokens_after_revocation() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let cert_id = json["certificate"]["id"].as_i64().unwrap();
+    let cert_id = json["certificate"]["id"].as_u64().unwrap();
     let kid = json["certificate"]["kid"].as_str().unwrap().to_string();
     let private_key_b64 = json["private_key"].as_str().unwrap();
 
@@ -1391,8 +1416,8 @@ async fn test_engine_rejects_tokens_after_revocation() {
         nbf: None,
         jti: Some("test-jti-engine-revoke".into()),
         scope: "vault:read vault:write".into(),
-        vault_id: Some("123456789".into()),
-        org_id: Some(org_id.to_string()),
+        vault: Some("123456789".into()),
+        org: Some(organization.to_string()),
     };
 
     let mut header = Header::new(Algorithm::EdDSA);
@@ -1416,7 +1441,7 @@ async fn test_engine_rejects_tokens_after_revocation() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/clients/{client_id}/certificates/{cert_id}"
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates/{cert_id}"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())

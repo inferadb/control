@@ -10,7 +10,7 @@ pub struct GetUserProfileResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserProfile {
     /// User ID
-    pub id: i64,
+    pub id: u64,
     /// User's name
     pub name: String,
     /// When the user was created

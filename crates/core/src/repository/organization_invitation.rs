@@ -1,5 +1,6 @@
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
+    OrganizationSlug,
     entities::OrganizationInvitation,
     error::{Error, Result},
 };
@@ -9,8 +10,8 @@ use inferadb_control_types::{
 /// Key schema:
 /// - invite:{id} -> OrganizationInvitation data
 /// - invite:token:{token} -> invitation_id (for token lookup)
-/// - invite:org:{org_id}:{idx} -> invitation_id (for org listing)
-/// - invite:email:{email}:{org_id} -> invitation_id (for duplicate checking)
+/// - invite:org:{organization}:{idx} -> invitation_id (for org listing)
+/// - invite:email:{email}:{organization} -> invitation_id (for duplicate checking)
 pub struct OrganizationInvitationRepository<S: StorageBackend> {
     storage: S,
 }
@@ -22,7 +23,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     }
 
     /// Generate key for invitation by ID
-    fn invitation_key(id: i64) -> Vec<u8> {
+    fn invitation_key(id: u64) -> Vec<u8> {
         format!("invite:{id}").into_bytes()
     }
 
@@ -32,13 +33,13 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     }
 
     /// Generate key for invitation by organization index
-    fn invitation_org_index_key(org_id: i64, idx: i64) -> Vec<u8> {
-        format!("invite:org:{org_id}:{idx}").into_bytes()
+    fn invitation_org_index_key(organization: OrganizationSlug, idx: u64) -> Vec<u8> {
+        format!("invite:org:{organization}:{idx}").into_bytes()
     }
 
     /// Generate key for invitation by email and organization (for duplicate checking)
-    fn invitation_email_org_index_key(email: &str, org_id: i64) -> Vec<u8> {
-        format!("invite:email:{}:{}", email.to_lowercase(), org_id).into_bytes()
+    fn invitation_email_org_index_key(email: &str, organization: OrganizationSlug) -> Vec<u8> {
+        format!("invite:email:{}:{}", email.to_lowercase(), organization).into_bytes()
     }
 
     /// Create a new organization invitation
@@ -56,7 +57,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
 
         // Check for duplicate invitation (email + org)
         let email_org_key =
-            Self::invitation_email_org_index_key(&invitation.email, invitation.organization_id);
+            Self::invitation_email_org_index_key(&invitation.email, invitation.organization);
         if self
             .storage
             .get(&email_org_key)
@@ -81,7 +82,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
 
         // Store organization index (using invitation ID as index)
         txn.set(
-            Self::invitation_org_index_key(invitation.organization_id, invitation.id),
+            Self::invitation_org_index_key(invitation.organization, invitation.id),
             invitation.id.to_le_bytes().to_vec(),
         );
 
@@ -97,7 +98,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     }
 
     /// Get an invitation by ID
-    pub async fn get(&self, id: i64) -> Result<Option<OrganizationInvitation>> {
+    pub async fn get(&self, id: u64) -> Result<Option<OrganizationInvitation>> {
         let key = Self::invitation_key(id);
         let data = self
             .storage
@@ -131,7 +132,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid invitation token index data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -139,10 +140,13 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     }
 
     /// List all active invitations for an organization
-    pub async fn list_by_organization(&self, org_id: i64) -> Result<Vec<OrganizationInvitation>> {
-        let prefix = format!("invite:org:{org_id}:");
+    pub async fn list_by_organization(
+        &self,
+        organization: OrganizationSlug,
+    ) -> Result<Vec<OrganizationInvitation>> {
+        let prefix = format!("invite:org:{organization}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("invite:org:{org_id}~").into_bytes();
+        let end = format!("invite:org:{organization}~").into_bytes();
 
         let kvs =
             self.storage.get_range(start..end).await.map_err(|e| {
@@ -151,7 +155,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
 
         let mut invitations = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(invitation) = self.get(id).await? {
                 invitations.push(invitation);
             }
@@ -161,8 +165,12 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     }
 
     /// Check if an invitation exists for an email in an organization
-    pub async fn exists_for_email_in_org(&self, email: &str, org_id: i64) -> Result<bool> {
-        let key = Self::invitation_email_org_index_key(email, org_id);
+    pub async fn exists_for_email_in_org(
+        &self,
+        email: &str,
+        organization: OrganizationSlug,
+    ) -> Result<bool> {
+        let key = Self::invitation_email_org_index_key(email, organization);
         let data =
             self.storage.get(&key).await.map_err(|e| {
                 Error::internal(format!("Failed to check invitation existence: {e}"))
@@ -172,7 +180,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     }
 
     /// Delete an invitation
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get the invitation first to clean up indexes
         let invitation = self
             .get(id)
@@ -193,12 +201,12 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         txn.delete(Self::invitation_token_index_key(&invitation.token));
 
         // Delete organization index
-        txn.delete(Self::invitation_org_index_key(invitation.organization_id, invitation.id));
+        txn.delete(Self::invitation_org_index_key(invitation.organization, invitation.id));
 
         // Delete email+org index
         txn.delete(Self::invitation_email_org_index_key(
             &invitation.email,
-            invitation.organization_id,
+            invitation.organization,
         ));
 
         // Commit transaction
@@ -214,7 +222,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::Backend;
-    use inferadb_control_types::entities::OrganizationRole;
+    use inferadb_control_types::{OrganizationSlug, entities::OrganizationRole};
 
     use super::*;
 
@@ -222,12 +230,16 @@ mod tests {
         OrganizationInvitationRepository::new(Backend::memory())
     }
 
-    fn create_test_invitation(id: i64, org_id: i64, email: &str) -> Result<OrganizationInvitation> {
+    fn create_test_invitation(
+        id: u64,
+        organization: OrganizationSlug,
+        email: &str,
+    ) -> Result<OrganizationInvitation> {
         let token = OrganizationInvitation::generate_token()?;
         OrganizationInvitation::builder()
             .id(id)
-            .organization_id(org_id)
-            .invited_by_user_id(999)
+            .organization(organization)
+            .invited_by_user_id(999_u64)
             .email(email.to_string())
             .role(OrganizationRole::Member)
             .token(token)
@@ -237,7 +249,8 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_get_invitation() {
         let repo = create_test_repo();
-        let invitation = create_test_invitation(1, 100, "test@example.com").unwrap();
+        let invitation =
+            create_test_invitation(1, OrganizationSlug::from(100_u64), "test@example.com").unwrap();
         let token = invitation.token.clone();
 
         repo.create(invitation.clone()).await.unwrap();
@@ -252,8 +265,10 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_invitation_rejected() {
         let repo = create_test_repo();
-        let invitation1 = create_test_invitation(1, 100, "test@example.com").unwrap();
-        let invitation2 = create_test_invitation(2, 100, "test@example.com").unwrap();
+        let invitation1 =
+            create_test_invitation(1, OrganizationSlug::from(100_u64), "test@example.com").unwrap();
+        let invitation2 =
+            create_test_invitation(2, OrganizationSlug::from(100_u64), "test@example.com").unwrap();
 
         repo.create(invitation1).await.unwrap();
 
@@ -265,25 +280,31 @@ mod tests {
     #[tokio::test]
     async fn test_list_by_organization() {
         let repo = create_test_repo();
-        let inv1 = create_test_invitation(1, 100, "user1@example.com").unwrap();
-        let inv2 = create_test_invitation(2, 100, "user2@example.com").unwrap();
-        let inv3 = create_test_invitation(3, 200, "user3@example.com").unwrap();
+        let inv1 = create_test_invitation(1, OrganizationSlug::from(100_u64), "user1@example.com")
+            .unwrap();
+        let inv2 = create_test_invitation(2, OrganizationSlug::from(100_u64), "user2@example.com")
+            .unwrap();
+        let inv3 = create_test_invitation(3, OrganizationSlug::from(200_u64), "user3@example.com")
+            .unwrap();
 
         repo.create(inv1).await.unwrap();
         repo.create(inv2).await.unwrap();
         repo.create(inv3).await.unwrap();
 
-        let org_100_invitations = repo.list_by_organization(100).await.unwrap();
+        let org_100_invitations =
+            repo.list_by_organization(OrganizationSlug::from(100_u64)).await.unwrap();
         assert_eq!(org_100_invitations.len(), 2);
 
-        let org_200_invitations = repo.list_by_organization(200).await.unwrap();
+        let org_200_invitations =
+            repo.list_by_organization(OrganizationSlug::from(200_u64)).await.unwrap();
         assert_eq!(org_200_invitations.len(), 1);
     }
 
     #[tokio::test]
     async fn test_delete_invitation() {
         let repo = create_test_repo();
-        let invitation = create_test_invitation(1, 100, "test@example.com").unwrap();
+        let invitation =
+            create_test_invitation(1, OrganizationSlug::from(100_u64), "test@example.com").unwrap();
         let token = invitation.token.clone();
 
         repo.create(invitation).await.unwrap();
@@ -297,13 +318,28 @@ mod tests {
     #[tokio::test]
     async fn test_exists_for_email_in_org() {
         let repo = create_test_repo();
-        let invitation = create_test_invitation(1, 100, "test@example.com").unwrap();
+        let invitation =
+            create_test_invitation(1, OrganizationSlug::from(100_u64), "test@example.com").unwrap();
 
-        assert!(!repo.exists_for_email_in_org("test@example.com", 100).await.unwrap());
+        assert!(
+            !repo
+                .exists_for_email_in_org("test@example.com", OrganizationSlug::from(100_u64))
+                .await
+                .unwrap()
+        );
 
         repo.create(invitation).await.unwrap();
 
-        assert!(repo.exists_for_email_in_org("test@example.com", 100).await.unwrap());
-        assert!(!repo.exists_for_email_in_org("test@example.com", 200).await.unwrap());
+        assert!(
+            repo.exists_for_email_in_org("test@example.com", OrganizationSlug::from(100_u64))
+                .await
+                .unwrap()
+        );
+        assert!(
+            !repo
+                .exists_for_email_in_org("test@example.com", OrganizationSlug::from(200_u64))
+                .await
+                .unwrap()
+        );
     }
 }

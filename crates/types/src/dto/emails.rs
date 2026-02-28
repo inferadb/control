@@ -20,7 +20,7 @@ pub struct AddEmailResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserEmailInfo {
     /// Email ID
-    pub id: i64,
+    pub id: u64,
     /// Email address
     pub email: String,
     /// Whether this is the primary email

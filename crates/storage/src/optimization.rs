@@ -396,6 +396,31 @@ impl<B: StorageBackend + Clone> StorageBackend for OptimizedBackend<B> {
         result
     }
 
+    async fn compare_and_set_with_ttl(
+        &self,
+        key: &[u8],
+        expected: Option<&[u8]>,
+        new_value: Vec<u8>,
+        ttl: Duration,
+    ) -> StorageResult<()> {
+        let start = Instant::now();
+
+        if let Some(cache) = &self.cache {
+            cache.invalidate(key);
+        }
+
+        let result = self.backend.compare_and_set_with_ttl(key, expected, new_value, ttl).await;
+
+        self.metrics.record_set(start.elapsed());
+        self.metrics.record_ttl_operation();
+
+        if result.is_err() {
+            self.metrics.record_error();
+        }
+
+        result
+    }
+
     async fn health_check(&self, probe: HealthProbe) -> StorageResult<HealthStatus> {
         self.metrics.record_health_check();
         self.backend.health_check(probe).await

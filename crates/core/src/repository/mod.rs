@@ -41,13 +41,13 @@ pub use vault::{VaultRepository, VaultTeamGrantRepository, VaultUserGrantReposit
 pub use vault_refresh_token::VaultRefreshTokenRepository;
 pub use vault_schema::VaultSchemaRepository;
 
-/// Parses an i64 from a byte slice.
+/// Parses a u64 from a byte slice.
 ///
 /// Returns an error if the slice doesn't contain exactly 8 bytes.
 #[inline]
-pub(crate) fn parse_i64_id(bytes: &[u8]) -> Result<i64, Error> {
+pub(crate) fn parse_u64_id(bytes: &[u8]) -> Result<u64, Error> {
     let arr: [u8; 8] = bytes.try_into().map_err(|_| {
         Error::storage(format!("invalid id bytes: expected 8, got {}", bytes.len()))
     })?;
-    Ok(i64::from_le_bytes(arr))
+    Ok(u64::from_le_bytes(arr))
 }

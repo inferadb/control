@@ -101,9 +101,9 @@ pub async fn delete_user(
     for membership in &memberships {
         if membership.role == inferadb_control_types::entities::OrganizationRole::Owner {
             // Check if this user is the only owner
-            let owner_count = repos.org_member.count_owners(membership.organization_id).await?;
+            let owner_count = repos.org_member.count_owners(membership.organization).await?;
             if owner_count <= 1
-                && let Some(org) = repos.org.get(membership.organization_id).await?
+                && let Some(org) = repos.org.get(membership.organization).await?
             {
                 return Err(CoreError::validation(format!(
                     "Cannot delete account while being the only owner of organization '{}'. Please transfer ownership or delete the organization first.",
@@ -198,8 +198,8 @@ mod tests {
 
     async fn create_test_user_and_session(
         storage: Arc<Backend>,
-        user_id: i64,
-        session_id: i64,
+        user_id: u64,
+        session_id: u64,
     ) -> (User, UserSession) {
         let repos = RepositoryContext::new((*storage).clone());
         let user = User::builder().id(user_id).name("testuser").create().unwrap();

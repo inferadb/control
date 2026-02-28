@@ -1,5 +1,6 @@
 use std::sync::Once;
 
+use inferadb_control_types::OrganizationSlug;
 use metrics::{counter, describe_counter, describe_gauge, describe_histogram, gauge, histogram};
 
 static METRICS_INIT: Once = Once::new();
@@ -121,17 +122,17 @@ pub fn record_grpc_request(service: &str, method: &str, status: &str, duration_s
 }
 
 /// Set the number of active sessions
-pub fn set_active_sessions(count: i64) {
+pub fn set_active_sessions(count: u64) {
     gauge!("active_sessions").set(count as f64);
 }
 
 /// Set the total number of organizations
-pub fn set_organizations_total(count: i64) {
+pub fn set_organizations_total(count: u64) {
     gauge!("organizations_total").set(count as f64);
 }
 
 /// Set the total number of vaults
-pub fn set_vaults_total(count: i64) {
+pub fn set_vaults_total(count: u64) {
     gauge!("vaults_total").set(count as f64);
 }
 
@@ -146,7 +147,7 @@ pub fn record_discovery_cache_miss() {
 }
 
 /// Set the number of discovered endpoints
-pub fn set_discovered_endpoints(count: i64) {
+pub fn set_discovered_endpoints(count: u64) {
     gauge!("discovered_endpoints").set(count as f64);
 }
 
@@ -159,10 +160,10 @@ pub fn set_clock_skew(skew_seconds: f64) {
 ///
 /// # Arguments
 ///
-/// * `org_id` - Organization ID that owns the key
+/// * `organization` - Organization that owns the key
 /// * `duration_secs` - Duration of the Ledger write operation in seconds
-pub fn record_signing_key_registered(org_id: i64, duration_secs: f64) {
-    counter!("inferadb_control_signing_keys_registered_total", "org_id" => org_id.to_string())
+pub fn record_signing_key_registered(organization: OrganizationSlug, duration_secs: f64) {
+    counter!("inferadb_control_signing_keys_registered_total", "organization" => organization.to_string())
         .increment(1);
     histogram!("inferadb_control_ledger_key_write_duration_seconds", "operation" => "create")
         .record(duration_secs);
@@ -172,11 +173,15 @@ pub fn record_signing_key_registered(org_id: i64, duration_secs: f64) {
 ///
 /// # Arguments
 ///
-/// * `org_id` - Organization ID that owns the key
+/// * `organization` - Organization that owns the key
 /// * `reason` - Reason for revocation (e.g., "user_requested", "emergency", "rotation")
 /// * `duration_secs` - Duration of the Ledger write operation in seconds
-pub fn record_signing_key_revoked(org_id: i64, reason: &str, duration_secs: f64) {
-    counter!("inferadb_control_signing_keys_revoked_total", "org_id" => org_id.to_string(), "reason" => reason.to_string())
+pub fn record_signing_key_revoked(
+    organization: OrganizationSlug,
+    reason: &str,
+    duration_secs: f64,
+) {
+    counter!("inferadb_control_signing_keys_revoked_total", "organization" => organization.to_string(), "reason" => reason.to_string())
         .increment(1);
     histogram!("inferadb_control_ledger_key_write_duration_seconds", "operation" => "revoke")
         .record(duration_secs);
@@ -186,10 +191,10 @@ pub fn record_signing_key_revoked(org_id: i64, reason: &str, duration_secs: f64)
 ///
 /// # Arguments
 ///
-/// * `org_id` - Organization ID that owns the key
+/// * `organization` - Organization that owns the key
 /// * `duration_secs` - Duration of the Ledger write operation in seconds
-pub fn record_signing_key_rotated(org_id: i64, duration_secs: f64) {
-    counter!("inferadb_control_signing_keys_rotated_total", "org_id" => org_id.to_string())
+pub fn record_signing_key_rotated(organization: OrganizationSlug, duration_secs: f64) {
+    counter!("inferadb_control_signing_keys_rotated_total", "organization" => organization.to_string())
         .increment(1);
     histogram!("inferadb_control_ledger_key_write_duration_seconds", "operation" => "rotate")
         .record(duration_secs);
@@ -271,9 +276,9 @@ mod tests {
     #[test]
     fn test_record_signing_key_metrics() {
         init();
-        record_signing_key_registered(123, 0.015);
-        record_signing_key_revoked(123, "user_requested", 0.010);
-        record_signing_key_revoked(456, "emergency", 0.005);
-        record_signing_key_rotated(123, 0.020);
+        record_signing_key_registered(OrganizationSlug::from(123), 0.015);
+        record_signing_key_revoked(OrganizationSlug::from(123), "user_requested", 0.010);
+        record_signing_key_revoked(OrganizationSlug::from(456), "emergency", 0.005);
+        record_signing_key_rotated(OrganizationSlug::from(123), 0.020);
     }
 }

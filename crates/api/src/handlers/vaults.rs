@@ -5,7 +5,7 @@ use axum::{
 };
 use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_types::{
-    Error as CoreError,
+    Error as CoreError, OrganizationSlug, VaultSlug,
     dto::{
         CreateTeamGrantRequest, CreateTeamGrantResponse, CreateUserGrantRequest,
         CreateUserGrantResponse, CreateVaultRequest, CreateVaultResponse, DeleteTeamGrantResponse,
@@ -32,7 +32,7 @@ fn vault_to_response(vault: Vault) -> VaultResponse {
         id: vault.id,
         name: vault.name,
         description: vault.description,
-        organization_id: vault.organization_id,
+        organization: vault.organization,
         sync_status: vault.sync_status,
         sync_error: vault.sync_error,
         created_at: vault.created_at.to_rfc3339(),
@@ -44,7 +44,7 @@ fn vault_to_response(vault: Vault) -> VaultResponse {
 fn user_grant_to_response(grant: VaultUserGrant) -> UserGrantResponse {
     UserGrantResponse {
         id: grant.id,
-        vault_id: grant.vault_id,
+        vault: grant.vault,
         user_id: grant.user_id,
         role: grant.role,
         granted_at: grant.granted_at.to_rfc3339(),
@@ -55,7 +55,7 @@ fn user_grant_to_response(grant: VaultUserGrant) -> UserGrantResponse {
 fn team_grant_to_response(grant: VaultTeamGrant) -> TeamGrantResponse {
     TeamGrantResponse {
         id: grant.id,
-        vault_id: grant.vault_id,
+        vault: grant.vault,
         team_id: grant.team_id,
         role: grant.role,
         granted_at: grant.granted_at.to_rfc3339(),
@@ -83,12 +83,12 @@ pub async fn create_vault(
     let repos = RepositoryContext::new((*state.storage).clone());
     let organization = repos
         .org
-        .get(org_ctx.organization_id)
+        .get(org_ctx.organization)
         .await?
         .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Check tier limits
-    let current_count = repos.vault.count_active_by_organization(org_ctx.organization_id).await?;
+    let current_count = repos.vault.count_active_by_organization(org_ctx.organization).await?;
 
     if current_count >= organization.tier.max_vaults() {
         return Err(CoreError::tier_limit(format!(
@@ -100,12 +100,12 @@ pub async fn create_vault(
     }
 
     // Generate ID for the vault
-    let vault_id = IdGenerator::next_id();
+    let vault = VaultSlug::from(IdGenerator::next_id());
 
     // Create vault entity (starts with PENDING sync status)
     let mut vault = Vault::builder()
-        .id(vault_id)
-        .organization_id(org_ctx.organization_id)
+        .id(vault)
+        .organization(org_ctx.organization)
         .name(payload.name)
         .maybe_description(payload.description.clone())
         .created_by_user_id(org_ctx.member.user_id)
@@ -121,7 +121,7 @@ pub async fn create_vault(
     let grant_id = IdGenerator::next_id();
     let grant = VaultUserGrant::new(
         grant_id,
-        vault_id,
+        vault.id,
         org_ctx.member.user_id,
         VaultRole::Admin,
         org_ctx.member.user_id,
@@ -135,7 +135,7 @@ pub async fn create_vault(
                 id: vault.id,
                 name: vault.name,
                 description: vault.description,
-                organization_id: vault.organization_id,
+                organization: vault.organization,
                 sync_status: vault.sync_status,
                 created_at: vault.created_at.to_rfc3339(),
             },
@@ -158,7 +158,7 @@ pub async fn list_vaults(
     let params = pagination.0.validate();
 
     let repos = RepositoryContext::new((*state.storage).clone());
-    let all_vaults = repos.vault.list_active_by_organization(org_ctx.organization_id).await?;
+    let all_vaults = repos.vault.list_active_by_organization(org_ctx.organization).await?;
 
     // Apply pagination
     let total = all_vaults.len();
@@ -186,7 +186,7 @@ pub async fn list_vaults(
 pub async fn get_vault(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
 ) -> Result<Json<VaultResponse>> {
     // Require member role or higher
     require_member(&org_ctx)?;
@@ -194,12 +194,12 @@ pub async fn get_vault(
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     // Verify vault belongs to this organization
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
@@ -221,12 +221,12 @@ pub async fn get_vault(
 /// requiring organization context.
 pub async fn get_vault_by_id(
     State(state): State<AppState>,
-    Path(vault_id): Path<i64>,
+    Path(vault): Path<VaultSlug>,
 ) -> Result<Json<VaultResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
@@ -245,7 +245,7 @@ pub async fn get_vault_by_id(
 pub async fn update_vault(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
     Json(payload): Json<UpdateVaultRequest>,
 ) -> Result<Json<UpdateVaultResponse>> {
     // Require admin or owner role
@@ -254,12 +254,12 @@ pub async fn update_vault(
     let repos = RepositoryContext::new((*state.storage).clone());
     let mut vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     // Verify vault belongs to this organization
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
@@ -280,7 +280,7 @@ pub async fn update_vault(
             id: vault.id,
             name: vault.name,
             description: vault.description,
-            organization_id: vault.organization_id,
+            organization: vault.organization,
             sync_status: vault.sync_status,
             created_at: vault.created_at.to_rfc3339(),
         },
@@ -298,7 +298,7 @@ pub async fn update_vault(
 pub async fn delete_vault(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
 ) -> Result<StatusCode> {
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
@@ -307,17 +307,17 @@ pub async fn delete_vault(
 
     let mut vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     // Verify vault belongs to this organization
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // VALIDATION: Check for active refresh tokens before allowing deletion
-    let tokens = repos.vault_refresh_token.list_by_vault(vault_id).await?;
+    let tokens = repos.vault_refresh_token.list_by_vault(vault.id).await?;
     let active_token_count = tokens.iter().filter(|t| !t.is_expired() && !t.is_revoked()).count();
 
     if active_token_count > 0 {
@@ -330,13 +330,13 @@ pub async fn delete_vault(
     }
 
     // CASCADE DELETE: Delete all vault user grants
-    let user_grants = repos.vault_user_grant.list_by_vault(vault_id).await?;
+    let user_grants = repos.vault_user_grant.list_by_vault(vault.id).await?;
     for grant in user_grants {
         repos.vault_user_grant.delete(grant.id).await?;
     }
 
     // CASCADE DELETE: Delete all vault team grants
-    let team_grants = repos.vault_team_grant.list_by_vault(vault_id).await?;
+    let team_grants = repos.vault_team_grant.list_by_vault(vault.id).await?;
     for grant in team_grants {
         repos.vault_team_grant.delete(grant.id).await?;
     }
@@ -359,7 +359,7 @@ pub async fn delete_vault(
 pub async fn create_user_grant(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
     Json(payload): Json<CreateUserGrantRequest>,
 ) -> Result<(StatusCode, Json<CreateUserGrantResponse>)> {
     // Require admin or owner role
@@ -369,11 +369,11 @@ pub async fn create_user_grant(
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
@@ -383,7 +383,7 @@ pub async fn create_user_grant(
     // Create grant entity
     let grant = VaultUserGrant::new(
         grant_id,
-        vault_id,
+        vault.id,
         payload.user_id,
         payload.role,
         org_ctx.member.user_id,
@@ -405,7 +405,7 @@ pub async fn create_user_grant(
 pub async fn list_user_grants(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
 ) -> Result<Json<ListUserGrantsResponse>> {
     // Require member role or higher
     require_member(&org_ctx)?;
@@ -414,15 +414,15 @@ pub async fn list_user_grants(
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
-    let grants = repos.vault_user_grant.list_by_vault(vault_id).await?;
+    let grants = repos.vault_user_grant.list_by_vault(vault.id).await?;
 
     Ok(Json(ListUserGrantsResponse {
         grants: grants.into_iter().map(user_grant_to_response).collect(),
@@ -436,7 +436,7 @@ pub async fn list_user_grants(
 pub async fn update_user_grant(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id, grant_id)): Path<(i64, i64, i64)>,
+    Path((_org, vault, grant_id)): Path<(OrganizationSlug, VaultSlug, u64)>,
     Json(payload): Json<UpdateUserGrantRequest>,
 ) -> Result<Json<UpdateUserGrantResponse>> {
     // Require admin or owner role
@@ -446,11 +446,11 @@ pub async fn update_user_grant(
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
@@ -462,7 +462,7 @@ pub async fn update_user_grant(
         .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
 
     // Verify grant belongs to this vault
-    if grant.vault_id != vault_id {
+    if grant.vault != vault.id {
         return Err(CoreError::not_found("Grant not found".to_string()).into());
     }
 
@@ -480,7 +480,7 @@ pub async fn update_user_grant(
 pub async fn delete_user_grant(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id, user_id)): Path<(i64, i64, i64)>,
+    Path((_org, vault, user_id)): Path<(OrganizationSlug, VaultSlug, u64)>,
 ) -> Result<StatusCode> {
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
@@ -489,18 +489,18 @@ pub async fn delete_user_grant(
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Get grant by user_id
     let grant = repos
         .vault_user_grant
-        .get_by_vault_and_user(vault_id, user_id)
+        .get_by_vault_and_user(vault.id, user_id)
         .await?
         .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
 
@@ -521,7 +521,7 @@ pub async fn delete_user_grant(
 pub async fn create_team_grant(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
     Json(payload): Json<CreateTeamGrantRequest>,
 ) -> Result<(StatusCode, Json<CreateTeamGrantResponse>)> {
     // Require admin or owner role
@@ -531,11 +531,11 @@ pub async fn create_team_grant(
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
@@ -545,7 +545,7 @@ pub async fn create_team_grant(
     // Create grant entity
     let grant = VaultTeamGrant::new(
         grant_id,
-        vault_id,
+        vault.id,
         payload.team_id,
         payload.role,
         org_ctx.member.user_id,
@@ -567,7 +567,7 @@ pub async fn create_team_grant(
 pub async fn list_team_grants(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
 ) -> Result<Json<ListTeamGrantsResponse>> {
     // Require member role or higher
     require_member(&org_ctx)?;
@@ -576,15 +576,15 @@ pub async fn list_team_grants(
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
-    let grants = repos.vault_team_grant.list_by_vault(vault_id).await?;
+    let grants = repos.vault_team_grant.list_by_vault(vault.id).await?;
 
     Ok(Json(ListTeamGrantsResponse {
         grants: grants.into_iter().map(team_grant_to_response).collect(),
@@ -598,7 +598,7 @@ pub async fn list_team_grants(
 pub async fn update_team_grant(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id, grant_id)): Path<(i64, i64, i64)>,
+    Path((_org, vault, grant_id)): Path<(OrganizationSlug, VaultSlug, u64)>,
     Json(payload): Json<UpdateTeamGrantRequest>,
 ) -> Result<Json<UpdateTeamGrantResponse>> {
     // Require admin or owner role
@@ -608,11 +608,11 @@ pub async fn update_team_grant(
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
@@ -624,7 +624,7 @@ pub async fn update_team_grant(
         .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
 
     // Verify grant belongs to this vault
-    if grant.vault_id != vault_id {
+    if grant.vault != vault.id {
         return Err(CoreError::not_found("Grant not found".to_string()).into());
     }
 
@@ -642,7 +642,7 @@ pub async fn update_team_grant(
 pub async fn delete_team_grant(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id, grant_id)): Path<(i64, i64, i64)>,
+    Path((_org, vault, grant_id)): Path<(OrganizationSlug, VaultSlug, u64)>,
 ) -> Result<Json<DeleteTeamGrantResponse>> {
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
@@ -651,11 +651,11 @@ pub async fn delete_team_grant(
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
@@ -667,7 +667,7 @@ pub async fn delete_team_grant(
         .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
 
     // Verify grant belongs to this vault
-    if grant.vault_id != vault_id {
+    if grant.vault != vault.id {
         return Err(CoreError::not_found("Grant not found".to_string()).into());
     }
 

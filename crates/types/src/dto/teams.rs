@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::entities::OrganizationPermission;
+use crate::{OrganizationSlug, entities::OrganizationPermission};
 
 // ============================================================================
 // Request/Response Types - Team Management
@@ -19,19 +19,19 @@ pub struct CreateTeamResponse {
 
 #[derive(Debug, Serialize)]
 pub struct TeamInfo {
-    pub id: i64,
+    pub id: u64,
     pub name: String,
     pub description: String,
-    pub organization_id: i64,
+    pub organization: OrganizationSlug,
     pub created_at: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct TeamResponse {
-    pub id: i64,
+    pub id: u64,
     pub name: String,
     pub description: String,
-    pub organization_id: i64,
+    pub organization: OrganizationSlug,
     pub created_at: String,
     pub deleted_at: Option<String>,
 }
@@ -66,7 +66,7 @@ pub struct DeleteTeamResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct AddTeamMemberRequest {
-    pub user_id: i64,
+    pub user_id: u64,
     #[serde(rename = "is_manager")]
     pub manager: bool,
 }
@@ -78,18 +78,18 @@ pub struct AddTeamMemberResponse {
 
 #[derive(Debug, Serialize)]
 pub struct TeamMemberInfo {
-    pub id: i64,
-    pub team_id: i64,
-    pub user_id: i64,
+    pub id: u64,
+    pub team_id: u64,
+    pub user_id: u64,
     pub is_manager: bool,
     pub created_at: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct TeamMemberResponse {
-    pub id: i64,
-    pub team_id: i64,
-    pub user_id: i64,
+    pub id: u64,
+    pub team_id: u64,
+    pub user_id: u64,
     pub manager: bool,
     pub created_at: String,
 }
@@ -106,7 +106,7 @@ pub struct UpdateTeamMemberRequest {
 
 #[derive(Debug, Serialize)]
 pub struct UpdateTeamMemberResponse {
-    pub id: i64,
+    pub id: u64,
     pub manager: bool,
 }
 
@@ -131,20 +131,20 @@ pub struct GrantTeamPermissionResponse {
 
 #[derive(Debug, Serialize)]
 pub struct TeamPermissionInfo {
-    pub id: i64,
-    pub team_id: i64,
+    pub id: u64,
+    pub team_id: u64,
     pub permission: OrganizationPermission,
     pub granted_at: String,
-    pub granted_by_user_id: i64,
+    pub granted_by_user_id: u64,
 }
 
 #[derive(Debug, Serialize)]
 pub struct TeamPermissionResponse {
-    pub id: i64,
-    pub team_id: i64,
+    pub id: u64,
+    pub team_id: u64,
     pub permission: OrganizationPermission,
     pub granted_at: String,
-    pub granted_by_user_id: i64,
+    pub granted_by_user_id: u64,
 }
 
 #[derive(Debug, Serialize)]

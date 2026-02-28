@@ -93,7 +93,7 @@ async fn test_set_primary_requires_verified() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
-    let email_id = json["email"]["id"].as_i64().unwrap();
+    let email_id = json["email"]["id"].as_u64().unwrap();
 
     // Try to set unverified email as primary — should fail
     let response = app
@@ -147,7 +147,7 @@ async fn test_cannot_delete_primary_email() {
         .iter()
         .find(|e| e["is_primary"].as_bool().unwrap())
         .expect("Should have a primary email");
-    let primary_id = primary_email["id"].as_i64().unwrap();
+    let primary_id = primary_email["id"].as_u64().unwrap();
 
     // Try to delete primary email — should fail
     let response = app
@@ -191,7 +191,7 @@ async fn test_delete_non_primary_email() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
-    let secondary_id = json["email"]["id"].as_i64().unwrap();
+    let secondary_id = json["email"]["id"].as_u64().unwrap();
 
     // Delete secondary email — should succeed
     let response = app
@@ -253,7 +253,7 @@ async fn test_verify_email_with_valid_token() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
-    let email_id = json["email"]["id"].as_i64().unwrap();
+    let email_id = json["email"]["id"].as_u64().unwrap();
 
     // Get the verification token from the repository
     let token_repo = UserEmailVerificationTokenRepository::new((*state.storage).clone());
@@ -354,7 +354,7 @@ async fn test_cross_user_email_isolation() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
-    let email_id = json["email"]["id"].as_i64().unwrap();
+    let email_id = json["email"]["id"].as_u64().unwrap();
 
     // User B tries to delete User A's email — should fail with 401
     let response = app
@@ -441,7 +441,7 @@ async fn test_reused_verification_token_rejected() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
-    let email_id = json["email"]["id"].as_i64().unwrap();
+    let email_id = json["email"]["id"].as_u64().unwrap();
 
     // Get the verification token
     let token_repo = UserEmailVerificationTokenRepository::new((*state.storage).clone());
@@ -507,7 +507,7 @@ async fn test_verified_email_cannot_become_primary_while_another_exists() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
-    let email_id = json["email"]["id"].as_i64().unwrap();
+    let email_id = json["email"]["id"].as_u64().unwrap();
 
     // Get the verification token and verify the email
     let token_repo = UserEmailVerificationTokenRepository::new((*state.storage).clone());

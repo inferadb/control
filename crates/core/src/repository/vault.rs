@@ -1,5 +1,6 @@
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
+    OrganizationSlug, VaultSlug,
     entities::{Vault, VaultTeamGrant, VaultUserGrant},
     error::{Error, Result},
 };
@@ -8,9 +9,9 @@ use inferadb_control_types::{
 ///
 /// Key schema:
 /// - vault:{id} -> Vault data
-/// - vault:org:{org_id}:{idx} -> vault_id (for org listing)
-/// - vault:name:{org_id}:{name_lowercase} -> vault_id (for duplicate name checking)
-/// - vault:org_active_count:{org_id} -> i64 (active vault count per org)
+/// - vault:org:{organization}:{idx} -> vault (for org listing)
+/// - vault:name:{organization}:{name_lowercase} -> vault (for duplicate name checking)
+/// - vault:org_active_count:{organization} -> u64 (active vault count per org)
 pub struct VaultRepository<S: StorageBackend> {
     storage: S,
 }
@@ -22,45 +23,45 @@ impl<S: StorageBackend> VaultRepository<S> {
     }
 
     /// Generate key for vault by ID
-    fn vault_key(id: i64) -> Vec<u8> {
+    fn vault_key(id: VaultSlug) -> Vec<u8> {
         format!("vault:{id}").into_bytes()
     }
 
     /// Generate key for vault by organization index
-    fn vault_org_index_key(org_id: i64, idx: i64) -> Vec<u8> {
-        format!("vault:org:{org_id}:{idx}").into_bytes()
+    fn vault_org_index_key(organization: OrganizationSlug, idx: VaultSlug) -> Vec<u8> {
+        format!("vault:org:{organization}:{idx}").into_bytes()
     }
 
     /// Generate key for vault by name (for duplicate checking)
-    fn vault_name_index_key(org_id: i64, name: &str) -> Vec<u8> {
-        format!("vault:name:{}:{}", org_id, name.to_lowercase()).into_bytes()
+    fn vault_name_index_key(organization: OrganizationSlug, name: &str) -> Vec<u8> {
+        format!("vault:name:{}:{}", organization, name.to_lowercase()).into_bytes()
     }
 
     /// Key for per-organization active vault count
-    fn org_active_count_key(org_id: i64) -> Vec<u8> {
-        format!("vault:org_active_count:{org_id}").into_bytes()
+    fn org_active_count_key(organization: OrganizationSlug) -> Vec<u8> {
+        format!("vault:org_active_count:{organization}").into_bytes()
     }
 
     /// Read the raw active count from storage, returning None if uninitialized or corrupt
-    async fn get_raw_active_count(&self, org_id: i64) -> Result<Option<i64>> {
-        let key = Self::org_active_count_key(org_id);
+    async fn get_raw_active_count(&self, organization: OrganizationSlug) -> Result<Option<u64>> {
+        let key = Self::org_active_count_key(organization);
         let data = self
             .storage
             .get(&key)
             .await
             .map_err(|e| Error::internal(format!("Failed to get vault active count: {e}")))?;
         match data {
-            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_i64_id(&bytes)?)),
+            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_u64_id(&bytes)?)),
             _ => Ok(None),
         }
     }
 
     /// Recount active vaults by scanning all entities and update the counter
-    async fn recount_active(&self, org_id: i64) -> Result<usize> {
-        let active = self.list_active_by_organization(org_id).await?;
+    async fn recount_active(&self, organization: OrganizationSlug) -> Result<usize> {
+        let active = self.list_active_by_organization(organization).await?;
         let count = active.len();
         self.storage
-            .set(Self::org_active_count_key(org_id), (count as i64).to_le_bytes().to_vec())
+            .set(Self::org_active_count_key(organization), (count as u64).to_le_bytes().to_vec())
             .await
             .map_err(|e| Error::internal(format!("Failed to set vault active count: {e}")))?;
         Ok(count)
@@ -80,7 +81,7 @@ impl<S: StorageBackend> VaultRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Check for duplicate name within organization
-        let name_key = Self::vault_name_index_key(vault.organization_id, &vault.name);
+        let name_key = Self::vault_name_index_key(vault.organization, &vault.name);
         if self
             .storage
             .get(&name_key)
@@ -99,16 +100,16 @@ impl<S: StorageBackend> VaultRepository<S> {
 
         // Store organization index
         txn.set(
-            Self::vault_org_index_key(vault.organization_id, vault.id),
-            vault.id.to_le_bytes().to_vec(),
+            Self::vault_org_index_key(vault.organization, vault.id),
+            vault.id.value().to_le_bytes().to_vec(),
         );
 
         // Store name index
-        txn.set(name_key, vault.id.to_le_bytes().to_vec());
+        txn.set(name_key, vault.id.value().to_le_bytes().to_vec());
 
         // Increment active count for the organization
-        let active_count_key = Self::org_active_count_key(vault.organization_id);
-        let current_active = self.get_raw_active_count(vault.organization_id).await?.unwrap_or(0);
+        let active_count_key = Self::org_active_count_key(vault.organization);
+        let current_active = self.get_raw_active_count(vault.organization).await?.unwrap_or(0);
         txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
 
         // Commit transaction
@@ -120,7 +121,7 @@ impl<S: StorageBackend> VaultRepository<S> {
     }
 
     /// Get a vault by ID
-    pub async fn get(&self, id: i64) -> Result<Option<Vault>> {
+    pub async fn get(&self, id: VaultSlug) -> Result<Option<Vault>> {
         let key = Self::vault_key(id);
         let data = self
             .storage
@@ -139,10 +140,10 @@ impl<S: StorageBackend> VaultRepository<S> {
     }
 
     /// List all vaults for an organization (including soft-deleted)
-    pub async fn list_by_organization(&self, org_id: i64) -> Result<Vec<Vault>> {
-        let prefix = format!("vault:org:{org_id}:");
+    pub async fn list_by_organization(&self, organization: OrganizationSlug) -> Result<Vec<Vault>> {
+        let prefix = format!("vault:org:{organization}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("vault:org:{org_id}~").into_bytes();
+        let end = format!("vault:org:{organization}~").into_bytes();
 
         let kvs = self
             .storage
@@ -152,8 +153,8 @@ impl<S: StorageBackend> VaultRepository<S> {
 
         let mut vaults = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
-            if let Some(vault) = self.get(id).await? {
+            let Ok(raw_id) = super::parse_u64_id(&kv.value) else { continue };
+            if let Some(vault) = self.get(VaultSlug::from(raw_id)).await? {
                 vaults.push(vault);
             }
         }
@@ -162,8 +163,11 @@ impl<S: StorageBackend> VaultRepository<S> {
     }
 
     /// List active (non-deleted) vaults for an organization
-    pub async fn list_active_by_organization(&self, org_id: i64) -> Result<Vec<Vault>> {
-        let all_vaults = self.list_by_organization(org_id).await?;
+    pub async fn list_active_by_organization(
+        &self,
+        organization: OrganizationSlug,
+    ) -> Result<Vec<Vault>> {
+        let all_vaults = self.list_by_organization(organization).await?;
         Ok(all_vaults.into_iter().filter(|v| !v.is_deleted()).collect())
     }
 
@@ -193,10 +197,10 @@ impl<S: StorageBackend> VaultRepository<S> {
         // If name changed, update name index
         if existing.name != vault.name {
             // Delete old name index
-            txn.delete(Self::vault_name_index_key(existing.organization_id, &existing.name));
+            txn.delete(Self::vault_name_index_key(existing.organization, &existing.name));
 
             // Check for duplicate new name
-            let new_name_key = Self::vault_name_index_key(vault.organization_id, &vault.name);
+            let new_name_key = Self::vault_name_index_key(vault.organization, &vault.name);
             if self
                 .storage
                 .get(&new_name_key)
@@ -211,21 +215,19 @@ impl<S: StorageBackend> VaultRepository<S> {
             }
 
             // Store new name index
-            txn.set(new_name_key, vault.id.to_le_bytes().to_vec());
+            txn.set(new_name_key, vault.id.value().to_le_bytes().to_vec());
         }
 
         // Adjust active count on soft-delete or undelete transitions
         if soft_delete_transition {
-            let active_count_key = Self::org_active_count_key(vault.organization_id);
-            let current_active =
-                self.get_raw_active_count(vault.organization_id).await?.unwrap_or(0);
+            let active_count_key = Self::org_active_count_key(vault.organization);
+            let current_active = self.get_raw_active_count(vault.organization).await?.unwrap_or(0);
             if current_active > 0 {
                 txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
             }
         } else if undelete_transition {
-            let active_count_key = Self::org_active_count_key(vault.organization_id);
-            let current_active =
-                self.get_raw_active_count(vault.organization_id).await?.unwrap_or(0);
+            let active_count_key = Self::org_active_count_key(vault.organization);
+            let current_active = self.get_raw_active_count(vault.organization).await?.unwrap_or(0);
             txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
         }
 
@@ -241,7 +243,7 @@ impl<S: StorageBackend> VaultRepository<S> {
     }
 
     /// Delete a vault (removes all indexes)
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: VaultSlug) -> Result<()> {
         // Get the vault first to clean up indexes
         let vault =
             self.get(id).await?.ok_or_else(|| Error::not_found(format!("Vault {id} not found")))?;
@@ -257,16 +259,15 @@ impl<S: StorageBackend> VaultRepository<S> {
         txn.delete(Self::vault_key(id));
 
         // Delete organization index
-        txn.delete(Self::vault_org_index_key(vault.organization_id, vault.id));
+        txn.delete(Self::vault_org_index_key(vault.organization, vault.id));
 
         // Delete name index
-        txn.delete(Self::vault_name_index_key(vault.organization_id, &vault.name));
+        txn.delete(Self::vault_name_index_key(vault.organization, &vault.name));
 
         // Decrement active count if the vault was not soft-deleted
         if !vault.is_deleted() {
-            let active_count_key = Self::org_active_count_key(vault.organization_id);
-            let current_active =
-                self.get_raw_active_count(vault.organization_id).await?.unwrap_or(0);
+            let active_count_key = Self::org_active_count_key(vault.organization);
+            let current_active = self.get_raw_active_count(vault.organization).await?.unwrap_or(0);
             if current_active > 0 {
                 txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
             }
@@ -281,9 +282,9 @@ impl<S: StorageBackend> VaultRepository<S> {
     }
 
     /// Count vaults in an organization by counting index keys
-    pub async fn count_by_organization(&self, org_id: i64) -> Result<usize> {
-        let start = format!("vault:org:{org_id}:").into_bytes();
-        let end = format!("vault:org:{org_id}~").into_bytes();
+    pub async fn count_by_organization(&self, organization: OrganizationSlug) -> Result<usize> {
+        let start = format!("vault:org:{organization}:").into_bytes();
+        let end = format!("vault:org:{organization}~").into_bytes();
         let kvs =
             self.storage.get_range(start..end).await.map_err(|e| {
                 Error::internal(format!("Failed to count organization vaults: {e}"))
@@ -297,10 +298,13 @@ impl<S: StorageBackend> VaultRepository<S> {
     /// and delete operations. Under concurrent writes, the counter is eventually consistent:
     /// reads outside the transaction may observe stale values, but self-healing on the next
     /// read corrects any drift.
-    pub async fn count_active_by_organization(&self, org_id: i64) -> Result<usize> {
-        match self.get_raw_active_count(org_id).await? {
-            Some(count) if count >= 0 => Ok(count as usize),
-            _ => self.recount_active(org_id).await,
+    pub async fn count_active_by_organization(
+        &self,
+        organization: OrganizationSlug,
+    ) -> Result<usize> {
+        match self.get_raw_active_count(organization).await? {
+            Some(count) => Ok(count as usize),
+            _ => self.recount_active(organization).await,
         }
     }
 }
@@ -309,8 +313,8 @@ impl<S: StorageBackend> VaultRepository<S> {
 ///
 /// Key schema:
 /// - vault_user_grant:{id} -> VaultUserGrant data
-/// - vault_user_grant:vault:{vault_id}:{user_id} -> grant_id (for unique constraint)
-/// - vault_user_grant:user:{user_id}:{vault_id} -> grant_id (for user's vaults lookup)
+/// - vault_user_grant:vault:{vault}:{user_id} -> grant_id (for unique constraint)
+/// - vault_user_grant:user:{user_id}:{vault} -> grant_id (for user's vaults lookup)
 pub struct VaultUserGrantRepository<S: StorageBackend> {
     storage: S,
 }
@@ -322,18 +326,18 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
     }
 
     /// Generate key for grant by ID
-    fn grant_key(id: i64) -> Vec<u8> {
+    fn grant_key(id: u64) -> Vec<u8> {
         format!("vault_user_grant:{id}").into_bytes()
     }
 
     /// Generate key for vault-user unique constraint
-    fn vault_user_index_key(vault_id: i64, user_id: i64) -> Vec<u8> {
-        format!("vault_user_grant:vault:{vault_id}:{user_id}").into_bytes()
+    fn vault_user_index_key(vault: VaultSlug, user_id: u64) -> Vec<u8> {
+        format!("vault_user_grant:vault:{vault}:{user_id}").into_bytes()
     }
 
     /// Generate key for user's vault grants
-    fn user_vault_index_key(user_id: i64, vault_id: i64) -> Vec<u8> {
-        format!("vault_user_grant:user:{user_id}:{vault_id}").into_bytes()
+    fn user_vault_index_key(user_id: u64, vault: VaultSlug) -> Vec<u8> {
+        format!("vault_user_grant:user:{user_id}:{vault}").into_bytes()
     }
 
     /// Create a new user grant
@@ -349,8 +353,8 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
             .await
             .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
-        // Check for duplicate grant (vault_id, user_id unique)
-        let unique_key = Self::vault_user_index_key(grant.vault_id, grant.user_id);
+        // Check for duplicate grant (vault, user_id unique)
+        let unique_key = Self::vault_user_index_key(grant.vault, grant.user_id);
         if self
             .storage
             .get(&unique_key)
@@ -369,7 +373,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
 
         // Store user-vault index
         txn.set(
-            Self::user_vault_index_key(grant.user_id, grant.vault_id),
+            Self::user_vault_index_key(grant.user_id, grant.vault),
             grant.id.to_le_bytes().to_vec(),
         );
 
@@ -382,7 +386,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
     }
 
     /// Get a grant by ID
-    pub async fn get(&self, id: i64) -> Result<Option<VaultUserGrant>> {
+    pub async fn get(&self, id: u64) -> Result<Option<VaultUserGrant>> {
         let key = Self::grant_key(id);
         let data = self
             .storage
@@ -403,10 +407,10 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
     /// Get a grant by vault and user
     pub async fn get_by_vault_and_user(
         &self,
-        vault_id: i64,
-        user_id: i64,
+        vault: VaultSlug,
+        user_id: u64,
     ) -> Result<Option<VaultUserGrant>> {
-        let index_key = Self::vault_user_index_key(vault_id, user_id);
+        let index_key = Self::vault_user_index_key(vault, user_id);
         let data = self
             .storage
             .get(&index_key)
@@ -418,7 +422,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid grant index data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -426,10 +430,10 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
     }
 
     /// List all grants for a vault
-    pub async fn list_by_vault(&self, vault_id: i64) -> Result<Vec<VaultUserGrant>> {
-        let prefix = format!("vault_user_grant:vault:{vault_id}:");
+    pub async fn list_by_vault(&self, vault: VaultSlug) -> Result<Vec<VaultUserGrant>> {
+        let prefix = format!("vault_user_grant:vault:{vault}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("vault_user_grant:vault:{vault_id}~").into_bytes();
+        let end = format!("vault_user_grant:vault:{vault}~").into_bytes();
 
         let kvs = self
             .storage
@@ -439,7 +443,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
 
         let mut grants = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(grant) = self.get(id).await? {
                 grants.push(grant);
             }
@@ -449,7 +453,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
     }
 
     /// List all grants for a user
-    pub async fn list_by_user(&self, user_id: i64) -> Result<Vec<VaultUserGrant>> {
+    pub async fn list_by_user(&self, user_id: u64) -> Result<Vec<VaultUserGrant>> {
         let prefix = format!("vault_user_grant:user:{user_id}:");
         let start = prefix.clone().into_bytes();
         let end = format!("vault_user_grant:user:{user_id}~").into_bytes();
@@ -462,7 +466,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
 
         let mut grants = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(grant) = self.get(id).await? {
                 grants.push(grant);
             }
@@ -492,7 +496,7 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
     }
 
     /// Delete a grant
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get the grant first to clean up indexes
         let grant =
             self.get(id).await?.ok_or_else(|| Error::not_found(format!("Grant {id} not found")))?;
@@ -508,10 +512,10 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
         txn.delete(Self::grant_key(id));
 
         // Delete vault-user index
-        txn.delete(Self::vault_user_index_key(grant.vault_id, grant.user_id));
+        txn.delete(Self::vault_user_index_key(grant.vault, grant.user_id));
 
         // Delete user-vault index
-        txn.delete(Self::user_vault_index_key(grant.user_id, grant.vault_id));
+        txn.delete(Self::user_vault_index_key(grant.user_id, grant.vault));
 
         // Commit transaction
         txn.commit()
@@ -526,8 +530,8 @@ impl<S: StorageBackend> VaultUserGrantRepository<S> {
 ///
 /// Key schema:
 /// - vault_team_grant:{id} -> VaultTeamGrant data
-/// - vault_team_grant:vault:{vault_id}:{team_id} -> grant_id (for unique constraint)
-/// - vault_team_grant:team:{team_id}:{vault_id} -> grant_id (for team's vaults lookup)
+/// - vault_team_grant:vault:{vault}:{team_id} -> grant_id (for unique constraint)
+/// - vault_team_grant:team:{team_id}:{vault} -> grant_id (for team's vaults lookup)
 pub struct VaultTeamGrantRepository<S: StorageBackend> {
     storage: S,
 }
@@ -539,18 +543,18 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
     }
 
     /// Generate key for grant by ID
-    fn grant_key(id: i64) -> Vec<u8> {
+    fn grant_key(id: u64) -> Vec<u8> {
         format!("vault_team_grant:{id}").into_bytes()
     }
 
     /// Generate key for vault-team unique constraint
-    fn vault_team_index_key(vault_id: i64, team_id: i64) -> Vec<u8> {
-        format!("vault_team_grant:vault:{vault_id}:{team_id}").into_bytes()
+    fn vault_team_index_key(vault: VaultSlug, team_id: u64) -> Vec<u8> {
+        format!("vault_team_grant:vault:{vault}:{team_id}").into_bytes()
     }
 
     /// Generate key for team's vault grants
-    fn team_vault_index_key(team_id: i64, vault_id: i64) -> Vec<u8> {
-        format!("vault_team_grant:team:{team_id}:{vault_id}").into_bytes()
+    fn team_vault_index_key(team_id: u64, vault: VaultSlug) -> Vec<u8> {
+        format!("vault_team_grant:team:{team_id}:{vault}").into_bytes()
     }
 
     /// Create a new team grant
@@ -566,8 +570,8 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
             .await
             .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
-        // Check for duplicate grant (vault_id, team_id unique)
-        let unique_key = Self::vault_team_index_key(grant.vault_id, grant.team_id);
+        // Check for duplicate grant (vault, team_id unique)
+        let unique_key = Self::vault_team_index_key(grant.vault, grant.team_id);
         if self
             .storage
             .get(&unique_key)
@@ -586,7 +590,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
 
         // Store team-vault index
         txn.set(
-            Self::team_vault_index_key(grant.team_id, grant.vault_id),
+            Self::team_vault_index_key(grant.team_id, grant.vault),
             grant.id.to_le_bytes().to_vec(),
         );
 
@@ -599,7 +603,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
     }
 
     /// Get a grant by ID
-    pub async fn get(&self, id: i64) -> Result<Option<VaultTeamGrant>> {
+    pub async fn get(&self, id: u64) -> Result<Option<VaultTeamGrant>> {
         let key = Self::grant_key(id);
         let data = self
             .storage
@@ -620,10 +624,10 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
     /// Get a grant by vault and team
     pub async fn get_by_vault_and_team(
         &self,
-        vault_id: i64,
-        team_id: i64,
+        vault: VaultSlug,
+        team_id: u64,
     ) -> Result<Option<VaultTeamGrant>> {
-        let index_key = Self::vault_team_index_key(vault_id, team_id);
+        let index_key = Self::vault_team_index_key(vault, team_id);
         let data = self
             .storage
             .get(&index_key)
@@ -635,7 +639,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid grant index data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -643,10 +647,10 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
     }
 
     /// List all grants for a vault
-    pub async fn list_by_vault(&self, vault_id: i64) -> Result<Vec<VaultTeamGrant>> {
-        let prefix = format!("vault_team_grant:vault:{vault_id}:");
+    pub async fn list_by_vault(&self, vault: VaultSlug) -> Result<Vec<VaultTeamGrant>> {
+        let prefix = format!("vault_team_grant:vault:{vault}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("vault_team_grant:vault:{vault_id}~").into_bytes();
+        let end = format!("vault_team_grant:vault:{vault}~").into_bytes();
 
         let kvs = self
             .storage
@@ -656,7 +660,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
 
         let mut grants = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(grant) = self.get(id).await? {
                 grants.push(grant);
             }
@@ -666,7 +670,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
     }
 
     /// List all grants for a team
-    pub async fn list_by_team(&self, team_id: i64) -> Result<Vec<VaultTeamGrant>> {
+    pub async fn list_by_team(&self, team_id: u64) -> Result<Vec<VaultTeamGrant>> {
         let prefix = format!("vault_team_grant:team:{team_id}:");
         let start = prefix.clone().into_bytes();
         let end = format!("vault_team_grant:team:{team_id}~").into_bytes();
@@ -679,7 +683,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
 
         let mut grants = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(grant) = self.get(id).await? {
                 grants.push(grant);
             }
@@ -709,7 +713,7 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
     }
 
     /// Delete a grant
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get the grant first to clean up indexes
         let grant =
             self.get(id).await?.ok_or_else(|| Error::not_found(format!("Grant {id} not found")))?;
@@ -725,10 +729,10 @@ impl<S: StorageBackend> VaultTeamGrantRepository<S> {
         txn.delete(Self::grant_key(id));
 
         // Delete vault-team index
-        txn.delete(Self::vault_team_index_key(grant.vault_id, grant.team_id));
+        txn.delete(Self::vault_team_index_key(grant.vault, grant.team_id));
 
         // Delete team-vault index
-        txn.delete(Self::team_vault_index_key(grant.team_id, grant.vault_id));
+        txn.delete(Self::team_vault_index_key(grant.team_id, grant.vault));
 
         // Commit transaction
         txn.commit()
@@ -759,13 +763,21 @@ mod tests {
         VaultTeamGrantRepository::new(Backend::memory())
     }
 
-    fn create_test_vault(id: i64, org_id: i64, name: &str) -> Result<Vault> {
+    fn create_test_vault(id: u64, organization: u64, name: &str) -> Result<Vault> {
         Vault::builder()
-            .id(id)
-            .organization_id(org_id)
+            .id(VaultSlug::from(id))
+            .organization(OrganizationSlug::from(organization))
             .name(name.to_string())
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
+    }
+
+    fn v(id: u64) -> VaultSlug {
+        VaultSlug::from(id)
+    }
+
+    fn o(id: u64) -> OrganizationSlug {
+        OrganizationSlug::from(id)
     }
 
     #[tokio::test]
@@ -775,7 +787,7 @@ mod tests {
 
         repo.create(vault.clone()).await.unwrap();
 
-        let retrieved = repo.get(1).await.unwrap();
+        let retrieved = repo.get(v(1)).await.unwrap();
         assert_eq!(retrieved, Some(vault));
     }
 
@@ -803,10 +815,10 @@ mod tests {
         repo.create(vault2).await.unwrap();
         repo.create(vault3).await.unwrap();
 
-        let org_100_vaults = repo.list_by_organization(100).await.unwrap();
+        let org_100_vaults = repo.list_by_organization(o(100)).await.unwrap();
         assert_eq!(org_100_vaults.len(), 2);
 
-        let org_200_vaults = repo.list_by_organization(200).await.unwrap();
+        let org_200_vaults = repo.list_by_organization(o(200)).await.unwrap();
         assert_eq!(org_200_vaults.len(), 1);
     }
 
@@ -821,7 +833,7 @@ mod tests {
         vault.mark_synced();
         repo.update(vault.clone()).await.unwrap();
 
-        let retrieved = repo.get(1).await.unwrap().unwrap();
+        let retrieved = repo.get(v(1)).await.unwrap().unwrap();
         assert_eq!(retrieved.name, "Updated Name");
         assert_eq!(retrieved.sync_status, VaultSyncStatus::Synced);
     }
@@ -836,15 +848,15 @@ mod tests {
         vault.mark_deleted();
         repo.update(vault).await.unwrap();
 
-        let retrieved = repo.get(1).await.unwrap().unwrap();
+        let retrieved = repo.get(v(1)).await.unwrap().unwrap();
         assert!(retrieved.is_deleted());
 
         // Should not be in active list
-        let active = repo.list_active_by_organization(100).await.unwrap();
+        let active = repo.list_active_by_organization(o(100)).await.unwrap();
         assert_eq!(active.len(), 0);
 
         // Still in full list
-        let all = repo.list_by_organization(100).await.unwrap();
+        let all = repo.list_by_organization(o(100)).await.unwrap();
         assert_eq!(all.len(), 1);
     }
 
@@ -854,30 +866,30 @@ mod tests {
         let vault = create_test_vault(1, 100, "Test Vault").unwrap();
 
         repo.create(vault).await.unwrap();
-        assert!(repo.get(1).await.unwrap().is_some());
+        assert!(repo.get(v(1)).await.unwrap().is_some());
 
-        repo.delete(1).await.unwrap();
-        assert!(repo.get(1).await.unwrap().is_none());
+        repo.delete(v(1)).await.unwrap();
+        assert!(repo.get(v(1)).await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn test_active_count_tracks_create() {
         let repo = create_test_vault_repo();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 0);
 
         let vault1 = create_test_vault(1, 100, "Vault 1").unwrap();
         repo.create(vault1).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 1);
 
         let vault2 = create_test_vault(2, 100, "Vault 2").unwrap();
         repo.create(vault2).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 2);
 
         // Different org should be independent
         let vault3 = create_test_vault(3, 200, "Vault 3").unwrap();
         repo.create(vault3).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
-        assert_eq!(repo.count_active_by_organization(200).await.unwrap(), 1);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 2);
+        assert_eq!(repo.count_active_by_organization(o(200)).await.unwrap(), 1);
     }
 
     #[tokio::test]
@@ -891,16 +903,16 @@ mod tests {
         repo.create(vault2.clone()).await.unwrap();
         repo.create(vault3).await.unwrap();
 
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 3);
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 3);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 3);
+        assert_eq!(repo.count_by_organization(o(100)).await.unwrap(), 3);
 
         // Soft delete one vault
         vault2.mark_deleted();
         repo.update(vault2).await.unwrap();
 
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 2);
         // Total count (index key count) still includes soft-deleted
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 3);
+        assert_eq!(repo.count_by_organization(o(100)).await.unwrap(), 3);
     }
 
     #[tokio::test]
@@ -911,12 +923,12 @@ mod tests {
 
         repo.create(vault1).await.unwrap();
         repo.create(vault2).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 2);
 
         // Hard delete
-        repo.delete(1).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 1);
+        repo.delete(v(1)).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 1);
+        assert_eq!(repo.count_by_organization(o(100)).await.unwrap(), 1);
     }
 
     #[tokio::test]
@@ -924,16 +936,16 @@ mod tests {
         let repo = create_test_vault_repo();
         let mut vault = create_test_vault(1, 100, "Vault 1").unwrap();
         repo.create(vault.clone()).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 1);
 
         // Soft delete first
         vault.mark_deleted();
         repo.update(vault).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 0);
 
         // Then hard delete — should not decrement below 0
-        repo.delete(1).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+        repo.delete(v(1)).await.unwrap();
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 0);
     }
 
     #[tokio::test]
@@ -947,10 +959,13 @@ mod tests {
         repo.create(vault2).await.unwrap();
 
         // Delete the counter key to simulate pre-existing data
-        repo.storage.delete(&VaultRepository::<Backend>::org_active_count_key(100)).await.unwrap();
+        repo.storage
+            .delete(&VaultRepository::<Backend>::org_active_count_key(o(100)))
+            .await
+            .unwrap();
 
         // Should self-heal by recounting
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 2);
     }
 
     #[tokio::test]
@@ -958,23 +973,23 @@ mod tests {
         let repo = create_test_vault_repo();
         let mut vault = create_test_vault(1, 100, "Vault 1").unwrap();
         repo.create(vault.clone()).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 1);
 
         // Soft delete
         vault.mark_deleted();
         repo.update(vault.clone()).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 0);
 
         // Undelete by clearing deleted_at
         vault.deleted_at = None;
         repo.update(vault).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(repo.count_active_by_organization(o(100)).await.unwrap(), 1);
     }
 
     #[tokio::test]
     async fn test_create_user_grant() {
         let repo = create_test_user_grant_repo();
-        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
+        let grant = VaultUserGrant::new(1, v(100), 200, VaultRole::Reader, 999);
 
         repo.create(grant.clone()).await.unwrap();
 
@@ -985,8 +1000,8 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_user_grant_rejected() {
         let repo = create_test_user_grant_repo();
-        let grant1 = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
-        let grant2 = VaultUserGrant::new(2, 100, 200, VaultRole::Writer, 999);
+        let grant1 = VaultUserGrant::new(1, v(100), 200, VaultRole::Reader, 999);
+        let grant2 = VaultUserGrant::new(2, v(100), 200, VaultRole::Writer, 999);
 
         repo.create(grant1).await.unwrap();
 
@@ -998,38 +1013,38 @@ mod tests {
     #[tokio::test]
     async fn test_get_user_grant_by_vault_and_user() {
         let repo = create_test_user_grant_repo();
-        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
+        let grant = VaultUserGrant::new(1, v(100), 200, VaultRole::Reader, 999);
 
         repo.create(grant.clone()).await.unwrap();
 
-        let retrieved = repo.get_by_vault_and_user(100, 200).await.unwrap();
+        let retrieved = repo.get_by_vault_and_user(v(100), 200).await.unwrap();
         assert_eq!(retrieved, Some(grant));
     }
 
     #[tokio::test]
     async fn test_list_user_grants_by_vault() {
         let repo = create_test_user_grant_repo();
-        let grant1 = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
-        let grant2 = VaultUserGrant::new(2, 100, 201, VaultRole::Writer, 999);
-        let grant3 = VaultUserGrant::new(3, 101, 200, VaultRole::Admin, 999);
+        let grant1 = VaultUserGrant::new(1, v(100), 200, VaultRole::Reader, 999);
+        let grant2 = VaultUserGrant::new(2, v(100), 201, VaultRole::Writer, 999);
+        let grant3 = VaultUserGrant::new(3, v(101), 200, VaultRole::Admin, 999);
 
         repo.create(grant1).await.unwrap();
         repo.create(grant2).await.unwrap();
         repo.create(grant3).await.unwrap();
 
-        let vault_100_grants = repo.list_by_vault(100).await.unwrap();
+        let vault_100_grants = repo.list_by_vault(v(100)).await.unwrap();
         assert_eq!(vault_100_grants.len(), 2);
 
-        let vault_101_grants = repo.list_by_vault(101).await.unwrap();
+        let vault_101_grants = repo.list_by_vault(v(101)).await.unwrap();
         assert_eq!(vault_101_grants.len(), 1);
     }
 
     #[tokio::test]
     async fn test_list_user_grants_by_user() {
         let repo = create_test_user_grant_repo();
-        let grant1 = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
-        let grant2 = VaultUserGrant::new(2, 101, 200, VaultRole::Writer, 999);
-        let grant3 = VaultUserGrant::new(3, 100, 201, VaultRole::Admin, 999);
+        let grant1 = VaultUserGrant::new(1, v(100), 200, VaultRole::Reader, 999);
+        let grant2 = VaultUserGrant::new(2, v(101), 200, VaultRole::Writer, 999);
+        let grant3 = VaultUserGrant::new(3, v(100), 201, VaultRole::Admin, 999);
 
         repo.create(grant1).await.unwrap();
         repo.create(grant2).await.unwrap();
@@ -1045,7 +1060,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_user_grant() {
         let repo = create_test_user_grant_repo();
-        let mut grant = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
+        let mut grant = VaultUserGrant::new(1, v(100), 200, VaultRole::Reader, 999);
 
         repo.create(grant.clone()).await.unwrap();
 
@@ -1059,20 +1074,20 @@ mod tests {
     #[tokio::test]
     async fn test_delete_user_grant() {
         let repo = create_test_user_grant_repo();
-        let grant = VaultUserGrant::new(1, 100, 200, VaultRole::Reader, 999);
+        let grant = VaultUserGrant::new(1, v(100), 200, VaultRole::Reader, 999);
 
         repo.create(grant).await.unwrap();
         assert!(repo.get(1).await.unwrap().is_some());
 
         repo.delete(1).await.unwrap();
         assert!(repo.get(1).await.unwrap().is_none());
-        assert!(repo.get_by_vault_and_user(100, 200).await.unwrap().is_none());
+        assert!(repo.get_by_vault_and_user(v(100), 200).await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn test_create_team_grant() {
         let repo = create_test_team_grant_repo();
-        let grant = VaultTeamGrant::new(1, 100, 300, VaultRole::Reader, 999);
+        let grant = VaultTeamGrant::new(1, v(100), 300, VaultRole::Reader, 999);
 
         repo.create(grant.clone()).await.unwrap();
 
@@ -1083,8 +1098,8 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_team_grant_rejected() {
         let repo = create_test_team_grant_repo();
-        let grant1 = VaultTeamGrant::new(1, 100, 300, VaultRole::Reader, 999);
-        let grant2 = VaultTeamGrant::new(2, 100, 300, VaultRole::Writer, 999);
+        let grant1 = VaultTeamGrant::new(1, v(100), 300, VaultRole::Reader, 999);
+        let grant2 = VaultTeamGrant::new(2, v(100), 300, VaultRole::Writer, 999);
 
         repo.create(grant1).await.unwrap();
 
@@ -1096,27 +1111,27 @@ mod tests {
     #[tokio::test]
     async fn test_list_team_grants_by_vault() {
         let repo = create_test_team_grant_repo();
-        let grant1 = VaultTeamGrant::new(1, 100, 300, VaultRole::Reader, 999);
-        let grant2 = VaultTeamGrant::new(2, 100, 301, VaultRole::Writer, 999);
-        let grant3 = VaultTeamGrant::new(3, 101, 300, VaultRole::Admin, 999);
+        let grant1 = VaultTeamGrant::new(1, v(100), 300, VaultRole::Reader, 999);
+        let grant2 = VaultTeamGrant::new(2, v(100), 301, VaultRole::Writer, 999);
+        let grant3 = VaultTeamGrant::new(3, v(101), 300, VaultRole::Admin, 999);
 
         repo.create(grant1).await.unwrap();
         repo.create(grant2).await.unwrap();
         repo.create(grant3).await.unwrap();
 
-        let vault_100_grants = repo.list_by_vault(100).await.unwrap();
+        let vault_100_grants = repo.list_by_vault(v(100)).await.unwrap();
         assert_eq!(vault_100_grants.len(), 2);
 
-        let vault_101_grants = repo.list_by_vault(101).await.unwrap();
+        let vault_101_grants = repo.list_by_vault(v(101)).await.unwrap();
         assert_eq!(vault_101_grants.len(), 1);
     }
 
     #[tokio::test]
     async fn test_list_team_grants_by_team() {
         let repo = create_test_team_grant_repo();
-        let grant1 = VaultTeamGrant::new(1, 100, 300, VaultRole::Reader, 999);
-        let grant2 = VaultTeamGrant::new(2, 101, 300, VaultRole::Writer, 999);
-        let grant3 = VaultTeamGrant::new(3, 100, 301, VaultRole::Admin, 999);
+        let grant1 = VaultTeamGrant::new(1, v(100), 300, VaultRole::Reader, 999);
+        let grant2 = VaultTeamGrant::new(2, v(101), 300, VaultRole::Writer, 999);
+        let grant3 = VaultTeamGrant::new(3, v(100), 301, VaultRole::Admin, 999);
 
         repo.create(grant1).await.unwrap();
         repo.create(grant2).await.unwrap();

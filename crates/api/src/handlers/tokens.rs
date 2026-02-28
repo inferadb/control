@@ -7,7 +7,7 @@ use inferadb_control_core::{
     IdGenerator, JwtSigner, MasterKey, PrivateKeyEncryptor, RepositoryContext, VaultTokenClaims,
 };
 use inferadb_control_types::{
-    Error as CoreError,
+    Error as CoreError, OrganizationSlug, VaultSlug,
     dto::{
         ClientAssertionRequest, ClientAssertionResponse, GenerateVaultTokenRequest,
         GenerateVaultTokenResponse, RefreshTokenRequest, RefreshTokenResponse,
@@ -37,23 +37,23 @@ pub async fn generate_vault_token(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
     Extension(session_ctx): Extension<SessionContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
     Json(req): Json<GenerateVaultTokenRequest>,
 ) -> Result<(StatusCode, Json<GenerateVaultTokenResponse>)> {
     // Verify vault exists and belongs to this organization
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Get user's maximum vault role (their actual permission level)
-    let max_vault_role = get_user_vault_role(&state, vault_id, org_ctx.member.user_id)
+    let max_vault_role = get_user_vault_role(&state, vault.id, org_ctx.member.user_id)
         .await?
         .ok_or_else(|| CoreError::authz("You do not have access to this vault".to_string()))?;
 
@@ -79,14 +79,14 @@ pub async fn generate_vault_token(
             .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
         // Verify client belongs to this organization
-        if c.organization_id != org_ctx.organization_id {
+        if c.organization != org_ctx.organization {
             return Err(CoreError::not_found("Client not found".to_string()).into());
         }
 
         c
     } else {
         // Get first active client for this organization
-        let clients = repos.client.list_by_organization(org_ctx.organization_id).await?;
+        let clients = repos.client.list_by_organization(org_ctx.organization).await?;
 
         clients.into_iter().find(|c| !c.is_deleted()).ok_or_else(|| {
             CoreError::not_found(
@@ -113,9 +113,9 @@ pub async fn generate_vault_token(
     // Note: issuer and audience are hardcoded in VaultTokenClaims::builder()
     let access_ttl = req.access_token_ttl.unwrap_or(300); // Default 5 minutes (per spec)
     let claims = VaultTokenClaims::builder()
-        .organization_id(org_ctx.organization_id)
+        .organization(org_ctx.organization)
         .client_id(client.id)
-        .vault_id(vault_id)
+        .vault(vault.id)
         .vault_role(vault_role)
         .ttl_seconds(access_ttl)
         .build();
@@ -127,8 +127,8 @@ pub async fn generate_vault_token(
     let refresh_token_id = IdGenerator::next_id();
     let refresh_token = VaultRefreshToken::new_for_session()
         .id(refresh_token_id)
-        .vault_id(vault_id)
-        .organization_id(org_ctx.organization_id)
+        .vault(vault.id)
+        .organization(org_ctx.organization)
         .vault_role(vault_role)
         .user_session_id(session_ctx.session_id)
         .maybe_ttl_seconds(req.refresh_token_ttl)
@@ -147,7 +147,7 @@ pub async fn generate_vault_token(
             token_type: "Bearer".to_string(),
             expires_in: access_ttl,
             refresh_expires_in: refresh_ttl,
-            vault_id: vault_id.to_string(),
+            vault: vault.id.to_string(),
             vault_role,
             refresh_token: refresh_token.token.clone(),
         }),
@@ -201,7 +201,7 @@ pub async fn refresh_vault_token(
     // Verify vault still exists
     repos
         .vault
-        .get(old_token.vault_id)
+        .get(old_token.vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault no longer exists".to_string()))?;
 
@@ -222,7 +222,7 @@ pub async fn refresh_vault_token(
         c
     } else {
         // Get first active client for this organization
-        let clients = repos.client.list_by_organization(old_token.organization_id).await?;
+        let clients = repos.client.list_by_organization(old_token.organization).await?;
 
         clients
             .into_iter()
@@ -246,9 +246,9 @@ pub async fn refresh_vault_token(
     // Note: issuer and audience are hardcoded in VaultTokenClaims::builder()
     let access_ttl = req.access_token_ttl.unwrap_or(300); // Default 5 minutes (per spec)
     let claims = VaultTokenClaims::builder()
-        .organization_id(old_token.organization_id)
+        .organization(old_token.organization)
         .client_id(client.id)
-        .vault_id(old_token.vault_id)
+        .vault(old_token.vault)
         .vault_role(old_token.vault_role)
         .ttl_seconds(access_ttl)
         .build();
@@ -260,16 +260,16 @@ pub async fn refresh_vault_token(
     let new_token = if let Some(session_id) = old_token.user_session_id {
         VaultRefreshToken::new_for_session()
             .id(new_token_id)
-            .vault_id(old_token.vault_id)
-            .organization_id(old_token.organization_id)
+            .vault(old_token.vault)
+            .organization(old_token.organization)
             .vault_role(old_token.vault_role)
             .user_session_id(session_id)
             .create()?
     } else if let Some(client_id) = old_token.org_api_key_id {
         VaultRefreshToken::new_for_client()
             .id(new_token_id)
-            .vault_id(old_token.vault_id)
-            .organization_id(old_token.organization_id)
+            .vault(old_token.vault)
+            .organization(old_token.organization)
             .vault_role(old_token.vault_role)
             .org_api_key_id(client_id)
             .create()?
@@ -349,11 +349,11 @@ pub async fn client_assertion_authenticate(
         .into());
     }
 
-    // Parse vault_id
-    let vault_id = req
-        .vault_id
-        .parse::<i64>()
-        .map_err(|_| CoreError::validation("invalid vault_id".to_string()))?;
+    // Parse vault
+    let vault = req
+        .vault
+        .parse::<VaultSlug>()
+        .map_err(|_| CoreError::validation("invalid vault".to_string()))?;
 
     // Parse requested role (default to Reader for least privilege)
     let requested_role = req.requested_role.unwrap_or(VaultRole::Reader);
@@ -368,7 +368,7 @@ pub async fn client_assertion_authenticate(
     })?;
 
     // Lookup certificate by kid
-    // kid format: "org-<org_id>-client-<client_id>-cert-<cert_id>"
+    // kid format: "org-<organization>-client-<client_id>-cert-<cert_id>"
     let repos = RepositoryContext::new((*state.storage).clone());
 
     // Parse kid to extract cert_id
@@ -381,14 +381,14 @@ pub async fn client_assertion_authenticate(
         return Err(CoreError::auth(format!("Invalid kid format: {kid}")).into());
     }
 
-    let _org_id = kid_parts[1]
-        .parse::<i64>()
-        .map_err(|_| CoreError::auth("Invalid org_id in kid".to_string()))?;
+    let _org = kid_parts[1]
+        .parse::<u64>()
+        .map_err(|_| CoreError::auth("Invalid organization in kid".to_string()))?;
     let _client_id = kid_parts[3]
-        .parse::<i64>()
+        .parse::<u64>()
         .map_err(|_| CoreError::auth("Invalid client_id in kid".to_string()))?;
     let cert_id = kid_parts[5]
-        .parse::<i64>()
+        .parse::<u64>()
         .map_err(|_| CoreError::auth("Invalid cert_id in kid".to_string()))?;
 
     // Get the certificate
@@ -470,14 +470,14 @@ pub async fn client_assertion_authenticate(
     let repos = RepositoryContext::new((*state.storage).clone());
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     // Verify client has permission for requested role on this vault
     // Note: This is a simplified check. In production, you'd verify client has appropriate grants.
     // For now, we just verify the vault belongs to the same organization as the client.
-    if vault.organization_id != client.organization_id {
+    if vault.organization != client.organization {
         return Err(
             CoreError::authz("Client does not have access to this vault".to_string()).into()
         );
@@ -492,9 +492,9 @@ pub async fn client_assertion_authenticate(
     // Note: issuer and audience are hardcoded in VaultTokenClaims::builder()
     let access_ttl = 300;
     let vault_claims = VaultTokenClaims::builder()
-        .organization_id(client.organization_id)
+        .organization(client.organization)
         .client_id(client.id)
-        .vault_id(vault_id)
+        .vault(vault.id)
         .vault_role(requested_role)
         .ttl_seconds(access_ttl)
         .build();
@@ -505,8 +505,8 @@ pub async fn client_assertion_authenticate(
     let refresh_token_id = IdGenerator::next_id();
     let refresh_token = VaultRefreshToken::new_for_client()
         .id(refresh_token_id)
-        .vault_id(vault_id)
-        .organization_id(client.organization_id)
+        .vault(vault.id)
+        .organization(client.organization)
         .vault_role(requested_role)
         .org_api_key_id(client.id)
         .create()?;
@@ -538,7 +538,7 @@ pub async fn client_assertion_authenticate(
 
 /// Revoke all refresh tokens for a vault
 ///
-/// POST /v1/tokens/revoke/vault/:vault_id
+/// POST /v1/tokens/revoke/vault/:vault
 /// Requires session authentication
 ///
 /// This revokes all active refresh tokens for the specified vault.
@@ -546,7 +546,7 @@ pub async fn client_assertion_authenticate(
 pub async fn revoke_vault_tokens(
     State(state): State<AppState>,
     Extension(session_ctx): Extension<SessionContext>,
-    Path(vault_id): Path<i64>,
+    Path(vault): Path<VaultSlug>,
 ) -> Result<(StatusCode, Json<RevokeTokensResponse>)> {
     // Verify user has session
     let repos = RepositoryContext::new((*state.storage).clone());
@@ -563,13 +563,13 @@ pub async fn revoke_vault_tokens(
     // Verify vault exists
     let _vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
     // Verify user has access to this vault (must be admin or have vault access)
     let user_id = session.user_id;
-    let vault_role = get_user_vault_role(&state, vault_id, user_id)
+    let vault_role = get_user_vault_role(&state, vault, user_id)
         .await?
         .ok_or_else(|| CoreError::authz("You do not have access to this vault".to_string()))?;
 
@@ -579,7 +579,7 @@ pub async fn revoke_vault_tokens(
     }
 
     // Revoke all refresh tokens for this vault
-    let revoked_count = repos.vault_refresh_token.revoke_by_vault(vault_id).await?;
+    let revoked_count = repos.vault_refresh_token.revoke_by_vault(vault).await?;
 
     Ok((StatusCode::CREATED, Json(RevokeTokensResponse { revoked_count })))
 }

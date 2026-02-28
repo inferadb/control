@@ -34,10 +34,10 @@ impl SessionType {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserSession {
     /// Unique session ID (Snowflake ID)
-    pub id: i64,
+    pub id: u64,
 
     /// User ID this session belongs to
-    pub user_id: i64,
+    pub user_id: u64,
 
     /// Type of session
     pub session_type: SessionType,
@@ -78,8 +78,8 @@ impl UserSession {
     /// A new UserSession instance
     #[builder(on(String, into), finish_fn = create)]
     pub fn new(
-        id: i64,
-        user_id: i64,
+        id: u64,
+        user_id: u64,
         session_type: SessionType,
         ip_address: Option<String>,
         user_agent: Option<String>,

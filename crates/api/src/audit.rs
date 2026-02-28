@@ -1,5 +1,8 @@
 use inferadb_control_core::repository::AuditLogRepository;
-use inferadb_control_types::entities::{AuditEventType, AuditLog, AuditResourceType};
+use inferadb_control_types::{
+    OrganizationSlug,
+    entities::{AuditEventType, AuditLog, AuditResourceType},
+};
 use serde_json::Value as JsonValue;
 
 use crate::handlers::AppState;
@@ -7,11 +10,11 @@ use crate::handlers::AppState;
 /// Parameters for creating an audit log entry
 #[derive(Debug, Default)]
 pub struct AuditEventParams {
-    pub organization_id: Option<i64>,
-    pub user_id: Option<i64>,
-    pub client_id: Option<i64>,
+    pub organization: Option<OrganizationSlug>,
+    pub user_id: Option<u64>,
+    pub client_id: Option<u64>,
     pub resource_type: Option<AuditResourceType>,
-    pub resource_id: Option<i64>,
+    pub resource_id: Option<u64>,
     pub event_data: Option<JsonValue>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
@@ -27,7 +30,7 @@ pub async fn log_audit_event(
 ) {
     let audit_log = AuditLog::builder()
         .event_type(event_type)
-        .maybe_organization_id(params.organization_id)
+        .maybe_organization(params.organization)
         .maybe_user_id(params.user_id)
         .maybe_client_id(params.client_id)
         .maybe_resource_type(params.resource_type)

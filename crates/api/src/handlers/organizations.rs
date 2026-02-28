@@ -5,7 +5,7 @@ use axum::{
 use inferadb_control_const::limits::{GLOBAL_ORGANIZATION_LIMIT, PER_USER_ORGANIZATION_LIMIT};
 use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_types::{
-    Error as CoreError,
+    Error as CoreError, OrganizationSlug,
     dto::{
         AcceptInvitationRequest, AcceptInvitationResponse, CreateInvitationRequest,
         CreateInvitationResponse, CreateOrganizationRequest, CreateOrganizationResponse,
@@ -75,31 +75,31 @@ pub async fn create_organization(
     }
 
     // Generate IDs
-    let org_id = IdGenerator::next_id();
+    let organization = OrganizationSlug::from(IdGenerator::next_id());
     let member_id = IdGenerator::next_id();
 
     // Create organization with TIER_DEV_V1
-    let organization = Organization::builder()
-        .id(org_id)
+    let org = Organization::builder()
+        .id(organization)
         .name(payload.name)
         .tier(OrganizationTier::TierDevV1)
         .create()?;
 
-    // Create organization
-    repos.org.create(organization.clone()).await?;
+    repos.org.create(org.clone()).await?;
 
     // Create organization member (owner role)
-    let member = OrganizationMember::new(member_id, org_id, ctx.user_id, OrganizationRole::Owner);
+    let member =
+        OrganizationMember::new(member_id, organization, ctx.user_id, OrganizationRole::Owner);
 
     // Create member
     repos.org_member.create(member).await?;
 
     Ok(Json(CreateOrganizationResponse {
         organization: OrganizationResponse {
-            id: organization.id,
-            name: organization.name,
-            tier: tier_to_string(&organization.tier),
-            created_at: organization.created_at.to_rfc3339(),
+            id: org.id,
+            name: org.name,
+            tier: tier_to_string(&org.tier),
+            created_at: org.created_at.to_rfc3339(),
             role: OrganizationRole::Owner.to_string(),
         },
     }))
@@ -133,7 +133,7 @@ pub async fn list_organizations(
     // Fetch organization details for each membership
     let mut all_organizations = Vec::new();
     for member in memberships {
-        if let Some(org) = repos.org.get(member.organization_id).await? {
+        if let Some(org) = repos.org.get(member.organization).await? {
             // Skip deleted organizations
             if org.is_deleted() {
                 continue;
@@ -178,7 +178,7 @@ pub async fn get_organization(
     // Get organization
     let org = repos
         .org
-        .get(org_ctx.organization_id)
+        .get(org_ctx.organization)
         .await?
         .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
@@ -211,14 +211,14 @@ pub async fn get_organization(
 /// Currently only Active and Deleted states are implemented.
 pub async fn get_organization_by_id(
     State(state): State<AppState>,
-    Path(org_id): Path<i64>,
+    Path(organization): Path<OrganizationSlug>,
 ) -> Result<Json<OrganizationServerResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get organization
     let org = repos
         .org
-        .get(org_id)
+        .get(organization)
         .await?
         .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
@@ -252,7 +252,7 @@ pub async fn update_organization(
     // Get organization
     let mut org = repos
         .org
-        .get(org_ctx.organization_id)
+        .get(org_ctx.organization)
         .await?
         .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
@@ -298,7 +298,7 @@ pub async fn delete_organization(
     crate::middleware::require_owner(&org_ctx)?;
 
     // VALIDATION: Check for active vaults before allowing deletion
-    let vaults = repos.vault.list_by_organization(org_ctx.organization_id).await?;
+    let vaults = repos.vault.list_by_organization(org_ctx.organization).await?;
     let active_vault_count = vaults.iter().filter(|v| !v.is_deleted()).count();
 
     if active_vault_count > 0 {
@@ -311,7 +311,7 @@ pub async fn delete_organization(
     }
 
     // CASCADE DELETE: Delete all teams first (and their members/permissions)
-    let teams = repos.org_team.list_by_organization(org_ctx.organization_id).await?;
+    let teams = repos.org_team.list_by_organization(org_ctx.organization).await?;
     for team in teams {
         if !team.is_deleted() {
             // Delete team members
@@ -327,19 +327,19 @@ pub async fn delete_organization(
     // This is enforced by the validation check above
 
     // CASCADE DELETE: Delete all organization members
-    let members = repos.org_member.get_by_organization(org_ctx.organization_id).await?;
+    let members = repos.org_member.get_by_organization(org_ctx.organization).await?;
     for member in members {
         repos.org_member.delete(member.id).await?;
     }
 
     // CASCADE DELETE: Delete all pending invitations
-    let invitations = repos.org_invitation.list_by_organization(org_ctx.organization_id).await?;
+    let invitations = repos.org_invitation.list_by_organization(org_ctx.organization).await?;
     for invitation in invitations {
         repos.org_invitation.delete(invitation.id).await?;
     }
 
     // Finally, soft delete the organization
-    repos.org.delete(org_ctx.organization_id).await?;
+    repos.org.delete(org_ctx.organization).await?;
 
     Ok(Json(DeleteOrganizationResponse {
         message: "Organization deleted successfully".to_string(),
@@ -364,7 +364,7 @@ pub async fn suspend_organization(
     // Get organization
     let mut org = repos
         .org
-        .get(org_ctx.organization_id)
+        .get(org_ctx.organization)
         .await?
         .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
@@ -405,7 +405,7 @@ pub async fn resume_organization(
     // Get organization
     let mut org = repos
         .org
-        .get(org_ctx.organization_id)
+        .get(org_ctx.organization)
         .await?
         .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
@@ -444,7 +444,7 @@ pub async fn list_members(
     let repos = RepositoryContext::new((*state.storage).clone());
 
     // Get all members
-    let members = repos.org_member.get_by_organization(org_ctx.organization_id).await?;
+    let members = repos.org_member.get_by_organization(org_ctx.organization).await?;
 
     let member_responses: Vec<OrganizationMemberResponse> = members
         .into_iter()
@@ -468,7 +468,7 @@ pub async fn list_members(
 pub async fn update_member_role(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, member_id)): Path<(i64, i64)>,
+    Path((_org, member_id)): Path<(OrganizationSlug, u64)>,
     Json(payload): Json<UpdateMemberRoleRequest>,
 ) -> Result<Json<UpdateMemberRoleResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
@@ -484,7 +484,7 @@ pub async fn update_member_role(
         .ok_or_else(|| CoreError::not_found("Member not found".to_string()))?;
 
     // Verify the member belongs to this organization
-    if target_member.organization_id != org_ctx.organization_id {
+    if target_member.organization != org_ctx.organization {
         return Err(
             CoreError::not_found("Member not found in this organization".to_string()).into()
         );
@@ -507,7 +507,7 @@ pub async fn update_member_role(
 
     // If demoting from owner, check if there are other owners
     if target_member.role == OrganizationRole::Owner && new_role != OrganizationRole::Owner {
-        let owner_count = repos.org_member.count_owners(org_ctx.organization_id).await?;
+        let owner_count = repos.org_member.count_owners(org_ctx.organization).await?;
         if owner_count <= 1 {
             return Err(CoreError::validation(
                 "Cannot demote the last owner. Promote another member to OWNER first.".to_string(),
@@ -539,7 +539,7 @@ pub async fn update_member_role(
 pub async fn remove_member(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, member_id)): Path<(i64, i64)>,
+    Path((_org, member_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<RemoveMemberResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
 
@@ -554,7 +554,7 @@ pub async fn remove_member(
         .ok_or_else(|| CoreError::not_found("Member not found".to_string()))?;
 
     // Verify the member belongs to this organization
-    if target_member.organization_id != org_ctx.organization_id {
+    if target_member.organization != org_ctx.organization {
         return Err(
             CoreError::not_found("Member not found in this organization".to_string()).into()
         );
@@ -562,7 +562,7 @@ pub async fn remove_member(
 
     // If removing an owner, check if there are other owners
     if target_member.role == OrganizationRole::Owner {
-        let owner_count = repos.org_member.count_owners(org_ctx.organization_id).await?;
+        let owner_count = repos.org_member.count_owners(org_ctx.organization).await?;
         if owner_count <= 1 {
             return Err(CoreError::validation(
                 "Cannot remove the last owner. Transfer ownership first or delete the organization."
@@ -593,7 +593,7 @@ pub async fn leave_organization(
 
     // If the user is an owner, check if there are other owners
     if org_ctx.member.role == OrganizationRole::Owner {
-        let owner_count = repos.org_member.count_owners(org_ctx.organization_id).await?;
+        let owner_count = repos.org_member.count_owners(org_ctx.organization).await?;
         if owner_count <= 1 {
             return Err(CoreError::validation(
                 "Cannot leave as the last owner. Promote another member to owner first or delete the organization."
@@ -646,12 +646,12 @@ pub async fn create_invitation(
     // Get organization to check member limits
     let org = repos
         .org
-        .get(org_ctx.organization_id)
+        .get(org_ctx.organization)
         .await?
         .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Check member count against tier limit
-    let member_count = repos.org_member.count_by_organization(org_ctx.organization_id).await?;
+    let member_count = repos.org_member.count_by_organization(org_ctx.organization).await?;
 
     if member_count >= org.tier.max_members() {
         return Err(CoreError::tier_limit(format!(
@@ -666,7 +666,7 @@ pub async fn create_invitation(
     if let Some(existing_email) = repos.user_email.get_by_email(&payload.email).await?
         && repos
             .org_member
-            .get_by_org_and_user(org_ctx.organization_id, existing_email.user_id)
+            .get_by_org_and_user(org_ctx.organization, existing_email.user_id)
             .await?
             .is_some()
     {
@@ -677,8 +677,7 @@ pub async fn create_invitation(
     }
 
     // Check for existing invitation
-    if repos.org_invitation.exists_for_email_in_org(&payload.email, org_ctx.organization_id).await?
-    {
+    if repos.org_invitation.exists_for_email_in_org(&payload.email, org_ctx.organization).await? {
         return Err(CoreError::already_exists(
             "An invitation for this email already exists".to_string(),
         )
@@ -690,7 +689,7 @@ pub async fn create_invitation(
     let token = OrganizationInvitation::generate_token()?;
     let invitation = OrganizationInvitation::builder()
         .id(invitation_id)
-        .organization_id(org_ctx.organization_id)
+        .organization(org_ctx.organization)
         .invited_by_user_id(org_ctx.member.user_id)
         .email(payload.email)
         .role(payload.role)
@@ -721,7 +720,7 @@ pub async fn list_invitations(
     // Require admin or owner
     crate::middleware::require_admin_or_owner(&org_ctx)?;
 
-    let invitations = repos.org_invitation.list_by_organization(org_ctx.organization_id).await?;
+    let invitations = repos.org_invitation.list_by_organization(org_ctx.organization).await?;
 
     Ok(Json(ListInvitationsResponse {
         invitations: invitations.into_iter().map(invitation_to_response).collect(),
@@ -736,7 +735,7 @@ pub async fn list_invitations(
 pub async fn delete_invitation(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, invitation_id)): Path<(i64, i64)>,
+    Path((_org, invitation_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<DeleteInvitationResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
 
@@ -750,7 +749,7 @@ pub async fn delete_invitation(
         .await?
         .ok_or_else(|| CoreError::not_found("Invitation not found".to_string()))?;
 
-    if invitation.organization_id != org_ctx.organization_id {
+    if invitation.organization != org_ctx.organization {
         return Err(CoreError::not_found("Invitation not found".to_string()).into());
     }
 
@@ -802,12 +801,7 @@ pub async fn accept_invitation(
     }
 
     // Check if user is already a member
-    if repos
-        .org_member
-        .get_by_org_and_user(invitation.organization_id, ctx.user_id)
-        .await?
-        .is_some()
-    {
+    if repos.org_member.get_by_org_and_user(invitation.organization, ctx.user_id).await?.is_some() {
         // Delete invitation and return success
         repos.org_invitation.delete(invitation.id).await?;
         return Err(CoreError::already_exists(
@@ -819,11 +813,11 @@ pub async fn accept_invitation(
     // Check organization member limit
     let org = repos
         .org
-        .get(invitation.organization_id)
+        .get(invitation.organization)
         .await?
         .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
-    let member_count = repos.org_member.count_by_organization(invitation.organization_id).await?;
+    let member_count = repos.org_member.count_by_organization(invitation.organization).await?;
     if member_count >= org.tier.max_members() {
         return Err(CoreError::tier_limit(
             "Organization has reached the maximum number of members".to_string(),
@@ -833,12 +827,8 @@ pub async fn accept_invitation(
 
     // Create organization member
     let member_id = IdGenerator::next_id();
-    let member = OrganizationMember::new(
-        member_id,
-        invitation.organization_id,
-        ctx.user_id,
-        invitation.role,
-    );
+    let member =
+        OrganizationMember::new(member_id, invitation.organization, ctx.user_id, invitation.role);
     repos.org_member.create(member).await?;
 
     // Delete invitation

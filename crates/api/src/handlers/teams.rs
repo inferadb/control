@@ -5,7 +5,7 @@ use axum::{
 };
 use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_types::{
-    Error as CoreError,
+    Error as CoreError, OrganizationSlug,
     dto::{
         AddTeamMemberRequest, AddTeamMemberResponse, CreateTeamRequest, CreateTeamResponse,
         DeleteTeamResponse, GrantTeamPermissionRequest, GrantTeamPermissionResponse,
@@ -34,7 +34,7 @@ fn team_to_response(team: OrganizationTeam) -> TeamResponse {
         id: team.id,
         name: team.name,
         description: team.description,
-        organization_id: team.organization_id,
+        organization: team.organization,
         created_at: team.created_at.to_rfc3339(),
         deleted_at: team.deleted_at.map(|dt| dt.to_rfc3339()),
     }
@@ -45,7 +45,7 @@ fn team_to_info(team: OrganizationTeam) -> TeamInfo {
         id: team.id,
         name: team.name,
         description: team.description,
-        organization_id: team.organization_id,
+        organization: team.organization,
         created_at: team.created_at.to_rfc3339(),
     }
 }
@@ -91,13 +91,12 @@ pub async fn create_team(
     // Get organization to check tier limits
     let organization = repos
         .org
-        .get(org_ctx.organization_id)
+        .get(org_ctx.organization)
         .await?
         .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
     // Check tier limits
-    let current_count =
-        repos.org_team.count_active_by_organization(org_ctx.organization_id).await?;
+    let current_count = repos.org_team.count_active_by_organization(org_ctx.organization).await?;
 
     if current_count >= organization.tier.max_teams() {
         return Err(CoreError::tier_limit(format!(
@@ -112,7 +111,7 @@ pub async fn create_team(
     let team_id = IdGenerator::next_id();
     let team = OrganizationTeam::builder()
         .id(team_id)
-        .organization_id(org_ctx.organization_id)
+        .organization(org_ctx.organization)
         .name(payload.name)
         .maybe_description(payload.description)
         .create()?;
@@ -127,7 +126,7 @@ pub async fn create_team(
                 id: team.id,
                 name: team.name.clone(),
                 description: team.description,
-                organization_id: team.organization_id,
+                organization: team.organization,
                 created_at: team.created_at.to_rfc3339(),
             },
         }),
@@ -149,7 +148,7 @@ pub async fn list_teams(
     let params = pagination.0.validate();
 
     let repos = RepositoryContext::new((*state.storage).clone());
-    let all_teams = repos.org_team.list_active_by_organization(org_ctx.organization_id).await?;
+    let all_teams = repos.org_team.list_active_by_organization(org_ctx.organization).await?;
 
     // Apply pagination
     let total = all_teams.len();
@@ -177,7 +176,7 @@ pub async fn list_teams(
 pub async fn get_team(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(i64, i64)>,
+    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<TeamResponse>> {
     // All organization members can view team details
     require_member(&org_ctx)?;
@@ -190,7 +189,7 @@ pub async fn get_team(
         .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
     // Verify team belongs to the organization
-    if team.organization_id != org_ctx.organization_id {
+    if team.organization != org_ctx.organization {
         return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
@@ -209,7 +208,7 @@ pub async fn get_team(
 pub async fn update_team(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(i64, i64)>,
+    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
     Json(payload): Json<UpdateTeamRequest>,
 ) -> Result<Json<UpdateTeamResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
@@ -221,7 +220,7 @@ pub async fn update_team(
         .await?
         .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
-    if team.organization_id != org_ctx.organization_id {
+    if team.organization != org_ctx.organization {
         return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
@@ -270,7 +269,7 @@ pub async fn update_team(
 pub async fn delete_team(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(i64, i64)>,
+    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<DeleteTeamResponse>> {
     // Require admin or owner
     require_admin_or_owner(&org_ctx)?;
@@ -284,7 +283,7 @@ pub async fn delete_team(
         .await?
         .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
-    if team.organization_id != org_ctx.organization_id {
+    if team.organization != org_ctx.organization {
         return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
@@ -312,7 +311,7 @@ pub async fn delete_team(
 pub async fn add_team_member(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(i64, i64)>,
+    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
     Json(payload): Json<AddTeamMemberRequest>,
 ) -> Result<(StatusCode, Json<AddTeamMemberResponse>)> {
     let repos = RepositoryContext::new((*state.storage).clone());
@@ -324,7 +323,7 @@ pub async fn add_team_member(
         .await?
         .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
-    if team.organization_id != org_ctx.organization_id {
+    if team.organization != org_ctx.organization {
         return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
@@ -357,7 +356,7 @@ pub async fn add_team_member(
     // Verify user is an organization member
     let _target_member = repos
         .org_member
-        .get_by_org_and_user(org_ctx.organization_id, payload.user_id)
+        .get_by_org_and_user(org_ctx.organization, payload.user_id)
         .await?
         .ok_or_else(|| {
             CoreError::validation("User is not a member of this organization".to_string())
@@ -390,7 +389,7 @@ pub async fn add_team_member(
 pub async fn list_team_members(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(i64, i64)>,
+    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<ListTeamMembersResponse>> {
     // All organization members can view team members
     require_member(&org_ctx)?;
@@ -404,7 +403,7 @@ pub async fn list_team_members(
         .await?
         .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
-    if team.organization_id != org_ctx.organization_id {
+    if team.organization != org_ctx.organization {
         return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
@@ -427,7 +426,7 @@ pub async fn list_team_members(
 pub async fn update_team_member(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id, member_id)): Path<(i64, i64, i64)>,
+    Path((_org, team_id, member_id)): Path<(OrganizationSlug, u64, u64)>,
     Json(payload): Json<UpdateTeamMemberRequest>,
 ) -> Result<Json<UpdateTeamMemberResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
@@ -439,7 +438,7 @@ pub async fn update_team_member(
         .await?
         .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
-    if team.organization_id != org_ctx.organization_id {
+    if team.organization != org_ctx.organization {
         return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
@@ -493,7 +492,7 @@ pub async fn update_team_member(
 pub async fn remove_team_member(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id, member_id)): Path<(i64, i64, i64)>,
+    Path((_org, team_id, member_id)): Path<(OrganizationSlug, u64, u64)>,
 ) -> Result<Json<RemoveTeamMemberResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
 
@@ -504,7 +503,7 @@ pub async fn remove_team_member(
         .await?
         .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
-    if team.organization_id != org_ctx.organization_id {
+    if team.organization != org_ctx.organization {
         return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
@@ -561,7 +560,7 @@ pub async fn remove_team_member(
 pub async fn grant_team_permission(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(i64, i64)>,
+    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
     Json(payload): Json<GrantTeamPermissionRequest>,
 ) -> Result<(StatusCode, Json<GrantTeamPermissionResponse>)> {
     // Only owners can grant permissions
@@ -576,7 +575,7 @@ pub async fn grant_team_permission(
         .await?
         .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
-    if team.organization_id != org_ctx.organization_id {
+    if team.organization != org_ctx.organization {
         return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
@@ -616,7 +615,7 @@ pub async fn grant_team_permission(
 pub async fn list_team_permissions(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(i64, i64)>,
+    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<ListTeamPermissionsResponse>> {
     let repos = RepositoryContext::new((*state.storage).clone());
 
@@ -627,7 +626,7 @@ pub async fn list_team_permissions(
         .await?
         .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
-    if team.organization_id != org_ctx.organization_id {
+    if team.organization != org_ctx.organization {
         return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 
@@ -667,7 +666,7 @@ pub async fn list_team_permissions(
 pub async fn revoke_team_permission(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id, permission_id)): Path<(i64, i64, i64)>,
+    Path((_org, team_id, permission_id)): Path<(OrganizationSlug, u64, u64)>,
 ) -> Result<Json<RevokeTeamPermissionResponse>> {
     // Only owners can revoke permissions
     require_owner(&org_ctx)?;
@@ -681,7 +680,7 @@ pub async fn revoke_team_permission(
         .await?
         .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
 
-    if team.organization_id != org_ctx.organization_id {
+    if team.organization != org_ctx.organization {
         return Err(CoreError::not_found("Team not found".to_string()).into());
     }
 

@@ -31,7 +31,7 @@ pub async fn create_audit_log(
     // Build audit log entry
     let log = AuditLog::builder()
         .event_type(payload.event_type)
-        .maybe_organization_id(payload.organization_id)
+        .maybe_organization(payload.organization)
         .maybe_user_id(payload.user_id)
         .maybe_client_id(payload.client_id)
         .maybe_resource_type(payload.resource_type)
@@ -93,17 +93,13 @@ pub async fn list_audit_logs(
 
     // Query audit logs
     let repos = RepositoryContext::new((*state.storage).clone());
-    match repos
-        .audit_log
-        .list_by_organization(org_ctx.organization_id, filters, limit, offset)
-        .await
-    {
+    match repos.audit_log.list_by_organization(org_ctx.organization, filters, limit, offset).await {
         Ok((logs, total)) => {
             let audit_logs: Vec<AuditLogInfo> = logs
                 .into_iter()
                 .map(|log| AuditLogInfo {
                     id: log.id,
-                    organization_id: log.organization_id,
+                    organization: log.organization,
                     user_id: log.user_id,
                     client_id: log.client_id,
                     event_type: log.event_type,
@@ -138,7 +134,7 @@ mod tests {
     use std::sync::Arc;
 
     use inferadb_control_storage::Backend;
-    use inferadb_control_types::entities::AuditEventType;
+    use inferadb_control_types::{OrganizationSlug, entities::AuditEventType};
 
     use super::*;
 
@@ -149,7 +145,7 @@ mod tests {
 
         let payload = CreateAuditLogRequest {
             event_type: AuditEventType::UserLogin,
-            organization_id: Some(1),
+            organization: Some(OrganizationSlug::from(1_u64)),
             user_id: Some(100),
             client_id: None,
             resource_type: None,

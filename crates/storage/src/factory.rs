@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bon::Builder;
 use bytes::Bytes;
 use inferadb_common_storage::{
-    KeyValue, StorageBackend, StorageResult, Transaction, VaultId,
+    KeyValue, StorageBackend, StorageResult, Transaction, VaultSlug,
     auth::{
         MemorySigningKeyStore, PublicSigningKeyStore, SigningKeyMetrics, SigningKeyMetricsSnapshot,
     },
@@ -33,10 +33,10 @@ pub struct LedgerConfig {
     pub endpoint: String,
     /// Client ID for idempotency tracking
     pub client_id: String,
-    /// Namespace ID for data scoping
-    pub namespace_id: i64,
-    /// Optional vault ID for finer-grained scoping
-    pub vault_id: Option<i64>,
+    /// Organization for data scoping
+    pub organization: u64,
+    /// Optional vault for finer-grained scoping
+    pub vault: Option<u64>,
 }
 
 /// Storage backend configuration
@@ -203,6 +203,16 @@ impl StorageBackend for Backend {
         delegate_storage!(self, compare_and_set(key, expected, new_value))
     }
 
+    async fn compare_and_set_with_ttl(
+        &self,
+        key: &[u8],
+        expected: Option<&[u8]>,
+        new_value: Vec<u8>,
+        ttl: Duration,
+    ) -> StorageResult<()> {
+        delegate_storage!(self, compare_and_set_with_ttl(key, expected, new_value, ttl))
+    }
+
     async fn health_check(&self, probe: HealthProbe) -> StorageResult<HealthStatus> {
         delegate_storage!(self, health_check(probe))
     }
@@ -245,8 +255,8 @@ pub async fn create_storage_backend(config: &StorageConfig) -> StorageResult<Bac
                 })?;
             let backend_config = LedgerBackendConfig::builder()
                 .client(client_config)
-                .namespace_id(ledger_config.namespace_id)
-                .maybe_vault_id(ledger_config.vault_id.map(VaultId::from))
+                .organization(ledger_config.organization)
+                .maybe_vault(ledger_config.vault.map(VaultSlug::from))
                 .build()
                 .map_err(|e| {
                     inferadb_common_storage::StorageError::internal(format!(

@@ -10,9 +10,12 @@ use inferadb_control_core::{
     UserSessionRepository, VaultRepository,
 };
 use inferadb_control_test_fixtures::create_test_state;
-use inferadb_control_types::entities::{
-    Organization, OrganizationMember, OrganizationRole, OrganizationTier, SessionType, User,
-    UserSession, Vault,
+use inferadb_control_types::{
+    OrganizationSlug, VaultSlug,
+    entities::{
+        Organization, OrganizationMember, OrganizationRole, OrganizationTier, SessionType, User,
+        UserSession, Vault,
+    },
 };
 use serde_json::json;
 use tower::ServiceExt;
@@ -22,10 +25,10 @@ use tower::ServiceExt;
 #[builder(on(String, into))]
 struct SetupUserParams<'a> {
     state: &'a AppState,
-    user_id: i64,
-    session_id: i64,
-    org_id: i64,
-    member_id: i64,
+    user_id: u64,
+    session_id: u64,
+    organization: OrganizationSlug,
+    member_id: u64,
     username: String,
     role: OrganizationRole,
     is_owner: bool,
@@ -35,8 +38,16 @@ struct SetupUserParams<'a> {
 async fn setup_user_with_role(
     params: SetupUserParams<'_>,
 ) -> (User, UserSession, Organization, OrganizationMember) {
-    let SetupUserParams { state, user_id, session_id, org_id, member_id, username, role, is_owner } =
-        params;
+    let SetupUserParams {
+        state,
+        user_id,
+        session_id,
+        organization,
+        member_id,
+        username,
+        role,
+        is_owner,
+    } = params;
     // Create user
     let user = User::builder().id(user_id).name(username).create().unwrap();
     let user_repo = UserRepository::new((*state.storage).clone());
@@ -53,11 +64,11 @@ async fn setup_user_with_role(
 
     // Create or get organization
     let org_repo = OrganizationRepository::new((*state.storage).clone());
-    let org = if let Some(existing) = org_repo.get(org_id).await.unwrap() {
+    let org = if let Some(existing) = org_repo.get(organization).await.unwrap() {
         existing
     } else {
         let new_org = Organization::builder()
-            .id(org_id)
+            .id(organization)
             .name("Test Org")
             .tier(OrganizationTier::TierDevV1)
             .create()
@@ -68,9 +79,9 @@ async fn setup_user_with_role(
 
     // Create member with specified role
     let member = if is_owner {
-        OrganizationMember::new(member_id, org_id, user_id, OrganizationRole::Owner)
+        OrganizationMember::new(member_id, organization, user_id, OrganizationRole::Owner)
     } else {
-        OrganizationMember::new(member_id, org_id, user_id, role)
+        OrganizationMember::new(member_id, organization, user_id, role)
     };
     let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
     member_repo.create(member.clone()).await.unwrap();
@@ -89,7 +100,7 @@ async fn test_member_cannot_escalate_to_admin() {
             .state(&state)
             .user_id(100)
             .session_id(1)
-            .org_id(1000)
+            .organization(OrganizationSlug::from(1000_u64))
             .member_id(10000)
             .username("owner")
             .role(OrganizationRole::Owner)
@@ -104,7 +115,7 @@ async fn test_member_cannot_escalate_to_admin() {
             .state(&state)
             .user_id(200)
             .session_id(2)
-            .org_id(org.id)
+            .organization(org.id)
             .member_id(20000)
             .username("member")
             .role(OrganizationRole::Member)
@@ -149,7 +160,7 @@ async fn test_admin_cannot_escalate_to_owner() {
             .state(&state)
             .user_id(100)
             .session_id(1)
-            .org_id(1000)
+            .organization(OrganizationSlug::from(1000_u64))
             .member_id(10000)
             .username("owner")
             .role(OrganizationRole::Owner)
@@ -164,7 +175,7 @@ async fn test_admin_cannot_escalate_to_owner() {
             .state(&state)
             .user_id(200)
             .session_id(2)
-            .org_id(org.id)
+            .organization(org.id)
             .member_id(20000)
             .username("admin")
             .role(OrganizationRole::Admin)
@@ -214,7 +225,7 @@ async fn test_member_cannot_create_vault() {
             .state(&state)
             .user_id(100)
             .session_id(1)
-            .org_id(1000)
+            .organization(OrganizationSlug::from(1000_u64))
             .member_id(10000)
             .username("owner")
             .role(OrganizationRole::Owner)
@@ -229,7 +240,7 @@ async fn test_member_cannot_create_vault() {
             .state(&state)
             .user_id(200)
             .session_id(2)
-            .org_id(org.id)
+            .organization(org.id)
             .member_id(20000)
             .username("member")
             .role(OrganizationRole::Member)
@@ -274,7 +285,7 @@ async fn test_member_cannot_delete_organization() {
             .state(&state)
             .user_id(100)
             .session_id(1)
-            .org_id(1000)
+            .organization(OrganizationSlug::from(1000_u64))
             .member_id(10000)
             .username("owner")
             .role(OrganizationRole::Owner)
@@ -289,7 +300,7 @@ async fn test_member_cannot_delete_organization() {
             .state(&state)
             .user_id(200)
             .session_id(2)
-            .org_id(org.id)
+            .organization(org.id)
             .member_id(20000)
             .username("member")
             .role(OrganizationRole::Member)
@@ -333,7 +344,7 @@ async fn test_admin_cannot_delete_organization() {
             .state(&state)
             .user_id(100)
             .session_id(1)
-            .org_id(1000)
+            .organization(OrganizationSlug::from(1000_u64))
             .member_id(10000)
             .username("owner")
             .role(OrganizationRole::Owner)
@@ -348,7 +359,7 @@ async fn test_admin_cannot_delete_organization() {
             .state(&state)
             .user_id(200)
             .session_id(2)
-            .org_id(org.id)
+            .organization(org.id)
             .member_id(20000)
             .username("admin")
             .role(OrganizationRole::Admin)
@@ -387,7 +398,7 @@ async fn test_member_cannot_remove_other_members() {
             .state(&state)
             .user_id(100)
             .session_id(1)
-            .org_id(1000)
+            .organization(OrganizationSlug::from(1000_u64))
             .member_id(10000)
             .username("owner")
             .role(OrganizationRole::Owner)
@@ -402,7 +413,7 @@ async fn test_member_cannot_remove_other_members() {
             .state(&state)
             .user_id(200)
             .session_id(2)
-            .org_id(org.id)
+            .organization(org.id)
             .member_id(20000)
             .username("member1")
             .role(OrganizationRole::Member)
@@ -417,7 +428,7 @@ async fn test_member_cannot_remove_other_members() {
             .state(&state)
             .user_id(300)
             .session_id(3)
-            .org_id(org.id)
+            .organization(org.id)
             .member_id(30000)
             .username("member2")
             .role(OrganizationRole::Member)
@@ -495,7 +506,7 @@ async fn test_cannot_use_other_users_session() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
     // Verify it returns User A's info
-    assert_eq!(json["user"]["id"].as_i64().unwrap(), user_a.id);
+    assert_eq!(json["user"]["id"].as_u64().unwrap(), user_a.id);
     assert_eq!(json["user"]["name"].as_str().unwrap(), "userA");
 }
 
@@ -510,7 +521,7 @@ async fn test_member_cannot_update_organization_settings() {
             .state(&state)
             .user_id(100)
             .session_id(1)
-            .org_id(1000)
+            .organization(OrganizationSlug::from(1000_u64))
             .member_id(10000)
             .username("owner")
             .role(OrganizationRole::Owner)
@@ -525,7 +536,7 @@ async fn test_member_cannot_update_organization_settings() {
             .state(&state)
             .user_id(200)
             .session_id(2)
-            .org_id(org.id)
+            .organization(org.id)
             .member_id(20000)
             .username("member")
             .role(OrganizationRole::Member)
@@ -570,7 +581,7 @@ async fn test_member_cannot_create_team() {
             .state(&state)
             .user_id(100)
             .session_id(1)
-            .org_id(1000)
+            .organization(OrganizationSlug::from(1000_u64))
             .member_id(10000)
             .username("owner")
             .role(OrganizationRole::Owner)
@@ -585,7 +596,7 @@ async fn test_member_cannot_create_team() {
             .state(&state)
             .user_id(200)
             .session_id(2)
-            .org_id(org.id)
+            .organization(org.id)
             .member_id(20000)
             .username("member")
             .role(OrganizationRole::Member)
@@ -630,7 +641,7 @@ async fn test_member_cannot_delete_vault() {
             .state(&state)
             .user_id(100)
             .session_id(1)
-            .org_id(1000)
+            .organization(OrganizationSlug::from(1000_u64))
             .member_id(10000)
             .username("owner")
             .role(OrganizationRole::Owner)
@@ -642,8 +653,8 @@ async fn test_member_cannot_delete_vault() {
     // Create a vault
     let vault_repo = VaultRepository::new((*state.storage).clone());
     let vault = Vault::builder()
-        .id(5000)
-        .organization_id(org.id)
+        .id(VaultSlug::from(5000_u64))
+        .organization(org.id)
         .name("Test Vault")
         .created_by_user_id(100)
         .create()
@@ -656,7 +667,7 @@ async fn test_member_cannot_delete_vault() {
             .state(&state)
             .user_id(200)
             .session_id(2)
-            .org_id(org.id)
+            .organization(org.id)
             .member_id(20000)
             .username("member")
             .role(OrganizationRole::Member)

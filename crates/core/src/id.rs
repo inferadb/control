@@ -350,8 +350,8 @@ impl IdGenerator {
     /// # Panics
     ///
     /// Panics if `init()` has not been called first
-    pub fn next_id() -> i64 {
-        idgenerator::IdInstance::next_id()
+    pub fn next_id() -> u64 {
+        idgenerator::IdInstance::next_id() as u64
     }
 
     /// Get the worker ID for this generator
@@ -576,7 +576,7 @@ mod tests {
             #[test]
             fn ids_are_strictly_increasing(n in 2usize..100) {
                 let _ = IdGenerator::init(999);
-                let ids: Vec<i64> = (0..n).map(|_| IdGenerator::next_id()).collect();
+                let ids: Vec<u64> = (0..n).map(|_| IdGenerator::next_id()).collect();
                 for window in ids.windows(2) {
                     prop_assert!(window[1] > window[0], "IDs must be strictly increasing: {} > {}", window[1], window[0]);
                 }
@@ -585,8 +585,8 @@ mod tests {
             #[test]
             fn ids_are_unique(n in 2usize..100) {
                 let _ = IdGenerator::init(998);
-                let ids: Vec<i64> = (0..n).map(|_| IdGenerator::next_id()).collect();
-                let unique: HashSet<i64> = ids.iter().copied().collect();
+                let ids: Vec<u64> = (0..n).map(|_| IdGenerator::next_id()).collect();
+                let unique: HashSet<u64> = ids.iter().copied().collect();
                 prop_assert_eq!(ids.len(), unique.len(), "All generated IDs must be unique");
             }
 

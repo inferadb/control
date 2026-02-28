@@ -99,8 +99,8 @@ async fn main() -> Result<()> {
             let ledger_config = StorageLedgerConfig {
                 endpoint: config.ledger_endpoint.clone().expect("validated"),
                 client_id: config.ledger_client_id.clone().expect("validated"),
-                namespace_id: config.ledger_namespace_id.expect("validated"),
-                vault_id: config.ledger_vault_id,
+                organization: config.ledger_organization.expect("validated"),
+                vault: config.ledger_vault,
             };
             StorageConfig::ledger(ledger_config)
         },

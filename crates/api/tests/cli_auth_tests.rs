@@ -106,7 +106,7 @@ async fn test_cli_pkce_full_flow() {
     let authorize_body = body_json(authorize_resp).await;
     let code = authorize_body["code"].as_str().expect("Response should contain 'code'");
     let expires_in =
-        authorize_body["expires_in"].as_i64().expect("Response should contain 'expires_in'");
+        authorize_body["expires_in"].as_u64().expect("Response should contain 'expires_in'");
     assert!(!code.is_empty(), "Authorization code should not be empty");
     assert_eq!(expires_in, 600, "Authorization code TTL should be 600 seconds (10 min)");
 
@@ -118,7 +118,7 @@ async fn test_cli_pkce_full_flow() {
     let session_token =
         exchange_body["session_token"].as_str().expect("Response should contain 'session_token'");
     let cli_expires =
-        exchange_body["expires_in"].as_i64().expect("Response should contain 'expires_in'");
+        exchange_body["expires_in"].as_u64().expect("Response should contain 'expires_in'");
     assert!(!session_token.is_empty(), "Session token should not be empty");
     assert!(cli_expires > 0, "CLI session should have positive expiry");
 

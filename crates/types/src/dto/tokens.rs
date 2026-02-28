@@ -11,7 +11,7 @@ use crate::entities::VaultRole;
 #[builder(on(String, into))]
 pub struct GenerateVaultTokenRequest {
     /// Client ID to use for signing (optional, defaults to first active client cert)
-    pub client_id: Option<i64>,
+    pub client_id: Option<u64>,
     /// TTL for access token in seconds (default: 300 = 5 minutes)
     pub access_token_ttl: Option<i64>,
     /// TTL for refresh token in seconds (default: 3600 = 1 hour for sessions)
@@ -31,8 +31,8 @@ pub struct GenerateVaultTokenResponse {
     pub expires_in: i64,
     /// Refresh token expiration time in seconds (OAuth 2.0 standard)
     pub refresh_expires_in: i64,
-    /// Vault ID this token is scoped to
-    pub vault_id: String,
+    /// Vault this token is scoped to
+    pub vault: String,
     /// Vault role granted by this token
     pub vault_role: VaultRole,
     /// Long-lived refresh token (hex-encoded)
@@ -80,8 +80,8 @@ pub struct ClientAssertionRequest {
     pub client_assertion_type: String,
     /// Signed JWT containing client assertion
     pub client_assertion: String,
-    /// Vault ID to access (required)
-    pub vault_id: String,
+    /// Vault to access (required)
+    pub vault: String,
     /// Requested role (optional, defaults to "reader")
     pub requested_role: Option<VaultRole>,
 }

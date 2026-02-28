@@ -2,19 +2,22 @@ use bon::bon;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
+use crate::{
+    OrganizationSlug, VaultSlug,
+    error::{Error, Result},
+};
 
 /// A client represents a backend service or application that can authenticate
 /// with the InferaDB system using certificates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Client {
     /// Unique identifier for the client
-    pub id: i64,
+    pub id: u64,
     /// Organization this client belongs to
-    pub organization_id: i64,
+    pub organization: OrganizationSlug,
     /// Default vault for this client (for token generation)
     #[serde(default)]
-    pub vault_id: Option<i64>,
+    pub vault: Option<VaultSlug>,
     /// Human-readable name for the client
     pub name: String,
     /// Optional description of the client
@@ -23,7 +26,7 @@ pub struct Client {
     /// When the client was created
     pub created_at: DateTime<Utc>,
     /// User who created this client
-    pub created_by_user_id: i64,
+    pub created_by_user_id: u64,
     /// When the client was soft-deleted (if applicable)
     pub deleted_at: Option<DateTime<Utc>>,
 }
@@ -33,19 +36,19 @@ impl Client {
     /// Create a new client
     #[builder(on(String, into), finish_fn = create)]
     pub fn new(
-        id: i64,
-        organization_id: i64,
-        vault_id: Option<i64>,
+        id: u64,
+        organization: OrganizationSlug,
+        vault: Option<VaultSlug>,
         name: String,
         description: Option<String>,
-        created_by_user_id: i64,
+        created_by_user_id: u64,
     ) -> Result<Self> {
         Self::validate_name(&name)?;
 
         Ok(Self {
             id,
-            organization_id,
-            vault_id,
+            organization,
+            vault,
             name,
             description: description.unwrap_or_default(),
             created_at: Utc::now(),
@@ -77,9 +80,9 @@ impl Client {
         self.description = description;
     }
 
-    /// Update the default vault ID
-    pub fn set_vault_id(&mut self, vault_id: Option<i64>) {
-        self.vault_id = vault_id;
+    /// Update the default vault
+    pub fn set_vault(&mut self, vault: Option<VaultSlug>) {
+        self.vault = vault;
     }
 
     /// Check if client is deleted
@@ -97,9 +100,9 @@ impl Client {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientCertificate {
     /// Unique identifier for the certificate
-    pub id: i64,
+    pub id: u64,
     /// Client this certificate belongs to
-    pub client_id: i64,
+    pub client_id: u64,
     /// Ed25519 public key (32 bytes, base64 encoded)
     pub public_key: String,
     /// Encrypted Ed25519 private key (AES-256-GCM encrypted, base64 encoded)
@@ -111,13 +114,13 @@ pub struct ClientCertificate {
     /// When the certificate was created
     pub created_at: DateTime<Utc>,
     /// User who created this certificate
-    pub created_by_user_id: i64,
+    pub created_by_user_id: u64,
     /// When the certificate was last used for authentication
     pub last_used_at: Option<DateTime<Utc>>,
     /// When the certificate was revoked (if applicable)
     pub revoked_at: Option<DateTime<Utc>>,
     /// User who revoked this certificate (if applicable)
-    pub revoked_by_user_id: Option<i64>,
+    pub revoked_by_user_id: Option<u64>,
     /// When the certificate was soft-deleted (if applicable)
     pub deleted_at: Option<DateTime<Utc>>,
 }
@@ -127,16 +130,16 @@ impl ClientCertificate {
     /// Create a new client certificate
     #[builder(on(String, into), finish_fn = create)]
     pub fn new(
-        id: i64,
-        client_id: i64,
-        organization_id: i64,
+        id: u64,
+        client_id: u64,
+        organization: OrganizationSlug,
         public_key: String,
         private_key_encrypted: String,
         name: String,
-        created_by_user_id: i64,
+        created_by_user_id: u64,
     ) -> Result<Self> {
         Self::validate_name(&name)?;
-        let kid = Self::generate_kid(organization_id, client_id, id);
+        let kid = Self::generate_kid(organization, client_id, id);
 
         Ok(Self {
             id,
@@ -155,8 +158,8 @@ impl ClientCertificate {
     }
 
     /// Generate a kid (key ID) in the format: org-<org_id>-client-<client_id>-cert-<cert_id>
-    pub fn generate_kid(organization_id: i64, client_id: i64, cert_id: i64) -> String {
-        format!("org-{organization_id}-client-{client_id}-cert-{cert_id}")
+    pub fn generate_kid(organization: OrganizationSlug, client_id: u64, cert_id: u64) -> String {
+        format!("org-{organization}-client-{client_id}-cert-{cert_id}")
     }
 
     /// Validate certificate name
@@ -188,7 +191,7 @@ impl ClientCertificate {
     }
 
     /// Revoke this certificate
-    pub fn mark_revoked(&mut self, revoked_by_user_id: i64) {
+    pub fn mark_revoked(&mut self, revoked_by_user_id: u64) {
         self.revoked_at = Some(Utc::now());
         self.revoked_by_user_id = Some(revoked_by_user_id);
     }
@@ -212,16 +215,16 @@ mod tests {
     #[test]
     fn test_client_creation() {
         let client = Client::builder()
-            .id(1)
-            .organization_id(100)
+            .id(1_u64)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Test Client")
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
             .unwrap();
-        assert_eq!(client.id, 1);
-        assert_eq!(client.organization_id, 100);
+        assert_eq!(client.id, 1_u64);
+        assert_eq!(client.organization, OrganizationSlug::from(100_u64));
         assert_eq!(client.name, "Test Client");
-        assert_eq!(client.created_by_user_id, 999);
+        assert_eq!(client.created_by_user_id, 999_u64);
         assert!(!client.is_deleted());
     }
 
@@ -235,10 +238,10 @@ mod tests {
     #[test]
     fn test_client_soft_delete() {
         let mut client = Client::builder()
-            .id(1)
-            .organization_id(100)
+            .id(1_u64)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Test Client")
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
             .unwrap();
         assert!(!client.is_deleted());
@@ -251,18 +254,18 @@ mod tests {
     #[test]
     fn test_certificate_creation() {
         let cert = ClientCertificate::builder()
-            .id(1)
-            .client_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .client_id(100_u64)
+            .organization(OrganizationSlug::from(200_u64))
             .public_key("public_key_base64".to_string())
             .private_key_encrypted("encrypted_private_key_base64".to_string())
             .name("Test Certificate")
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
             .unwrap();
 
-        assert_eq!(cert.id, 1);
-        assert_eq!(cert.client_id, 100);
+        assert_eq!(cert.id, 1_u64);
+        assert_eq!(cert.client_id, 100_u64);
         assert_eq!(cert.kid, "org-200-client-100-cert-1");
         assert_eq!(cert.name, "Test Certificate");
         assert!(cert.is_active());
@@ -272,7 +275,8 @@ mod tests {
 
     #[test]
     fn test_certificate_kid_format() {
-        let kid = ClientCertificate::generate_kid(123, 456, 789);
+        let kid =
+            ClientCertificate::generate_kid(OrganizationSlug::from(123_u64), 456_u64, 789_u64);
         assert_eq!(kid, "org-123-client-456-cert-789");
     }
 
@@ -286,35 +290,35 @@ mod tests {
     #[test]
     fn test_certificate_revocation() {
         let mut cert = ClientCertificate::builder()
-            .id(1)
-            .client_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .client_id(100_u64)
+            .organization(OrganizationSlug::from(200_u64))
             .public_key("public_key".to_string())
             .private_key_encrypted("private_key".to_string())
             .name("Test Cert")
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
             .unwrap();
 
         assert!(cert.is_active());
         assert!(!cert.is_revoked());
 
-        cert.mark_revoked(888);
+        cert.mark_revoked(888_u64);
         assert!(!cert.is_active());
         assert!(cert.is_revoked());
-        assert_eq!(cert.revoked_by_user_id, Some(888));
+        assert_eq!(cert.revoked_by_user_id, Some(888_u64));
     }
 
     #[test]
     fn test_certificate_deletion() {
         let mut cert = ClientCertificate::builder()
-            .id(1)
-            .client_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .client_id(100_u64)
+            .organization(OrganizationSlug::from(200_u64))
             .public_key("public_key".to_string())
             .private_key_encrypted("private_key".to_string())
             .name("Test Cert")
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
             .unwrap();
 
@@ -329,13 +333,13 @@ mod tests {
     #[test]
     fn test_certificate_mark_used() {
         let mut cert = ClientCertificate::builder()
-            .id(1)
-            .client_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .client_id(100_u64)
+            .organization(OrganizationSlug::from(200_u64))
             .public_key("public_key".to_string())
             .private_key_encrypted("private_key".to_string())
             .name("Test Cert")
-            .created_by_user_id(999)
+            .created_by_user_id(999_u64)
             .create()
             .unwrap();
 

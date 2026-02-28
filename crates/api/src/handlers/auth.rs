@@ -12,7 +12,7 @@ use inferadb_control_const::auth::{SESSION_COOKIE_MAX_AGE, SESSION_COOKIE_NAME};
 use inferadb_control_core::{IdGenerator, RepositoryContext, hash_password, verify_password};
 use inferadb_control_storage::{Backend, BufferedBackend};
 use inferadb_control_types::{
-    Error as CoreError,
+    Error as CoreError, OrganizationSlug,
     dto::{
         AuthVerifyEmailRequest, AuthVerifyEmailResponse, ErrorResponse, LoginRequest,
         LoginResponse, LogoutResponse, PasswordResetConfirmRequest, PasswordResetConfirmResponse,
@@ -183,18 +183,18 @@ pub async fn register(
     buffered_repos.user_session.create(session).await?;
 
     // Create default organization with same name as user
-    let org_id = IdGenerator::next_id();
+    let organization = OrganizationSlug::from(IdGenerator::next_id());
     let member_id = IdGenerator::next_id();
 
-    let organization = Organization::builder()
-        .id(org_id)
+    let org = Organization::builder()
+        .id(organization)
         .name(payload.name.clone())
         .tier(OrganizationTier::TierDevV1)
         .create()?;
-    buffered_repos.org.create(organization).await?;
+    buffered_repos.org.create(org).await?;
 
     // Create organization member (owner role)
-    let member = OrganizationMember::new(member_id, org_id, user_id, OrganizationRole::Owner);
+    let member = OrganizationMember::new(member_id, organization, user_id, OrganizationRole::Owner);
     buffered_repos.org_member.create(member).await?;
 
     // --- Commit all writes atomically ---
@@ -258,7 +258,7 @@ pub async fn register(
             name: payload.name,
             email: payload.email,
             session_id,
-            default_organization_id: org_id,
+            default_organization: organization,
         }),
     ))
 }
@@ -331,7 +331,7 @@ pub async fn logout(
 ) -> Result<(CookieJar, Json<LogoutResponse>)> {
     // Get session ID from cookie
     if let Some(cookie) = jar.get(SESSION_COOKIE_NAME)
-        && let Ok(session_id) = cookie.value().parse::<i64>()
+        && let Ok(session_id) = cookie.value().parse::<u64>()
     {
         let repos = RepositoryContext::new((*state.storage).clone());
         // Revoke session

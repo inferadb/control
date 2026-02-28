@@ -5,7 +5,10 @@ use axum::{
 };
 use inferadb_control_core::{IdGenerator, repository::AuditLogRepository};
 use inferadb_control_test_fixtures::{create_test_app, create_test_state, register_user};
-use inferadb_control_types::entities::{AuditEventType, AuditLog, AuditResourceType};
+use inferadb_control_types::{
+    OrganizationSlug,
+    entities::{AuditEventType, AuditLog, AuditResourceType},
+};
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -17,7 +20,7 @@ async fn test_audit_log_creation() {
     let repo = AuditLogRepository::new((*state.storage).clone());
     let log = AuditLog::builder()
         .event_type(AuditEventType::UserLogin)
-        .organization_id(1)
+        .organization(OrganizationSlug::from(1_u64))
         .user_id(100)
         .resource_type(AuditResourceType::User)
         .resource_id(100)
@@ -34,7 +37,7 @@ async fn test_audit_log_creation() {
     let retrieved = retrieved.unwrap();
 
     assert_eq!(retrieved.id, log.id);
-    assert_eq!(retrieved.organization_id, Some(1));
+    assert_eq!(retrieved.organization, Some(OrganizationSlug::from(1_u64)));
     assert_eq!(retrieved.user_id, Some(100));
     assert_eq!(retrieved.event_type, AuditEventType::UserLogin);
     assert_eq!(retrieved.resource_type, Some(AuditResourceType::User));
@@ -53,7 +56,7 @@ async fn test_audit_log_list_by_organization() {
     for i in 0..10 {
         let log = AuditLog::builder()
             .event_type(AuditEventType::UserLogin)
-            .organization_id(1) // All for org 1
+            .organization(OrganizationSlug::from(1_u64)) // All for org 1
             .user_id(100 + i)
             .resource_type(AuditResourceType::User)
             .resource_id(100 + i)
@@ -65,7 +68,7 @@ async fn test_audit_log_list_by_organization() {
     for i in 0..5 {
         let log = AuditLog::builder()
             .event_type(AuditEventType::UserLogin)
-            .organization_id(2) // Org 2
+            .organization(OrganizationSlug::from(2_u64)) // Org 2
             .user_id(200 + i)
             .resource_type(AuditResourceType::User)
             .resource_id(200 + i)
@@ -75,14 +78,15 @@ async fn test_audit_log_list_by_organization() {
 
     // List logs for organization 1
     let filters = inferadb_control_core::AuditLogFilters::default();
-    let (logs, total) = repo.list_by_organization(1, filters, 50, 0).await.unwrap();
+    let (logs, total) =
+        repo.list_by_organization(OrganizationSlug::from(1_u64), filters, 50, 0).await.unwrap();
 
     assert_eq!(total, 10);
     assert_eq!(logs.len(), 10);
 
     // Verify all logs are for org 1
     for log in &logs {
-        assert_eq!(log.organization_id, Some(1));
+        assert_eq!(log.organization, Some(OrganizationSlug::from(1_u64)));
     }
 }
 
@@ -95,7 +99,7 @@ async fn test_audit_log_filtering() {
     // Create logs with different event types
     let log1 = AuditLog::builder()
         .event_type(AuditEventType::UserLogin)
-        .organization_id(1)
+        .organization(OrganizationSlug::from(1_u64))
         .user_id(100)
         .resource_type(AuditResourceType::User)
         .resource_id(100)
@@ -104,7 +108,7 @@ async fn test_audit_log_filtering() {
 
     let log2 = AuditLog::builder()
         .event_type(AuditEventType::UserLogout)
-        .organization_id(1)
+        .organization(OrganizationSlug::from(1_u64))
         .user_id(100)
         .resource_type(AuditResourceType::User)
         .resource_id(100)
@@ -113,7 +117,7 @@ async fn test_audit_log_filtering() {
 
     let log3 = AuditLog::builder()
         .event_type(AuditEventType::VaultCreated)
-        .organization_id(1)
+        .organization(OrganizationSlug::from(1_u64))
         .user_id(100)
         .resource_type(AuditResourceType::Vault)
         .resource_id(200)
@@ -125,7 +129,8 @@ async fn test_audit_log_filtering() {
         action: Some(AuditEventType::UserLogin),
         ..Default::default()
     };
-    let (logs, total) = repo.list_by_organization(1, filters, 50, 0).await.unwrap();
+    let (logs, total) =
+        repo.list_by_organization(OrganizationSlug::from(1_u64), filters, 50, 0).await.unwrap();
 
     assert_eq!(total, 1);
     assert_eq!(logs[0].event_type, AuditEventType::UserLogin);
@@ -135,7 +140,8 @@ async fn test_audit_log_filtering() {
         resource_type: Some(AuditResourceType::Vault),
         ..Default::default()
     };
-    let (logs, total) = repo.list_by_organization(1, filters, 50, 0).await.unwrap();
+    let (logs, total) =
+        repo.list_by_organization(OrganizationSlug::from(1_u64), filters, 50, 0).await.unwrap();
 
     assert_eq!(total, 1);
     assert_eq!(logs[0].resource_type, Some(AuditResourceType::Vault));
@@ -151,7 +157,7 @@ async fn test_audit_log_pagination() {
     for i in 0..25 {
         let log = AuditLog::builder()
             .event_type(AuditEventType::UserLogin)
-            .organization_id(1)
+            .organization(OrganizationSlug::from(1_u64))
             .user_id(100 + i)
             .resource_type(AuditResourceType::User)
             .resource_id(100 + i)
@@ -161,19 +167,26 @@ async fn test_audit_log_pagination() {
 
     // Get first page (10 items)
     let filters = inferadb_control_core::AuditLogFilters::default();
-    let (logs, total) = repo.list_by_organization(1, filters.clone(), 10, 0).await.unwrap();
+    let (logs, total) = repo
+        .list_by_organization(OrganizationSlug::from(1_u64), filters.clone(), 10, 0)
+        .await
+        .unwrap();
 
     assert_eq!(total, 25);
     assert_eq!(logs.len(), 10);
 
     // Get second page
-    let (logs, total) = repo.list_by_organization(1, filters.clone(), 10, 10).await.unwrap();
+    let (logs, total) = repo
+        .list_by_organization(OrganizationSlug::from(1_u64), filters.clone(), 10, 10)
+        .await
+        .unwrap();
 
     assert_eq!(total, 25);
     assert_eq!(logs.len(), 10);
 
     // Get third page
-    let (logs, total) = repo.list_by_organization(1, filters, 10, 20).await.unwrap();
+    let (logs, total) =
+        repo.list_by_organization(OrganizationSlug::from(1_u64), filters, 10, 20).await.unwrap();
 
     assert_eq!(total, 25);
     assert_eq!(logs.len(), 5);
@@ -204,14 +217,14 @@ async fn test_audit_log_query_endpoint() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create some audit logs for this organization
     let repo = AuditLogRepository::new((*state.storage).clone());
     for i in 0..5 {
         let log = AuditLog::builder()
             .event_type(AuditEventType::UserLogin)
-            .organization_id(org_id)
+            .organization(OrganizationSlug::from(organization))
             .user_id(100 + i)
             .resource_type(AuditResourceType::User)
             .resource_id(100 + i)
@@ -225,7 +238,7 @@ async fn test_audit_log_query_endpoint() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/audit-logs"))
+                .uri(format!("/control/v1/organizations/{organization}/audit-logs"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -240,7 +253,7 @@ async fn test_audit_log_query_endpoint() {
 
     // Verify response structure
     assert!(json["audit_logs"].is_array());
-    assert!(json["total"].as_i64().unwrap() >= 5);
+    assert!(json["total"].as_u64().unwrap() >= 5);
     assert!(json["limit"].is_i64());
     assert!(json["offset"].is_i64());
 }

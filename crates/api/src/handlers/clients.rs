@@ -10,7 +10,7 @@ use inferadb_control_core::{
     IdGenerator, MasterKey, PrivateKeyEncryptor, RepositoryContext, keypair,
 };
 use inferadb_control_types::{
-    Error as CoreError,
+    Error as CoreError, OrganizationSlug,
     dto::{
         CertificateDetail, CertificateInfo, ClientDetail, ClientInfo, CreateCertificateRequest,
         CreateCertificateResponse, CreateClientRequest, CreateClientResponse, DeleteClientResponse,
@@ -38,9 +38,9 @@ fn client_to_detail(client: Client) -> ClientDetail {
         id: client.id,
         name: client.name,
         description: client.description,
-        vault_id: client.vault_id,
+        vault: client.vault,
         is_active: client.deleted_at.is_none(),
-        organization_id: client.organization_id,
+        organization: client.organization,
         created_at: client.created_at.to_rfc3339(),
     }
 }
@@ -76,7 +76,7 @@ pub async fn create_client(
     let repos = RepositoryContext::new((*state.storage).clone());
     repos
         .org
-        .get(org_ctx.organization_id)
+        .get(org_ctx.organization)
         .await?
         .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
 
@@ -86,8 +86,8 @@ pub async fn create_client(
     // Create client entity
     let client = Client::builder()
         .id(client_id)
-        .organization_id(org_ctx.organization_id)
-        .maybe_vault_id(payload.vault_id)
+        .organization(org_ctx.organization)
+        .maybe_vault(payload.vault)
         .name(payload.name)
         .maybe_description(payload.description)
         .created_by_user_id(org_ctx.member.user_id)
@@ -103,9 +103,9 @@ pub async fn create_client(
                 id: client.id,
                 name: client.name.clone(),
                 description: client.description,
-                vault_id: client.vault_id,
+                vault: client.vault,
                 is_active: client.deleted_at.is_none(),
-                organization_id: client.organization_id,
+                organization: client.organization,
                 created_at: client.created_at.to_rfc3339(),
             },
         }),
@@ -127,7 +127,7 @@ pub async fn list_clients(
     let params = pagination.0.validate();
 
     let repos = RepositoryContext::new((*state.storage).clone());
-    let all_clients = repos.client.list_active_by_organization(org_ctx.organization_id).await?;
+    let all_clients = repos.client.list_active_by_organization(org_ctx.organization).await?;
 
     // Apply pagination
     let total = all_clients.len();
@@ -155,7 +155,7 @@ pub async fn list_clients(
 pub async fn get_client(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, client_id)): Path<(i64, i64)>,
+    Path((_org, client_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<GetClientResponse>> {
     // Require member role or higher
     require_member(&org_ctx)?;
@@ -168,7 +168,7 @@ pub async fn get_client(
         .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
     // Verify client belongs to this organization
-    if client.organization_id != org_ctx.organization_id {
+    if client.organization != org_ctx.organization {
         return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
@@ -182,7 +182,7 @@ pub async fn get_client(
 pub async fn update_client(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, client_id)): Path<(i64, i64)>,
+    Path((_org, client_id)): Path<(OrganizationSlug, u64)>,
     Json(payload): Json<UpdateClientRequest>,
 ) -> Result<Json<UpdateClientResponse>> {
     // Require admin or owner role
@@ -196,7 +196,7 @@ pub async fn update_client(
         .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
     // Verify client belongs to this organization
-    if client.organization_id != org_ctx.organization_id {
+    if client.organization != org_ctx.organization {
         return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
@@ -207,8 +207,8 @@ pub async fn update_client(
     if let Some(description) = payload.description {
         client.set_description(description);
     }
-    if let Some(vault_id) = payload.vault_id {
-        client.set_vault_id(Some(vault_id));
+    if let Some(vault) = payload.vault {
+        client.set_vault(Some(vault));
     }
 
     // Save changes
@@ -224,7 +224,7 @@ pub async fn update_client(
 pub async fn delete_client(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, client_id)): Path<(i64, i64)>,
+    Path((_org, client_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<DeleteClientResponse>> {
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
@@ -237,7 +237,7 @@ pub async fn delete_client(
         .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
     // Verify client belongs to this organization
-    if client.organization_id != org_ctx.organization_id {
+    if client.organization != org_ctx.organization {
         return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
@@ -260,12 +260,12 @@ pub async fn delete_client(
 /// This handler:
 /// 1. Generates an Ed25519 keypair
 /// 2. Stores the encrypted private key in Control's database
-/// 3. Writes the public key to Ledger (in the org's namespace)
+/// 3. Writes the public key to Ledger (scoped to the organization)
 /// 4. Returns the private key to the caller (one-time only)
 pub async fn create_certificate(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, client_id)): Path<(i64, i64)>,
+    Path((_org, client_id)): Path<(OrganizationSlug, u64)>,
     Json(payload): Json<CreateCertificateRequest>,
 ) -> Result<(StatusCode, Json<CreateCertificateResponse>)> {
     // Require admin or owner role
@@ -279,7 +279,7 @@ pub async fn create_certificate(
         .await?
         .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
-    if client.organization_id != org_ctx.organization_id {
+    if client.organization != org_ctx.organization {
         return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
@@ -310,7 +310,7 @@ pub async fn create_certificate(
     let cert = ClientCertificate::builder()
         .id(cert_id)
         .client_id(client_id)
-        .organization_id(org_ctx.organization_id)
+        .organization(org_ctx.organization)
         .public_key(public_key_base64.clone())
         .private_key_encrypted(private_key_encrypted)
         .name(payload.name)
@@ -320,7 +320,7 @@ pub async fn create_certificate(
     tracing::debug!(
         cert_id = cert.id,
         client_id = cert.client_id,
-        org_id = org_ctx.organization_id,
+        organization = %org_ctx.organization,
         kid = %cert.kid,
         "Created certificate entity with kid"
     );
@@ -334,7 +334,7 @@ pub async fn create_certificate(
         "Certificate saved to repository"
     );
 
-    // Write public key to Ledger (in the org's namespace)
+    // Write public key to Ledger (scoped to the organization)
     // This enables Engine to validate tokens without Control connectivity
     let now = Utc::now();
     let public_signing_key = PublicSigningKey {
@@ -350,19 +350,18 @@ pub async fn create_certificate(
         revocation_reason: None,
     };
 
-    // org_id maps directly to namespace_id in Ledger
-    let namespace_id = org_ctx.organization_id;
+    let organization = org_ctx.organization;
     let signing_key_store = state.storage.signing_key_store();
 
     tracing::debug!(
-        namespace_id = namespace_id,
+        organization = %organization,
         kid = %cert.kid,
         "Writing public signing key to Ledger"
     );
 
     // Time the Ledger write operation for metrics
     let ledger_start = std::time::Instant::now();
-    if let Err(e) = signing_key_store.create_key(namespace_id.into(), &public_signing_key).await {
+    if let Err(e) = signing_key_store.create_key(organization, &public_signing_key).await {
         tracing::error!(
             error = %e,
             kid = %cert.kid,
@@ -386,10 +385,10 @@ pub async fn create_certificate(
     let ledger_duration = ledger_start.elapsed().as_secs_f64();
 
     // Record metrics for signing key registration
-    inferadb_control_core::metrics::record_signing_key_registered(namespace_id, ledger_duration);
+    inferadb_control_core::metrics::record_signing_key_registered(organization, ledger_duration);
 
     tracing::debug!(
-        namespace_id = namespace_id,
+        organization = %organization,
         kid = %cert.kid,
         duration_ms = ledger_duration * 1000.0,
         "Public signing key written to Ledger"
@@ -400,7 +399,7 @@ pub async fn create_certificate(
         &state,
         AuditEventType::ClientCertificateCreated,
         AuditEventParams {
-            organization_id: Some(org_ctx.organization_id),
+            organization: Some(org_ctx.organization),
             user_id: Some(org_ctx.member.user_id),
             client_id: Some(client_id),
             resource_type: Some(AuditResourceType::ClientCertificate),
@@ -440,7 +439,7 @@ pub async fn create_certificate(
 pub async fn list_certificates(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, client_id)): Path<(i64, i64)>,
+    Path((_org, client_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<ListCertificatesResponse>> {
     // Require member role or higher
     require_member(&org_ctx)?;
@@ -453,7 +452,7 @@ pub async fn list_certificates(
         .await?
         .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
-    if client.organization_id != org_ctx.organization_id {
+    if client.organization != org_ctx.organization {
         return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
@@ -471,7 +470,7 @@ pub async fn list_certificates(
 pub async fn get_certificate(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, client_id, cert_id)): Path<(i64, i64, i64)>,
+    Path((_org, client_id, cert_id)): Path<(OrganizationSlug, u64, u64)>,
 ) -> Result<Json<GetCertificateResponse>> {
     // Require member role or higher
     require_member(&org_ctx)?;
@@ -484,7 +483,7 @@ pub async fn get_certificate(
         .await?
         .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
-    if client.organization_id != org_ctx.organization_id {
+    if client.organization != org_ctx.organization {
         return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
@@ -518,7 +517,7 @@ pub async fn get_certificate(
 pub async fn revoke_certificate(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, client_id, cert_id)): Path<(i64, i64, i64)>,
+    Path((_org, client_id, cert_id)): Path<(OrganizationSlug, u64, u64)>,
 ) -> Result<Json<RevokeCertificateResponse>> {
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
@@ -531,7 +530,7 @@ pub async fn revoke_certificate(
         .await?
         .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
-    if client.organization_id != org_ctx.organization_id {
+    if client.organization != org_ctx.organization {
         return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
@@ -556,12 +555,11 @@ pub async fn revoke_certificate(
     repos.client_certificate.update(cert.clone()).await?;
 
     // Revoke the public key in Ledger
-    // org_id maps directly to namespace_id in Ledger
-    let namespace_id = org_ctx.organization_id;
+    let organization = org_ctx.organization;
     let signing_key_store = state.storage.signing_key_store();
 
     tracing::debug!(
-        namespace_id = namespace_id,
+        organization = %organization,
         kid = %cert.kid,
         "Revoking public signing key in Ledger"
     );
@@ -569,7 +567,7 @@ pub async fn revoke_certificate(
     // Time the Ledger revoke operation for metrics
     let ledger_start = std::time::Instant::now();
     if let Err(e) = signing_key_store
-        .revoke_key(namespace_id.into(), &cert.kid, Some("Certificate revoked by user"))
+        .revoke_key(organization, &cert.kid, Some("Certificate revoked by user"))
         .await
     {
         tracing::error!(
@@ -597,13 +595,13 @@ pub async fn revoke_certificate(
 
     // Record metrics for signing key revocation
     inferadb_control_core::metrics::record_signing_key_revoked(
-        namespace_id,
+        organization,
         "user_requested",
         ledger_duration,
     );
 
     tracing::debug!(
-        namespace_id = namespace_id,
+        organization = %organization,
         kid = %cert.kid,
         duration_ms = ledger_duration * 1000.0,
         "Public signing key revoked in Ledger"
@@ -614,7 +612,7 @@ pub async fn revoke_certificate(
         &state,
         AuditEventType::ClientCertificateRevoked,
         AuditEventParams {
-            organization_id: Some(org_ctx.organization_id),
+            organization: Some(org_ctx.organization),
             user_id: Some(org_ctx.member.user_id),
             client_id: Some(client_id),
             resource_type: Some(AuditResourceType::ClientCertificate),
@@ -664,7 +662,7 @@ pub async fn revoke_certificate(
 pub async fn rotate_certificate(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, client_id, cert_id)): Path<(i64, i64, i64)>,
+    Path((_org, client_id, cert_id)): Path<(OrganizationSlug, u64, u64)>,
     Json(payload): Json<RotateCertificateRequest>,
 ) -> Result<(StatusCode, Json<RotateCertificateResponse>)> {
     // Require admin or owner role
@@ -678,7 +676,7 @@ pub async fn rotate_certificate(
         .await?
         .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
 
-    if client.organization_id != org_ctx.organization_id {
+    if client.organization != org_ctx.organization {
         return Err(CoreError::not_found("Client not found".to_string()).into());
     }
 
@@ -726,7 +724,7 @@ pub async fn rotate_certificate(
     let new_cert = ClientCertificate::builder()
         .id(new_cert_id)
         .client_id(client_id)
-        .organization_id(org_ctx.organization_id)
+        .organization(org_ctx.organization)
         .public_key(public_key_base64.clone())
         .private_key_encrypted(private_key_encrypted)
         .name(payload.name)
@@ -737,7 +735,7 @@ pub async fn rotate_certificate(
         new_cert_id = new_cert.id,
         old_cert_id = old_cert.id,
         client_id = new_cert.client_id,
-        org_id = org_ctx.organization_id,
+        organization = %org_ctx.organization,
         kid = %new_cert.kid,
         grace_period_seconds = payload.grace_period_seconds,
         "Created rotated certificate entity"
@@ -770,12 +768,11 @@ pub async fn rotate_certificate(
         revocation_reason: None,
     };
 
-    // org_id maps directly to namespace_id in Ledger
-    let namespace_id = org_ctx.organization_id;
+    let organization = org_ctx.organization;
     let signing_key_store = state.storage.signing_key_store();
 
     tracing::debug!(
-        namespace_id = namespace_id,
+        organization = %organization,
         kid = %new_cert.kid,
         valid_from = %valid_from,
         "Writing rotated public signing key to Ledger"
@@ -783,7 +780,7 @@ pub async fn rotate_certificate(
 
     // Time the Ledger write operation for metrics
     let ledger_start = std::time::Instant::now();
-    if let Err(e) = signing_key_store.create_key(namespace_id.into(), &public_signing_key).await {
+    if let Err(e) = signing_key_store.create_key(organization, &public_signing_key).await {
         tracing::error!(
             error = %e,
             kid = %new_cert.kid,
@@ -807,10 +804,10 @@ pub async fn rotate_certificate(
     let ledger_duration = ledger_start.elapsed().as_secs_f64();
 
     // Record metrics for signing key rotation
-    inferadb_control_core::metrics::record_signing_key_rotated(namespace_id, ledger_duration);
+    inferadb_control_core::metrics::record_signing_key_rotated(organization, ledger_duration);
 
     tracing::info!(
-        namespace_id = namespace_id,
+        organization = %organization,
         old_kid = %old_cert.kid,
         new_kid = %new_cert.kid,
         valid_from = %valid_from,
@@ -823,7 +820,7 @@ pub async fn rotate_certificate(
         &state,
         AuditEventType::ClientCertificateRotated,
         AuditEventParams {
-            organization_id: Some(org_ctx.organization_id),
+            organization: Some(org_ctx.organization),
             user_id: Some(org_ctx.member.user_id),
             client_id: Some(client_id),
             resource_type: Some(AuditResourceType::ClientCertificate),

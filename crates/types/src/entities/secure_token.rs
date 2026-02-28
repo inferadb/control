@@ -14,7 +14,7 @@ const TOKEN_HEX_LENGTH: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SecureToken {
     /// Unique token ID (Snowflake ID)
-    pub id: i64,
+    pub id: u64,
 
     /// Token value (32 bytes, hex-encoded = 64 chars)
     pub token: String,
@@ -34,7 +34,7 @@ impl SecureToken {
     ///
     /// Validates the token format (must be exactly 64 hex characters) and
     /// sets expiry based on the provided time-to-live duration.
-    pub fn new(id: i64, token: String, ttl: Duration) -> Result<Self> {
+    pub fn new(id: u64, token: String, ttl: Duration) -> Result<Self> {
         validate_token_format(&token)?;
         let now = Utc::now();
         Ok(Self { id, token, created_at: now, expires_at: now + ttl, used_at: None })
@@ -113,7 +113,7 @@ pub trait SecureTokenEntity:
     fn secure_token_mut(&mut self) -> &mut SecureToken;
 
     /// Get the foreign key value for the secondary index
-    fn foreign_key_id(&self) -> i64;
+    fn foreign_key_id(&self) -> u64;
 }
 
 #[cfg(test)]

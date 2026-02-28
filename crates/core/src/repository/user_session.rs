@@ -28,17 +28,17 @@ impl<S: StorageBackend> UserSessionRepository<S> {
     }
 
     /// Generate key for session by ID
-    fn session_key(id: i64) -> Vec<u8> {
+    fn session_key(id: u64) -> Vec<u8> {
         format!("session:{id}").into_bytes()
     }
 
     /// Generate key for user's session index
-    fn user_session_index_key(user_id: i64, session_id: i64) -> Vec<u8> {
+    fn user_session_index_key(user_id: u64, session_id: u64) -> Vec<u8> {
         format!("session:user:{user_id}:{session_id}").into_bytes()
     }
 
     /// Generate key for active session index
-    fn active_session_index_key(id: i64) -> Vec<u8> {
+    fn active_session_index_key(id: u64) -> Vec<u8> {
         format!("session:active:{id}").into_bytes()
     }
 
@@ -136,7 +136,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
     /// Get a session by ID
     ///
     /// Returns None if session doesn't exist, is expired, or is revoked
-    pub async fn get(&self, id: i64) -> Result<Option<UserSession>> {
+    pub async fn get(&self, id: u64) -> Result<Option<UserSession>> {
         let key = Self::session_key(id);
         let data = self
             .storage
@@ -157,7 +157,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
     }
 
     /// Get all active sessions for a user
-    pub async fn get_user_sessions(&self, user_id: i64) -> Result<Vec<UserSession>> {
+    pub async fn get_user_sessions(&self, user_id: u64) -> Result<Vec<UserSession>> {
         // Use range query to get all sessions for this user
         let prefix = format!("session:user:{user_id}:");
         let start = prefix.clone().into_bytes();
@@ -174,7 +174,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
             if kv.value.len() != 8 {
                 continue; // Skip invalid entries
             }
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(session) = self.get(id).await? {
                 // Only include active sessions
                 if session.is_active() {
@@ -216,7 +216,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
     ///
     /// This extends the session expiry time, updates last activity, and resets
     /// TTL on all 3 storage keys to the full session type duration.
-    pub async fn update_activity(&self, id: i64) -> Result<()> {
+    pub async fn update_activity(&self, id: u64) -> Result<()> {
         let mut session = self
             .get(id)
             .await?
@@ -232,7 +232,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
     ///
     /// Sets a short residual TTL so the revoked record remains briefly
     /// visible for in-flight requests, then Ledger GC removes it.
-    pub async fn revoke(&self, id: i64) -> Result<()> {
+    pub async fn revoke(&self, id: u64) -> Result<()> {
         let mut session = self
             .get(id)
             .await?
@@ -243,7 +243,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
     }
 
     /// Revoke all sessions for a user
-    pub async fn revoke_user_sessions(&self, user_id: i64) -> Result<()> {
+    pub async fn revoke_user_sessions(&self, user_id: u64) -> Result<()> {
         let sessions = self.get_user_sessions(user_id).await?;
 
         for session in sessions {
@@ -256,7 +256,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
     /// Delete a session and all associated indexes
     ///
     /// This is a hard delete that removes all traces of the session
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get session to remove indexes
         let session = self.get(id).await?;
 
@@ -286,7 +286,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
     }
 
     /// Check if a session exists and is active
-    pub async fn is_active(&self, id: i64) -> Result<bool> {
+    pub async fn is_active(&self, id: u64) -> Result<bool> {
         Ok(self.get(id).await?.is_some())
     }
 }
@@ -300,7 +300,7 @@ mod tests {
 
     use super::*;
 
-    async fn create_test_session(id: i64, user_id: i64, session_type: SessionType) -> UserSession {
+    async fn create_test_session(id: u64, user_id: u64, session_type: SessionType) -> UserSession {
         UserSession::builder().id(id).user_id(user_id).session_type(session_type).create()
     }
 

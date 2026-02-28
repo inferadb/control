@@ -4,7 +4,10 @@ use bon::bon;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
+use crate::{
+    VaultSlug,
+    error::{Error, Result},
+};
 
 /// Schema version using semantic versioning
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -129,19 +132,19 @@ pub enum SchemaDeploymentStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultSchema {
     /// Unique identifier for this schema version
-    pub id: i64,
+    pub id: u64,
     /// Vault this schema belongs to
-    pub vault_id: i64,
+    pub vault: VaultSlug,
     /// Semantic version of this schema
     pub version: SchemaVersion,
     /// The IPL schema definition
     pub definition: String,
     /// User who deployed this schema
-    pub author_user_id: i64,
+    pub author_user_id: u64,
     /// Description of changes in this version
     pub description: String,
     /// Parent version this was based on (None for initial version)
-    pub parent_version_id: Option<i64>,
+    pub parent_version_id: Option<u64>,
     /// Deployment status
     pub status: SchemaDeploymentStatus,
     /// Error message if deployment failed
@@ -159,20 +162,20 @@ impl VaultSchema {
     /// Create a new schema version
     #[builder(on(String, into), finish_fn = create)]
     pub fn new(
-        id: i64,
-        vault_id: i64,
+        id: u64,
+        vault: VaultSlug,
         version: SchemaVersion,
         definition: String,
-        author_user_id: i64,
+        author_user_id: u64,
         description: String,
-        parent_version_id: Option<i64>,
+        parent_version_id: Option<u64>,
     ) -> Result<Self> {
         Self::validate_definition(&definition)?;
         Self::validate_description(&description)?;
 
         Ok(Self {
             id,
-            vault_id,
+            vault,
             version,
             definition,
             author_user_id,
@@ -334,20 +337,20 @@ mod tests {
     #[test]
     fn test_create_vault_schema() {
         let schema = VaultSchema::builder()
-            .id(1)
-            .vault_id(100)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
             .version(SchemaVersion::initial())
             .definition("entity User {}".to_string())
-            .author_user_id(999)
+            .author_user_id(999_u64)
             .description("Initial schema")
             .create()
             .unwrap();
 
-        assert_eq!(schema.id, 1);
-        assert_eq!(schema.vault_id, 100);
+        assert_eq!(schema.id, 1_u64);
+        assert_eq!(schema.vault, VaultSlug::from(100_u64));
         assert_eq!(schema.version, SchemaVersion::initial());
         assert_eq!(schema.definition, "entity User {}");
-        assert_eq!(schema.author_user_id, 999);
+        assert_eq!(schema.author_user_id, 999_u64);
         assert_eq!(schema.description, "Initial schema");
         assert!(schema.parent_version_id.is_none());
         assert_eq!(schema.status, SchemaDeploymentStatus::Validating);
@@ -377,11 +380,11 @@ mod tests {
     #[test]
     fn test_schema_lifecycle() {
         let mut schema = VaultSchema::builder()
-            .id(1)
-            .vault_id(100)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
             .version(SchemaVersion::initial())
             .definition("entity User {}".to_string())
-            .author_user_id(999)
+            .author_user_id(999_u64)
             .description("Initial schema")
             .create()
             .unwrap();
@@ -410,11 +413,11 @@ mod tests {
     #[test]
     fn test_schema_failure() {
         let mut schema = VaultSchema::builder()
-            .id(1)
-            .vault_id(100)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
             .version(SchemaVersion::initial())
             .definition("entity User {}".to_string())
-            .author_user_id(999)
+            .author_user_id(999_u64)
             .description("Initial schema")
             .create()
             .unwrap();
@@ -428,11 +431,11 @@ mod tests {
     #[test]
     fn test_schema_rollback() {
         let mut schema = VaultSchema::builder()
-            .id(1)
-            .vault_id(100)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
             .version(SchemaVersion::initial())
             .definition("entity User {}".to_string())
-            .author_user_id(999)
+            .author_user_id(999_u64)
             .description("Initial schema")
             .create()
             .unwrap();

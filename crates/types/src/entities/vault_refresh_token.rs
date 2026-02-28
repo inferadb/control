@@ -5,6 +5,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    OrganizationSlug, VaultSlug,
     entities::VaultRole,
     error::{Error, Result},
 };
@@ -16,21 +17,21 @@ use crate::{
 /// session (for user authentication) or a client (for client authentication).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultRefreshToken {
-    pub id: i64,
+    pub id: u64,
     /// Hex-encoded token value (32 bytes = 64 hex characters)
     pub token: String,
     /// Vault this token grants access to
-    pub vault_id: i64,
+    pub vault: VaultSlug,
     /// Organization that owns the vault
-    pub organization_id: i64,
+    pub organization: OrganizationSlug,
     /// Role granted by this token
     pub vault_role: VaultRole,
     /// User session this token is bound to (for user authentication)
     /// Mutually exclusive with org_api_key_id
-    pub user_session_id: Option<i64>,
+    pub user_session_id: Option<u64>,
     /// Client this token is bound to (for client authentication)
     /// Mutually exclusive with user_session_id
-    pub org_api_key_id: Option<i64>,
+    pub org_api_key_id: Option<u64>,
     /// When the token was created
     pub created_at: DateTime<Utc>,
     /// When the token expires
@@ -52,11 +53,11 @@ impl VaultRefreshToken {
     /// Create a new refresh token for a user session
     #[builder(finish_fn = create)]
     pub fn new_for_session(
-        id: i64,
-        vault_id: i64,
-        organization_id: i64,
+        id: u64,
+        vault: VaultSlug,
+        organization: OrganizationSlug,
         vault_role: VaultRole,
-        user_session_id: i64,
+        user_session_id: u64,
         ttl_seconds: Option<i64>,
     ) -> Result<Self> {
         let token = Self::generate_token();
@@ -67,8 +68,8 @@ impl VaultRefreshToken {
         Ok(Self {
             id,
             token,
-            vault_id,
-            organization_id,
+            vault,
+            organization,
             vault_role,
             user_session_id: Some(user_session_id),
             org_api_key_id: None,
@@ -82,11 +83,11 @@ impl VaultRefreshToken {
     /// Create a new refresh token for a client
     #[builder(finish_fn = create)]
     pub fn new_for_client(
-        id: i64,
-        vault_id: i64,
-        organization_id: i64,
+        id: u64,
+        vault: VaultSlug,
+        organization: OrganizationSlug,
         vault_role: VaultRole,
-        org_api_key_id: i64,
+        org_api_key_id: u64,
         ttl_seconds: Option<i64>,
     ) -> Result<Self> {
         let token = Self::generate_token();
@@ -97,8 +98,8 @@ impl VaultRefreshToken {
         Ok(Self {
             id,
             token,
-            vault_id,
-            organization_id,
+            vault,
+            organization,
             vault_role,
             user_session_id: None,
             org_api_key_id: Some(org_api_key_id),
@@ -176,8 +177,8 @@ impl VaultRefreshToken {
     /// For client-based tokens: validates org_api_key_id matches
     pub fn validate_auth_context(
         &self,
-        user_session_id: Option<i64>,
-        org_api_key_id: Option<i64>,
+        user_session_id: Option<u64>,
+        org_api_key_id: Option<u64>,
     ) -> Result<()> {
         match (self.user_session_id, self.org_api_key_id) {
             (Some(token_session_id), None) => {
@@ -232,19 +233,19 @@ mod tests {
     #[test]
     fn test_new_for_session() {
         let token = VaultRefreshToken::new_for_session()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
-            .user_session_id(300)
+            .user_session_id(300_u64)
             .create()
             .unwrap();
 
-        assert_eq!(token.id, 1);
-        assert_eq!(token.vault_id, 100);
-        assert_eq!(token.organization_id, 200);
+        assert_eq!(token.id, 1_u64);
+        assert_eq!(token.vault, VaultSlug::from(100_u64));
+        assert_eq!(token.organization, OrganizationSlug::from(200_u64));
         assert_eq!(token.vault_role, VaultRole::Reader);
-        assert_eq!(token.user_session_id, Some(300));
+        assert_eq!(token.user_session_id, Some(300_u64));
         assert_eq!(token.org_api_key_id, None);
         assert!(!token.is_expired());
         assert!(!token.is_used());
@@ -255,20 +256,20 @@ mod tests {
     #[test]
     fn test_new_for_client() {
         let token = VaultRefreshToken::new_for_client()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Writer)
-            .org_api_key_id(400)
+            .org_api_key_id(400_u64)
             .create()
             .unwrap();
 
-        assert_eq!(token.id, 1);
-        assert_eq!(token.vault_id, 100);
-        assert_eq!(token.organization_id, 200);
+        assert_eq!(token.id, 1_u64);
+        assert_eq!(token.vault, VaultSlug::from(100_u64));
+        assert_eq!(token.organization, OrganizationSlug::from(200_u64));
         assert_eq!(token.vault_role, VaultRole::Writer);
         assert_eq!(token.user_session_id, None);
-        assert_eq!(token.org_api_key_id, Some(400));
+        assert_eq!(token.org_api_key_id, Some(400_u64));
         assert!(!token.is_expired());
         assert!(!token.is_used());
         assert!(!token.is_revoked());
@@ -279,11 +280,11 @@ mod tests {
     fn test_token_expiration() {
         // Create a token with negative TTL (already expired)
         let token = VaultRefreshToken::new_for_session()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
-            .user_session_id(300)
+            .user_session_id(300_u64)
             .ttl_seconds(-1)
             .create()
             .unwrap();
@@ -295,11 +296,11 @@ mod tests {
     #[test]
     fn test_mark_used() {
         let mut token = VaultRefreshToken::new_for_session()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
-            .user_session_id(300)
+            .user_session_id(300_u64)
             .maybe_ttl_seconds(None)
             .create()
             .unwrap();
@@ -315,11 +316,11 @@ mod tests {
     #[test]
     fn test_mark_revoked() {
         let mut token = VaultRefreshToken::new_for_session()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
-            .user_session_id(300)
+            .user_session_id(300_u64)
             .maybe_ttl_seconds(None)
             .create()
             .unwrap();
@@ -335,11 +336,11 @@ mod tests {
     #[test]
     fn test_validate_for_refresh_success() {
         let token = VaultRefreshToken::new_for_session()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
-            .user_session_id(300)
+            .user_session_id(300_u64)
             .maybe_ttl_seconds(None)
             .create()
             .unwrap();
@@ -350,11 +351,11 @@ mod tests {
     #[test]
     fn test_validate_for_refresh_expired() {
         let token = VaultRefreshToken::new_for_session()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
-            .user_session_id(300)
+            .user_session_id(300_u64)
             .ttl_seconds(-1)
             .create()
             .unwrap();
@@ -367,11 +368,11 @@ mod tests {
     #[test]
     fn test_validate_for_refresh_used() {
         let mut token = VaultRefreshToken::new_for_session()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
-            .user_session_id(300)
+            .user_session_id(300_u64)
             .maybe_ttl_seconds(None)
             .create()
             .unwrap();
@@ -385,11 +386,11 @@ mod tests {
     #[test]
     fn test_validate_for_refresh_revoked() {
         let mut token = VaultRefreshToken::new_for_session()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
-            .user_session_id(300)
+            .user_session_id(300_u64)
             .maybe_ttl_seconds(None)
             .create()
             .unwrap();
@@ -403,45 +404,45 @@ mod tests {
     #[test]
     fn test_validate_auth_context_session() {
         let token = VaultRefreshToken::new_for_session()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Reader)
-            .user_session_id(300)
+            .user_session_id(300_u64)
             .maybe_ttl_seconds(None)
             .create()
             .unwrap();
 
         // Correct session
-        assert!(token.validate_auth_context(Some(300), None).is_ok());
+        assert!(token.validate_auth_context(Some(300_u64), None).is_ok());
 
         // Wrong session
-        assert!(token.validate_auth_context(Some(999), None).is_err());
+        assert!(token.validate_auth_context(Some(999_u64), None).is_err());
 
         // Client instead of session
-        assert!(token.validate_auth_context(None, Some(400)).is_err());
+        assert!(token.validate_auth_context(None, Some(400_u64)).is_err());
     }
 
     #[test]
     fn test_validate_auth_context_client() {
         let token = VaultRefreshToken::new_for_client()
-            .id(1)
-            .vault_id(100)
-            .organization_id(200)
+            .id(1_u64)
+            .vault(VaultSlug::from(100_u64))
+            .organization(OrganizationSlug::from(200_u64))
             .vault_role(VaultRole::Writer)
-            .org_api_key_id(400)
+            .org_api_key_id(400_u64)
             .maybe_ttl_seconds(None)
             .create()
             .unwrap();
 
         // Correct client
-        assert!(token.validate_auth_context(None, Some(400)).is_ok());
+        assert!(token.validate_auth_context(None, Some(400_u64)).is_ok());
 
         // Wrong client
-        assert!(token.validate_auth_context(None, Some(999)).is_err());
+        assert!(token.validate_auth_context(None, Some(999_u64)).is_err());
 
         // Session instead of client
-        assert!(token.validate_auth_context(Some(300), None).is_err());
+        assert!(token.validate_auth_context(Some(300_u64), None).is_err());
     }
 
     #[test]

@@ -17,13 +17,13 @@ use std::{
     ops::Bound,
     sync::{
         LazyLock,
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
 
 use bytes::Bytes;
-use inferadb_common_storage::VaultId;
+use inferadb_common_storage::VaultSlug;
 use inferadb_common_storage_ledger::{
     ClientConfig, LedgerBackend, LedgerBackendConfig, ServerSource,
 };
@@ -36,9 +36,9 @@ use tokio::time::sleep;
 
 // Process-unique base to prevent vault ID collisions when nextest spawns separate processes.
 // Each process gets a unique 10000-vault range based on its PID.
-static VAULT_COUNTER: LazyLock<AtomicI64> = LazyLock::new(|| {
-    let pid = std::process::id() as i64;
-    AtomicI64::new(30000 + (pid % 1000) * 10000)
+static VAULT_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| {
+    let pid = u64::from(std::process::id());
+    AtomicU64::new(30000 + (pid % 1000) * 10000)
 });
 
 fn should_run() -> bool {
@@ -49,25 +49,25 @@ fn ledger_endpoint() -> String {
     env::var("LEDGER_ENDPOINT").unwrap_or_else(|_| "http://localhost:50051".to_string())
 }
 
-fn ledger_namespace_id() -> i64 {
-    env::var("LEDGER_NAMESPACE_ID").ok().and_then(|s| s.parse().ok()).unwrap_or(1)
+fn ledger_organization() -> u64 {
+    env::var("LEDGER_ORGANIZATION").ok().and_then(|s| s.parse().ok()).unwrap_or(1)
 }
 
-fn unique_vault_id() -> i64 {
+fn unique_vault() -> u64 {
     VAULT_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
 async fn create_ledger_backend() -> LedgerBackend {
-    let vault_id = unique_vault_id();
+    let vault = unique_vault();
     let client_config = ClientConfig::builder()
         .servers(ServerSource::from_static([ledger_endpoint()]))
-        .client_id(format!("control-test-{vault_id}"))
+        .client_id(format!("control-test-{vault}"))
         .build()
         .expect("valid client config");
     let config = LedgerBackendConfig::builder()
         .client(client_config)
-        .namespace_id(ledger_namespace_id())
-        .vault_id(VaultId::from(vault_id))
+        .organization(ledger_organization())
+        .vault(VaultSlug::from(vault))
         .build()
         .expect("valid ledger backend config");
 
@@ -258,20 +258,20 @@ async fn test_ledger_concurrent_writes() {
     // Spawn concurrent writers (each gets its own backend with unique vault)
     let mut handles = Vec::new();
     for i in 0..10 {
-        let vault_id = unique_vault_id();
+        let vault = unique_vault();
         let endpoint = ledger_endpoint();
-        let namespace_id = ledger_namespace_id();
+        let organization = ledger_organization();
 
         handles.push(tokio::spawn(async move {
             let client_config = ClientConfig::builder()
                 .servers(ServerSource::from_static([endpoint]))
-                .client_id(format!("concurrent-test-{vault_id}"))
+                .client_id(format!("concurrent-test-{vault}"))
                 .build()
                 .expect("valid client config");
             let config = LedgerBackendConfig::builder()
                 .client(client_config)
-                .namespace_id(namespace_id)
-                .vault_id(VaultId::from(vault_id))
+                .organization(organization)
+                .vault(VaultSlug::from(vault))
                 .build()
                 .expect("valid config");
 
@@ -299,8 +299,8 @@ async fn test_ledger_vault_isolation() {
         return;
     }
 
-    let vault_a = unique_vault_id();
-    let vault_b = unique_vault_id();
+    let vault_a = unique_vault();
+    let vault_b = unique_vault();
 
     let client_config_a = ClientConfig::builder()
         .servers(ServerSource::from_static([ledger_endpoint()]))
@@ -309,8 +309,8 @@ async fn test_ledger_vault_isolation() {
         .unwrap();
     let config_a = LedgerBackendConfig::builder()
         .client(client_config_a)
-        .namespace_id(ledger_namespace_id())
-        .vault_id(VaultId::from(vault_a))
+        .organization(ledger_organization())
+        .vault(VaultSlug::from(vault_a))
         .build()
         .unwrap();
 
@@ -321,8 +321,8 @@ async fn test_ledger_vault_isolation() {
         .unwrap();
     let config_b = LedgerBackendConfig::builder()
         .client(client_config_b)
-        .namespace_id(ledger_namespace_id())
-        .vault_id(VaultId::from(vault_b))
+        .organization(ledger_organization())
+        .vault(VaultSlug::from(vault_b))
         .build()
         .unwrap();
 

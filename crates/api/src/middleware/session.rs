@@ -14,8 +14,8 @@ use crate::handlers::auth::{ApiError, AppState};
 /// Context for authenticated requests
 #[derive(Debug, Clone)]
 pub struct SessionContext {
-    pub session_id: i64,
-    pub user_id: i64,
+    pub session_id: u64,
+    pub user_id: u64,
 }
 
 /// Session validation middleware
@@ -32,7 +32,7 @@ pub async fn require_session(
     let session_id = if let Some(cookie) = jar.get(SESSION_COOKIE_NAME) {
         cookie
             .value()
-            .parse::<i64>()
+            .parse::<u64>()
             .map_err(|_| CoreError::auth("Invalid session cookie".to_string()))?
     } else if let Some(auth_header) = request.headers().get("authorization") {
         let auth_str = auth_header
@@ -42,7 +42,7 @@ pub async fn require_session(
         // Support "Bearer <session_id>" format
         if let Some(token) = auth_str.strip_prefix("Bearer ") {
             token
-                .parse::<i64>()
+                .parse::<u64>()
                 .map_err(|_| CoreError::auth("Invalid session token".to_string()))?
         } else {
             return Err(

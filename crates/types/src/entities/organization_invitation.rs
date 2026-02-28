@@ -3,6 +3,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    OrganizationSlug,
     entities::OrganizationRole,
     error::{Error, Result},
 };
@@ -14,11 +15,11 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrganizationInvitation {
     /// Unique identifier for the invitation
-    pub id: i64,
-    /// Organization ID the invitation is for
-    pub organization_id: i64,
+    pub id: u64,
+    /// Organization the invitation is for
+    pub organization: OrganizationSlug,
     /// User ID who created the invitation
-    pub invited_by_user_id: i64,
+    pub invited_by_user_id: u64,
     /// Email address of the person being invited
     pub email: String,
     /// Role the invitee will have in the organization
@@ -41,7 +42,7 @@ impl OrganizationInvitation {
     /// # Arguments
     ///
     /// * `id` - Unique identifier for the invitation
-    /// * `organization_id` - Organization ID the invitation is for
+    /// * `organization` - Organization the invitation is for
     /// * `invited_by_user_id` - User ID who created the invitation
     /// * `email` - Email address of the person being invited
     /// * `role` - Role the invitee will have
@@ -52,9 +53,9 @@ impl OrganizationInvitation {
     /// Returns an error if validation fails
     #[builder(on(String, into), finish_fn = create)]
     pub fn new(
-        id: i64,
-        organization_id: i64,
-        invited_by_user_id: i64,
+        id: u64,
+        organization: OrganizationSlug,
+        invited_by_user_id: u64,
         email: String,
         role: OrganizationRole,
         token: String,
@@ -67,7 +68,7 @@ impl OrganizationInvitation {
 
         Ok(Self {
             id,
-            organization_id,
+            organization,
             invited_by_user_id,
             email: email.trim().to_lowercase(),
             role,
@@ -155,18 +156,18 @@ mod tests {
     fn test_new_invitation() {
         let token = OrganizationInvitation::generate_token().unwrap();
         let invitation = OrganizationInvitation::builder()
-            .id(1)
-            .organization_id(100)
-            .invited_by_user_id(200)
+            .id(1_u64)
+            .organization(OrganizationSlug::from(100_u64))
+            .invited_by_user_id(200_u64)
             .email("test@example.com")
             .role(OrganizationRole::Member)
             .token(token)
             .create()
             .unwrap();
 
-        assert_eq!(invitation.id, 1);
-        assert_eq!(invitation.organization_id, 100);
-        assert_eq!(invitation.invited_by_user_id, 200);
+        assert_eq!(invitation.id, 1_u64);
+        assert_eq!(invitation.organization, OrganizationSlug::from(100_u64));
+        assert_eq!(invitation.invited_by_user_id, 200_u64);
         assert_eq!(invitation.email, "test@example.com");
         assert_eq!(invitation.role, OrganizationRole::Member);
         assert!(!invitation.is_expired());
@@ -208,9 +209,9 @@ mod tests {
     fn test_email_normalized() {
         let token = OrganizationInvitation::generate_token().unwrap();
         let invitation = OrganizationInvitation::builder()
-            .id(1)
-            .organization_id(100)
-            .invited_by_user_id(200)
+            .id(1_u64)
+            .organization(OrganizationSlug::from(100_u64))
+            .invited_by_user_id(200_u64)
             .email("  Test@Example.COM  ")
             .role(OrganizationRole::Member)
             .token(token)

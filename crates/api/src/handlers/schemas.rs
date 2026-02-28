@@ -5,7 +5,7 @@ use axum::{
 };
 use inferadb_control_core::{IdGenerator, RepositoryContext};
 use inferadb_control_types::{
-    Error as CoreError,
+    Error as CoreError, OrganizationSlug, VaultSlug,
     dto::{
         ActivateSchemaResponse, DeploySchemaRequest, DeploySchemaResponse, GetSchemaResponse,
         ListSchemasQuery, ListSchemasResponse, RollbackSchemaRequest, RollbackSchemaResponse,
@@ -26,12 +26,12 @@ use crate::{
 
 /// Deploy a new schema version
 ///
-/// POST /v1/vaults/{vault_id}/schemas
+/// POST /v1/vaults/{vault}/schemas
 /// Required role: ADMIN or OWNER
 pub async fn deploy_schema(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
     Json(payload): Json<DeploySchemaRequest>,
 ) -> Result<(StatusCode, Json<DeploySchemaResponse>)> {
     // Require admin or owner role
@@ -42,11 +42,11 @@ pub async fn deploy_schema(
     // Verify vault exists and belongs to this organization
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
@@ -60,14 +60,14 @@ pub async fn deploy_schema(
         version_str.parse::<SchemaVersion>()?
     } else {
         // Auto-increment from latest version
-        match repos.vault_schema.get_latest_version(vault_id).await? {
+        match repos.vault_schema.get_latest_version(vault.id).await? {
             Some(latest) => latest.bump_minor(),
             None => SchemaVersion::initial(),
         }
     };
 
     // Check if version already exists
-    if repos.vault_schema.get_by_version(vault_id, &version).await?.is_some() {
+    if repos.vault_schema.get_by_version(vault.id, &version).await?.is_some() {
         return Err(CoreError::already_exists(format!(
             "Schema version {version} already exists for this vault"
         ))
@@ -75,7 +75,7 @@ pub async fn deploy_schema(
     }
 
     // Get parent version ID (current active schema if any)
-    let parent_version_id = repos.vault_schema.get_active(vault_id).await?.map(|s| s.id);
+    let parent_version_id = repos.vault_schema.get_active(vault.id).await?.map(|s| s.id);
 
     // Generate ID for the schema
     let schema_id = IdGenerator::next_id();
@@ -83,7 +83,7 @@ pub async fn deploy_schema(
     // Create schema entity
     let mut schema = VaultSchema::builder()
         .id(schema_id)
-        .vault_id(vault_id)
+        .vault(vault.id)
         .version(version)
         .definition(payload.definition)
         .author_user_id(org_ctx.member.user_id)
@@ -102,12 +102,12 @@ pub async fn deploy_schema(
 
 /// List all schema versions for a vault
 ///
-/// GET /v1/vaults/{vault_id}/schemas
+/// GET /v1/vaults/{vault}/schemas
 /// Required role: MEMBER or higher
 pub async fn list_schemas(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
     Query(query): Query<ListSchemasQuery>,
 ) -> Result<Json<ListSchemasResponse>> {
     // Require member role or higher
@@ -118,20 +118,20 @@ pub async fn list_schemas(
     // Verify vault exists and belongs to this organization
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Get schemas, optionally filtered by status
     let mut schemas = if let Some(status_str) = &query.status {
         let status = parse_deployment_status(status_str)?;
-        repos.vault_schema.list_by_vault_and_status(vault_id, status).await?
+        repos.vault_schema.list_by_vault_and_status(vault.id, status).await?
     } else {
-        repos.vault_schema.list_by_vault(vault_id).await?
+        repos.vault_schema.list_by_vault(vault.id).await?
     };
 
     // Apply pagination
@@ -152,12 +152,12 @@ pub async fn list_schemas(
 
 /// Get a specific schema version
 ///
-/// GET /v1/vaults/{vault_id}/schemas/{version}
+/// GET /v1/vaults/{vault}/schemas/{version}
 /// Required role: MEMBER or higher
 pub async fn get_schema(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id, version)): Path<(i64, i64, String)>,
+    Path((_org, vault, version)): Path<(OrganizationSlug, VaultSlug, String)>,
 ) -> Result<Json<GetSchemaResponse>> {
     // Require member role or higher
     require_member(&org_ctx)?;
@@ -167,11 +167,11 @@ pub async fn get_schema(
     // Verify vault exists and belongs to this organization
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
@@ -179,7 +179,7 @@ pub async fn get_schema(
     let schema_version: SchemaVersion = version.parse()?;
     let schema = repos
         .vault_schema
-        .get_by_version(vault_id, &schema_version)
+        .get_by_version(vault.id, &schema_version)
         .await?
         .ok_or_else(|| CoreError::not_found(format!("Schema version {version} not found")))?;
 
@@ -188,12 +188,12 @@ pub async fn get_schema(
 
 /// Get the currently active schema
 ///
-/// GET /v1/vaults/{vault_id}/schemas/current
+/// GET /v1/vaults/{vault}/schemas/current
 /// Required role: MEMBER or higher
 pub async fn get_current_schema(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
 ) -> Result<Json<GetSchemaResponse>> {
     // Require member role or higher
     require_member(&org_ctx)?;
@@ -203,17 +203,17 @@ pub async fn get_current_schema(
     // Verify vault exists and belongs to this organization
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     let schema = repos
         .vault_schema
-        .get_active(vault_id)
+        .get_active(vault.id)
         .await?
         .ok_or_else(|| CoreError::not_found("No active schema found".to_string()))?;
 
@@ -222,12 +222,12 @@ pub async fn get_current_schema(
 
 /// Activate a specific schema version
 ///
-/// POST /v1/vaults/{vault_id}/schemas/{version}/activate
+/// POST /v1/vaults/{vault}/schemas/{version}/activate
 /// Required role: ADMIN or OWNER
 pub async fn activate_schema(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id, version)): Path<(i64, i64, String)>,
+    Path((_org, vault, version)): Path<(OrganizationSlug, VaultSlug, String)>,
 ) -> Result<Json<ActivateSchemaResponse>> {
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
@@ -237,11 +237,11 @@ pub async fn activate_schema(
     // Verify vault exists and belongs to this organization
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
@@ -249,7 +249,7 @@ pub async fn activate_schema(
     let schema_version: SchemaVersion = version.parse()?;
     let schema = repos
         .vault_schema
-        .get_by_version(vault_id, &schema_version)
+        .get_by_version(vault.id, &schema_version)
         .await?
         .ok_or_else(|| CoreError::not_found(format!("Schema version {version} not found")))?;
 
@@ -264,12 +264,12 @@ pub async fn activate_schema(
 
 /// Rollback to a previous schema version
 ///
-/// POST /v1/vaults/{vault_id}/schemas/rollback
+/// POST /v1/vaults/{vault}/schemas/rollback
 /// Required role: ADMIN or OWNER
 pub async fn rollback_schema(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
     Json(payload): Json<RollbackSchemaRequest>,
 ) -> Result<Json<RollbackSchemaResponse>> {
     // Require admin or owner role
@@ -280,24 +280,24 @@ pub async fn rollback_schema(
     // Verify vault exists and belongs to this organization
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
     // Get current active schema
     let current_active =
-        repos.vault_schema.get_active(vault_id).await?.ok_or_else(|| {
+        repos.vault_schema.get_active(vault.id).await?.ok_or_else(|| {
             CoreError::validation("No active schema to rollback from".to_string())
         })?;
 
     // Parse and find the target schema version
     let target_version: SchemaVersion = payload.target_version.parse()?;
     let target_schema =
-        repos.vault_schema.get_by_version(vault_id, &target_version).await?.ok_or_else(|| {
+        repos.vault_schema.get_by_version(vault.id, &target_version).await?.ok_or_else(|| {
             CoreError::not_found(format!(
                 "Target schema version {} not found",
                 payload.target_version
@@ -333,12 +333,12 @@ pub async fn rollback_schema(
 
 /// Compare two schema versions
 ///
-/// GET /v1/vaults/{vault_id}/schemas/diff?from={v1}&to={v2}
+/// GET /v1/vaults/{vault}/schemas/diff?from={v1}&to={v2}
 /// Required role: MEMBER or higher
 pub async fn diff_schemas(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org_id, vault_id)): Path<(i64, i64)>,
+    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
     Query(query): Query<SchemaDiffQuery>,
 ) -> Result<Json<SchemaDiffResponse>> {
     // Require member role or higher
@@ -349,11 +349,11 @@ pub async fn diff_schemas(
     // Verify vault exists and belongs to this organization
     let vault = repos
         .vault
-        .get(vault_id)
+        .get(vault)
         .await?
         .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
 
-    if vault.organization_id != org_ctx.organization_id {
+    if vault.organization != org_ctx.organization {
         return Err(CoreError::not_found("Vault not found".to_string()).into());
     }
 
@@ -362,12 +362,12 @@ pub async fn diff_schemas(
     let to_version: SchemaVersion = query.to.parse()?;
 
     let _from_schema =
-        repos.vault_schema.get_by_version(vault_id, &from_version).await?.ok_or_else(|| {
+        repos.vault_schema.get_by_version(vault.id, &from_version).await?.ok_or_else(|| {
             CoreError::not_found(format!("Schema version {} not found", query.from))
         })?;
 
     let _to_schema =
-        repos.vault_schema.get_by_version(vault_id, &to_version).await?.ok_or_else(|| {
+        repos.vault_schema.get_by_version(vault.id, &to_version).await?.ok_or_else(|| {
             CoreError::not_found(format!("Schema version {} not found", query.to))
         })?;
 

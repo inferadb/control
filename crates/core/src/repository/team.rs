@@ -1,5 +1,6 @@
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
+    OrganizationSlug,
     entities::{
         OrganizationPermission, OrganizationTeam, OrganizationTeamMember,
         OrganizationTeamPermission,
@@ -11,9 +12,9 @@ use inferadb_control_types::{
 ///
 /// Key schema:
 /// - team:{id} -> OrganizationTeam data
-/// - team:org:{org_id}:{idx} -> team_id (for org listing)
-/// - team:name:{org_id}:{name_lowercase} -> team_id (for duplicate name checking)
-/// - team:org_active_count:{org_id} -> i64 (active team count per org)
+/// - team:org:{organization}:{idx} -> team_id (for org listing)
+/// - team:name:{organization}:{name_lowercase} -> team_id (for duplicate name checking)
+/// - team:org_active_count:{organization} -> u64 (active team count per org)
 pub struct OrganizationTeamRepository<S: StorageBackend> {
     storage: S,
 }
@@ -25,45 +26,45 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
     }
 
     /// Generate key for team by ID
-    fn team_key(id: i64) -> Vec<u8> {
+    fn team_key(id: u64) -> Vec<u8> {
         format!("team:{id}").into_bytes()
     }
 
     /// Generate key for team by organization index
-    fn team_org_index_key(org_id: i64, idx: i64) -> Vec<u8> {
-        format!("team:org:{org_id}:{idx}").into_bytes()
+    fn team_org_index_key(organization: OrganizationSlug, idx: u64) -> Vec<u8> {
+        format!("team:org:{organization}:{idx}").into_bytes()
     }
 
     /// Generate key for team by name (for duplicate checking)
-    fn team_name_index_key(org_id: i64, name: &str) -> Vec<u8> {
-        format!("team:name:{}:{}", org_id, name.to_lowercase()).into_bytes()
+    fn team_name_index_key(organization: OrganizationSlug, name: &str) -> Vec<u8> {
+        format!("team:name:{}:{}", organization, name.to_lowercase()).into_bytes()
     }
 
     /// Key for per-organization active team count
-    fn org_active_count_key(org_id: i64) -> Vec<u8> {
-        format!("team:org_active_count:{org_id}").into_bytes()
+    fn org_active_count_key(organization: OrganizationSlug) -> Vec<u8> {
+        format!("team:org_active_count:{organization}").into_bytes()
     }
 
     /// Read the raw active count from storage, returning None if uninitialized or corrupt
-    async fn get_raw_active_count(&self, org_id: i64) -> Result<Option<i64>> {
-        let key = Self::org_active_count_key(org_id);
+    async fn get_raw_active_count(&self, organization: OrganizationSlug) -> Result<Option<u64>> {
+        let key = Self::org_active_count_key(organization);
         let data = self
             .storage
             .get(&key)
             .await
             .map_err(|e| Error::internal(format!("Failed to get team active count: {e}")))?;
         match data {
-            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_i64_id(&bytes)?)),
+            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_u64_id(&bytes)?)),
             _ => Ok(None),
         }
     }
 
     /// Recount active teams by scanning all entities and update the counter
-    async fn recount_active(&self, org_id: i64) -> Result<usize> {
-        let active = self.list_active_by_organization(org_id).await?;
+    async fn recount_active(&self, organization: OrganizationSlug) -> Result<usize> {
+        let active = self.list_active_by_organization(organization).await?;
         let count = active.len();
         self.storage
-            .set(Self::org_active_count_key(org_id), (count as i64).to_le_bytes().to_vec())
+            .set(Self::org_active_count_key(organization), (count as u64).to_le_bytes().to_vec())
             .await
             .map_err(|e| Error::internal(format!("Failed to set team active count: {e}")))?;
         Ok(count)
@@ -83,7 +84,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Check for duplicate name within organization
-        let name_key = Self::team_name_index_key(team.organization_id, &team.name);
+        let name_key = Self::team_name_index_key(team.organization, &team.name);
         if self
             .storage
             .get(&name_key)
@@ -102,7 +103,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
 
         // Store organization index
         txn.set(
-            Self::team_org_index_key(team.organization_id, team.id),
+            Self::team_org_index_key(team.organization, team.id),
             team.id.to_le_bytes().to_vec(),
         );
 
@@ -110,8 +111,8 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
         txn.set(name_key, team.id.to_le_bytes().to_vec());
 
         // Increment active count for the organization
-        let active_count_key = Self::org_active_count_key(team.organization_id);
-        let current_active = self.get_raw_active_count(team.organization_id).await?.unwrap_or(0);
+        let active_count_key = Self::org_active_count_key(team.organization);
+        let current_active = self.get_raw_active_count(team.organization).await?.unwrap_or(0);
         txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
 
         // Commit transaction
@@ -123,7 +124,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
     }
 
     /// Get a team by ID
-    pub async fn get(&self, id: i64) -> Result<Option<OrganizationTeam>> {
+    pub async fn get(&self, id: u64) -> Result<Option<OrganizationTeam>> {
         let key = Self::team_key(id);
         let data = self
             .storage
@@ -142,10 +143,13 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
     }
 
     /// List all teams for an organization (including soft-deleted)
-    pub async fn list_by_organization(&self, org_id: i64) -> Result<Vec<OrganizationTeam>> {
-        let prefix = format!("team:org:{org_id}:");
+    pub async fn list_by_organization(
+        &self,
+        organization: OrganizationSlug,
+    ) -> Result<Vec<OrganizationTeam>> {
+        let prefix = format!("team:org:{organization}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("team:org:{org_id}~").into_bytes();
+        let end = format!("team:org:{organization}~").into_bytes();
 
         let kvs = self
             .storage
@@ -155,7 +159,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
 
         let mut teams = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(team) = self.get(id).await? {
                 teams.push(team);
             }
@@ -165,8 +169,11 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
     }
 
     /// List active (non-deleted) teams for an organization
-    pub async fn list_active_by_organization(&self, org_id: i64) -> Result<Vec<OrganizationTeam>> {
-        let all_teams = self.list_by_organization(org_id).await?;
+    pub async fn list_active_by_organization(
+        &self,
+        organization: OrganizationSlug,
+    ) -> Result<Vec<OrganizationTeam>> {
+        let all_teams = self.list_by_organization(organization).await?;
         Ok(all_teams.into_iter().filter(|t| !t.is_deleted()).collect())
     }
 
@@ -196,10 +203,10 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
         // If name changed, update name index
         if existing.name != team.name {
             // Delete old name index
-            txn.delete(Self::team_name_index_key(existing.organization_id, &existing.name));
+            txn.delete(Self::team_name_index_key(existing.organization, &existing.name));
 
             // Check for duplicate new name
-            let new_name_key = Self::team_name_index_key(team.organization_id, &team.name);
+            let new_name_key = Self::team_name_index_key(team.organization, &team.name);
             if self
                 .storage
                 .get(&new_name_key)
@@ -219,16 +226,14 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
 
         // Adjust active count on soft-delete or undelete transitions
         if soft_delete_transition {
-            let active_count_key = Self::org_active_count_key(team.organization_id);
-            let current_active =
-                self.get_raw_active_count(team.organization_id).await?.unwrap_or(0);
+            let active_count_key = Self::org_active_count_key(team.organization);
+            let current_active = self.get_raw_active_count(team.organization).await?.unwrap_or(0);
             if current_active > 0 {
                 txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
             }
         } else if undelete_transition {
-            let active_count_key = Self::org_active_count_key(team.organization_id);
-            let current_active =
-                self.get_raw_active_count(team.organization_id).await?.unwrap_or(0);
+            let active_count_key = Self::org_active_count_key(team.organization);
+            let current_active = self.get_raw_active_count(team.organization).await?.unwrap_or(0);
             txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
         }
 
@@ -244,7 +249,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
     }
 
     /// Delete a team (removes all indexes)
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get the team first to clean up indexes
         let team =
             self.get(id).await?.ok_or_else(|| Error::not_found(format!("Team {id} not found")))?;
@@ -260,16 +265,15 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
         txn.delete(Self::team_key(id));
 
         // Delete organization index
-        txn.delete(Self::team_org_index_key(team.organization_id, team.id));
+        txn.delete(Self::team_org_index_key(team.organization, team.id));
 
         // Delete name index
-        txn.delete(Self::team_name_index_key(team.organization_id, &team.name));
+        txn.delete(Self::team_name_index_key(team.organization, &team.name));
 
         // Decrement active count if the team was not soft-deleted
         if !team.is_deleted() {
-            let active_count_key = Self::org_active_count_key(team.organization_id);
-            let current_active =
-                self.get_raw_active_count(team.organization_id).await?.unwrap_or(0);
+            let active_count_key = Self::org_active_count_key(team.organization);
+            let current_active = self.get_raw_active_count(team.organization).await?.unwrap_or(0);
             if current_active > 0 {
                 txn.set(active_count_key, (current_active - 1).to_le_bytes().to_vec());
             }
@@ -284,9 +288,9 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
     }
 
     /// Count teams in an organization by counting index keys
-    pub async fn count_by_organization(&self, org_id: i64) -> Result<usize> {
-        let start = format!("team:org:{org_id}:").into_bytes();
-        let end = format!("team:org:{org_id}~").into_bytes();
+    pub async fn count_by_organization(&self, organization: OrganizationSlug) -> Result<usize> {
+        let start = format!("team:org:{organization}:").into_bytes();
+        let end = format!("team:org:{organization}~").into_bytes();
         let kvs = self
             .storage
             .get_range(start..end)
@@ -301,10 +305,13 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
     /// and delete operations. Under concurrent writes, the counter is eventually consistent:
     /// reads outside the transaction may observe stale values, but self-healing on the next
     /// read corrects any drift.
-    pub async fn count_active_by_organization(&self, org_id: i64) -> Result<usize> {
-        match self.get_raw_active_count(org_id).await? {
-            Some(count) if count >= 0 => Ok(count as usize),
-            _ => self.recount_active(org_id).await,
+    pub async fn count_active_by_organization(
+        &self,
+        organization: OrganizationSlug,
+    ) -> Result<usize> {
+        match self.get_raw_active_count(organization).await? {
+            Some(count) => Ok(count as usize),
+            _ => self.recount_active(organization).await,
         }
     }
 }
@@ -326,17 +333,17 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
     }
 
     /// Generate key for member by ID
-    fn member_key(id: i64) -> Vec<u8> {
+    fn member_key(id: u64) -> Vec<u8> {
         format!("team_member:{id}").into_bytes()
     }
 
     /// Generate key for team-user unique constraint
-    fn team_user_index_key(team_id: i64, user_id: i64) -> Vec<u8> {
+    fn team_user_index_key(team_id: u64, user_id: u64) -> Vec<u8> {
         format!("team_member:team:{team_id}:{user_id}").into_bytes()
     }
 
     /// Generate key for user's team memberships
-    fn user_team_index_key(user_id: i64, team_id: i64) -> Vec<u8> {
+    fn user_team_index_key(user_id: u64, team_id: u64) -> Vec<u8> {
         format!("team_member:user:{user_id}:{team_id}").into_bytes()
     }
 
@@ -386,7 +393,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
     }
 
     /// Get a member by ID
-    pub async fn get(&self, id: i64) -> Result<Option<OrganizationTeamMember>> {
+    pub async fn get(&self, id: u64) -> Result<Option<OrganizationTeamMember>> {
         let key = Self::member_key(id);
         let data = self
             .storage
@@ -409,8 +416,8 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
     /// Get a member by team and user
     pub async fn get_by_team_and_user(
         &self,
-        team_id: i64,
-        user_id: i64,
+        team_id: u64,
+        user_id: u64,
     ) -> Result<Option<OrganizationTeamMember>> {
         let index_key = Self::team_user_index_key(team_id, user_id);
         let data = self
@@ -424,7 +431,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid member index data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -432,7 +439,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
     }
 
     /// List all members for a team
-    pub async fn list_by_team(&self, team_id: i64) -> Result<Vec<OrganizationTeamMember>> {
+    pub async fn list_by_team(&self, team_id: u64) -> Result<Vec<OrganizationTeamMember>> {
         let prefix = format!("team_member:team:{team_id}:");
         let start = prefix.clone().into_bytes();
         let end = format!("team_member:team:{team_id}~").into_bytes();
@@ -445,7 +452,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
 
         let mut members = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(member) = self.get(id).await? {
                 members.push(member);
             }
@@ -455,7 +462,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
     }
 
     /// List all teams for a user
-    pub async fn list_by_user(&self, user_id: i64) -> Result<Vec<OrganizationTeamMember>> {
+    pub async fn list_by_user(&self, user_id: u64) -> Result<Vec<OrganizationTeamMember>> {
         let prefix = format!("team_member:user:{user_id}:");
         let start = prefix.clone().into_bytes();
         let end = format!("team_member:user:{user_id}~").into_bytes();
@@ -468,7 +475,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
 
         let mut members = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(member) = self.get(id).await? {
                 members.push(member);
             }
@@ -498,7 +505,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
     }
 
     /// Delete a team member (removes all indexes)
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get the member first to clean up indexes
         let member = self
             .get(id)
@@ -530,7 +537,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
     }
 
     /// Delete all members for a team (used when team is deleted)
-    pub async fn delete_by_team(&self, team_id: i64) -> Result<()> {
+    pub async fn delete_by_team(&self, team_id: u64) -> Result<()> {
         let members = self.list_by_team(team_id).await?;
 
         for member in members {
@@ -541,7 +548,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
     }
 
     /// Count members in a team
-    pub async fn count_by_team(&self, team_id: i64) -> Result<usize> {
+    pub async fn count_by_team(&self, team_id: u64) -> Result<usize> {
         let members = self.list_by_team(team_id).await?;
         Ok(members.len())
     }
@@ -564,17 +571,17 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
     }
 
     /// Generate key for permission by ID
-    fn permission_key(id: i64) -> Vec<u8> {
+    fn permission_key(id: u64) -> Vec<u8> {
         format!("team_permission:{id}").into_bytes()
     }
 
     /// Generate key for team-permission unique constraint
-    fn team_permission_index_key(team_id: i64, permission: OrganizationPermission) -> Vec<u8> {
+    fn team_permission_index_key(team_id: u64, permission: OrganizationPermission) -> Vec<u8> {
         format!("team_permission:team:{team_id}:{permission:?}").into_bytes()
     }
 
     /// Generate key for team's permissions listing
-    fn team_permission_list_key(team_id: i64, id: i64) -> Vec<u8> {
+    fn team_permission_list_key(team_id: u64, id: u64) -> Vec<u8> {
         format!("team_permission:team_list:{team_id}:{id}").into_bytes()
     }
 
@@ -624,7 +631,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
     }
 
     /// Get a permission by ID
-    pub async fn get(&self, id: i64) -> Result<Option<OrganizationTeamPermission>> {
+    pub async fn get(&self, id: u64) -> Result<Option<OrganizationTeamPermission>> {
         let key = Self::permission_key(id);
         let data = self
             .storage
@@ -647,7 +654,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
     /// Get a permission by team and permission type
     pub async fn get_by_team_and_permission(
         &self,
-        team_id: i64,
+        team_id: u64,
         permission: OrganizationPermission,
     ) -> Result<Option<OrganizationTeamPermission>> {
         let index_key = Self::team_permission_index_key(team_id, permission);
@@ -660,7 +667,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid permission index data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -668,7 +675,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
     }
 
     /// List all permissions for a team
-    pub async fn list_by_team(&self, team_id: i64) -> Result<Vec<OrganizationTeamPermission>> {
+    pub async fn list_by_team(&self, team_id: u64) -> Result<Vec<OrganizationTeamPermission>> {
         let prefix = format!("team_permission:team_list:{team_id}:");
         let start = prefix.clone().into_bytes();
         let end = format!("team_permission:team_list:{team_id}~").into_bytes();
@@ -681,7 +688,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
 
         let mut permissions = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(permission) = self.get(id).await? {
                 permissions.push(permission);
             }
@@ -691,7 +698,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
     }
 
     /// Delete a team permission (removes all indexes)
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         // Get the permission first to clean up indexes
         let permission = self
             .get(id)
@@ -723,7 +730,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
     }
 
     /// Delete all permissions for a team (used when team is deleted)
-    pub async fn delete_by_team(&self, team_id: i64) -> Result<()> {
+    pub async fn delete_by_team(&self, team_id: u64) -> Result<()> {
         let permissions = self.list_by_team(team_id).await?;
 
         for permission in permissions {
@@ -734,7 +741,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
     }
 
     /// Count permissions for a team
-    pub async fn count_by_team(&self, team_id: i64) -> Result<usize> {
+    pub async fn count_by_team(&self, team_id: u64) -> Result<usize> {
         let permissions = self.list_by_team(team_id).await?;
         Ok(permissions.len())
     }
@@ -744,9 +751,12 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::MemoryBackend;
-    use inferadb_control_types::entities::{
-        OrganizationPermission, OrganizationTeam, OrganizationTeamMember,
-        OrganizationTeamPermission,
+    use inferadb_control_types::{
+        OrganizationSlug,
+        entities::{
+            OrganizationPermission, OrganizationTeam, OrganizationTeamMember,
+            OrganizationTeamPermission,
+        },
     };
 
     use super::*;
@@ -758,7 +768,7 @@ mod tests {
 
         let team = OrganizationTeam::builder()
             .id(1)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Engineering".to_string())
             .create()
             .unwrap();
@@ -767,7 +777,7 @@ mod tests {
         let retrieved = repo.get(1).await.unwrap().unwrap();
         assert_eq!(retrieved.id, 1);
         assert_eq!(retrieved.name, "Engineering");
-        assert_eq!(retrieved.organization_id, 100);
+        assert_eq!(retrieved.organization, OrganizationSlug::from(100_u64));
     }
 
     #[tokio::test]
@@ -777,7 +787,7 @@ mod tests {
 
         let team1 = OrganizationTeam::builder()
             .id(1)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Engineering".to_string())
             .create()
             .unwrap();
@@ -785,7 +795,7 @@ mod tests {
 
         let team2 = OrganizationTeam::builder()
             .id(2)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Engineering".to_string())
             .create()
             .unwrap();
@@ -800,19 +810,19 @@ mod tests {
 
         let team1 = OrganizationTeam::builder()
             .id(1)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Engineering".to_string())
             .create()
             .unwrap();
         let team2 = OrganizationTeam::builder()
             .id(2)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Sales".to_string())
             .create()
             .unwrap();
         let team3 = OrganizationTeam::builder()
             .id(3)
-            .organization_id(200)
+            .organization(OrganizationSlug::from(200_u64))
             .name("Other".to_string())
             .create()
             .unwrap();
@@ -821,7 +831,7 @@ mod tests {
         repo.create(team2).await.unwrap();
         repo.create(team3).await.unwrap();
 
-        let teams = repo.list_by_organization(100).await.unwrap();
+        let teams = repo.list_by_organization(OrganizationSlug::from(100_u64)).await.unwrap();
         assert_eq!(teams.len(), 2);
     }
 
@@ -832,7 +842,7 @@ mod tests {
 
         let mut team = OrganizationTeam::builder()
             .id(1)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Old Name".to_string())
             .create()
             .unwrap();
@@ -852,7 +862,7 @@ mod tests {
 
         let team = OrganizationTeam::builder()
             .id(1)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Engineering".to_string())
             .create()
             .unwrap();
@@ -869,25 +879,34 @@ mod tests {
         let storage = MemoryBackend::new();
         let repo = OrganizationTeamRepository::new(storage);
 
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            0
+        );
 
         let team1 = OrganizationTeam::builder()
             .id(1)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Team 1".to_string())
             .create()
             .unwrap();
         repo.create(team1).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            1
+        );
 
         let team2 = OrganizationTeam::builder()
             .id(2)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Team 2".to_string())
             .create()
             .unwrap();
         repo.create(team2).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            2
+        );
     }
 
     #[tokio::test]
@@ -897,26 +916,32 @@ mod tests {
 
         let team1 = OrganizationTeam::builder()
             .id(1)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Team 1".to_string())
             .create()
             .unwrap();
         let mut team2 = OrganizationTeam::builder()
             .id(2)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Team 2".to_string())
             .create()
             .unwrap();
 
         repo.create(team1).await.unwrap();
         repo.create(team2.clone()).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 2);
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 2);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            2
+        );
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 2);
 
         team2.mark_deleted();
         repo.update(team2).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 2);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            1
+        );
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 2);
     }
 
     #[tokio::test]
@@ -926,16 +951,22 @@ mod tests {
 
         let team = OrganizationTeam::builder()
             .id(1)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Team 1".to_string())
             .create()
             .unwrap();
         repo.create(team).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            1
+        );
 
         repo.delete(1).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 0);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            0
+        );
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 0);
     }
 
     #[tokio::test]
@@ -945,7 +976,7 @@ mod tests {
 
         let team = OrganizationTeam::builder()
             .id(1)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Team 1".to_string())
             .create()
             .unwrap();
@@ -953,11 +984,16 @@ mod tests {
 
         // Delete the counter key to simulate migration
         repo.storage
-            .delete(&OrganizationTeamRepository::<MemoryBackend>::org_active_count_key(100))
+            .delete(&OrganizationTeamRepository::<MemoryBackend>::org_active_count_key(
+                OrganizationSlug::from(100_u64),
+            ))
             .await
             .unwrap();
 
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -967,22 +1003,31 @@ mod tests {
 
         let mut team = OrganizationTeam::builder()
             .id(1)
-            .organization_id(100)
+            .organization(OrganizationSlug::from(100_u64))
             .name("Team 1".to_string())
             .create()
             .unwrap();
         repo.create(team.clone()).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            1
+        );
 
         // Soft delete
         team.mark_deleted();
         repo.update(team.clone()).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 0);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            0
+        );
 
         // Undelete by clearing deleted_at
         team.deleted_at = None;
         repo.update(team).await.unwrap();
-        assert_eq!(repo.count_active_by_organization(100).await.unwrap(), 1);
+        assert_eq!(
+            repo.count_active_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(),
+            1
+        );
     }
 
     #[tokio::test]

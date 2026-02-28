@@ -22,7 +22,7 @@
 //! // Required fields use direct setters, optional fields use maybe_* methods
 //! let log = AuditLog::builder()
 //!     .event_type(AuditEventType::UserLogin)
-//!     .maybe_organization_id(Some(123))
+//!     .maybe_organization(Some(123))
 //!     .maybe_user_id(Some(456))
 //!     .build();
 //! ```
@@ -54,6 +54,10 @@
 
 #![deny(unsafe_code)]
 
+// ============================================================================
+// Re-exports from upstream crates
+// ============================================================================
+pub use inferadb_ledger_types::{OrganizationSlug, VaultSlug};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================

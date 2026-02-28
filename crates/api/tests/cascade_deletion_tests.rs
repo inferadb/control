@@ -10,7 +10,7 @@ use axum::{
 };
 use inferadb_control_core::IdGenerator;
 use inferadb_control_test_fixtures::{
-    body_json, create_test_app, create_test_state, create_vault, get_org_id,
+    body_json, create_test_app, create_test_state, create_vault, get_organization,
     invite_and_accept_member, register_user,
 };
 use serde_json::json;
@@ -101,9 +101,9 @@ async fn test_delete_user_cascades_sessions() {
     assert!(json["count"].as_u64().unwrap() >= 1, "Should have at least one session");
 
     // Must delete auto-created org first (delete_user blocks if sole owner)
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
     let response =
-        delete_request(&app, &session, &format!("/control/v1/organizations/{org_id}")).await;
+        delete_request(&app, &session, &format!("/control/v1/organizations/{organization}")).await;
     assert_eq!(response.status(), StatusCode::OK);
 
     // Delete the user
@@ -130,10 +130,10 @@ async fn test_delete_user_cascades_memberships() {
         register_user(&app, "delowner2", "delowner2@example.com", "securepassword123").await;
     let member_session =
         register_user(&app, "delmember2", "delmember2@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &owner_session).await;
+    let organization = get_organization(&app, &owner_session).await;
 
     // Capture member's auto-created org ID before they join another org
-    let member_own_org_id = get_org_id(&app, &member_session).await;
+    let member_own_organization = get_organization(&app, &member_session).await;
 
     // Invite member to owner's org
     invite_and_accept_member(
@@ -141,14 +141,17 @@ async fn test_delete_user_cascades_memberships() {
         &owner_session,
         &member_session,
         "delmember2@example.com",
-        org_id,
+        organization,
     )
     .await;
 
     // Verify member is listed
-    let (status, json) =
-        get_json(&app, &owner_session, &format!("/control/v1/organizations/{org_id}/members"))
-            .await;
+    let (status, json) = get_json(
+        &app,
+        &owner_session,
+        &format!("/control/v1/organizations/{organization}/members"),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(
         json["members"].as_array().unwrap().len() >= 2,
@@ -159,7 +162,7 @@ async fn test_delete_user_cascades_memberships() {
     let response = delete_request(
         &app,
         &member_session,
-        &format!("/control/v1/organizations/{member_own_org_id}"),
+        &format!("/control/v1/organizations/{member_own_organization}"),
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -169,9 +172,12 @@ async fn test_delete_user_cascades_memberships() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify the member is removed from org members list
-    let (status, json) =
-        get_json(&app, &owner_session, &format!("/control/v1/organizations/{org_id}/members"))
-            .await;
+    let (status, json) = get_json(
+        &app,
+        &owner_session,
+        &format!("/control/v1/organizations/{organization}/members"),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         json["members"].as_array().unwrap().len(),
@@ -190,9 +196,9 @@ async fn test_delete_user_allows_email_reregistration() {
         register_user(&app, "delreuse3", "delreuse3@example.com", "securepassword123").await;
 
     // Must delete auto-created org first (delete_user blocks if sole owner)
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
     let response =
-        delete_request(&app, &session, &format!("/control/v1/organizations/{org_id}")).await;
+        delete_request(&app, &session, &format!("/control/v1/organizations/{organization}")).await;
     assert_eq!(response.status(), StatusCode::OK);
 
     // Delete the user
@@ -220,14 +226,14 @@ async fn test_delete_organization_requires_no_active_vaults() {
 
     let session =
         register_user(&app, "delorgreq4", "delorgreq4@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
 
     // Create a vault
-    let _ = create_vault(&app, &session, org_id, "blocking-vault").await;
+    let _ = create_vault(&app, &session, organization, "blocking-vault").await;
 
     // Try to delete org — should fail because of active vault
     let response =
-        delete_request(&app, &session, &format!("/control/v1/organizations/{org_id}")).await;
+        delete_request(&app, &session, &format!("/control/v1/organizations/{organization}")).await;
     assert_eq!(
         response.status(),
         StatusCode::BAD_REQUEST,
@@ -246,13 +252,13 @@ async fn test_delete_organization_cascades_teams() {
 
     let session =
         register_user(&app, "delorgteam5", "delorgteam5@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
 
     // Create a team
     let (status, _) = post_json(
         &app,
         &session,
-        &format!("/control/v1/organizations/{org_id}/teams"),
+        &format!("/control/v1/organizations/{organization}/teams"),
         json!({"name": "test-team", "description": "A team"}),
     )
     .await;
@@ -260,18 +266,18 @@ async fn test_delete_organization_cascades_teams() {
 
     // Verify team exists
     let (status, json) =
-        get_json(&app, &session, &format!("/control/v1/organizations/{org_id}/teams")).await;
+        get_json(&app, &session, &format!("/control/v1/organizations/{organization}/teams")).await;
     assert_eq!(status, StatusCode::OK);
     assert!(!json["teams"].as_array().unwrap().is_empty(), "Should have a team");
 
     // Delete the organization
     let response =
-        delete_request(&app, &session, &format!("/control/v1/organizations/{org_id}")).await;
+        delete_request(&app, &session, &format!("/control/v1/organizations/{organization}")).await;
     assert_eq!(response.status(), StatusCode::OK, "Org deletion should succeed");
 
     // Verify org is no longer accessible
     let (status, _) =
-        get_json(&app, &session, &format!("/control/v1/organizations/{org_id}")).await;
+        get_json(&app, &session, &format!("/control/v1/organizations/{organization}")).await;
     assert!(
         status == StatusCode::NOT_FOUND || status == StatusCode::FORBIDDEN,
         "Deleted org should not be accessible, got {status}"
@@ -282,7 +288,7 @@ async fn test_delete_organization_cascades_teams() {
     assert_eq!(status, StatusCode::OK);
     let orgs = json["organizations"].as_array().unwrap();
     assert!(
-        !orgs.iter().any(|o| o["id"].as_i64() == Some(org_id)),
+        !orgs.iter().any(|o| o["id"].as_u64() == Some(organization)),
         "Deleted org should not appear in user's org list"
     );
 }
@@ -297,7 +303,7 @@ async fn test_delete_organization_cascades_members_and_invitations() {
         register_user(&app, "delorgmem6", "delorgmem6@example.com", "securepassword123").await;
     let member_session =
         register_user(&app, "delorgmem6b", "delorgmem6b@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &owner_session).await;
+    let organization = get_organization(&app, &owner_session).await;
 
     // Invite and accept a member
     invite_and_accept_member(
@@ -305,7 +311,7 @@ async fn test_delete_organization_cascades_members_and_invitations() {
         &owner_session,
         &member_session,
         "delorgmem6b@example.com",
-        org_id,
+        organization,
     )
     .await;
 
@@ -313,31 +319,38 @@ async fn test_delete_organization_cascades_members_and_invitations() {
     let (status, _) = post_json(
         &app,
         &owner_session,
-        &format!("/control/v1/organizations/{org_id}/invitations"),
+        &format!("/control/v1/organizations/{organization}/invitations"),
         json!({"email": "pending@example.com", "role": "MEMBER"}),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "Invitation creation should succeed");
 
     // Verify members and invitations exist
-    let (_, json) =
-        get_json(&app, &owner_session, &format!("/control/v1/organizations/{org_id}/members"))
-            .await;
+    let (_, json) = get_json(
+        &app,
+        &owner_session,
+        &format!("/control/v1/organizations/{organization}/members"),
+    )
+    .await;
     assert!(json["members"].as_array().unwrap().len() >= 2);
 
-    let (_, json) =
-        get_json(&app, &owner_session, &format!("/control/v1/organizations/{org_id}/invitations"))
-            .await;
+    let (_, json) = get_json(
+        &app,
+        &owner_session,
+        &format!("/control/v1/organizations/{organization}/invitations"),
+    )
+    .await;
     assert!(!json["invitations"].as_array().unwrap().is_empty());
 
     // Delete the organization
     let response =
-        delete_request(&app, &owner_session, &format!("/control/v1/organizations/{org_id}")).await;
+        delete_request(&app, &owner_session, &format!("/control/v1/organizations/{organization}"))
+            .await;
     assert_eq!(response.status(), StatusCode::OK, "Org deletion should succeed");
 
     // Verify org is gone
     let (status, _) =
-        get_json(&app, &owner_session, &format!("/control/v1/organizations/{org_id}")).await;
+        get_json(&app, &owner_session, &format!("/control/v1/organizations/{organization}")).await;
     assert!(
         status == StatusCode::NOT_FOUND || status == StatusCode::FORBIDDEN,
         "Deleted org should not be accessible, got {status}"
@@ -348,7 +361,7 @@ async fn test_delete_organization_cascades_members_and_invitations() {
     assert_eq!(status, StatusCode::OK);
     let member_orgs = json["organizations"].as_array().unwrap();
     assert!(
-        !member_orgs.iter().any(|o| o["id"].as_i64() == Some(org_id)),
+        !member_orgs.iter().any(|o| o["id"].as_u64() == Some(organization)),
         "Deleted org should not appear in member's org list"
     );
 }
@@ -365,14 +378,14 @@ async fn test_delete_vault_cascades_user_grants() {
 
     let session =
         register_user(&app, "delvaultug7", "delvaultug7@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &session).await;
-    let (vault_id, _) = create_vault(&app, &session, org_id, "grant-vault").await;
+    let organization = get_organization(&app, &session).await;
+    let (vault, _) = create_vault(&app, &session, organization, "grant-vault").await;
 
     // Owner automatically gets a user grant; verify it exists
     let (status, json) = get_json(
         &app,
         &session,
-        &format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/user-grants"),
+        &format!("/control/v1/organizations/{organization}/vaults/{vault}/user-grants"),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -385,15 +398,18 @@ async fn test_delete_vault_cascades_user_grants() {
     let response = delete_request(
         &app,
         &session,
-        &format!("/control/v1/organizations/{org_id}/vaults/{vault_id}"),
+        &format!("/control/v1/organizations/{organization}/vaults/{vault}"),
     )
     .await;
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
     // Verify vault is no longer accessible
-    let (status, _) =
-        get_json(&app, &session, &format!("/control/v1/organizations/{org_id}/vaults/{vault_id}"))
-            .await;
+    let (status, _) = get_json(
+        &app,
+        &session,
+        &format!("/control/v1/organizations/{organization}/vaults/{vault}"),
+    )
+    .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "Deleted vault should return 404");
 }
 
@@ -405,25 +421,25 @@ async fn test_delete_vault_cascades_team_grants() {
 
     let session =
         register_user(&app, "delvaulttg8", "delvaulttg8@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &session).await;
-    let (vault_id, _) = create_vault(&app, &session, org_id, "team-grant-vault").await;
+    let organization = get_organization(&app, &session).await;
+    let (vault, _) = create_vault(&app, &session, organization, "team-grant-vault").await;
 
     // Create a team
     let (status, team_json) = post_json(
         &app,
         &session,
-        &format!("/control/v1/organizations/{org_id}/teams"),
+        &format!("/control/v1/organizations/{organization}/teams"),
         json!({"name": "grant-team", "description": "Team for grant test"}),
     )
     .await;
     assert!(status.is_success(), "Team creation should succeed");
-    let team_id = team_json["team"]["id"].as_i64().unwrap();
+    let team_id = team_json["team"]["id"].as_u64().unwrap();
 
     // Grant the team access to the vault
     let (status, _) = post_json(
         &app,
         &session,
-        &format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants"),
+        &format!("/control/v1/organizations/{organization}/vaults/{vault}/team-grants"),
         json!({"team_id": team_id, "role": "reader"}),
     )
     .await;
@@ -433,7 +449,7 @@ async fn test_delete_vault_cascades_team_grants() {
     let (status, json) = get_json(
         &app,
         &session,
-        &format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants"),
+        &format!("/control/v1/organizations/{organization}/vaults/{vault}/team-grants"),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -443,15 +459,18 @@ async fn test_delete_vault_cascades_team_grants() {
     let response = delete_request(
         &app,
         &session,
-        &format!("/control/v1/organizations/{org_id}/vaults/{vault_id}"),
+        &format!("/control/v1/organizations/{organization}/vaults/{vault}"),
     )
     .await;
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
     // Vault is gone — can't query its grants
-    let (status, _) =
-        get_json(&app, &session, &format!("/control/v1/organizations/{org_id}/vaults/{vault_id}"))
-            .await;
+    let (status, _) = get_json(
+        &app,
+        &session,
+        &format!("/control/v1/organizations/{organization}/vaults/{vault}"),
+    )
+    .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "Deleted vault should return 404");
 }
 

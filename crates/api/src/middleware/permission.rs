@@ -163,9 +163,12 @@ mod tests {
         OrganizationTeamRepository,
     };
     use inferadb_control_storage::Backend;
-    use inferadb_control_types::entities::{
-        OrganizationMember, OrganizationPermission, OrganizationRole, OrganizationTeam,
-        OrganizationTeamMember, OrganizationTeamPermission,
+    use inferadb_control_types::{
+        OrganizationSlug,
+        entities::{
+            OrganizationMember, OrganizationPermission, OrganizationRole, OrganizationTeam,
+            OrganizationTeamMember, OrganizationTeamPermission,
+        },
     };
 
     use super::*;
@@ -177,8 +180,13 @@ mod tests {
         let state = AppState::new_test(backend);
 
         let org_ctx = OrganizationContext {
-            organization_id: 1,
-            member: OrganizationMember::new(1, 1, 100, OrganizationRole::Owner),
+            organization: OrganizationSlug::from(1_u64),
+            member: OrganizationMember::new(
+                1,
+                OrganizationSlug::from(1_u64),
+                100,
+                OrganizationRole::Owner,
+            ),
         };
 
         // Owner should have all permissions
@@ -208,8 +216,13 @@ mod tests {
         let state = AppState::new_test(backend);
 
         let org_ctx = OrganizationContext {
-            organization_id: 1,
-            member: OrganizationMember::new(1, 1, 100, OrganizationRole::Admin),
+            organization: OrganizationSlug::from(1_u64),
+            member: OrganizationMember::new(
+                1,
+                OrganizationSlug::from(1_u64),
+                100,
+                OrganizationRole::Admin,
+            ),
         };
 
         // Admin should have most permissions
@@ -242,15 +255,20 @@ mod tests {
         let state = AppState::new_test(Arc::new(backend));
 
         let org_ctx = OrganizationContext {
-            organization_id: 1,
-            member: OrganizationMember::new(1, 1, 100, OrganizationRole::Member),
+            organization: OrganizationSlug::from(1_u64),
+            member: OrganizationMember::new(
+                1,
+                OrganizationSlug::from(1_u64),
+                100,
+                OrganizationRole::Member,
+            ),
         };
 
         // Create a team with a permission
         let team_repo = OrganizationTeamRepository::new(memory.clone());
         let team = OrganizationTeam::builder()
             .id(1)
-            .organization_id(1)
+            .organization(OrganizationSlug::from(1_u64))
             .name("Test Team".to_string())
             .create()
             .unwrap();
@@ -297,15 +315,20 @@ mod tests {
         let state = AppState::new_test(Arc::new(backend));
 
         let org_ctx = OrganizationContext {
-            organization_id: 1,
-            member: OrganizationMember::new(1, 1, 100, OrganizationRole::Member),
+            organization: OrganizationSlug::from(1_u64),
+            member: OrganizationMember::new(
+                1,
+                OrganizationSlug::from(1_u64),
+                100,
+                OrganizationRole::Member,
+            ),
         };
 
         // Create a team with CLIENT_MANAGE permission
         let team_repo = OrganizationTeamRepository::new(memory.clone());
         let team = OrganizationTeam::builder()
             .id(1)
-            .organization_id(1)
+            .organization(OrganizationSlug::from(1_u64))
             .name("Test Team".to_string())
             .create()
             .unwrap();

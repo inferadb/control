@@ -10,9 +10,12 @@ use inferadb_control_core::{
     UserSessionRepository, VaultRepository, keypair,
 };
 use inferadb_control_test_fixtures::create_test_state;
-use inferadb_control_types::entities::{
-    Client, ClientCertificate, Organization, OrganizationMember, OrganizationRole,
-    OrganizationTeam, OrganizationTier, SessionType, User, UserSession, Vault,
+use inferadb_control_types::{
+    OrganizationSlug, VaultSlug,
+    entities::{
+        Client, ClientCertificate, Organization, OrganizationMember, OrganizationRole,
+        OrganizationTeam, OrganizationTier, SessionType, User, UserSession, Vault,
+    },
 };
 use serde_json::json;
 use tower::ServiceExt;
@@ -20,10 +23,10 @@ use tower::ServiceExt;
 /// Helper to register a user and create their default organization
 async fn setup_user_and_org(
     state: &AppState,
-    user_id: i64,
-    session_id: i64,
-    org_id: i64,
-    member_id: i64,
+    user_id: u64,
+    session_id: u64,
+    organization: OrganizationSlug,
+    member_id: u64,
     username: &str,
 ) -> (User, UserSession, Organization, OrganizationMember) {
     // Create user
@@ -42,7 +45,7 @@ async fn setup_user_and_org(
 
     // Create organization
     let org = Organization::builder()
-        .id(org_id)
+        .id(organization)
         .name(format!("{username}'s Org"))
         .tier(OrganizationTier::TierDevV1)
         .create()
@@ -51,7 +54,7 @@ async fn setup_user_and_org(
     org_repo.create(org.clone()).await.unwrap();
 
     // Create member
-    let member = OrganizationMember::new(member_id, org_id, user_id, OrganizationRole::Owner);
+    let member = OrganizationMember::new(member_id, organization, user_id, OrganizationRole::Owner);
     let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
     member_repo.create(member.clone()).await.unwrap();
 
@@ -64,18 +67,34 @@ async fn test_cross_organization_vault_access_denied() {
     let state = create_test_state();
 
     // Setup Organization A with User A
-    let (_, session_a, _org_a, _) = setup_user_and_org(&state, 100, 1, 1000, 10000, "userA").await;
+    let (_, session_a, _org_a, _) = setup_user_and_org(
+        &state,
+        100_u64,
+        1_u64,
+        OrganizationSlug::from(1000_u64),
+        10000_u64,
+        "userA",
+    )
+    .await;
 
     // Setup Organization B with User B
-    let (_, _session_b, org_b, _) = setup_user_and_org(&state, 200, 2, 2000, 20000, "userB").await;
+    let (_, _session_b, org_b, _) = setup_user_and_org(
+        &state,
+        200_u64,
+        2_u64,
+        OrganizationSlug::from(2000_u64),
+        20000_u64,
+        "userB",
+    )
+    .await;
 
     // Create a vault in Organization B
     let vault_repo = VaultRepository::new((*state.storage).clone());
     let vault_b = Vault::builder()
-        .id(5000)
-        .organization_id(org_b.id)
+        .id(VaultSlug::from(5000_u64))
+        .organization(org_b.id)
         .name("Vault B")
-        .created_by_user_id(200)
+        .created_by_user_id(200_u64)
         .create()
         .unwrap();
     vault_repo.create(vault_b.clone()).await.unwrap();
@@ -107,18 +126,34 @@ async fn test_cross_organization_client_access_denied() {
     let state = create_test_state();
 
     // Setup Organization A with User A
-    let (_, session_a, _org_a, _) = setup_user_and_org(&state, 100, 1, 1000, 10000, "userA").await;
+    let (_, session_a, _org_a, _) = setup_user_and_org(
+        &state,
+        100_u64,
+        1_u64,
+        OrganizationSlug::from(1000_u64),
+        10000_u64,
+        "userA",
+    )
+    .await;
 
     // Setup Organization B with User B
-    let (_, _session_b, org_b, _) = setup_user_and_org(&state, 200, 2, 2000, 20000, "userB").await;
+    let (_, _session_b, org_b, _) = setup_user_and_org(
+        &state,
+        200_u64,
+        2_u64,
+        OrganizationSlug::from(2000_u64),
+        20000_u64,
+        "userB",
+    )
+    .await;
 
     // Create a client in Organization B
     let client_repo = ClientRepository::new((*state.storage).clone());
     let client_b = Client::builder()
-        .id(6000)
-        .organization_id(org_b.id)
+        .id(6000_u64)
+        .organization(org_b.id)
         .name("Client B")
-        .created_by_user_id(200)
+        .created_by_user_id(200_u64)
         .create()
         .unwrap();
     client_repo.create(client_b.clone()).await.unwrap();
@@ -148,16 +183,32 @@ async fn test_cross_organization_team_access_denied() {
     let state = create_test_state();
 
     // Setup Organization A with User A
-    let (_, session_a, _org_a, _) = setup_user_and_org(&state, 100, 1, 1000, 10000, "userA").await;
+    let (_, session_a, _org_a, _) = setup_user_and_org(
+        &state,
+        100_u64,
+        1_u64,
+        OrganizationSlug::from(1000_u64),
+        10000_u64,
+        "userA",
+    )
+    .await;
 
     // Setup Organization B with User B
-    let (_, _session_b, org_b, _) = setup_user_and_org(&state, 200, 2, 2000, 20000, "userB").await;
+    let (_, _session_b, org_b, _) = setup_user_and_org(
+        &state,
+        200_u64,
+        2_u64,
+        OrganizationSlug::from(2000_u64),
+        20000_u64,
+        "userB",
+    )
+    .await;
 
     // Create a team in Organization B
     let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
     let team_b = OrganizationTeam::builder()
-        .id(7000)
-        .organization_id(org_b.id)
+        .id(7000_u64)
+        .organization(org_b.id)
         .name("Team B")
         .create()
         .unwrap();
@@ -188,18 +239,34 @@ async fn test_cannot_modify_other_organization_resources() {
     let state = create_test_state();
 
     // Setup Organization A with User A
-    let (_, session_a, _org_a, _) = setup_user_and_org(&state, 100, 1, 1000, 10000, "userA").await;
+    let (_, session_a, _org_a, _) = setup_user_and_org(
+        &state,
+        100_u64,
+        1_u64,
+        OrganizationSlug::from(1000_u64),
+        10000_u64,
+        "userA",
+    )
+    .await;
 
     // Setup Organization B with User B
-    let (_, _session_b, org_b, _) = setup_user_and_org(&state, 200, 2, 2000, 20000, "userB").await;
+    let (_, _session_b, org_b, _) = setup_user_and_org(
+        &state,
+        200_u64,
+        2_u64,
+        OrganizationSlug::from(2000_u64),
+        20000_u64,
+        "userB",
+    )
+    .await;
 
     // Create a vault in Organization B
     let vault_repo = VaultRepository::new((*state.storage).clone());
     let vault_b = Vault::builder()
-        .id(5000)
-        .organization_id(org_b.id)
+        .id(VaultSlug::from(5000_u64))
+        .organization(org_b.id)
         .name("Vault B")
-        .created_by_user_id(200)
+        .created_by_user_id(200_u64)
         .create()
         .unwrap();
     vault_repo.create(vault_b.clone()).await.unwrap();
@@ -235,18 +302,34 @@ async fn test_cannot_delete_other_organization_resources() {
     let state = create_test_state();
 
     // Setup Organization A with User A
-    let (_, session_a, _org_a, _) = setup_user_and_org(&state, 100, 1, 1000, 10000, "userA").await;
+    let (_, session_a, _org_a, _) = setup_user_and_org(
+        &state,
+        100_u64,
+        1_u64,
+        OrganizationSlug::from(1000_u64),
+        10000_u64,
+        "userA",
+    )
+    .await;
 
     // Setup Organization B with User B
-    let (_, _session_b, org_b, _) = setup_user_and_org(&state, 200, 2, 2000, 20000, "userB").await;
+    let (_, _session_b, org_b, _) = setup_user_and_org(
+        &state,
+        200_u64,
+        2_u64,
+        OrganizationSlug::from(2000_u64),
+        20000_u64,
+        "userB",
+    )
+    .await;
 
     // Create a client in Organization B
     let client_repo = ClientRepository::new((*state.storage).clone());
     let client_b = Client::builder()
-        .id(6000)
-        .organization_id(org_b.id)
+        .id(6000_u64)
+        .organization(org_b.id)
         .name("Client B")
-        .created_by_user_id(200)
+        .created_by_user_id(200_u64)
         .create()
         .unwrap();
     client_repo.create(client_b.clone()).await.unwrap();
@@ -281,10 +364,26 @@ async fn test_organization_member_list_isolation() {
     let state = create_test_state();
 
     // Setup Organization A with User A
-    let (_, session_a, _org_a, _) = setup_user_and_org(&state, 100, 1, 1000, 10000, "userA").await;
+    let (_, session_a, _org_a, _) = setup_user_and_org(
+        &state,
+        100_u64,
+        1_u64,
+        OrganizationSlug::from(1000_u64),
+        10000_u64,
+        "userA",
+    )
+    .await;
 
     // Setup Organization B with User B
-    let (_, _session_b, org_b, _) = setup_user_and_org(&state, 200, 2, 2000, 20000, "userB").await;
+    let (_, _session_b, org_b, _) = setup_user_and_org(
+        &state,
+        200_u64,
+        2_u64,
+        OrganizationSlug::from(2000_u64),
+        20000_u64,
+        "userB",
+    )
+    .await;
 
     // User A tries to list members of Organization B
     let app = create_router_with_state(state.clone());
@@ -311,26 +410,42 @@ async fn test_vault_jwt_isolation() {
     let state = create_test_state();
 
     // Setup Organization A with vault
-    let (_, _session_a, org_a, _) = setup_user_and_org(&state, 100, 1, 1000, 10000, "userA").await;
+    let (_, _session_a, org_a, _) = setup_user_and_org(
+        &state,
+        100_u64,
+        1_u64,
+        OrganizationSlug::from(1000_u64),
+        10000_u64,
+        "userA",
+    )
+    .await;
 
     let vault_repo = VaultRepository::new((*state.storage).clone());
     let vault_a = Vault::builder()
-        .id(5000)
-        .organization_id(org_a.id)
+        .id(VaultSlug::from(5000_u64))
+        .organization(org_a.id)
         .name("Vault A")
-        .created_by_user_id(100)
+        .created_by_user_id(100_u64)
         .create()
         .unwrap();
     vault_repo.create(vault_a.clone()).await.unwrap();
 
     // Setup Organization B with vault
-    let (_, _session_b, org_b, _) = setup_user_and_org(&state, 200, 2, 2000, 20000, "userB").await;
+    let (_, _session_b, org_b, _) = setup_user_and_org(
+        &state,
+        200_u64,
+        2_u64,
+        OrganizationSlug::from(2000_u64),
+        20000_u64,
+        "userB",
+    )
+    .await;
 
     let vault_b = Vault::builder()
-        .id(6000)
-        .organization_id(org_b.id)
+        .id(VaultSlug::from(6000_u64))
+        .organization(org_b.id)
         .name("Vault B")
-        .created_by_user_id(200)
+        .created_by_user_id(200_u64)
         .create()
         .unwrap();
     vault_repo.create(vault_b.clone()).await.unwrap();
@@ -338,10 +453,10 @@ async fn test_vault_jwt_isolation() {
     // Create a client in Organization A
     let client_repo = ClientRepository::new((*state.storage).clone());
     let client_a = Client::builder()
-        .id(7000)
-        .organization_id(org_a.id)
+        .id(7000_u64)
+        .organization(org_a.id)
         .name("Client A")
-        .created_by_user_id(100)
+        .created_by_user_id(100_u64)
         .create()
         .unwrap();
     client_repo.create(client_a.clone()).await.unwrap();
@@ -354,13 +469,13 @@ async fn test_vault_jwt_isolation() {
 
     let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
     let cert = ClientCertificate::builder()
-        .id(8000)
+        .id(8000_u64)
         .client_id(client_a.id)
-        .organization_id(org_a.id)
+        .organization(org_a.id)
         .public_key(public_key_base64.clone())
         .private_key_encrypted(private_key_encrypted)
         .name("Test Cert")
-        .created_by_user_id(100)
+        .created_by_user_id(100_u64)
         .create()
         .unwrap();
     cert_repo.create(cert.clone()).await.unwrap();
@@ -370,12 +485,12 @@ async fn test_vault_jwt_isolation() {
     // vault isolation is enforced at the entity level.
 
     // Verify that vaults are isolated by organization
-    assert_eq!(vault_a.organization_id, org_a.id);
-    assert_eq!(vault_b.organization_id, org_b.id);
-    assert_ne!(vault_a.organization_id, vault_b.organization_id);
+    assert_eq!(vault_a.organization, org_a.id);
+    assert_eq!(vault_b.organization, org_b.id);
+    assert_ne!(vault_a.organization, vault_b.organization);
 
     // Verify that a client from org A cannot be used with org B's vault
     // by checking organization ownership
-    assert_eq!(client_a.organization_id, org_a.id);
-    assert_ne!(client_a.organization_id, org_b.id);
+    assert_eq!(client_a.organization, org_a.id);
+    assert_ne!(client_a.organization, org_b.id);
 }

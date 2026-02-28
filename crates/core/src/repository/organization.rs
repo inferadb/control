@@ -1,5 +1,6 @@
 use inferadb_control_storage::StorageBackend;
 use inferadb_control_types::{
+    OrganizationSlug,
     entities::{Organization, OrganizationMember, OrganizationRole},
     error::{Error, Result},
 };
@@ -8,7 +9,7 @@ use inferadb_control_types::{
 ///
 /// Key schema:
 /// - org:{id} -> Organization data
-/// - org:name:{name} -> org_id (for name lookup)
+/// - org:name:{name} -> organization (for name lookup)
 /// - org:count -> total organization count (for global limit)
 pub struct OrganizationRepository<S: StorageBackend> {
     storage: S,
@@ -21,7 +22,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
     }
 
     /// Generate key for organization by ID
-    fn org_key(id: i64) -> Vec<u8> {
+    fn org_key(id: OrganizationSlug) -> Vec<u8> {
         format!("org:{id}").into_bytes()
     }
 
@@ -55,7 +56,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
         // Store name index for lookup (not enforcing uniqueness)
         // Note: If multiple orgs have the same name, this will point to the last one created
         let name_key = Self::org_name_index_key(&org.name);
-        txn.set(name_key, org.id.to_le_bytes().to_vec());
+        txn.set(name_key, org.id.value().to_le_bytes().to_vec());
 
         // Increment global count
         let count_key = Self::org_count_key();
@@ -71,7 +72,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
     }
 
     /// Get an organization by ID
-    pub async fn get(&self, id: i64) -> Result<Option<Organization>> {
+    pub async fn get(&self, id: OrganizationSlug) -> Result<Option<Organization>> {
         let key = Self::org_key(id);
         let data = self
             .storage
@@ -104,7 +105,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid organization index data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = OrganizationSlug::from(super::parse_u64_id(&bytes)?);
                 self.get(id).await
             },
             None => Ok(None),
@@ -144,7 +145,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
 
             // Create new name index (not enforcing uniqueness)
             let new_name_key = Self::org_name_index_key(&org.name);
-            txn.set(new_name_key, org.id.to_le_bytes().to_vec());
+            txn.set(new_name_key, org.id.value().to_le_bytes().to_vec());
 
             txn.commit().await.map_err(|e| {
                 Error::internal(format!("Failed to commit organization update: {e}"))
@@ -161,7 +162,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
     }
 
     /// Soft-delete an organization
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: OrganizationSlug) -> Result<()> {
         let mut org = self
             .get(id)
             .await?
@@ -172,7 +173,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
     }
 
     /// Get the total count of organizations
-    pub async fn get_total_count(&self) -> Result<i64> {
+    pub async fn get_total_count(&self) -> Result<u64> {
         let count_key = Self::org_count_key();
         let data = self
             .storage
@@ -181,7 +182,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to get organization count: {e}")))?;
 
         match data {
-            Some(bytes) if bytes.len() == 8 => super::parse_i64_id(&bytes),
+            Some(bytes) if bytes.len() == 8 => super::parse_u64_id(&bytes),
             _ => Ok(0),
         }
     }
@@ -191,10 +192,10 @@ impl<S: StorageBackend> OrganizationRepository<S> {
 ///
 /// Key schema:
 /// - org_member:{id} -> OrganizationMember data
-/// - org_member:org:{org_id}:{user_id} -> member_id (for org+user lookup)
-/// - org_member:user:{user_id}:{org_id} -> member_id (for user's orgs lookup)
+/// - org_member:org:{organization}:{user_id} -> member_id (for org+user lookup)
+/// - org_member:user:{user_id}:{organization} -> member_id (for user's orgs lookup)
 /// - org_member:user_count:{user_id} -> count (for per-user org limit)
-/// - org_member:org_count:{org_id} -> count (for per-org member count)
+/// - org_member:org_count:{organization} -> count (for per-org member count)
 pub struct OrganizationMemberRepository<S: StorageBackend> {
     storage: S,
 }
@@ -206,50 +207,53 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
     }
 
     /// Generate key for member by ID
-    fn member_key(id: i64) -> Vec<u8> {
+    fn member_key(id: u64) -> Vec<u8> {
         format!("org_member:{id}").into_bytes()
     }
 
     /// Generate key for org+user index
-    fn org_user_index_key(org_id: i64, user_id: i64) -> Vec<u8> {
-        format!("org_member:org:{org_id}:{user_id}").into_bytes()
+    fn org_user_index_key(organization: OrganizationSlug, user_id: u64) -> Vec<u8> {
+        format!("org_member:org:{organization}:{user_id}").into_bytes()
     }
 
     /// Generate key for user's orgs index
-    fn user_org_index_key(user_id: i64, org_id: i64) -> Vec<u8> {
-        format!("org_member:user:{user_id}:{org_id}").into_bytes()
+    fn user_org_index_key(user_id: u64, organization: OrganizationSlug) -> Vec<u8> {
+        format!("org_member:user:{user_id}:{organization}").into_bytes()
     }
 
     /// Key for user's organization count
-    fn user_org_count_key(user_id: i64) -> Vec<u8> {
+    fn user_org_count_key(user_id: u64) -> Vec<u8> {
         format!("org_member:user_count:{user_id}").into_bytes()
     }
 
     /// Key for per-organization member count
-    fn org_member_count_key(org_id: i64) -> Vec<u8> {
-        format!("org_member:org_count:{org_id}").into_bytes()
+    fn org_member_count_key(organization: OrganizationSlug) -> Vec<u8> {
+        format!("org_member:org_count:{organization}").into_bytes()
     }
 
     /// Read the raw org member count from storage, returning None if uninitialized or corrupt
-    async fn get_raw_org_member_count(&self, org_id: i64) -> Result<Option<i64>> {
-        let key = Self::org_member_count_key(org_id);
+    async fn get_raw_org_member_count(
+        &self,
+        organization: OrganizationSlug,
+    ) -> Result<Option<u64>> {
+        let key = Self::org_member_count_key(organization);
         let data = self
             .storage
             .get(&key)
             .await
             .map_err(|e| Error::internal(format!("Failed to get org member count: {e}")))?;
         match data {
-            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_i64_id(&bytes)?)),
+            Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_u64_id(&bytes)?)),
             _ => Ok(None),
         }
     }
 
     /// Recount org members by scanning all members and update the counter
-    async fn recount_org_members(&self, org_id: i64) -> Result<usize> {
-        let members = self.get_by_organization(org_id).await?;
+    async fn recount_org_members(&self, organization: OrganizationSlug) -> Result<usize> {
+        let members = self.get_by_organization(organization).await?;
         let count = members.len();
         self.storage
-            .set(Self::org_member_count_key(org_id), (count as i64).to_le_bytes().to_vec())
+            .set(Self::org_member_count_key(organization), (count as u64).to_le_bytes().to_vec())
             .await
             .map_err(|e| Error::internal(format!("Failed to set org member count: {e}")))?;
         Ok(count)
@@ -270,7 +274,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
 
         // Check uniqueness (user can only be member once per org)
-        let org_user_key = Self::org_user_index_key(member.organization_id, member.user_id);
+        let org_user_key = Self::org_user_index_key(member.organization, member.user_id);
         if self
             .storage
             .get(&org_user_key)
@@ -291,7 +295,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
 
         // Store user+org index
         txn.set(
-            Self::user_org_index_key(member.user_id, member.organization_id),
+            Self::user_org_index_key(member.user_id, member.organization),
             member.id.to_le_bytes().to_vec(),
         );
 
@@ -301,9 +305,9 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         txn.set(count_key, (current_count + 1).to_le_bytes().to_vec());
 
         // Increment per-org member count
-        let org_count_key = Self::org_member_count_key(member.organization_id);
+        let org_count_key = Self::org_member_count_key(member.organization);
         let current_org_count =
-            self.get_raw_org_member_count(member.organization_id).await?.unwrap_or(0);
+            self.get_raw_org_member_count(member.organization).await?.unwrap_or(0);
         txn.set(org_count_key, (current_org_count + 1).to_le_bytes().to_vec());
 
         // Commit transaction
@@ -315,7 +319,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
     }
 
     /// Get a member by ID
-    pub async fn get(&self, id: i64) -> Result<Option<OrganizationMember>> {
+    pub async fn get(&self, id: u64) -> Result<Option<OrganizationMember>> {
         let key = Self::member_key(id);
         let data = self
             .storage
@@ -337,10 +341,10 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
     /// Get a member by organization and user
     pub async fn get_by_org_and_user(
         &self,
-        org_id: i64,
-        user_id: i64,
+        organization: OrganizationSlug,
+        user_id: u64,
     ) -> Result<Option<OrganizationMember>> {
-        let index_key = Self::org_user_index_key(org_id, user_id);
+        let index_key = Self::org_user_index_key(organization, user_id);
         let data = self.storage.get(&index_key).await.map_err(|e| {
             Error::internal(format!("Failed to get organization member by org+user: {e}"))
         })?;
@@ -352,7 +356,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
                         "Invalid organization member index data".to_string(),
                     ));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -360,10 +364,13 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
     }
 
     /// Get all members of an organization
-    pub async fn get_by_organization(&self, org_id: i64) -> Result<Vec<OrganizationMember>> {
-        let prefix = format!("org_member:org:{org_id}:");
+    pub async fn get_by_organization(
+        &self,
+        organization: OrganizationSlug,
+    ) -> Result<Vec<OrganizationMember>> {
+        let prefix = format!("org_member:org:{organization}:");
         let start = prefix.clone().into_bytes();
-        let end = format!("org_member:org:{org_id}~").into_bytes();
+        let end = format!("org_member:org:{organization}~").into_bytes();
 
         let kvs = self
             .storage
@@ -373,7 +380,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
 
         let mut members = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(member) = self.get(id).await? {
                 members.push(member);
             }
@@ -383,7 +390,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
     }
 
     /// Get all organizations a user is a member of
-    pub async fn get_by_user(&self, user_id: i64) -> Result<Vec<OrganizationMember>> {
+    pub async fn get_by_user(&self, user_id: u64) -> Result<Vec<OrganizationMember>> {
         let prefix = format!("org_member:user:{user_id}:");
         let start = prefix.clone().into_bytes();
         let end = format!("org_member:user:{user_id}~").into_bytes();
@@ -396,7 +403,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
 
         let mut members = Vec::new();
         for kv in kvs {
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(member) = self.get(id).await? {
                 members.push(member);
             }
@@ -406,7 +413,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
     }
 
     /// Get the count of organizations a user is a member of
-    pub async fn get_user_organization_count(&self, user_id: i64) -> Result<i64> {
+    pub async fn get_user_organization_count(&self, user_id: u64) -> Result<u64> {
         let count_key = Self::user_org_count_key(user_id);
         let data =
             self.storage.get(&count_key).await.map_err(|e| {
@@ -414,7 +421,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
             })?;
 
         match data {
-            Some(bytes) if bytes.len() == 8 => super::parse_i64_id(&bytes),
+            Some(bytes) if bytes.len() == 8 => super::parse_u64_id(&bytes),
             _ => Ok(0),
         }
     }
@@ -425,16 +432,16 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
     /// Under concurrent writes, the counter is eventually consistent: reads outside
     /// the transaction may observe stale values, but self-healing on the next read
     /// corrects any drift.
-    pub async fn count_by_organization(&self, org_id: i64) -> Result<usize> {
-        match self.get_raw_org_member_count(org_id).await? {
-            Some(count) if count >= 0 => Ok(count as usize),
-            _ => self.recount_org_members(org_id).await,
+    pub async fn count_by_organization(&self, organization: OrganizationSlug) -> Result<usize> {
+        match self.get_raw_org_member_count(organization).await? {
+            Some(count) => Ok(count as usize),
+            _ => self.recount_org_members(organization).await,
         }
     }
 
     /// Count owners in an organization
-    pub async fn count_owners(&self, org_id: i64) -> Result<usize> {
-        let members = self.get_by_organization(org_id).await?;
+    pub async fn count_owners(&self, organization: OrganizationSlug) -> Result<usize> {
+        let members = self.get_by_organization(organization).await?;
         Ok(members.iter().filter(|m| m.role == OrganizationRole::Owner).count())
     }
 
@@ -453,7 +460,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
     }
 
     /// Delete a member
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         let member = self
             .get(id)
             .await?
@@ -470,10 +477,10 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         txn.delete(Self::member_key(id));
 
         // Delete org+user index
-        txn.delete(Self::org_user_index_key(member.organization_id, member.user_id));
+        txn.delete(Self::org_user_index_key(member.organization, member.user_id));
 
         // Delete user+org index
-        txn.delete(Self::user_org_index_key(member.user_id, member.organization_id));
+        txn.delete(Self::user_org_index_key(member.user_id, member.organization));
 
         // Decrement user's org count
         let count_key = Self::user_org_count_key(member.user_id);
@@ -483,9 +490,9 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         }
 
         // Decrement per-org member count
-        let org_count_key = Self::org_member_count_key(member.organization_id);
+        let org_count_key = Self::org_member_count_key(member.organization);
         let current_org_count =
-            self.get_raw_org_member_count(member.organization_id).await?.unwrap_or(0);
+            self.get_raw_org_member_count(member.organization).await?.unwrap_or(0);
         if current_org_count > 0 {
             txn.set(org_count_key, (current_org_count - 1).to_le_bytes().to_vec());
         }
@@ -503,7 +510,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use inferadb_control_storage::Backend;
-    use inferadb_control_types::entities::OrganizationTier;
+    use inferadb_control_types::{OrganizationSlug, entities::OrganizationTier};
 
     use super::*;
     use crate::IdGenerator;
@@ -524,14 +531,14 @@ mod tests {
         let repo = create_test_org_repo().await;
 
         let org = Organization::builder()
-            .id(100)
+            .id(OrganizationSlug::from(100_u64))
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
             .create()
             .unwrap();
         repo.create(org.clone()).await.unwrap();
 
-        let retrieved = repo.get(100).await.unwrap();
+        let retrieved = repo.get(OrganizationSlug::from(100_u64)).await.unwrap();
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().name, "Test Org");
     }
@@ -542,7 +549,7 @@ mod tests {
         let repo = create_test_org_repo().await;
 
         let org = Organization::builder()
-            .id(100)
+            .id(OrganizationSlug::from(100_u64))
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
             .create()
@@ -551,7 +558,7 @@ mod tests {
 
         let retrieved = repo.get_by_name("Test Org").await.unwrap();
         assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().id, 100);
+        assert_eq!(retrieved.unwrap().id, OrganizationSlug::from(100_u64));
 
         // Case insensitive
         let retrieved = repo.get_by_name("test org").await.unwrap();
@@ -564,7 +571,7 @@ mod tests {
         let repo = create_test_org_repo().await;
 
         let org1 = Organization::builder()
-            .id(100)
+            .id(OrganizationSlug::from(100_u64))
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
             .create()
@@ -572,7 +579,7 @@ mod tests {
         repo.create(org1).await.unwrap();
 
         let org2 = Organization::builder()
-            .id(101)
+            .id(OrganizationSlug::from(101_u64))
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
             .create()
@@ -582,8 +589,8 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify both organizations exist
-        assert!(repo.get(100).await.unwrap().is_some());
-        assert!(repo.get(101).await.unwrap().is_some());
+        assert!(repo.get(OrganizationSlug::from(100_u64)).await.unwrap().is_some());
+        assert!(repo.get(OrganizationSlug::from(101_u64)).await.unwrap().is_some());
     }
 
     #[tokio::test]
@@ -592,7 +599,7 @@ mod tests {
         let repo = create_test_org_repo().await;
 
         let mut org = Organization::builder()
-            .id(100)
+            .id(OrganizationSlug::from(100_u64))
             .name("Old Name".to_string())
             .tier(OrganizationTier::TierDevV1)
             .create()
@@ -602,7 +609,7 @@ mod tests {
         org.set_name("New Name".to_string()).unwrap();
         repo.update(org).await.unwrap();
 
-        let retrieved = repo.get(100).await.unwrap().unwrap();
+        let retrieved = repo.get(OrganizationSlug::from(100_u64)).await.unwrap().unwrap();
         assert_eq!(retrieved.name, "New Name");
 
         // Old name should not work
@@ -617,16 +624,16 @@ mod tests {
         let repo = create_test_org_repo().await;
 
         let org = Organization::builder()
-            .id(100)
+            .id(OrganizationSlug::from(100_u64))
             .name("Test Org".to_string())
             .tier(OrganizationTier::TierDevV1)
             .create()
             .unwrap();
         repo.create(org).await.unwrap();
 
-        repo.delete(100).await.unwrap();
+        repo.delete(OrganizationSlug::from(100_u64)).await.unwrap();
 
-        let retrieved = repo.get(100).await.unwrap().unwrap();
+        let retrieved = repo.get(OrganizationSlug::from(100_u64)).await.unwrap().unwrap();
         assert!(retrieved.is_deleted());
     }
 
@@ -638,7 +645,7 @@ mod tests {
         assert_eq!(repo.get_total_count().await.unwrap(), 0);
 
         let org1 = Organization::builder()
-            .id(100)
+            .id(OrganizationSlug::from(100_u64))
             .name("Org 1".to_string())
             .tier(OrganizationTier::TierDevV1)
             .create()
@@ -647,7 +654,7 @@ mod tests {
         assert_eq!(repo.get_total_count().await.unwrap(), 1);
 
         let org2 = Organization::builder()
-            .id(101)
+            .id(OrganizationSlug::from(101_u64))
             .name("Org 2".to_string())
             .tier(OrganizationTier::TierDevV1)
             .create()
@@ -661,7 +668,12 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_member_repo().await;
 
-        let member = OrganizationMember::new(1, 100, 200, OrganizationRole::Member);
+        let member = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Member,
+        );
         repo.create(member.clone()).await.unwrap();
 
         let retrieved = repo.get(1).await.unwrap();
@@ -674,10 +686,16 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_member_repo().await;
 
-        let member = OrganizationMember::new(1, 100, 200, OrganizationRole::Member);
+        let member = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Member,
+        );
         repo.create(member).await.unwrap();
 
-        let retrieved = repo.get_by_org_and_user(100, 200).await.unwrap();
+        let retrieved =
+            repo.get_by_org_and_user(OrganizationSlug::from(100_u64), 200).await.unwrap();
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().id, 1);
     }
@@ -687,10 +705,20 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_member_repo().await;
 
-        let member1 = OrganizationMember::new(1, 100, 200, OrganizationRole::Member);
+        let member1 = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Member,
+        );
         repo.create(member1).await.unwrap();
 
-        let member2 = OrganizationMember::new(2, 100, 200, OrganizationRole::Admin);
+        let member2 = OrganizationMember::new(
+            2,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Admin,
+        );
         let result = repo.create(member2).await;
         assert!(result.is_err());
     }
@@ -700,18 +728,33 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_member_repo().await;
 
-        let member1 = OrganizationMember::new(1, 100, 200, OrganizationRole::Owner);
-        let member2 = OrganizationMember::new(2, 100, 201, OrganizationRole::Member);
-        let member3 = OrganizationMember::new(3, 101, 202, OrganizationRole::Member);
+        let member1 = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Owner,
+        );
+        let member2 = OrganizationMember::new(
+            2,
+            OrganizationSlug::from(100_u64),
+            201,
+            OrganizationRole::Member,
+        );
+        let member3 = OrganizationMember::new(
+            3,
+            OrganizationSlug::from(101_u64),
+            202,
+            OrganizationRole::Member,
+        );
 
         repo.create(member1).await.unwrap();
         repo.create(member2).await.unwrap();
         repo.create(member3).await.unwrap();
 
-        let members = repo.get_by_organization(100).await.unwrap();
+        let members = repo.get_by_organization(OrganizationSlug::from(100_u64)).await.unwrap();
         assert_eq!(members.len(), 2);
 
-        let members = repo.get_by_organization(101).await.unwrap();
+        let members = repo.get_by_organization(OrganizationSlug::from(101_u64)).await.unwrap();
         assert_eq!(members.len(), 1);
     }
 
@@ -720,9 +763,24 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_member_repo().await;
 
-        let member1 = OrganizationMember::new(1, 100, 200, OrganizationRole::Owner);
-        let member2 = OrganizationMember::new(2, 101, 200, OrganizationRole::Member);
-        let member3 = OrganizationMember::new(3, 102, 201, OrganizationRole::Member);
+        let member1 = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Owner,
+        );
+        let member2 = OrganizationMember::new(
+            2,
+            OrganizationSlug::from(101_u64),
+            200,
+            OrganizationRole::Member,
+        );
+        let member3 = OrganizationMember::new(
+            3,
+            OrganizationSlug::from(102_u64),
+            201,
+            OrganizationRole::Member,
+        );
 
         repo.create(member1).await.unwrap();
         repo.create(member2).await.unwrap();
@@ -742,11 +800,21 @@ mod tests {
 
         assert_eq!(repo.get_user_organization_count(200).await.unwrap(), 0);
 
-        let member1 = OrganizationMember::new(1, 100, 200, OrganizationRole::Owner);
+        let member1 = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Owner,
+        );
         repo.create(member1).await.unwrap();
         assert_eq!(repo.get_user_organization_count(200).await.unwrap(), 1);
 
-        let member2 = OrganizationMember::new(2, 101, 200, OrganizationRole::Member);
+        let member2 = OrganizationMember::new(
+            2,
+            OrganizationSlug::from(101_u64),
+            200,
+            OrganizationRole::Member,
+        );
         repo.create(member2).await.unwrap();
         assert_eq!(repo.get_user_organization_count(200).await.unwrap(), 2);
     }
@@ -756,15 +824,30 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_member_repo().await;
 
-        let member1 = OrganizationMember::new(1, 100, 200, OrganizationRole::Owner);
-        let member2 = OrganizationMember::new(2, 100, 201, OrganizationRole::Admin);
-        let member3 = OrganizationMember::new(3, 100, 202, OrganizationRole::Owner);
+        let member1 = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Owner,
+        );
+        let member2 = OrganizationMember::new(
+            2,
+            OrganizationSlug::from(100_u64),
+            201,
+            OrganizationRole::Admin,
+        );
+        let member3 = OrganizationMember::new(
+            3,
+            OrganizationSlug::from(100_u64),
+            202,
+            OrganizationRole::Owner,
+        );
 
         repo.create(member1).await.unwrap();
         repo.create(member2).await.unwrap();
         repo.create(member3).await.unwrap();
 
-        assert_eq!(repo.count_owners(100).await.unwrap(), 2);
+        assert_eq!(repo.count_owners(OrganizationSlug::from(100_u64)).await.unwrap(), 2);
     }
 
     #[tokio::test]
@@ -772,7 +855,12 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_member_repo().await;
 
-        let mut member = OrganizationMember::new(1, 100, 200, OrganizationRole::Member);
+        let mut member = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Member,
+        );
         repo.create(member.clone()).await.unwrap();
 
         member.set_role(OrganizationRole::Admin);
@@ -787,7 +875,12 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_member_repo().await;
 
-        let member = OrganizationMember::new(1, 100, 200, OrganizationRole::Member);
+        let member = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Member,
+        );
         repo.create(member).await.unwrap();
 
         assert_eq!(repo.get_user_organization_count(200).await.unwrap(), 1);
@@ -795,7 +888,9 @@ mod tests {
         repo.delete(1).await.unwrap();
 
         assert!(repo.get(1).await.unwrap().is_none());
-        assert!(repo.get_by_org_and_user(100, 200).await.unwrap().is_none());
+        assert!(
+            repo.get_by_org_and_user(OrganizationSlug::from(100_u64), 200).await.unwrap().is_none()
+        );
         assert_eq!(repo.get_user_organization_count(200).await.unwrap(), 0);
     }
 
@@ -804,21 +899,31 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_member_repo().await;
 
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 0);
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 0);
 
-        let member1 = OrganizationMember::new(1, 100, 200, OrganizationRole::Owner);
+        let member1 = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Owner,
+        );
         repo.create(member1).await.unwrap();
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 1);
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 1);
 
-        let member2 = OrganizationMember::new(2, 100, 201, OrganizationRole::Member);
+        let member2 = OrganizationMember::new(
+            2,
+            OrganizationSlug::from(100_u64),
+            201,
+            OrganizationRole::Member,
+        );
         repo.create(member2).await.unwrap();
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 2);
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 2);
 
         repo.delete(1).await.unwrap();
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 1);
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 1);
 
         repo.delete(2).await.unwrap();
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 0);
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 0);
     }
 
     #[tokio::test]
@@ -826,14 +931,24 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_member_repo().await;
 
-        let member1 = OrganizationMember::new(1, 100, 200, OrganizationRole::Owner);
-        let member2 = OrganizationMember::new(2, 101, 201, OrganizationRole::Owner);
+        let member1 = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Owner,
+        );
+        let member2 = OrganizationMember::new(
+            2,
+            OrganizationSlug::from(101_u64),
+            201,
+            OrganizationRole::Owner,
+        );
         repo.create(member1).await.unwrap();
         repo.create(member2).await.unwrap();
 
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 1);
-        assert_eq!(repo.count_by_organization(101).await.unwrap(), 1);
-        assert_eq!(repo.count_by_organization(999).await.unwrap(), 0);
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 1);
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(101_u64)).await.unwrap(), 1);
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(999_u64)).await.unwrap(), 0);
     }
 
     #[tokio::test]
@@ -841,19 +956,31 @@ mod tests {
         let _ = IdGenerator::init(1);
         let repo = create_test_member_repo().await;
 
-        let member1 = OrganizationMember::new(1, 100, 200, OrganizationRole::Owner);
-        let member2 = OrganizationMember::new(2, 100, 201, OrganizationRole::Member);
+        let member1 = OrganizationMember::new(
+            1,
+            OrganizationSlug::from(100_u64),
+            200,
+            OrganizationRole::Owner,
+        );
+        let member2 = OrganizationMember::new(
+            2,
+            OrganizationSlug::from(100_u64),
+            201,
+            OrganizationRole::Member,
+        );
         repo.create(member1).await.unwrap();
         repo.create(member2).await.unwrap();
 
         // Delete the counter key to simulate migration
         use inferadb_control_storage::Backend;
         repo.storage
-            .delete(&OrganizationMemberRepository::<Backend>::org_member_count_key(100))
+            .delete(&OrganizationMemberRepository::<Backend>::org_member_count_key(
+                OrganizationSlug::from(100_u64),
+            ))
             .await
             .unwrap();
 
         // Should self-heal by recounting
-        assert_eq!(repo.count_by_organization(100).await.unwrap(), 2);
+        assert_eq!(repo.count_by_organization(OrganizationSlug::from(100_u64)).await.unwrap(), 2);
     }
 }

@@ -8,7 +8,7 @@ use crate::error::{Error, Result};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct User {
     /// Unique user ID (Snowflake ID)
-    pub id: i64,
+    pub id: u64,
 
     /// User's display name
     pub name: String,
@@ -45,7 +45,7 @@ impl User {
     ///
     /// Returns an error if validation fails
     #[builder(on(String, into), finish_fn = create)]
-    pub fn new(id: i64, name: String, password_hash: Option<String>) -> Result<Self> {
+    pub fn new(id: u64, name: String, password_hash: Option<String>) -> Result<Self> {
         Self::validate_name(&name)?;
 
         Ok(Self {

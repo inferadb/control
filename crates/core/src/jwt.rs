@@ -4,6 +4,7 @@ use chrono::{DateTime, Duration, Utc};
 use ed25519_dalek::pkcs8::{EncodePrivateKey, spki::EncodePublicKey};
 use inferadb_control_const::auth::{REQUIRED_AUDIENCE, REQUIRED_ISSUER};
 use inferadb_control_types::{
+    OrganizationSlug, VaultSlug,
     entities::{ClientCertificate, VaultRole},
     error::{Error, Result},
 };
@@ -30,9 +31,9 @@ pub struct VaultTokenClaims {
     /// Issued at (Unix timestamp)
     pub iat: i64,
     /// Organization ID (Snowflake ID as string)
-    pub org_id: String,
+    pub org: String,
     /// Vault ID (Snowflake ID as string)
-    pub vault_id: String,
+    pub vault: String,
     /// Vault role granted to this token (lowercase: read/write/manage/admin)
     pub vault_role: String,
     /// Scope string (e.g., "vault:read vault:write")
@@ -44,9 +45,9 @@ impl VaultTokenClaims {
     /// Create new vault token claims
     ///
     /// # Arguments
-    /// * `organization_id` - Organization ID (Snowflake ID)
+    /// * `organization` - Organization ID (Snowflake ID)
     /// * `client_id` - Client ID (Snowflake ID) for service accounts
-    /// * `vault_id` - Vault ID (Snowflake ID)
+    /// * `vault` - Vault ID (Snowflake ID)
     /// * `vault_role` - Role granted to this token
     /// * `ttl_seconds` - Time to live in seconds (default: 300 = 5 minutes)
     ///
@@ -54,9 +55,9 @@ impl VaultTokenClaims {
     /// since we own the entire experience end-to-end.
     #[builder]
     pub fn new(
-        organization_id: i64,
-        client_id: i64,
-        vault_id: i64,
+        #[builder(into)] organization: OrganizationSlug,
+        client_id: u64,
+        #[builder(into)] vault: VaultSlug,
         vault_role: VaultRole,
         ttl_seconds: i64,
     ) -> Self {
@@ -88,8 +89,8 @@ impl VaultTokenClaims {
             aud: REQUIRED_AUDIENCE.to_string(),
             exp: exp.timestamp(),
             iat: now.timestamp(),
-            org_id: organization_id.to_string(),
-            vault_id: vault_id.to_string(),
+            org: organization.to_string(),
+            vault: vault.to_string(),
             vault_role: vault_role_str.to_string(),
             scope: scope.to_string(),
         }
@@ -201,6 +202,8 @@ impl JwtSigner {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use inferadb_control_types::OrganizationSlug;
+
     use super::*;
     use crate::crypto::keypair;
 
@@ -216,7 +219,7 @@ mod tests {
         ClientCertificate::builder()
             .id(1)
             .client_id(100)
-            .organization_id(200)
+            .organization(OrganizationSlug::from(200_u64))
             .public_key(public_key)
             .private_key_encrypted(private_key_encrypted)
             .name("Test Certificate".to_string())
@@ -228,9 +231,9 @@ mod tests {
     #[test]
     fn test_vault_token_claims_creation() {
         let claims = VaultTokenClaims::builder()
-            .organization_id(123)
+            .organization(123)
             .client_id(789)
-            .vault_id(456)
+            .vault(456)
             .vault_role(VaultRole::Reader)
             .ttl_seconds(3600)
             .build();
@@ -238,8 +241,8 @@ mod tests {
         assert_eq!(claims.iss, REQUIRED_ISSUER);
         assert_eq!(claims.sub, "client:789");
         assert_eq!(claims.aud, REQUIRED_AUDIENCE);
-        assert_eq!(claims.org_id, "123");
-        assert_eq!(claims.vault_id, "456");
+        assert_eq!(claims.org, "123");
+        assert_eq!(claims.vault, "456");
         assert_eq!(claims.vault_role, "read");
         assert_eq!(
             claims.scope,
@@ -251,9 +254,9 @@ mod tests {
     #[test]
     fn test_vault_token_scopes() {
         let reader = VaultTokenClaims::builder()
-            .organization_id(1)
+            .organization(1)
             .client_id(2)
-            .vault_id(3)
+            .vault(3)
             .vault_role(VaultRole::Reader)
             .ttl_seconds(3600)
             .build();
@@ -264,9 +267,9 @@ mod tests {
         assert_eq!(reader.vault_role, "read");
 
         let writer = VaultTokenClaims::builder()
-            .organization_id(1)
+            .organization(1)
             .client_id(2)
-            .vault_id(3)
+            .vault(3)
             .vault_role(VaultRole::Writer)
             .ttl_seconds(3600)
             .build();
@@ -277,9 +280,9 @@ mod tests {
         assert_eq!(writer.vault_role, "write");
 
         let manager = VaultTokenClaims::builder()
-            .organization_id(1)
+            .organization(1)
             .client_id(2)
-            .vault_id(3)
+            .vault(3)
             .vault_role(VaultRole::Manager)
             .ttl_seconds(3600)
             .build();
@@ -290,9 +293,9 @@ mod tests {
         assert_eq!(manager.vault_role, "manage");
 
         let admin = VaultTokenClaims::builder()
-            .organization_id(1)
+            .organization(1)
             .client_id(2)
-            .vault_id(3)
+            .vault(3)
             .vault_role(VaultRole::Admin)
             .ttl_seconds(3600)
             .build();
@@ -307,9 +310,9 @@ mod tests {
     fn test_vault_token_expiration() {
         // Create an expired token (TTL = -1 second)
         let expired = VaultTokenClaims::builder()
-            .organization_id(1)
+            .organization(1)
             .client_id(2)
-            .vault_id(3)
+            .vault(3)
             .vault_role(VaultRole::Reader)
             .ttl_seconds(-1)
             .build();
@@ -317,9 +320,9 @@ mod tests {
 
         // Create a valid token
         let valid = VaultTokenClaims::builder()
-            .organization_id(1)
+            .organization(1)
             .client_id(2)
-            .vault_id(3)
+            .vault(3)
             .vault_role(VaultRole::Reader)
             .ttl_seconds(3600)
             .build();
@@ -333,9 +336,9 @@ mod tests {
         let signer = JwtSigner::new(encryptor);
 
         let claims = VaultTokenClaims::builder()
-            .organization_id(123)
+            .organization(123)
             .client_id(789)
-            .vault_id(456)
+            .vault(456)
             .vault_role(VaultRole::Writer)
             .ttl_seconds(3600)
             .build();
@@ -349,8 +352,8 @@ mod tests {
         assert_eq!(verified_claims.iss, claims.iss);
         assert_eq!(verified_claims.sub, claims.sub);
         assert_eq!(verified_claims.aud, claims.aud);
-        assert_eq!(verified_claims.org_id, claims.org_id);
-        assert_eq!(verified_claims.vault_id, claims.vault_id);
+        assert_eq!(verified_claims.org, claims.org);
+        assert_eq!(verified_claims.vault, claims.vault);
         assert_eq!(verified_claims.vault_role, claims.vault_role);
     }
 
@@ -361,9 +364,9 @@ mod tests {
         let signer = JwtSigner::new(encryptor);
 
         let claims = VaultTokenClaims::builder()
-            .organization_id(123)
+            .organization(123)
             .client_id(789)
-            .vault_id(456)
+            .vault(456)
             .vault_role(VaultRole::Reader)
             .ttl_seconds(3600)
             .build();
@@ -384,9 +387,9 @@ mod tests {
         let signer = JwtSigner::new(encryptor);
 
         let claims = VaultTokenClaims::builder()
-            .organization_id(123)
+            .organization(123)
             .client_id(789)
-            .vault_id(456)
+            .vault(456)
             .vault_role(VaultRole::Reader)
             .ttl_seconds(3600)
             .build();
@@ -400,9 +403,9 @@ mod tests {
     #[test]
     fn test_vault_token_datetime_conversion() {
         let claims = VaultTokenClaims::builder()
-            .organization_id(123)
+            .organization(123)
             .client_id(789)
-            .vault_id(456)
+            .vault(456)
             .vault_role(VaultRole::Reader)
             .ttl_seconds(3600)
             .build();
@@ -434,8 +437,8 @@ mod tests {
             aud: "https://wrong.example.com".to_string(),
             exp: exp.timestamp(),
             iat: now.timestamp(),
-            org_id: "123".to_string(),
-            vault_id: "456".to_string(),
+            org: "123".to_string(),
+            vault: "456".to_string(),
             vault_role: "read".to_string(),
             scope: "inferadb.check inferadb.read".to_string(),
         };
@@ -453,9 +456,9 @@ mod tests {
         let signer = JwtSigner::new(encryptor);
 
         let claims = VaultTokenClaims::builder()
-            .organization_id(123)
+            .organization(123)
             .client_id(789)
-            .vault_id(456)
+            .vault(456)
             .vault_role(VaultRole::Writer)
             .ttl_seconds(3600)
             .build();
@@ -475,9 +478,9 @@ mod tests {
             let signer = JwtSigner::new(encryptor);
 
             let claims = VaultTokenClaims::builder()
-                .organization_id(1)
+                .organization(1)
                 .client_id(1)
-                .vault_id(1)
+                .vault(1)
                 .vault_role(VaultRole::Reader)
                 .ttl_seconds(300)
                 .build();
@@ -485,7 +488,7 @@ mod tests {
             let token = signer.sign_vault_token(&claims, &certificate).unwrap();
             let verified = signer.verify_vault_token(&token, &certificate).unwrap();
             assert_eq!(verified.sub, claims.sub);
-            assert_eq!(verified.vault_id, claims.vault_id);
+            assert_eq!(verified.vault, claims.vault);
         }
     }
 
@@ -499,9 +502,9 @@ mod tests {
 
             #[test]
             fn sign_verify_roundtrip(
-                org_id in 1i64..10000,
-                client_id in 1i64..10000,
-                vault_id in 1i64..10000,
+                organization in 1u64..10000,
+                client_id in 1u64..10000,
+                vault in 1u64..10000,
                 vault_role in prop_oneof![
                     Just(VaultRole::Reader),
                     Just(VaultRole::Writer),
@@ -515,9 +518,9 @@ mod tests {
                 let signer = JwtSigner::new(encryptor);
 
                 let claims = VaultTokenClaims::builder()
-                    .organization_id(org_id)
+                    .organization(organization)
                     .client_id(client_id)
-                    .vault_id(vault_id)
+                    .vault(vault)
                     .vault_role(vault_role)
                     .ttl_seconds(ttl)
                     .build();
@@ -525,8 +528,8 @@ mod tests {
                 let token = signer.sign_vault_token(&claims, &certificate).unwrap();
                 let verified = signer.verify_vault_token(&token, &certificate).unwrap();
 
-                prop_assert_eq!(verified.org_id, org_id.to_string());
-                prop_assert_eq!(verified.vault_id, vault_id.to_string());
+                prop_assert_eq!(verified.org, organization.to_string());
+                prop_assert_eq!(verified.vault, vault.to_string());
 
                 // JWT stores vault_role as "read"/"write"/"manage"/"admin"
                 // (not "reader"/"writer"/"manager"/"admin" from Display)
@@ -541,8 +544,8 @@ mod tests {
 
             #[test]
             fn different_keys_cannot_verify(
-                org_id in 1i64..10000,
-                vault_id in 1i64..10000,
+                organization in 1u64..10000,
+                vault in 1u64..10000,
             ) {
                 let encryptor1 = create_test_encryptor();
                 let cert1 = create_test_certificate(&encryptor1);
@@ -553,9 +556,9 @@ mod tests {
                 let signer2 = JwtSigner::new(encryptor2);
 
                 let claims = VaultTokenClaims::builder()
-                    .organization_id(org_id)
+                    .organization(organization)
                     .client_id(1)
-                    .vault_id(vault_id)
+                    .vault(vault)
                     .vault_role(VaultRole::Reader)
                     .ttl_seconds(300)
                     .build();

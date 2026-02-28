@@ -5,7 +5,7 @@ use axum::{
 };
 use inferadb_control_core::IdGenerator;
 use inferadb_control_test_fixtures::{
-    body_json, create_test_app, create_test_state, get_org_id, invite_and_accept_member,
+    body_json, create_test_app, create_test_state, get_organization, invite_and_accept_member,
     register_user,
 };
 use serde_json::json;
@@ -35,7 +35,7 @@ async fn test_create_team() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create team
     let response = app
@@ -43,7 +43,7 @@ async fn test_create_team() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -92,7 +92,7 @@ async fn test_list_teams() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create multiple teams
     for (name, desc) in
@@ -102,7 +102,7 @@ async fn test_list_teams() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                    .uri(format!("/control/v1/organizations/{organization}/teams"))
                     .header("cookie", format!("infera_session={session}"))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -124,7 +124,7 @@ async fn test_list_teams() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -168,7 +168,7 @@ async fn test_add_team_member() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Get member's user email (for invitation)
     let response = app
@@ -186,7 +186,7 @@ async fn test_add_team_member() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let member_user_id = json["user"]["id"].as_i64().unwrap();
+    let member_user_id = json["user"]["id"].as_u64().unwrap();
 
     // Invite member to organization
     let response = app
@@ -194,7 +194,7 @@ async fn test_add_team_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/invitations"))
+                .uri(format!("/control/v1/organizations/{organization}/invitations"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -238,7 +238,7 @@ async fn test_add_team_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -255,7 +255,7 @@ async fn test_add_team_member() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Add member to team
     let response = app
@@ -263,7 +263,7 @@ async fn test_add_team_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/members"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}/members"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -318,7 +318,7 @@ async fn test_grant_team_permission() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create team
     let response = app
@@ -326,7 +326,7 @@ async fn test_grant_team_permission() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -343,7 +343,7 @@ async fn test_grant_team_permission() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Grant permission
     let response = app
@@ -351,7 +351,9 @@ async fn test_grant_team_permission() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/permissions"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/teams/{team_id}/permissions"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -398,7 +400,7 @@ async fn test_grant_team_vault_access() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create team
     let response = app
@@ -406,7 +408,7 @@ async fn test_grant_team_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -423,7 +425,7 @@ async fn test_grant_team_vault_access() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Create vault
     let response = app
@@ -431,7 +433,7 @@ async fn test_grant_team_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -448,7 +450,7 @@ async fn test_grant_team_vault_access() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let vault_id = json["vault"]["id"].as_i64().unwrap();
+    let vault = json["vault"]["id"].as_u64().unwrap();
 
     // Grant team access to vault
     let response = app
@@ -456,7 +458,7 @@ async fn test_grant_team_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/team-grants"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -486,7 +488,7 @@ async fn test_get_team() {
     let app = create_test_app(state);
 
     let session = register_user(&app, "getteam", "getteam@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
 
     // Create team
     let response = app
@@ -494,7 +496,7 @@ async fn test_get_team() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -507,7 +509,7 @@ async fn test_get_team() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Get single team
     let response = app
@@ -515,7 +517,7 @@ async fn test_get_team() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -527,7 +529,7 @@ async fn test_get_team() {
     let json = body_json(response).await;
     assert_eq!(json["name"], "platform");
     assert_eq!(json["description"], "Platform team");
-    assert_eq!(json["organization_id"], org_id);
+    assert_eq!(json["organization"], organization);
     assert!(json["deleted_at"].is_null());
 }
 
@@ -539,7 +541,7 @@ async fn test_update_team() {
 
     let session =
         register_user(&app, "updateteam", "updateteam@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
 
     // Create team
     let response = app
@@ -547,7 +549,7 @@ async fn test_update_team() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -560,7 +562,7 @@ async fn test_update_team() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Update team name and description
     let response = app
@@ -568,7 +570,7 @@ async fn test_update_team() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -590,7 +592,7 @@ async fn test_update_team() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -609,7 +611,7 @@ async fn test_update_team() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(json!({"name": "partial-only"}).to_string()))
@@ -631,7 +633,7 @@ async fn test_delete_team_with_cascade() {
     let app = create_test_app(state);
 
     let session = register_user(&app, "delteam", "delteam@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
 
     // Create team
     let response = app
@@ -639,7 +641,7 @@ async fn test_delete_team_with_cascade() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -652,7 +654,7 @@ async fn test_delete_team_with_cascade() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Grant a permission so we can verify cascade
     let response = app
@@ -660,7 +662,9 @@ async fn test_delete_team_with_cascade() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/permissions"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/teams/{team_id}/permissions"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(json!({"permission": "ORG_PERM_VAULT_CREATE"}).to_string()))
@@ -677,7 +681,7 @@ async fn test_delete_team_with_cascade() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -695,7 +699,7 @@ async fn test_delete_team_with_cascade() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -711,7 +715,9 @@ async fn test_delete_team_with_cascade() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/permissions"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/teams/{team_id}/permissions"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -727,7 +733,7 @@ async fn test_delete_team_with_cascade() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/members"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}/members"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -749,7 +755,7 @@ async fn test_update_team_member_role() {
     let member_session =
         register_user(&app, "rolemember", "rolemember@example.com", "securepassword123").await;
 
-    let org_id = get_org_id(&app, &owner_session).await;
+    let organization = get_organization(&app, &owner_session).await;
 
     // Invite and accept member into org
     invite_and_accept_member(
@@ -757,7 +763,7 @@ async fn test_update_team_member_role() {
         &owner_session,
         &member_session,
         "rolemember@example.com",
-        org_id,
+        organization,
     )
     .await;
 
@@ -776,7 +782,7 @@ async fn test_update_team_member_role() {
         .unwrap();
 
     let json = body_json(response).await;
-    let member_user_id = json["user"]["id"].as_i64().unwrap();
+    let member_user_id = json["user"]["id"].as_u64().unwrap();
 
     // Create team
     let response = app
@@ -784,7 +790,7 @@ async fn test_update_team_member_role() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -797,7 +803,7 @@ async fn test_update_team_member_role() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Add member to team (not as manager)
     let response = app
@@ -805,7 +811,7 @@ async fn test_update_team_member_role() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/members"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}/members"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -818,7 +824,7 @@ async fn test_update_team_member_role() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let member_id = json["member"]["id"].as_i64().unwrap();
+    let member_id = json["member"]["id"].as_u64().unwrap();
     assert!(!json["member"]["is_manager"].as_bool().unwrap());
 
     // Promote to manager
@@ -828,7 +834,7 @@ async fn test_update_team_member_role() {
             Request::builder()
                 .method("PATCH")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/teams/{team_id}/members/{member_id}"
+                    "/control/v1/organizations/{organization}/teams/{team_id}/members/{member_id}"
                 ))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
@@ -849,7 +855,7 @@ async fn test_update_team_member_role() {
             Request::builder()
                 .method("PATCH")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/teams/{team_id}/members/{member_id}"
+                    "/control/v1/organizations/{organization}/teams/{team_id}/members/{member_id}"
                 ))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
@@ -875,11 +881,17 @@ async fn test_remove_team_member() {
     let member_session =
         register_user(&app, "rmmember", "rmmember@example.com", "securepassword123").await;
 
-    let org_id = get_org_id(&app, &owner_session).await;
+    let organization = get_organization(&app, &owner_session).await;
 
     // Invite and accept
-    invite_and_accept_member(&app, &owner_session, &member_session, "rmmember@example.com", org_id)
-        .await;
+    invite_and_accept_member(
+        &app,
+        &owner_session,
+        &member_session,
+        "rmmember@example.com",
+        organization,
+    )
+    .await;
 
     // Get member user ID
     let response = app
@@ -896,7 +908,7 @@ async fn test_remove_team_member() {
         .unwrap();
 
     let json = body_json(response).await;
-    let member_user_id = json["user"]["id"].as_i64().unwrap();
+    let member_user_id = json["user"]["id"].as_u64().unwrap();
 
     // Create team
     let response = app
@@ -904,7 +916,7 @@ async fn test_remove_team_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -917,7 +929,7 @@ async fn test_remove_team_member() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Add member to team
     let response = app
@@ -925,7 +937,7 @@ async fn test_remove_team_member() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/members"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}/members"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -938,7 +950,7 @@ async fn test_remove_team_member() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let member_id = json["member"]["id"].as_i64().unwrap();
+    let member_id = json["member"]["id"].as_u64().unwrap();
 
     // Remove member from team
     let response = app
@@ -947,7 +959,7 @@ async fn test_remove_team_member() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/teams/{team_id}/members/{member_id}"
+                    "/control/v1/organizations/{organization}/teams/{team_id}/members/{member_id}"
                 ))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .body(Body::empty())
@@ -966,7 +978,7 @@ async fn test_remove_team_member() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/members"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}/members"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -988,7 +1000,7 @@ async fn test_revoke_team_permission() {
 
     let session =
         register_user(&app, "revokeperm", "revokeperm@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &session).await;
+    let organization = get_organization(&app, &session).await;
 
     // Create team
     let response = app
@@ -996,7 +1008,7 @@ async fn test_revoke_team_permission() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -1009,7 +1021,7 @@ async fn test_revoke_team_permission() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Grant permission
     let response = app
@@ -1017,7 +1029,9 @@ async fn test_revoke_team_permission() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/permissions"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/teams/{team_id}/permissions"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(json!({"permission": "ORG_PERM_VAULT_CREATE"}).to_string()))
@@ -1028,7 +1042,7 @@ async fn test_revoke_team_permission() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let permission_id = json["permission"]["id"].as_i64().unwrap();
+    let permission_id = json["permission"]["id"].as_u64().unwrap();
 
     // List permissions to verify it exists
     let response = app
@@ -1036,7 +1050,9 @@ async fn test_revoke_team_permission() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/permissions"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/teams/{team_id}/permissions"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -1055,7 +1071,7 @@ async fn test_revoke_team_permission() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/teams/{team_id}/permissions/{permission_id}"
+                    "/control/v1/organizations/{organization}/teams/{team_id}/permissions/{permission_id}"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -1074,7 +1090,9 @@ async fn test_revoke_team_permission() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/permissions"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/teams/{team_id}/permissions"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -1098,7 +1116,7 @@ async fn test_member_cannot_update_team() {
     let member_session =
         register_user(&app, "authzmember", "authzmember@example.com", "securepassword123").await;
 
-    let org_id = get_org_id(&app, &owner_session).await;
+    let organization = get_organization(&app, &owner_session).await;
 
     // Invite and accept member into org
     invite_and_accept_member(
@@ -1106,7 +1124,7 @@ async fn test_member_cannot_update_team() {
         &owner_session,
         &member_session,
         "authzmember@example.com",
-        org_id,
+        organization,
     )
     .await;
 
@@ -1116,7 +1134,7 @@ async fn test_member_cannot_update_team() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -1129,7 +1147,7 @@ async fn test_member_cannot_update_team() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Regular member tries to update team — should fail with 403
     let response = app
@@ -1137,7 +1155,7 @@ async fn test_member_cannot_update_team() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}"))
                 .header("cookie", format!("infera_session={member_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(json!({"name": "hacked"}).to_string()))
@@ -1154,7 +1172,7 @@ async fn test_member_cannot_update_team() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -1172,7 +1190,7 @@ async fn test_member_cannot_update_team() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}"))
                 .header("cookie", format!("infera_session={member_session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -1188,7 +1206,7 @@ async fn test_member_cannot_update_team() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/teams/{team_id}"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -1210,7 +1228,7 @@ async fn test_member_cannot_grant_or_revoke_permissions() {
     let member_session =
         register_user(&app, "permmember", "permmember@example.com", "securepassword123").await;
 
-    let org_id = get_org_id(&app, &owner_session).await;
+    let organization = get_organization(&app, &owner_session).await;
 
     // Invite and accept member into org
     invite_and_accept_member(
@@ -1218,7 +1236,7 @@ async fn test_member_cannot_grant_or_revoke_permissions() {
         &owner_session,
         &member_session,
         "permmember@example.com",
-        org_id,
+        organization,
     )
     .await;
 
@@ -1228,7 +1246,7 @@ async fn test_member_cannot_grant_or_revoke_permissions() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -1241,7 +1259,7 @@ async fn test_member_cannot_grant_or_revoke_permissions() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Member tries to grant permission — should fail with 403
     let response = app
@@ -1249,7 +1267,9 @@ async fn test_member_cannot_grant_or_revoke_permissions() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/permissions"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/teams/{team_id}/permissions"
+                ))
                 .header("cookie", format!("infera_session={member_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(json!({"permission": "ORG_PERM_VAULT_CREATE"}).to_string()))
@@ -1266,7 +1286,9 @@ async fn test_member_cannot_grant_or_revoke_permissions() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/permissions"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/teams/{team_id}/permissions"
+                ))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(json!({"permission": "ORG_PERM_VAULT_CREATE"}).to_string()))
@@ -1277,7 +1299,7 @@ async fn test_member_cannot_grant_or_revoke_permissions() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     let json = body_json(response).await;
-    let permission_id = json["permission"]["id"].as_i64().unwrap();
+    let permission_id = json["permission"]["id"].as_u64().unwrap();
 
     // Member tries to revoke permission — should fail with 403
     let response = app
@@ -1286,7 +1308,7 @@ async fn test_member_cannot_grant_or_revoke_permissions() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/teams/{team_id}/permissions/{permission_id}"
+                    "/control/v1/organizations/{organization}/teams/{team_id}/permissions/{permission_id}"
                 ))
                 .header("cookie", format!("infera_session={member_session}"))
                 .body(Body::empty())
@@ -1303,7 +1325,9 @@ async fn test_member_cannot_grant_or_revoke_permissions() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams/{team_id}/permissions"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/teams/{team_id}/permissions"
+                ))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .body(Body::empty())
                 .unwrap(),

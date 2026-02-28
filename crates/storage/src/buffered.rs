@@ -39,9 +39,20 @@ use crate::backend::{KeyValue, StorageBackend, StorageResult, Transaction};
 /// A write operation buffered for deferred commit.
 #[derive(Debug, Clone)]
 enum BufferedWrite {
-    Set { key: Vec<u8>, value: Vec<u8> },
-    Delete { key: Vec<u8> },
-    CompareAndSet { key: Vec<u8>, expected: Option<Vec<u8>>, new_value: Vec<u8> },
+    Set {
+        key: Vec<u8>,
+        value: Vec<u8>,
+        ttl: Option<Duration>,
+    },
+    Delete {
+        key: Vec<u8>,
+    },
+    CompareAndSet {
+        key: Vec<u8>,
+        expected: Option<Vec<u8>>,
+        new_value: Vec<u8>,
+        ttl: Option<Duration>,
+    },
 }
 
 /// A storage backend that buffers all writes for atomic commit.
@@ -77,10 +88,23 @@ impl<S: StorageBackend + Clone + 'static> BufferedBackend<S> {
         let mut txn = self.inner.transaction().await?;
         for write in buffer.iter() {
             match write {
-                BufferedWrite::Set { key, value } => txn.set(key.clone(), value.clone()),
+                BufferedWrite::Set { key, value, ttl: None } => {
+                    txn.set(key.clone(), value.clone());
+                },
+                BufferedWrite::Set { key, value, ttl: Some(ttl) } => {
+                    txn.set_with_ttl(key.clone(), value.clone(), *ttl);
+                },
                 BufferedWrite::Delete { key } => txn.delete(key.clone()),
-                BufferedWrite::CompareAndSet { key, expected, new_value } => {
+                BufferedWrite::CompareAndSet { key, expected, new_value, ttl: None } => {
                     txn.compare_and_set(key.clone(), expected.clone(), new_value.clone())?;
+                },
+                BufferedWrite::CompareAndSet { key, expected, new_value, ttl: Some(ttl) } => {
+                    txn.compare_and_set_with_ttl(
+                        key.clone(),
+                        expected.clone(),
+                        new_value.clone(),
+                        *ttl,
+                    )?;
                 },
             }
         }
@@ -97,7 +121,7 @@ impl<S: StorageBackend + Clone + 'static> BufferedBackend<S> {
         let buffer = self.buffer.lock().await;
         for write in buffer.iter().rev() {
             match write {
-                BufferedWrite::Set { key: k, value }
+                BufferedWrite::Set { key: k, value, .. }
                 | BufferedWrite::CompareAndSet { key: k, new_value: value, .. }
                     if k.as_slice() == key =>
                 {
@@ -124,7 +148,7 @@ impl<S: StorageBackend + Clone + 'static> StorageBackend for BufferedBackend<S> 
     }
 
     async fn set(&self, key: Vec<u8>, value: Vec<u8>) -> StorageResult<()> {
-        self.buffer.lock().await.push(BufferedWrite::Set { key, value });
+        self.buffer.lock().await.push(BufferedWrite::Set { key, value, ttl: None });
         Ok(())
     }
 
@@ -152,19 +176,8 @@ impl<S: StorageBackend + Clone + 'static> StorageBackend for BufferedBackend<S> 
         self.inner.clear_range(range).await
     }
 
-    async fn set_with_ttl(
-        &self,
-        key: Vec<u8>,
-        value: Vec<u8>,
-        _ttl: Duration,
-    ) -> StorageResult<()> {
-        // TTL is silently dropped: transactions do not support per-key expiry.
-        //
-        // Repositories that need TTL within a transactional context must use the
-        // two-phase write pattern: commit the transaction first for atomicity,
-        // then call `set_with_ttl` on each key via the underlying storage backend.
-        // See `AuthorizationCodeRepository::create` for the canonical example.
-        self.buffer.lock().await.push(BufferedWrite::Set { key, value });
+    async fn set_with_ttl(&self, key: Vec<u8>, value: Vec<u8>, ttl: Duration) -> StorageResult<()> {
+        self.buffer.lock().await.push(BufferedWrite::Set { key, value, ttl: Some(ttl) });
         Ok(())
     }
 
@@ -194,6 +207,23 @@ impl<S: StorageBackend + Clone + 'static> StorageBackend for BufferedBackend<S> 
             key: key.to_vec(),
             expected: expected.map(|e| e.to_vec()),
             new_value,
+            ttl: None,
+        });
+        Ok(())
+    }
+
+    async fn compare_and_set_with_ttl(
+        &self,
+        key: &[u8],
+        expected: Option<&[u8]>,
+        new_value: Vec<u8>,
+        ttl: Duration,
+    ) -> StorageResult<()> {
+        self.buffer.lock().await.push(BufferedWrite::CompareAndSet {
+            key: key.to_vec(),
+            expected: expected.map(|e| e.to_vec()),
+            new_value,
+            ttl: Some(ttl),
         });
         Ok(())
     }
@@ -218,7 +248,10 @@ impl<S: StorageBackend + 'static> Transaction for BufferedTransaction<S> {
         // Check local transaction writes first
         for write in self.local_writes.iter().rev() {
             match write {
-                BufferedWrite::Set { key: k, value } if k.as_slice() == key => {
+                BufferedWrite::Set { key: k, value, .. }
+                | BufferedWrite::CompareAndSet { key: k, new_value: value, .. }
+                    if k.as_slice() == key =>
+                {
                     return Ok(Some(Bytes::from(value.clone())));
                 },
                 BufferedWrite::Delete { key: k } if k.as_slice() == key => {
@@ -231,7 +264,7 @@ impl<S: StorageBackend + 'static> Transaction for BufferedTransaction<S> {
         let buffer = self.parent_buffer.lock().await;
         for write in buffer.iter().rev() {
             match write {
-                BufferedWrite::Set { key: k, value }
+                BufferedWrite::Set { key: k, value, .. }
                 | BufferedWrite::CompareAndSet { key: k, new_value: value, .. }
                     if k.as_slice() == key =>
                 {
@@ -249,7 +282,7 @@ impl<S: StorageBackend + 'static> Transaction for BufferedTransaction<S> {
     }
 
     fn set(&mut self, key: Vec<u8>, value: Vec<u8>) {
-        self.local_writes.push(BufferedWrite::Set { key, value });
+        self.local_writes.push(BufferedWrite::Set { key, value, ttl: None });
     }
 
     fn delete(&mut self, key: Vec<u8>) {
@@ -262,7 +295,32 @@ impl<S: StorageBackend + 'static> Transaction for BufferedTransaction<S> {
         expected: Option<Vec<u8>>,
         new_value: Vec<u8>,
     ) -> StorageResult<()> {
-        self.local_writes.push(BufferedWrite::CompareAndSet { key, expected, new_value });
+        self.local_writes.push(BufferedWrite::CompareAndSet {
+            key,
+            expected,
+            new_value,
+            ttl: None,
+        });
+        Ok(())
+    }
+
+    fn set_with_ttl(&mut self, key: Vec<u8>, value: Vec<u8>, ttl: Duration) {
+        self.local_writes.push(BufferedWrite::Set { key, value, ttl: Some(ttl) });
+    }
+
+    fn compare_and_set_with_ttl(
+        &mut self,
+        key: Vec<u8>,
+        expected: Option<Vec<u8>>,
+        new_value: Vec<u8>,
+        ttl: Duration,
+    ) -> StorageResult<()> {
+        self.local_writes.push(BufferedWrite::CompareAndSet {
+            key,
+            expected,
+            new_value,
+            ttl: Some(ttl),
+        });
         Ok(())
     }
 

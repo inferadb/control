@@ -8,10 +8,10 @@ use crate::error::{Error, Result};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserEmail {
     /// Unique email ID (Snowflake ID)
-    pub id: i64,
+    pub id: u64,
 
     /// User ID this email belongs to
-    pub user_id: i64,
+    pub user_id: u64,
 
     /// Email address (normalized to lowercase)
     pub email: String,
@@ -45,7 +45,7 @@ impl UserEmail {
     ///
     /// Returns an error if email validation fails
     #[builder(on(String, into), finish_fn = create)]
-    pub fn new(id: i64, user_id: i64, email: String, primary: bool) -> Result<Self> {
+    pub fn new(id: u64, user_id: u64, email: String, primary: bool) -> Result<Self> {
         let normalized_email = Self::normalize_email(&email)?;
 
         Ok(Self {

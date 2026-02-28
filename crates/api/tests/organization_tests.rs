@@ -261,14 +261,14 @@ async fn test_get_organization_details() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organization"]["id"].as_i64().unwrap();
+    let organization = json["organization"]["id"].as_u64().unwrap();
 
     // Get organization details
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}"))
+                .uri(format!("/control/v1/organizations/{organization}"))
                 .header("cookie", format!("infera_session={session_cookie}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -281,7 +281,7 @@ async fn test_get_organization_details() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(json["organization"]["id"], org_id);
+    assert_eq!(json["organization"]["id"], organization);
     assert_eq!(json["organization"]["name"], "Test Organization");
 }
 
@@ -340,14 +340,14 @@ async fn test_update_organization() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organization"]["id"].as_i64().unwrap();
+    let organization = json["organization"]["id"].as_u64().unwrap();
 
     // Update organization
     let response = app
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/control/v1/organizations/{org_id}"))
+                .uri(format!("/control/v1/organizations/{organization}"))
                 .header("content-type", "application/json")
                 .header("cookie", format!("infera_session={session_cookie}"))
                 .body(Body::from(
@@ -424,14 +424,14 @@ async fn test_delete_organization() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organization"]["id"].as_i64().unwrap();
+    let organization = json["organization"]["id"].as_u64().unwrap();
 
     // Delete organization
     let response = app
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/control/v1/organizations/{org_id}"))
+                .uri(format!("/control/v1/organizations/{organization}"))
                 .header("cookie", format!("infera_session={session_cookie}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -497,7 +497,7 @@ async fn test_non_member_cannot_access_organization() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organization"]["id"].as_i64().unwrap();
+    let organization = json["organization"]["id"].as_u64().unwrap();
 
     // Register second user
     let response = app
@@ -528,7 +528,7 @@ async fn test_non_member_cannot_access_organization() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}"))
+                .uri(format!("/control/v1/organizations/{organization}"))
                 .header("cookie", format!("infera_session={session2}"))
                 .body(Body::empty())
                 .unwrap(),

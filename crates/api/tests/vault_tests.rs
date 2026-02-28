@@ -33,7 +33,7 @@ async fn test_create_vault() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().expect("Should have org ID");
+    let organization = json["organizations"][0]["id"].as_u64().expect("Should have org ID");
 
     // Create a vault
     let response = app
@@ -41,7 +41,7 @@ async fn test_create_vault() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -96,7 +96,7 @@ async fn test_list_vaults() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create multiple vaults
     for (name, desc) in [
@@ -108,7 +108,7 @@ async fn test_list_vaults() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                    .uri(format!("/control/v1/organizations/{organization}/vaults"))
                     .header("cookie", format!("infera_session={session}"))
                     .header("content-type", "application/json")
                     .body(Body::from(
@@ -130,7 +130,7 @@ async fn test_list_vaults() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -171,7 +171,7 @@ async fn test_update_vault() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create vault
     let response = app
@@ -179,7 +179,7 @@ async fn test_update_vault() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -196,7 +196,7 @@ async fn test_update_vault() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let vault_id = json["vault"]["id"].as_i64().unwrap();
+    let vault = json["vault"]["id"].as_u64().unwrap();
 
     // Update vault
     let response = app
@@ -204,7 +204,7 @@ async fn test_update_vault() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -252,7 +252,7 @@ async fn test_delete_vault() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create vault
     let response = app
@@ -260,7 +260,7 @@ async fn test_delete_vault() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -277,7 +277,7 @@ async fn test_delete_vault() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let vault_id = json["vault"]["id"].as_i64().unwrap();
+    let vault = json["vault"]["id"].as_u64().unwrap();
 
     // Delete vault
     let response = app
@@ -285,7 +285,7 @@ async fn test_delete_vault() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -300,7 +300,7 @@ async fn test_delete_vault() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -339,7 +339,7 @@ async fn test_grant_user_vault_access() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Get member's user ID
     let response = app
@@ -357,14 +357,14 @@ async fn test_grant_user_vault_access() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let member_user_id = json["user"]["id"].as_i64().unwrap();
+    let member_user_id = json["user"]["id"].as_u64().unwrap();
 
     // Add member to organization first
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/members"))
+                .uri(format!("/control/v1/organizations/{organization}/members"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -385,7 +385,7 @@ async fn test_grant_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -402,7 +402,7 @@ async fn test_grant_user_vault_access() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let vault_id = json["vault"]["id"].as_i64().unwrap();
+    let vault = json["vault"]["id"].as_u64().unwrap();
 
     // Grant user access to vault
     let response = app
@@ -410,7 +410,7 @@ async fn test_grant_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/user-grants"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/user-grants"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -460,7 +460,7 @@ async fn test_revoke_user_vault_access() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     let response = app
         .clone()
@@ -477,14 +477,14 @@ async fn test_revoke_user_vault_access() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let member_user_id = json["user"]["id"].as_i64().unwrap();
+    let member_user_id = json["user"]["id"].as_u64().unwrap();
 
     // Add member to organization
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/members"))
+                .uri(format!("/control/v1/organizations/{organization}/members"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -505,7 +505,7 @@ async fn test_revoke_user_vault_access() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -522,14 +522,14 @@ async fn test_revoke_user_vault_access() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let vault_id = json["vault"]["id"].as_i64().unwrap();
+    let vault = json["vault"]["id"].as_u64().unwrap();
 
     // Grant access
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/user-grants"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/user-grants"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -550,7 +550,7 @@ async fn test_revoke_user_vault_access() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/user-grants/{member_user_id}"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/user-grants/{member_user_id}"
                 ))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .body(Body::empty())
@@ -587,7 +587,7 @@ async fn test_delete_team_grant() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create a team
     let response = app
@@ -595,7 +595,7 @@ async fn test_delete_team_grant() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -612,7 +612,7 @@ async fn test_delete_team_grant() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Create a vault
     let response = app
@@ -620,7 +620,7 @@ async fn test_delete_team_grant() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -637,7 +637,7 @@ async fn test_delete_team_grant() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let vault_id = json["vault"]["id"].as_i64().unwrap();
+    let vault = json["vault"]["id"].as_u64().unwrap();
 
     // Grant team access to vault
     let response = app
@@ -645,7 +645,7 @@ async fn test_delete_team_grant() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/team-grants"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -664,7 +664,7 @@ async fn test_delete_team_grant() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let grant_id = json["grant"]["id"].as_i64().unwrap();
+    let grant_id = json["grant"]["id"].as_u64().unwrap();
 
     // Delete the team grant
     let response = app
@@ -673,7 +673,7 @@ async fn test_delete_team_grant() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants/{grant_id}"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/team-grants/{grant_id}"
                 ))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
@@ -690,7 +690,7 @@ async fn test_delete_team_grant() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/team-grants"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -733,7 +733,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let org_id = json["organizations"][0]["id"].as_i64().unwrap();
+    let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Get member user ID
     let response = app
@@ -751,14 +751,14 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let member_user_id = json["user"]["id"].as_i64().unwrap();
+    let member_user_id = json["user"]["id"].as_u64().unwrap();
 
     // Add member to organization
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/members"))
+                .uri(format!("/control/v1/organizations/{organization}/members"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -779,7 +779,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -796,7 +796,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let team_id = json["team"]["id"].as_i64().unwrap();
+    let team_id = json["team"]["id"].as_u64().unwrap();
 
     // Create a vault
     let response = app
@@ -804,7 +804,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -821,7 +821,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let vault_id = json["vault"]["id"].as_i64().unwrap();
+    let vault = json["vault"]["id"].as_u64().unwrap();
 
     // Create a user grant
     let response = app
@@ -829,7 +829,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/user-grants"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/user-grants"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -852,7 +852,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/team-grants"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -871,7 +871,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let team_grant_id = json["grant"]["id"].as_i64().unwrap();
+    let team_grant_id = json["grant"]["id"].as_u64().unwrap();
 
     // Delete the team grant
     let response = app
@@ -880,7 +880,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants/{team_grant_id}"
+                    "/control/v1/organizations/{organization}/vaults/{vault}/team-grants/{team_grant_id}"
                 ))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .body(Body::empty())
@@ -897,7 +897,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/user-grants"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/user-grants"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -918,7 +918,7 @@ async fn test_delete_team_grant_does_not_affect_user_grants() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults/{vault_id}/team-grants"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults/{vault}/team-grants"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .body(Body::empty())
                 .unwrap(),

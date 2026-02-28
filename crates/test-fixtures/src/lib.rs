@@ -47,14 +47,14 @@
 //! // Vault with builder
 //! let vault = Vault::builder()
 //!     .name("production")
-//!     .organization_id(org.id)
+//!     .organization(org.id)
 //!     .build()
 //!     .unwrap();
 //!
 //! // Client with builder
 //! let client = Client::builder()
 //!     .name("api-client")
-//!     .vault_id(vault.id)
+//!     .vault(vault.id)
 //!     .build()
 //!     .unwrap();
 //! ```
@@ -277,12 +277,12 @@ pub async fn login_user(app: &axum::Router, email: &str, password: &str) -> Stri
     extract_session_cookie(response.headers()).expect("Session cookie should be set")
 }
 
-/// Gets the org_id from the first organization in the user's list.
+/// Gets the organization from the first organization in the user's list.
 ///
 /// # Panics
 ///
 /// Panics if the organizations list is empty or the request fails.
-pub async fn get_org_id(app: &axum::Router, session: &str) -> i64 {
+pub async fn get_organization(app: &axum::Router, session: &str) -> u64 {
     let response = app
         .clone()
         .oneshot(
@@ -297,7 +297,7 @@ pub async fn get_org_id(app: &axum::Router, session: &str) -> i64 {
         .unwrap();
 
     let json = body_json(response).await;
-    json["organizations"][0]["id"].as_i64().expect("Should have org ID")
+    json["organizations"][0]["id"].as_u64().expect("Should have org ID")
 }
 
 /// Creates an organization and returns its ID and the full JSON response.
@@ -305,7 +305,7 @@ pub async fn get_org_id(app: &axum::Router, session: &str) -> i64 {
 /// # Panics
 ///
 /// Panics if creation fails.
-pub async fn create_organization(app: &axum::Router, session: &str, name: &str) -> (i64, Value) {
+pub async fn create_organization(app: &axum::Router, session: &str, name: &str) -> (u64, Value) {
     use axum::http::StatusCode;
 
     let response = app
@@ -329,8 +329,8 @@ pub async fn create_organization(app: &axum::Router, session: &str, name: &str) 
 
     assert_eq!(response.status(), StatusCode::OK, "Organization creation should succeed");
     let json = body_json(response).await;
-    let org_id = json["organization"]["id"].as_i64().expect("Should have org ID");
-    (org_id, json)
+    let organization = json["organization"]["id"].as_u64().expect("Should have org ID");
+    (organization, json)
 }
 
 /// Creates a vault in an organization and returns its ID and the full JSON response.
@@ -341,15 +341,15 @@ pub async fn create_organization(app: &axum::Router, session: &str, name: &str) 
 pub async fn create_vault(
     app: &axum::Router,
     session: &str,
-    org_id: i64,
+    organization: u64,
     name: &str,
-) -> (i64, Value) {
+) -> (u64, Value) {
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -367,8 +367,8 @@ pub async fn create_vault(
     let status = response.status();
     assert!(status.is_success(), "Vault creation should succeed, got {status}");
     let json = body_json(response).await;
-    let vault_id = json["vault"]["id"].as_i64().expect("Should have vault ID");
-    (vault_id, json)
+    let vault = json["vault"]["id"].as_u64().expect("Should have vault ID");
+    (vault, json)
 }
 
 /// Creates a client in an organization and returns its ID and the full JSON response.
@@ -379,15 +379,15 @@ pub async fn create_vault(
 pub async fn create_client(
     app: &axum::Router,
     session: &str,
-    org_id: i64,
+    organization: u64,
     name: &str,
-) -> (i64, Value) {
+) -> (u64, Value) {
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients"))
+                .uri(format!("/control/v1/organizations/{organization}/clients"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -405,7 +405,7 @@ pub async fn create_client(
     let status = response.status();
     assert!(status.is_success(), "Client creation should succeed, got {status}");
     let json = body_json(response).await;
-    let client_id = json["client"]["id"].as_i64().expect("Should have client ID");
+    let client_id = json["client"]["id"].as_u64().expect("Should have client ID");
     (client_id, json)
 }
 
@@ -417,16 +417,18 @@ pub async fn create_client(
 pub async fn create_client_with_cert(
     app: &axum::Router,
     session: &str,
-    org_id: i64,
-) -> (i64, i64, Value) {
-    let (client_id, _) = create_client(app, session, org_id, "test-client").await;
+    organization: u64,
+) -> (u64, u64, Value) {
+    let (client_id, _) = create_client(app, session, organization, "test-client").await;
 
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/clients/{client_id}/certificates"))
+                .uri(format!(
+                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
+                ))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(json!({"name": "test-cert"}).to_string()))
@@ -442,7 +444,7 @@ pub async fn create_client_with_cert(
         panic!("Failed to create certificate. Status: {status}, Body: {json}");
     }
 
-    let cert_id = json["certificate"]["id"].as_i64().expect("Should have cert ID");
+    let cert_id = json["certificate"]["id"].as_u64().expect("Should have cert ID");
     (client_id, cert_id, json)
 }
 
@@ -475,7 +477,7 @@ pub async fn invite_and_accept_member(
     owner_session: &str,
     member_session: &str,
     member_email: &str,
-    org_id: i64,
+    organization: u64,
 ) {
     use axum::http::StatusCode;
 
@@ -484,7 +486,7 @@ pub async fn invite_and_accept_member(
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/invitations"))
+                .uri(format!("/control/v1/organizations/{organization}/invitations"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(

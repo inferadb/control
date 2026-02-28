@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[builder(on(String, into))]
 pub struct SessionInfo {
     /// Session ID
-    pub session_id: i64,
+    pub session_id: u64,
     /// Session type (WEB, CLI, SDK)
     pub session_type: String,
     /// When the session was created

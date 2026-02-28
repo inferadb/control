@@ -10,10 +10,10 @@ use webauthn_rs::prelude::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PasskeyCredential {
     /// Unique credential ID (Snowflake)
-    pub id: i64,
+    pub id: u64,
 
     /// User ID this credential belongs to
-    pub user_id: i64,
+    pub user_id: u64,
 
     /// Credential ID from WebAuthn (binary, base64url-encoded)
     pub credential_id: Vec<u8>,
@@ -47,8 +47,8 @@ pub struct PasskeyCredential {
 impl PasskeyCredential {
     /// Create a new passkey credential
     pub fn new(
-        id: i64,
-        user_id: i64,
+        id: u64,
+        user_id: u64,
         credential: Passkey,
         name: String,
         attestation_format: Option<String>,

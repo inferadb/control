@@ -13,18 +13,22 @@ use axum::{
 };
 use inferadb_control_core::IdGenerator;
 use inferadb_control_test_fixtures::{
-    create_test_app, create_test_state, get_org_id, invite_and_accept_member, register_user,
+    create_test_app, create_test_state, get_organization, invite_and_accept_member, register_user,
 };
 use serde_json::json;
 use tower::ServiceExt;
 
 /// Helper to suspend an organization
-async fn suspend_org(app: &axum::Router, session: &str, org_id: i64) -> axum::http::Response<Body> {
+async fn suspend_org(
+    app: &axum::Router,
+    session: &str,
+    organization: u64,
+) -> axum::http::Response<Body> {
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/suspend"))
+                .uri(format!("/control/v1/organizations/{organization}/suspend"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -34,12 +38,16 @@ async fn suspend_org(app: &axum::Router, session: &str, org_id: i64) -> axum::ht
 }
 
 /// Helper to resume an organization
-async fn resume_org(app: &axum::Router, session: &str, org_id: i64) -> axum::http::Response<Body> {
+async fn resume_org(
+    app: &axum::Router,
+    session: &str,
+    organization: u64,
+) -> axum::http::Response<Body> {
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/resume"))
+                .uri(format!("/control/v1/organizations/{organization}/resume"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -49,12 +57,16 @@ async fn resume_org(app: &axum::Router, session: &str, org_id: i64) -> axum::htt
 }
 
 /// Helper to list vaults in an organization
-async fn list_vaults(app: &axum::Router, session: &str, org_id: i64) -> axum::http::Response<Body> {
+async fn list_vaults(
+    app: &axum::Router,
+    session: &str,
+    organization: u64,
+) -> axum::http::Response<Body> {
     app.clone()
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -67,14 +79,14 @@ async fn list_vaults(app: &axum::Router, session: &str, org_id: i64) -> axum::ht
 async fn create_vault(
     app: &axum::Router,
     session: &str,
-    org_id: i64,
+    organization: u64,
     name: &str,
 ) -> axum::http::Response<Body> {
     app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/control/v1/organizations/{org_id}/vaults"))
+                .uri(format!("/control/v1/organizations/{organization}/vaults"))
                 .header("cookie", format!("infera_session={session}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -98,10 +110,10 @@ async fn test_owner_suspends_organization() {
 
     let owner_session =
         register_user(&app, "suspowner", "suspowner@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &owner_session).await;
+    let organization = get_organization(&app, &owner_session).await;
 
     // Suspend the organization
-    let response = suspend_org(&app, &owner_session, org_id).await;
+    let response = suspend_org(&app, &owner_session, organization).await;
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -121,7 +133,7 @@ async fn test_non_owner_cannot_suspend_organization() {
     let member_session =
         register_user(&app, "suspmember", "suspmember@example.com", "securepassword123").await;
 
-    let org_id = get_org_id(&app, &owner_session).await;
+    let organization = get_organization(&app, &owner_session).await;
 
     // Add member to organization via invitation flow
     invite_and_accept_member(
@@ -129,12 +141,12 @@ async fn test_non_owner_cannot_suspend_organization() {
         &owner_session,
         &member_session,
         "suspmember@example.com",
-        org_id,
+        organization,
     )
     .await;
 
     // Member attempts to suspend — should fail with 403
-    let response = suspend_org(&app, &member_session, org_id).await;
+    let response = suspend_org(&app, &member_session, organization).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -154,18 +166,18 @@ async fn test_suspended_org_blocks_resource_access() {
 
     let owner_session =
         register_user(&app, "suspowner3", "suspowner3@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &owner_session).await;
+    let organization = get_organization(&app, &owner_session).await;
 
     // Create a vault before suspension
-    let response = create_vault(&app, &owner_session, org_id, "pre-suspend-vault").await;
+    let response = create_vault(&app, &owner_session, organization, "pre-suspend-vault").await;
     assert_eq!(response.status(), StatusCode::CREATED);
 
     // Suspend the organization
-    let response = suspend_org(&app, &owner_session, org_id).await;
+    let response = suspend_org(&app, &owner_session, organization).await;
     assert_eq!(response.status(), StatusCode::OK);
 
     // Attempt to list vaults while suspended — should be blocked
-    let response = list_vaults(&app, &owner_session, org_id).await;
+    let response = list_vaults(&app, &owner_session, organization).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -177,7 +189,7 @@ async fn test_suspended_org_blocks_resource_access() {
     );
 
     // Attempt to create a vault while suspended — should be blocked
-    let response = create_vault(&app, &owner_session, org_id, "during-suspend-vault").await;
+    let response = create_vault(&app, &owner_session, organization, "during-suspend-vault").await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     // Attempt to list teams while suspended — should be blocked
@@ -186,7 +198,7 @@ async fn test_suspended_org_blocks_resource_access() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/control/v1/organizations/{org_id}/teams"))
+                .uri(format!("/control/v1/organizations/{organization}/teams"))
                 .header("cookie", format!("infera_session={owner_session}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -204,14 +216,14 @@ async fn test_owner_resumes_organization() {
 
     let owner_session =
         register_user(&app, "suspowner4", "suspowner4@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &owner_session).await;
+    let organization = get_organization(&app, &owner_session).await;
 
     // Suspend the organization
-    let response = suspend_org(&app, &owner_session, org_id).await;
+    let response = suspend_org(&app, &owner_session, organization).await;
     assert_eq!(response.status(), StatusCode::OK);
 
     // Resume the organization
-    let response = resume_org(&app, &owner_session, org_id).await;
+    let response = resume_org(&app, &owner_session, organization).await;
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -227,26 +239,26 @@ async fn test_post_resume_resources_accessible() {
 
     let owner_session =
         register_user(&app, "suspowner5", "suspowner5@example.com", "securepassword123").await;
-    let org_id = get_org_id(&app, &owner_session).await;
+    let organization = get_organization(&app, &owner_session).await;
 
     // Create a vault before suspension
-    let response = create_vault(&app, &owner_session, org_id, "survive-suspend-vault").await;
+    let response = create_vault(&app, &owner_session, organization, "survive-suspend-vault").await;
     assert_eq!(response.status(), StatusCode::CREATED);
 
     // Suspend
-    let response = suspend_org(&app, &owner_session, org_id).await;
+    let response = suspend_org(&app, &owner_session, organization).await;
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify access is blocked
-    let response = list_vaults(&app, &owner_session, org_id).await;
+    let response = list_vaults(&app, &owner_session, organization).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     // Resume
-    let response = resume_org(&app, &owner_session, org_id).await;
+    let response = resume_org(&app, &owner_session, organization).await;
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify access is restored — list vaults should work and show the pre-suspension vault
-    let response = list_vaults(&app, &owner_session, org_id).await;
+    let response = list_vaults(&app, &owner_session, organization).await;
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -255,6 +267,6 @@ async fn test_post_resume_resources_accessible() {
     assert!(!vaults.is_empty(), "Pre-suspension vault should still exist after resume");
 
     // Create a new vault post-resume — should succeed
-    let response = create_vault(&app, &owner_session, org_id, "post-resume-vault").await;
+    let response = create_vault(&app, &owner_session, organization, "post-resume-vault").await;
     assert_eq!(response.status(), StatusCode::CREATED);
 }

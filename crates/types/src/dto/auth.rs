@@ -1,6 +1,8 @@
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
+use crate::OrganizationSlug;
+
 /// API error response
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
@@ -26,15 +28,15 @@ pub struct RegisterRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RegisterResponse {
     /// Newly created user ID
-    pub user_id: i64,
+    pub user_id: u64,
     /// User's name
     pub name: String,
     /// User's email
     pub email: String,
     /// Session ID
-    pub session_id: i64,
-    /// Default organization ID created for the user
-    pub default_organization_id: i64,
+    pub session_id: u64,
+    /// Default organization created for the user
+    pub default_organization: OrganizationSlug,
 }
 
 /// Request body for password login
@@ -51,11 +53,11 @@ pub struct LoginRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LoginResponse {
     /// User ID
-    pub user_id: i64,
+    pub user_id: u64,
     /// User's name
     pub name: String,
     /// Session ID
-    pub session_id: i64,
+    pub session_id: u64,
 }
 
 /// Response body for logout

@@ -157,13 +157,13 @@ pub struct Config {
     #[arg(long = "ledger-client-id", env = "INFERADB__CONTROL__LEDGER_CLIENT_ID")]
     pub ledger_client_id: Option<String>,
 
-    /// Ledger namespace ID for data scoping. Required when storage=ledger.
-    #[arg(long = "ledger-namespace-id", env = "INFERADB__CONTROL__LEDGER_NAMESPACE_ID")]
-    pub ledger_namespace_id: Option<i64>,
+    /// Ledger organization for data scoping. Required when storage=ledger.
+    #[arg(long = "ledger-organization", env = "INFERADB__CONTROL__LEDGER_ORGANIZATION")]
+    pub ledger_organization: Option<u64>,
 
-    /// Optional ledger vault ID for finer-grained key scoping.
-    #[arg(long = "ledger-vault-id", env = "INFERADB__CONTROL__LEDGER_VAULT_ID")]
-    pub ledger_vault_id: Option<i64>,
+    /// Optional ledger vault for finer-grained key scoping.
+    #[arg(long = "ledger-vault", env = "INFERADB__CONTROL__LEDGER_VAULT")]
+    pub ledger_vault: Option<u64>,
 
     // ── Email (SMTP) ─────────────────────────────────────────────────
     /// SMTP host. Empty string disables email.
@@ -238,8 +238,8 @@ impl Config {
             if self.ledger_client_id.is_none() {
                 return Err(Error::config("--ledger-client-id is required when storage=ledger"));
             }
-            if self.ledger_namespace_id.is_none() {
-                return Err(Error::config("--ledger-namespace-id is required when storage=ledger"));
+            if self.ledger_organization.is_none() {
+                return Err(Error::config("--ledger-organization is required when storage=ledger"));
             }
             if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
                 return Err(Error::config(format!(
@@ -306,8 +306,8 @@ mod tests {
         assert_eq!(config.storage, StorageBackend::Ledger);
         assert!(config.ledger_endpoint.is_none());
         assert!(config.ledger_client_id.is_none());
-        assert!(config.ledger_namespace_id.is_none());
-        assert!(config.ledger_vault_id.is_none());
+        assert!(config.ledger_organization.is_none());
+        assert!(config.ledger_vault.is_none());
         assert_eq!(config.email_host, "");
         assert_eq!(config.email_port, 587);
         assert!(config.email_username.is_none());
@@ -339,14 +339,14 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_ledger_without_namespace_id() {
+    fn validate_rejects_ledger_without_organization() {
         let config = Config::builder()
             .storage(StorageBackend::Ledger)
             .ledger_endpoint("http://localhost:50051")
             .ledger_client_id("control-test")
             .build();
         let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("--ledger-namespace-id is required"));
+        assert!(err.to_string().contains("--ledger-organization is required"));
     }
 
     #[test]
@@ -355,7 +355,7 @@ mod tests {
             .storage(StorageBackend::Ledger)
             .ledger_endpoint("grpc://localhost:50051")
             .ledger_client_id("control-test")
-            .maybe_ledger_namespace_id(Some(1))
+            .maybe_ledger_organization(Some(1))
             .build();
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("http://"));
@@ -367,7 +367,7 @@ mod tests {
             .storage(StorageBackend::Ledger)
             .ledger_endpoint("http://localhost:50051")
             .ledger_client_id("control-test")
-            .maybe_ledger_namespace_id(Some(1))
+            .maybe_ledger_organization(Some(1))
             .build();
         assert!(config.validate().is_ok());
     }
@@ -502,9 +502,9 @@ mod tests {
             "http://ledger:50051",
             "--ledger-client-id",
             "ctrl-01",
-            "--ledger-namespace-id",
+            "--ledger-organization",
             "42",
-            "--ledger-vault-id",
+            "--ledger-vault",
             "7",
         ])
         .unwrap();
@@ -512,8 +512,8 @@ mod tests {
         assert_eq!(cli.config.storage, StorageBackend::Ledger);
         assert_eq!(cli.config.ledger_endpoint.as_deref(), Some("http://ledger:50051"));
         assert_eq!(cli.config.ledger_client_id.as_deref(), Some("ctrl-01"));
-        assert_eq!(cli.config.ledger_namespace_id, Some(42));
-        assert_eq!(cli.config.ledger_vault_id, Some(7));
+        assert_eq!(cli.config.ledger_organization, Some(42));
+        assert_eq!(cli.config.ledger_vault, Some(7));
     }
 
     #[test]

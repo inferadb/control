@@ -20,7 +20,7 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
     /// Returns all tokens (used and unused) for the email.
     pub async fn get_by_email(
         &self,
-        user_email_id: i64,
+        user_email_id: u64,
     ) -> inferadb_control_types::error::Result<Vec<UserEmailVerificationToken>> {
         self.get_by_foreign_key(user_email_id).await
     }

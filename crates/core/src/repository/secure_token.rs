@@ -24,7 +24,7 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
     }
 
     /// Generate primary key for token by ID
-    fn token_key(id: i64) -> Vec<u8> {
+    fn token_key(id: u64) -> Vec<u8> {
         format!("{}:{id}", T::key_prefix()).into_bytes()
     }
 
@@ -34,7 +34,7 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
     }
 
     /// Generate key for the foreign key index
-    fn foreign_key_index_key(foreign_key_id: i64, token_id: i64) -> Vec<u8> {
+    fn foreign_key_index_key(foreign_key_id: u64, token_id: u64) -> Vec<u8> {
         format!("{}:{}:{foreign_key_id}:{token_id}", T::key_prefix(), T::foreign_key_prefix())
             .into_bytes()
     }
@@ -110,7 +110,7 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
     }
 
     /// Get a token by its primary ID
-    pub async fn get(&self, id: i64) -> Result<Option<T>> {
+    pub async fn get(&self, id: u64) -> Result<Option<T>> {
         let key = Self::token_key(id);
         let data = self
             .storage
@@ -142,7 +142,7 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
                 if bytes.len() != 8 {
                     return Err(Error::internal("Invalid token index data".to_string()));
                 }
-                let id = super::parse_i64_id(&bytes)?;
+                let id = super::parse_u64_id(&bytes)?;
                 self.get(id).await
             },
             None => Ok(None),
@@ -152,7 +152,7 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
     /// Get all tokens for a given foreign key value
     ///
     /// Returns all tokens (used and unused) associated with the foreign key.
-    pub async fn get_by_foreign_key(&self, foreign_key_id: i64) -> Result<Vec<T>> {
+    pub async fn get_by_foreign_key(&self, foreign_key_id: u64) -> Result<Vec<T>> {
         let prefix = format!("{}:{}:{foreign_key_id}:", T::key_prefix(), T::foreign_key_prefix());
         let start = prefix.clone().into_bytes();
         let end = format!("{}:{}:{foreign_key_id}~", T::key_prefix(), T::foreign_key_prefix())
@@ -168,7 +168,7 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
             if kv.value.len() != 8 {
                 continue;
             }
-            let Ok(id) = super::parse_i64_id(&kv.value) else { continue };
+            let Ok(id) = super::parse_u64_id(&kv.value) else { continue };
             if let Some(token) = self.get(id).await? {
                 tokens.push(token);
             }
@@ -192,7 +192,7 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
     }
 
     /// Delete a token and its indexes
-    pub async fn delete(&self, id: i64) -> Result<()> {
+    pub async fn delete(&self, id: u64) -> Result<()> {
         let token =
             self.get(id).await?.ok_or_else(|| Error::not_found(format!("Token {id} not found")))?;
         let st = token.secure_token();
@@ -226,7 +226,7 @@ mod tests {
 
     type TestRepo = SecureTokenRepository<MemoryBackend, UserEmailVerificationToken>;
 
-    fn create_test_token(id: i64, user_email_id: i64) -> UserEmailVerificationToken {
+    fn create_test_token(id: u64, user_email_id: u64) -> UserEmailVerificationToken {
         let token_string = UserEmailVerificationToken::generate_token();
         UserEmailVerificationToken::builder()
             .id(id)

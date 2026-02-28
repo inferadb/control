@@ -84,7 +84,7 @@ async fn test_revoke_specific_session() {
     assert_eq!(sessions.len(), 2);
 
     // Collect all session IDs
-    let all_ids: Vec<i64> = sessions.iter().map(|s| s["session_id"].as_i64().unwrap()).collect();
+    let all_ids: Vec<u64> = sessions.iter().map(|s| s["session_id"].as_u64().unwrap()).collect();
 
     // Revoke the first ID in the list using session1
     let target_id = all_ids[0];
@@ -253,7 +253,7 @@ async fn test_cannot_revoke_another_users_session() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response).await;
-    let user_a_session_id = json["sessions"][0]["session_id"].as_i64().unwrap();
+    let user_a_session_id = json["sessions"][0]["session_id"].as_u64().unwrap();
 
     // User B tries to revoke User A's session — should fail with 403
     let response = app

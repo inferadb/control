@@ -9,9 +9,12 @@ use inferadb_control_core::{
     UserSessionRepository,
 };
 use inferadb_control_test_fixtures::create_test_state;
-use inferadb_control_types::entities::{
-    Organization, OrganizationMember, OrganizationRole, OrganizationTier, SessionType, User,
-    UserSession,
+use inferadb_control_types::{
+    OrganizationSlug,
+    entities::{
+        Organization, OrganizationMember, OrganizationRole, OrganizationTier, SessionType, User,
+        UserSession,
+    },
 };
 use serde_json::json;
 use tower::ServiceExt;
@@ -19,10 +22,10 @@ use tower::ServiceExt;
 /// Helper to setup a user with organization
 async fn setup_user_and_org(
     state: &AppState,
-    user_id: i64,
-    session_id: i64,
-    org_id: i64,
-    member_id: i64,
+    user_id: u64,
+    session_id: u64,
+    organization: u64,
+    member_id: u64,
 ) -> (User, UserSession, Organization) {
     let user = User::builder().id(user_id).name("testuser").create().unwrap();
     let user_repo = UserRepository::new((*state.storage).clone());
@@ -37,7 +40,7 @@ async fn setup_user_and_org(
     session_repo.create(session.clone()).await.unwrap();
 
     let org = Organization::builder()
-        .id(org_id)
+        .id(OrganizationSlug::from(organization))
         .name("Test Org")
         .tier(OrganizationTier::TierDevV1)
         .create()
@@ -45,7 +48,12 @@ async fn setup_user_and_org(
     let org_repo = OrganizationRepository::new((*state.storage).clone());
     org_repo.create(org.clone()).await.unwrap();
 
-    let member = OrganizationMember::new(member_id, org_id, user_id, OrganizationRole::Owner);
+    let member = OrganizationMember::new(
+        member_id,
+        OrganizationSlug::from(organization),
+        user_id,
+        OrganizationRole::Owner,
+    );
     let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
     member_repo.create(member).await.unwrap();
 
