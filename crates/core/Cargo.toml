@@ -79,7 +79,7 @@ opentelemetry = [
 
 [dev-dependencies]
 proptest = { workspace = true }
-tempfile = "3.14"
+tempfile = "3.26"
 
 [lints]
 workspace = true
