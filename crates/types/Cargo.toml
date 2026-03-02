@@ -11,6 +11,7 @@ version.workspace = true
 
 [dependencies]
 # Internal
+inferadb-common-storage = ">=0.1.0-0"
 inferadb-ledger-types = ">=0.1.0-0"
 
 # Core dependencies

@@ -41,7 +41,7 @@ pub async fn generate_vault_token(
     Json(req): Json<GenerateVaultTokenRequest>,
 ) -> Result<(StatusCode, Json<GenerateVaultTokenResponse>)> {
     // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)
@@ -169,7 +169,7 @@ pub async fn refresh_vault_token(
     State(state): State<AppState>,
     Json(req): Json<RefreshTokenRequest>,
 ) -> Result<(StatusCode, Json<RefreshTokenResponse>)> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get refresh token by token string
     let mut old_token = repos
@@ -369,7 +369,7 @@ pub async fn client_assertion_authenticate(
 
     // Lookup certificate by kid
     // kid format: "org-<organization>-client-<client_id>-cert-<cert_id>"
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Parse kid to extract cert_id
     let kid_parts: Vec<&str> = kid.split('-').collect();
@@ -467,7 +467,7 @@ pub async fn client_assertion_authenticate(
     }
 
     // Verify vault exists
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)
@@ -549,7 +549,7 @@ pub async fn revoke_vault_tokens(
     Path(vault): Path<VaultSlug>,
 ) -> Result<(StatusCode, Json<RevokeTokensResponse>)> {
     // Verify user has session
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let session = repos
         .user_session
         .get(session_ctx.session_id)

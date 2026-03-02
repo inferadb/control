@@ -1,4 +1,4 @@
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     OrganizationSlug,
     entities::{Organization, OrganizationMember, OrganizationRole},
@@ -43,11 +43,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize organization: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Store organization record
         let org_key = Self::org_key(org.id);
@@ -64,9 +60,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
         txn.set(count_key, (current_count + 1).to_le_bytes().to_vec());
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit organization creation: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -74,11 +68,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
     /// Get an organization by ID
     pub async fn get(&self, id: OrganizationSlug) -> Result<Option<Organization>> {
         let key = Self::org_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get organization: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -94,11 +84,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
     /// Get an organization by name
     pub async fn get_by_name(&self, name: &str) -> Result<Option<Organization>> {
         let index_key = Self::org_name_index_key(name);
-        let data = self
-            .storage
-            .get(&index_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get organization by name: {e}")))?;
+        let data = self.storage.get(&index_key).await?;
 
         match data {
             Some(bytes) => {
@@ -131,11 +117,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
 
         // Use transaction if name changed
         if old_org.name != org.name {
-            let mut txn = self
-                .storage
-                .transaction()
-                .await
-                .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+            let mut txn = self.storage.transaction().await?;
 
             // Update organization record
             txn.set(Self::org_key(org.id), org_data);
@@ -147,15 +129,10 @@ impl<S: StorageBackend> OrganizationRepository<S> {
             let new_name_key = Self::org_name_index_key(&org.name);
             txn.set(new_name_key, org.id.value().to_le_bytes().to_vec());
 
-            txn.commit().await.map_err(|e| {
-                Error::internal(format!("Failed to commit organization update: {e}"))
-            })?;
+            txn.commit().await?;
         } else {
             // Just update the organization record
-            self.storage
-                .set(Self::org_key(org.id), org_data)
-                .await
-                .map_err(|e| Error::internal(format!("Failed to update organization: {e}")))?;
+            self.storage.set(Self::org_key(org.id), org_data).await?;
         }
 
         Ok(())
@@ -175,11 +152,7 @@ impl<S: StorageBackend> OrganizationRepository<S> {
     /// Get the total count of organizations
     pub async fn get_total_count(&self) -> Result<u64> {
         let count_key = Self::org_count_key();
-        let data = self
-            .storage
-            .get(&count_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get organization count: {e}")))?;
+        let data = self.storage.get(&count_key).await?;
 
         match data {
             Some(bytes) if bytes.len() == 8 => super::parse_u64_id(&bytes),
@@ -237,11 +210,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         organization: OrganizationSlug,
     ) -> Result<Option<u64>> {
         let key = Self::org_member_count_key(organization);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get org member count: {e}")))?;
+        let data = self.storage.get(&key).await?;
         match data {
             Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_u64_id(&bytes)?)),
             _ => Ok(None),
@@ -254,8 +223,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         let count = members.len();
         self.storage
             .set(Self::org_member_count_key(organization), (count as u64).to_le_bytes().to_vec())
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set org member count: {e}")))?;
+            .await?;
         Ok(count)
     }
 
@@ -267,21 +235,11 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         })?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Check uniqueness (user can only be member once per org)
         let org_user_key = Self::org_user_index_key(member.organization, member.user_id);
-        if self
-            .storage
-            .get(&org_user_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to check member uniqueness: {e}")))?
-            .is_some()
-        {
+        if self.storage.get(&org_user_key).await?.is_some() {
             return Err(Error::already_exists(
                 "User is already a member of this organization".to_string(),
             ));
@@ -311,9 +269,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         txn.set(org_count_key, (current_org_count + 1).to_le_bytes().to_vec());
 
         // Commit transaction
-        txn.commit().await.map_err(|e| {
-            Error::internal(format!("Failed to commit organization member creation: {e}"))
-        })?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -321,11 +277,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
     /// Get a member by ID
     pub async fn get(&self, id: u64) -> Result<Option<OrganizationMember>> {
         let key = Self::member_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get organization member: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -345,9 +297,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         user_id: u64,
     ) -> Result<Option<OrganizationMember>> {
         let index_key = Self::org_user_index_key(organization, user_id);
-        let data = self.storage.get(&index_key).await.map_err(|e| {
-            Error::internal(format!("Failed to get organization member by org+user: {e}"))
-        })?;
+        let data = self.storage.get(&index_key).await?;
 
         match data {
             Some(bytes) => {
@@ -372,11 +322,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("org_member:org:{organization}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get organization members: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut members = Vec::new();
         for kv in kvs {
@@ -395,11 +341,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("org_member:user:{user_id}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get user's organizations: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut members = Vec::new();
         for kv in kvs {
@@ -415,10 +357,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
     /// Get the count of organizations a user is a member of
     pub async fn get_user_organization_count(&self, user_id: u64) -> Result<u64> {
         let count_key = Self::user_org_count_key(user_id);
-        let data =
-            self.storage.get(&count_key).await.map_err(|e| {
-                Error::internal(format!("Failed to get user organization count: {e}"))
-            })?;
+        let data = self.storage.get(&count_key).await?;
 
         match data {
             Some(bytes) if bytes.len() == 8 => super::parse_u64_id(&bytes),
@@ -451,10 +390,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
             Error::internal(format!("Failed to serialize organization member: {e}"))
         })?;
 
-        self.storage
-            .set(Self::member_key(member.id), member_data)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to update organization member: {e}")))?;
+        self.storage.set(Self::member_key(member.id), member_data).await?;
 
         Ok(())
     }
@@ -467,11 +403,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
             .ok_or_else(|| Error::not_found(format!("Organization member {id} not found")))?;
 
         // Use transaction to delete all related keys atomically
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Delete member record
         txn.delete(Self::member_key(id));
@@ -498,9 +430,7 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
         }
 
         // Commit transaction
-        txn.commit().await.map_err(|e| {
-            Error::internal(format!("Failed to commit organization member deletion: {e}"))
-        })?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -509,19 +439,19 @@ impl<S: StorageBackend> OrganizationMemberRepository<S> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use inferadb_control_storage::Backend;
+    use inferadb_control_storage::MemoryBackend;
     use inferadb_control_types::{OrganizationSlug, entities::OrganizationTier};
 
     use super::*;
     use crate::IdGenerator;
 
-    async fn create_test_org_repo() -> OrganizationRepository<Backend> {
-        let storage = Backend::memory();
+    async fn create_test_org_repo() -> OrganizationRepository<MemoryBackend> {
+        let storage = MemoryBackend::new();
         OrganizationRepository::new(storage)
     }
 
-    async fn create_test_member_repo() -> OrganizationMemberRepository<Backend> {
-        let storage = Backend::memory();
+    async fn create_test_member_repo() -> OrganizationMemberRepository<MemoryBackend> {
+        let storage = MemoryBackend::new();
         OrganizationMemberRepository::new(storage)
     }
 
@@ -972,9 +902,9 @@ mod tests {
         repo.create(member2).await.unwrap();
 
         // Delete the counter key to simulate migration
-        use inferadb_control_storage::Backend;
+        use inferadb_control_storage::MemoryBackend;
         repo.storage
-            .delete(&OrganizationMemberRepository::<Backend>::org_member_count_key(
+            .delete(&OrganizationMemberRepository::<MemoryBackend>::org_member_count_key(
                 OrganizationSlug::from(100_u64),
             ))
             .await

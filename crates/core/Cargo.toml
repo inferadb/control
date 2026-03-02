@@ -57,6 +57,9 @@ rsntp = { workspace = true }
 # Internal dependencies
 inferadb-control-types = { path = "../types" }
 
+# Rate limiting
+inferadb-common-ratelimit = ">=0.1.0-0"
+
 # Storage
 inferadb-control-storage = { path = "../storage" }
 

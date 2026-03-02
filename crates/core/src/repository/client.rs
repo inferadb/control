@@ -1,4 +1,4 @@
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     OrganizationSlug,
     entities::Client,
@@ -45,11 +45,7 @@ impl<S: StorageBackend> ClientRepository<S> {
     /// Read the raw active count from storage, returning None if uninitialized or corrupt
     async fn get_raw_active_count(&self, organization: OrganizationSlug) -> Result<Option<u64>> {
         let key = Self::org_active_count_key(organization);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get client active count: {e}")))?;
+        let data = self.storage.get(&key).await?;
         match data {
             Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_u64_id(&bytes)?)),
             _ => Ok(None),
@@ -62,8 +58,7 @@ impl<S: StorageBackend> ClientRepository<S> {
         let count = active.len();
         self.storage
             .set(Self::org_active_count_key(organization), (count as u64).to_le_bytes().to_vec())
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set client active count: {e}")))?;
+            .await?;
         Ok(count)
     }
 
@@ -74,21 +69,11 @@ impl<S: StorageBackend> ClientRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize client: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Check for duplicate name within organization
         let name_key = Self::client_name_index_key(client.organization, &client.name);
-        if self
-            .storage
-            .get(&name_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to check duplicate client name: {e}")))?
-            .is_some()
-        {
+        if self.storage.get(&name_key).await?.is_some() {
             return Err(Error::already_exists(format!(
                 "A client named '{}' already exists in this organization",
                 client.name
@@ -113,9 +98,7 @@ impl<S: StorageBackend> ClientRepository<S> {
         txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit client creation: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -123,11 +106,7 @@ impl<S: StorageBackend> ClientRepository<S> {
     /// Get a client by ID
     pub async fn get(&self, id: u64) -> Result<Option<Client>> {
         let key = Self::client_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get client: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -148,11 +127,7 @@ impl<S: StorageBackend> ClientRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("client:org:{organization}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get organization clients: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut clients = Vec::new();
         for kv in kvs {
@@ -191,11 +166,7 @@ impl<S: StorageBackend> ClientRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize client: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // If name changed, update name index
         if existing.name != client.name {
@@ -204,15 +175,7 @@ impl<S: StorageBackend> ClientRepository<S> {
 
             // Check for duplicate new name
             let new_name_key = Self::client_name_index_key(client.organization, &client.name);
-            if self
-                .storage
-                .get(&new_name_key)
-                .await
-                .map_err(|e| {
-                    Error::internal(format!("Failed to check duplicate client name: {e}"))
-                })?
-                .is_some()
-            {
+            if self.storage.get(&new_name_key).await?.is_some() {
                 return Err(Error::already_exists(format!(
                     "A client named '{}' already exists in this organization",
                     client.name
@@ -240,9 +203,7 @@ impl<S: StorageBackend> ClientRepository<S> {
         txn.set(Self::client_key(client.id), client_data);
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit client update: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -256,11 +217,7 @@ impl<S: StorageBackend> ClientRepository<S> {
             .ok_or_else(|| Error::not_found(format!("Client {id} not found")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Delete client record
         txn.delete(Self::client_key(id));
@@ -281,9 +238,7 @@ impl<S: StorageBackend> ClientRepository<S> {
         }
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit client deletion: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -292,10 +247,7 @@ impl<S: StorageBackend> ClientRepository<S> {
     pub async fn count_by_organization(&self, organization: OrganizationSlug) -> Result<usize> {
         let start = format!("client:org:{organization}:").into_bytes();
         let end = format!("client:org:{organization}~").into_bytes();
-        let kvs =
-            self.storage.get_range(start..end).await.map_err(|e| {
-                Error::internal(format!("Failed to count organization clients: {e}"))
-            })?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
         Ok(kvs.len())
     }
 
@@ -319,13 +271,13 @@ impl<S: StorageBackend> ClientRepository<S> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use inferadb_control_storage::Backend;
+    use inferadb_control_storage::MemoryBackend;
     use inferadb_control_types::OrganizationSlug;
 
     use super::*;
 
-    fn create_test_repo() -> ClientRepository<Backend> {
-        ClientRepository::new(Backend::memory())
+    fn create_test_repo() -> ClientRepository<MemoryBackend> {
+        ClientRepository::new(MemoryBackend::new())
     }
 
     fn create_test_client(id: u64, organization: OrganizationSlug, name: &str) -> Result<Client> {
@@ -533,9 +485,9 @@ mod tests {
 
         // Delete the counter key to simulate migration
         repo.storage
-            .delete(&ClientRepository::<Backend>::org_active_count_key(OrganizationSlug::from(
-                100_u64,
-            )))
+            .delete(&ClientRepository::<MemoryBackend>::org_active_count_key(
+                OrganizationSlug::from(100_u64),
+            ))
             .await
             .unwrap();
 

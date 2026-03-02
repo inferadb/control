@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     OrganizationSlug,
     entities::{AuditEventType, AuditLog, AuditResourceType},
@@ -43,10 +43,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
         let key = Self::key(log.id);
         let value = serde_json::to_vec(&log)
             .map_err(|e| Error::internal(format!("Failed to serialize audit log: {e}")))?;
-        self.storage
-            .set_with_ttl(key, value, AUDIT_LOG_RETENTION)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to write audit log: {e}")))?;
+        self.storage.set_with_ttl(key, value, AUDIT_LOG_RETENTION).await?;
         Ok(())
     }
 
@@ -60,7 +57,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
                 Ok(Some(log))
             },
             Ok(None) => Ok(None),
-            Err(e) => Err(Error::internal(format!("Failed to get audit log: {e}"))),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -85,11 +82,7 @@ impl<S: StorageBackend> AuditLogRepository<S> {
             key
         };
 
-        let kvs = self
-            .storage
-            .get_range(start_key..end_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to scan audit logs: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start_key..end_key)).await?;
 
         let mut all_logs: Vec<AuditLog> =
             kvs.into_iter().filter_map(|kv| serde_json::from_slice(&kv.value).ok()).collect();

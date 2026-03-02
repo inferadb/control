@@ -37,7 +37,7 @@ pub async fn deploy_schema(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Verify vault exists and belongs to this organization
     let vault = repos
@@ -113,7 +113,7 @@ pub async fn list_schemas(
     // Require member role or higher
     require_member(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Verify vault exists and belongs to this organization
     let vault = repos
@@ -162,7 +162,7 @@ pub async fn get_schema(
     // Require member role or higher
     require_member(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Verify vault exists and belongs to this organization
     let vault = repos
@@ -198,7 +198,7 @@ pub async fn get_current_schema(
     // Require member role or higher
     require_member(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Verify vault exists and belongs to this organization
     let vault = repos
@@ -232,7 +232,7 @@ pub async fn activate_schema(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Verify vault exists and belongs to this organization
     let vault = repos
@@ -275,7 +275,7 @@ pub async fn rollback_schema(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Verify vault exists and belongs to this organization
     let vault = repos
@@ -344,7 +344,7 @@ pub async fn diff_schemas(
     // Require member role or higher
     require_member(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Verify vault exists and belongs to this organization
     let vault = repos

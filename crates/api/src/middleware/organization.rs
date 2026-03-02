@@ -84,14 +84,14 @@ pub async fn require_organization_member(
     })?;
 
     // Check if user is a member of the organization
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
+    let member_repo = OrganizationMemberRepository::new(state.storage.clone());
     let member = member_repo
         .get_by_org_and_user(organization, session_ctx.user_id)
         .await?
         .ok_or_else(|| CoreError::authz("You are not a member of this organization".to_string()))?;
 
     // Verify organization exists and is not deleted
-    let org_repo = OrganizationRepository::new((*state.storage).clone());
+    let org_repo = OrganizationRepository::new(state.storage.clone());
     let org = org_repo
         .get(organization)
         .await?

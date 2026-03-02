@@ -10,7 +10,9 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use bon::Builder;
 use inferadb_control_const::auth::{SESSION_COOKIE_MAX_AGE, SESSION_COOKIE_NAME};
 use inferadb_control_core::{IdGenerator, RepositoryContext, hash_password, verify_password};
-use inferadb_control_storage::{Backend, BufferedBackend};
+use inferadb_control_storage::{
+    BufferedBackend, DynBackend, PublicSigningKeyStore, memory_storage,
+};
 use inferadb_control_types::{
     Error as CoreError, OrganizationSlug,
     dto::{
@@ -30,7 +32,8 @@ use time;
 #[derive(Clone, Builder)]
 #[builder(on(Arc<_>, into))]
 pub struct AppState {
-    pub storage: Arc<Backend>,
+    pub storage: DynBackend,
+    pub signing_keys: Arc<dyn PublicSigningKeyStore>,
     pub config: Arc<inferadb_control_config::Config>,
     pub worker_id: u16,
     #[builder(default = std::time::SystemTime::now())]
@@ -42,23 +45,24 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Create AppState for testing with default configuration
-    /// This is used by both unit tests and integration tests
-    pub fn new_test(storage: Arc<Backend>) -> Self {
+    /// Create AppState for testing with default configuration.
+    /// This is used by both unit tests and integration tests.
+    pub fn new_test() -> Self {
         use inferadb_control_config::{Config, StorageBackend};
 
-        // Create a minimal test config using builder pattern
+        let bundle = memory_storage();
+
         let config = Config::builder()
             .storage(StorageBackend::Memory)
             .key_file(std::path::PathBuf::from("/tmp/test-master.key"))
             .build();
 
-        // Create mock email service for testing
         let email_sender = Box::new(inferadb_control_core::MockEmailSender::new());
         let email_service = inferadb_control_core::EmailService::new(email_sender);
 
         Self::builder()
-            .storage(storage)
+            .storage(bundle.storage)
+            .signing_keys(bundle.signing_keys)
             .config(Arc::new(config))
             .worker_id(0)
             .email_service(Arc::new(email_service))
@@ -117,7 +121,7 @@ pub async fn register(
 ) -> Result<(CookieJar, Json<RegisterResponse>)> {
     // --- Validation (reads go directly to real storage) ---
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     if payload.name.trim().is_empty() {
         return Err(CoreError::validation("Name cannot be empty".to_string()).into());
@@ -138,7 +142,7 @@ pub async fn register(
 
     // --- Atomic entity creation via BufferedBackend ---
 
-    let buffered = BufferedBackend::new((*state.storage).clone());
+    let buffered = BufferedBackend::new(state.storage.clone());
     let buffered_repos = RepositoryContext::new(buffered.clone());
 
     // Generate IDs
@@ -274,7 +278,7 @@ pub async fn login(
     jar: CookieJar,
     Json(payload): Json<LoginRequest>,
 ) -> Result<(CookieJar, Json<LoginResponse>)> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Find user by email
     let email = repos
@@ -333,7 +337,7 @@ pub async fn logout(
     if let Some(cookie) = jar.get(SESSION_COOKIE_NAME)
         && let Ok(session_id) = cookie.value().parse::<u64>()
     {
-        let repos = RepositoryContext::new((*state.storage).clone());
+        let repos = RepositoryContext::new(state.storage.clone());
         // Revoke session
         // Ignore errors if session doesn't exist
         let _ = repos.user_session.revoke(session_id).await;
@@ -354,7 +358,7 @@ pub async fn verify_email(
     State(state): State<AppState>,
     Json(payload): Json<AuthVerifyEmailRequest>,
 ) -> Result<Json<AuthVerifyEmailResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get token
     let mut token =
@@ -409,7 +413,7 @@ pub async fn request_password_reset(
     State(state): State<AppState>,
     Json(payload): Json<PasswordResetRequestRequest>,
 ) -> Result<Json<PasswordResetRequestResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Determine whether to send the reset email. Every branch that bails out
     // falls through to the same success response — no early returns.
@@ -504,7 +508,7 @@ pub async fn confirm_password_reset(
         .into());
     }
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get token
     let mut token = repos
@@ -559,8 +563,7 @@ mod tests {
         // Initialize ID generator
         let _ = IdGenerator::init(1);
 
-        let storage = Arc::new(Backend::memory());
-        let state = AppState::new_test(storage);
+        let state = AppState::new_test();
 
         axum::Router::new()
             .route("/register", axum::routing::post(register))
@@ -733,8 +736,7 @@ mod tests {
     #[tokio::test]
     async fn test_password_reset_flow() {
         let _ = IdGenerator::init(1);
-        let storage = Arc::new(Backend::memory());
-        let state = AppState::new_test(storage.clone());
+        let state = AppState::new_test();
 
         let app = axum::Router::new()
             .route("/register", axum::routing::post(register))
@@ -763,7 +765,7 @@ mod tests {
         app.clone().oneshot(register_request).await.unwrap();
 
         // Manually verify the email since we don't have email sending
-        let repos = RepositoryContext::new((*storage).clone());
+        let repos = RepositoryContext::new(state.storage.clone());
         let mut email = repos.user_email.get_by_email("alice@example.com").await.unwrap().unwrap();
         let user_id = email.user_id;
         email.verify();
@@ -830,8 +832,7 @@ mod tests {
     #[tokio::test]
     async fn test_password_reset_invalid_token() {
         let _ = IdGenerator::init(1);
-        let storage = Arc::new(Backend::memory());
-        let state = AppState::new_test(storage);
+        let state = AppState::new_test();
 
         let app = axum::Router::new()
             .route("/password-reset-confirm", axum::routing::post(confirm_password_reset))
@@ -859,8 +860,7 @@ mod tests {
     #[tokio::test]
     async fn test_password_reset_revokes_all_sessions() {
         let _ = IdGenerator::init(1);
-        let storage = Arc::new(Backend::memory());
-        let state = AppState::new_test(storage.clone());
+        let state = AppState::new_test();
 
         let app = axum::Router::new()
             .route("/register", axum::routing::post(register))
@@ -888,7 +888,7 @@ mod tests {
         app.clone().oneshot(register_request).await.unwrap();
 
         // Manually verify the email
-        let repos = RepositoryContext::new((*storage).clone());
+        let repos = RepositoryContext::new(state.storage.clone());
         let mut email = repos.user_email.get_by_email("alice@example.com").await.unwrap().unwrap();
         let user_id = email.user_id;
         email.verify();

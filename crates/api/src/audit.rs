@@ -40,7 +40,7 @@ pub async fn log_audit_event(
         .maybe_user_agent(params.user_agent)
         .build();
 
-    let repo = AuditLogRepository::new((*state.storage).clone());
+    let repo = AuditLogRepository::new(state.storage.clone());
 
     if let Err(e) = repo.create(audit_log).await {
         // Log the error but don't fail the request

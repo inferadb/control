@@ -11,7 +11,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use inferadb_control_core::{IdGenerator, RepositoryContext};
-use inferadb_control_storage::{Backend, BufferedBackend};
+use inferadb_control_storage::{BufferedBackend, DynBackend, MemoryBackend};
 use inferadb_control_test_fixtures::{
     create_test_app, create_test_state, extract_session_cookie, register_user,
 };
@@ -32,7 +32,7 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn test_registration_no_orphans_when_uncommitted() {
     let _ = IdGenerator::init(30);
-    let backend = Backend::memory();
+    let backend: DynBackend = Arc::new(MemoryBackend::new());
 
     // Simulate what the register handler does, but never commit
     {
@@ -86,7 +86,7 @@ async fn test_registration_no_orphans_when_uncommitted() {
 #[tokio::test]
 async fn test_failed_registration_allows_retry() {
     let _ = IdGenerator::init(31);
-    let backend = Backend::memory();
+    let backend: DynBackend = Arc::new(MemoryBackend::new());
 
     // First attempt: create entities but don't commit (simulating failure)
     {
@@ -152,7 +152,7 @@ async fn test_failed_registration_allows_retry() {
 #[tokio::test]
 async fn test_registration_commits_all_entities_atomically() {
     let _ = IdGenerator::init(32);
-    let backend = Backend::memory();
+    let backend: DynBackend = Arc::new(MemoryBackend::new());
 
     let buffered = BufferedBackend::new(backend.clone());
     let repos = RepositoryContext::new(buffered.clone());
@@ -334,15 +334,14 @@ async fn request_password_reset(
 #[tokio::test]
 async fn test_password_reset_no_email_enumeration() {
     let _ = IdGenerator::init(36);
-    let backend = Backend::memory();
-    let state = inferadb_control_api::handlers::auth::AppState::new_test(Arc::new(backend.clone()));
-    let app = create_test_app(state);
+    let state = inferadb_control_api::handlers::auth::AppState::new_test();
+    let app = create_test_app(state.clone());
 
     // Register a user — email is unverified by default
     let _session = register_user(&app, "Frank", "frank@example.com", "strong-password-123").await;
 
     // Manually verify the email for a second user to get a "valid" case
-    let repos = RepositoryContext::new(backend.clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let mut email = repos.user_email.get_by_email("frank@example.com").await.unwrap().unwrap();
     let user_id = email.user_id;
     email.verify();
@@ -395,13 +394,12 @@ async fn test_password_reset_no_email_enumeration() {
 #[tokio::test]
 async fn test_password_reset_end_to_end_after_enumeration_fix() {
     let _ = IdGenerator::init(37);
-    let backend = Backend::memory();
-    let state = inferadb_control_api::handlers::auth::AppState::new_test(Arc::new(backend.clone()));
-    let app = create_test_app(state);
+    let state = inferadb_control_api::handlers::auth::AppState::new_test();
+    let app = create_test_app(state.clone());
 
     // Register and verify email
     let _session = register_user(&app, "Iris", "iris@example.com", "old-password-123").await;
-    let repos = RepositoryContext::new(backend.clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let mut email = repos.user_email.get_by_email("iris@example.com").await.unwrap().unwrap();
     let user_id = email.user_id;
     email.verify();
@@ -659,8 +657,7 @@ async fn test_logout_clears_session() {
 #[tokio::test]
 async fn test_logged_out_session_is_invalid() {
     let _ = IdGenerator::init(49);
-    let backend = Backend::memory();
-    let state = inferadb_control_api::handlers::auth::AppState::new_test(Arc::new(backend.clone()));
+    let state = inferadb_control_api::handlers::auth::AppState::new_test();
     let app = create_test_app(state);
 
     let session =
@@ -693,14 +690,13 @@ async fn test_logged_out_session_is_invalid() {
 #[tokio::test]
 async fn test_verify_email_valid_token() {
     let _ = IdGenerator::init(50);
-    let backend = Backend::memory();
-    let state = inferadb_control_api::handlers::auth::AppState::new_test(Arc::new(backend.clone()));
-    let app = create_test_app(state);
+    let state = inferadb_control_api::handlers::auth::AppState::new_test();
+    let app = create_test_app(state.clone());
 
     register_user(&app, "VerifyMe", "verifyme@example.com", "strong-password-123").await;
 
     // Fetch the verification token from storage
-    let repos = RepositoryContext::new(backend.clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let email = repos.user_email.get_by_email("verifyme@example.com").await.unwrap().unwrap();
     let tokens = repos.user_email_verification_token.get_by_email(email.id).await.unwrap();
     assert!(!tokens.is_empty(), "Verification token should exist after registration");
@@ -748,13 +744,12 @@ async fn test_verify_email_invalid_token() {
 #[tokio::test]
 async fn test_verify_email_used_token_rejected() {
     let _ = IdGenerator::init(52);
-    let backend = Backend::memory();
-    let state = inferadb_control_api::handlers::auth::AppState::new_test(Arc::new(backend.clone()));
-    let app = create_test_app(state);
+    let state = inferadb_control_api::handlers::auth::AppState::new_test();
+    let app = create_test_app(state.clone());
 
     register_user(&app, "UsedToken", "usedtoken@example.com", "strong-password-123").await;
 
-    let repos = RepositoryContext::new(backend.clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let email = repos.user_email.get_by_email("usedtoken@example.com").await.unwrap().unwrap();
     let tokens = repos.user_email_verification_token.get_by_email(email.id).await.unwrap();
     let token_value = tokens[0].secure_token.token.clone();
@@ -820,15 +815,14 @@ async fn test_password_reset_confirm_invalid_token() {
 #[tokio::test]
 async fn test_password_reset_confirm_revokes_sessions() {
     let _ = IdGenerator::init(54);
-    let backend = Backend::memory();
-    let state = inferadb_control_api::handlers::auth::AppState::new_test(Arc::new(backend.clone()));
-    let app = create_test_app(state);
+    let state = inferadb_control_api::handlers::auth::AppState::new_test();
+    let app = create_test_app(state.clone());
 
     // Register and verify email
     let session =
         register_user(&app, "SessionRevoke", "sessrevoke@example.com", "old-password-123").await;
 
-    let repos = RepositoryContext::new(backend.clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let mut email = repos.user_email.get_by_email("sessrevoke@example.com").await.unwrap().unwrap();
     email.verify();
     repos.user_email.update(email).await.unwrap();

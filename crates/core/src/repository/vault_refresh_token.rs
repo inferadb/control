@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     VaultSlug,
     entities::VaultRefreshToken,
@@ -76,16 +76,13 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
 
     /// Write all token keys with the given TTL.
     ///
-    /// Used after transaction commit (two-phase pattern) and for state
-    /// updates that need to set or reset TTL on every key.
+    /// Used for non-transactional updates that need to set or reset TTL
+    /// on every key (e.g. mark-used, revocation).
     async fn set_all_keys_with_ttl(&self, token: &VaultRefreshToken, ttl: Duration) -> Result<()> {
         let token_data = serde_json::to_vec(token)
             .map_err(|e| Error::internal(format!("Failed to serialize token: {e}")))?;
 
-        self.storage
-            .set_with_ttl(Self::token_key(token.id), token_data, ttl)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set token TTL: {e}")))?;
+        self.storage.set_with_ttl(Self::token_key(token.id), token_data, ttl).await?;
 
         self.storage
             .set_with_ttl(
@@ -93,8 +90,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
                 token.id.to_le_bytes().to_vec(),
                 ttl,
             )
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set token lookup TTL: {e}")))?;
+            .await?;
 
         self.storage
             .set_with_ttl(
@@ -102,8 +98,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
                 token.id.to_le_bytes().to_vec(),
                 ttl,
             )
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set vault index TTL: {e}")))?;
+            .await?;
 
         if let Some(session_id) = token.user_session_id {
             self.storage
@@ -112,8 +107,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
                     token.id.to_le_bytes().to_vec(),
                     ttl,
                 )
-                .await
-                .map_err(|e| Error::internal(format!("Failed to set session index TTL: {e}")))?;
+                .await?;
         } else if let Some(client_id) = token.org_api_key_id {
             self.storage
                 .set_with_ttl(
@@ -121,8 +115,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
                     token.id.to_le_bytes().to_vec(),
                     ttl,
                 )
-                .await
-                .map_err(|e| Error::internal(format!("Failed to set client index TTL: {e}")))?;
+                .await?;
         }
 
         Ok(())
@@ -130,50 +123,40 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
 
     /// Create a new vault refresh token
     pub async fn create(&self, token: VaultRefreshToken) -> Result<()> {
-        // Serialize token
         let token_data = serde_json::to_vec(&token)
             .map_err(|e| Error::internal(format!("Failed to serialize token: {e}")))?;
 
-        // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let ttl = Self::compute_ttl(&token);
 
-        // Store token record
-        txn.set(Self::token_key(token.id), token_data);
+        let mut txn = self.storage.transaction().await?;
 
-        // Store token lookup index (for finding token by token string)
-        txn.set(Self::token_lookup_key(&token.token), token.id.to_le_bytes().to_vec());
-
-        // Store vault's token index
-        txn.set(
+        txn.set_with_ttl(Self::token_key(token.id), token_data, ttl);
+        txn.set_with_ttl(
+            Self::token_lookup_key(&token.token),
+            token.id.to_le_bytes().to_vec(),
+            ttl,
+        );
+        txn.set_with_ttl(
             Self::vault_token_index_key(token.vault, token.id),
             token.id.to_le_bytes().to_vec(),
+            ttl,
         );
 
-        // Store session or client index
         if let Some(session_id) = token.user_session_id {
-            txn.set(
+            txn.set_with_ttl(
                 Self::session_token_index_key(session_id, token.id),
                 token.id.to_le_bytes().to_vec(),
+                ttl,
             );
         } else if let Some(client_id) = token.org_api_key_id {
-            txn.set(
+            txn.set_with_ttl(
                 Self::client_token_index_key(client_id, token.id),
                 token.id.to_le_bytes().to_vec(),
+                ttl,
             );
         }
 
-        // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit token creation: {e}")))?;
-
-        // Apply TTL to all keys (two-phase pattern: transaction for atomicity, then TTL)
-        let ttl = Self::compute_ttl(&token);
-        self.set_all_keys_with_ttl(&token, ttl).await?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -181,11 +164,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     /// Get a token by ID
     pub async fn get(&self, id: u64) -> Result<Option<VaultRefreshToken>> {
         let key = Self::token_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get token: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -200,11 +179,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
     /// Get a token by token string
     pub async fn get_by_token(&self, token: &str) -> Result<Option<VaultRefreshToken>> {
         let lookup_key = Self::token_lookup_key(token);
-        let id_data = self
-            .storage
-            .get(&lookup_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to lookup token: {e}")))?;
+        let id_data = self.storage.get(&lookup_key).await?;
 
         match id_data {
             Some(bytes) => {
@@ -234,11 +209,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("vault_refresh_token:vault:{vault}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get vault tokens: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut tokens = Vec::new();
         for kv in kvs {
@@ -257,11 +228,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("vault_refresh_token:session:{session_id}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get session tokens: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut tokens = Vec::new();
         for kv in kvs {
@@ -280,11 +247,7 @@ impl<S: StorageBackend> VaultRefreshTokenRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("vault_refresh_token:client:{client_id}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get client tokens: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut tokens = Vec::new();
         for kv in kvs {

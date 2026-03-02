@@ -29,14 +29,14 @@ impl<S: StorageBackend> UserEmailVerificationTokenRepository<S> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use inferadb_control_storage::Backend;
+    use inferadb_control_storage::MemoryBackend;
     use inferadb_control_types::entities::UserEmailVerificationToken;
 
     use super::*;
     use crate::IdGenerator;
 
-    async fn create_test_repo() -> UserEmailVerificationTokenRepository<Backend> {
-        let storage = Backend::memory();
+    async fn create_test_repo() -> UserEmailVerificationTokenRepository<MemoryBackend> {
+        let storage = MemoryBackend::new();
         UserEmailVerificationTokenRepository::new(storage)
     }
 

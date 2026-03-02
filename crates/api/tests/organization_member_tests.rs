@@ -212,7 +212,7 @@ async fn test_update_member_role() {
     // Manually add member to organization (using internal API for test)
     use inferadb_control_core::OrganizationMemberRepository;
     use inferadb_control_types::entities::{OrganizationMember, OrganizationRole};
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
+    let member_repo = OrganizationMemberRepository::new(state.storage.clone());
     let new_member_id = IdGenerator::next_id();
     let new_member = OrganizationMember::new(
         new_member_id,
@@ -472,7 +472,7 @@ async fn test_remove_member() {
     // Manually add member
     use inferadb_control_core::OrganizationMemberRepository;
     use inferadb_control_types::entities::{OrganizationMember, OrganizationRole};
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
+    let member_repo = OrganizationMemberRepository::new(state.storage.clone());
     let new_member_id = IdGenerator::next_id();
     let new_member = OrganizationMember::new(
         new_member_id,
@@ -735,7 +735,7 @@ async fn test_leave_organization() {
     // Manually add member
     use inferadb_control_core::OrganizationMemberRepository;
     use inferadb_control_types::entities::{OrganizationMember, OrganizationRole};
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
+    let member_repo = OrganizationMemberRepository::new(state.storage.clone());
     let new_member_id = IdGenerator::next_id();
     let new_member = OrganizationMember::new(
         new_member_id,

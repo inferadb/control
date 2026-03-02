@@ -31,7 +31,7 @@ async fn setup_user_and_org(
 ) -> (User, UserSession, Organization, OrganizationMember) {
     // Create user
     let user = User::builder().id(user_id).name(username).create().unwrap();
-    let user_repo = UserRepository::new((*state.storage).clone());
+    let user_repo = UserRepository::new(state.storage.clone());
     user_repo.create(user.clone()).await.unwrap();
 
     // Create session
@@ -40,7 +40,7 @@ async fn setup_user_and_org(
         .user_id(user_id)
         .session_type(SessionType::Web)
         .create();
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
+    let session_repo = UserSessionRepository::new(state.storage.clone());
     session_repo.create(session.clone()).await.unwrap();
 
     // Create organization
@@ -50,12 +50,12 @@ async fn setup_user_and_org(
         .tier(OrganizationTier::TierDevV1)
         .create()
         .unwrap();
-    let org_repo = OrganizationRepository::new((*state.storage).clone());
+    let org_repo = OrganizationRepository::new(state.storage.clone());
     org_repo.create(org.clone()).await.unwrap();
 
     // Create member
     let member = OrganizationMember::new(member_id, organization, user_id, OrganizationRole::Owner);
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
+    let member_repo = OrganizationMemberRepository::new(state.storage.clone());
     member_repo.create(member.clone()).await.unwrap();
 
     (user, session, org, member)
@@ -89,7 +89,7 @@ async fn test_cross_organization_vault_access_denied() {
     .await;
 
     // Create a vault in Organization B
-    let vault_repo = VaultRepository::new((*state.storage).clone());
+    let vault_repo = VaultRepository::new(state.storage.clone());
     let vault_b = Vault::builder()
         .id(VaultSlug::from(5000_u64))
         .organization(org_b.id)
@@ -148,7 +148,7 @@ async fn test_cross_organization_client_access_denied() {
     .await;
 
     // Create a client in Organization B
-    let client_repo = ClientRepository::new((*state.storage).clone());
+    let client_repo = ClientRepository::new(state.storage.clone());
     let client_b = Client::builder()
         .id(6000_u64)
         .organization(org_b.id)
@@ -205,7 +205,7 @@ async fn test_cross_organization_team_access_denied() {
     .await;
 
     // Create a team in Organization B
-    let team_repo = OrganizationTeamRepository::new((*state.storage).clone());
+    let team_repo = OrganizationTeamRepository::new(state.storage.clone());
     let team_b = OrganizationTeam::builder()
         .id(7000_u64)
         .organization(org_b.id)
@@ -261,7 +261,7 @@ async fn test_cannot_modify_other_organization_resources() {
     .await;
 
     // Create a vault in Organization B
-    let vault_repo = VaultRepository::new((*state.storage).clone());
+    let vault_repo = VaultRepository::new(state.storage.clone());
     let vault_b = Vault::builder()
         .id(VaultSlug::from(5000_u64))
         .organization(org_b.id)
@@ -324,7 +324,7 @@ async fn test_cannot_delete_other_organization_resources() {
     .await;
 
     // Create a client in Organization B
-    let client_repo = ClientRepository::new((*state.storage).clone());
+    let client_repo = ClientRepository::new(state.storage.clone());
     let client_b = Client::builder()
         .id(6000_u64)
         .organization(org_b.id)
@@ -420,7 +420,7 @@ async fn test_vault_jwt_isolation() {
     )
     .await;
 
-    let vault_repo = VaultRepository::new((*state.storage).clone());
+    let vault_repo = VaultRepository::new(state.storage.clone());
     let vault_a = Vault::builder()
         .id(VaultSlug::from(5000_u64))
         .organization(org_a.id)
@@ -451,7 +451,7 @@ async fn test_vault_jwt_isolation() {
     vault_repo.create(vault_b.clone()).await.unwrap();
 
     // Create a client in Organization A
-    let client_repo = ClientRepository::new((*state.storage).clone());
+    let client_repo = ClientRepository::new(state.storage.clone());
     let client_a = Client::builder()
         .id(7000_u64)
         .organization(org_a.id)
@@ -467,7 +467,7 @@ async fn test_vault_jwt_isolation() {
     let encryptor = PrivateKeyEncryptor::new(master_secret).unwrap();
     let private_key_encrypted = encryptor.encrypt(&private_key_bytes).unwrap();
 
-    let cert_repo = ClientCertificateRepository::new((*state.storage).clone());
+    let cert_repo = ClientCertificateRepository::new(state.storage.clone());
     let cert = ClientCertificate::builder()
         .id(8000_u64)
         .client_id(client_a.id)

@@ -1,6 +1,6 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use inferadb_control_const::limits::MAX_PASSKEYS_PER_USER;
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     entities::PasskeyCredential,
     error::{Error, Result},
@@ -52,11 +52,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize passkey credential: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Store credential record
         txn.set(Self::passkey_key(credential.id), credential_data);
@@ -74,9 +70,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
         );
 
         // Commit transaction
-        txn.commit().await.map_err(|e| {
-            Error::internal(format!("Failed to commit passkey credential creation: {e}"))
-        })?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -84,11 +78,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
     /// Get a passkey credential by ID
     pub async fn get(&self, id: u64) -> Result<Option<PasskeyCredential>> {
         let key = Self::passkey_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get passkey credential: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -108,9 +98,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
     ) -> Result<Option<PasskeyCredential>> {
         // Look up the internal ID from the credential ID index
         let key = Self::credential_id_index_key(credential_id);
-        let id_data = self.storage.get(&key).await.map_err(|e| {
-            Error::internal(format!("Failed to lookup passkey by credential ID: {e}"))
-        })?;
+        let id_data = self.storage.get(&key).await?;
 
         match id_data {
             Some(bytes) => {
@@ -133,11 +121,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
             *last = last.saturating_add(1);
         }
 
-        let items = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to list user passkeys: {e}")))?;
+        let items = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut credentials = Vec::new();
         for kv in items {
@@ -157,10 +141,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize passkey credential: {e}")))?;
 
         // Update the record
-        self.storage
-            .set(Self::passkey_key(credential.id), credential_data)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to update passkey credential: {e}")))?;
+        self.storage.set(Self::passkey_key(credential.id), credential_data).await?;
 
         Ok(())
     }
@@ -174,11 +155,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
             .ok_or_else(|| Error::not_found("Passkey credential".to_string()))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Delete credential record
         txn.delete(Self::passkey_key(id));
@@ -190,9 +167,7 @@ impl<S: StorageBackend> PasskeyCredentialRepository<S> {
         txn.delete(Self::credential_id_index_key(&credential.credential_id));
 
         // Commit transaction
-        txn.commit().await.map_err(|e| {
-            Error::internal(format!("Failed to commit passkey credential deletion: {e}"))
-        })?;
+        txn.commit().await?;
 
         Ok(())
     }

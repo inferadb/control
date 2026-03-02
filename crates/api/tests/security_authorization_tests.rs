@@ -50,7 +50,7 @@ async fn setup_user_with_role(
     } = params;
     // Create user
     let user = User::builder().id(user_id).name(username).create().unwrap();
-    let user_repo = UserRepository::new((*state.storage).clone());
+    let user_repo = UserRepository::new(state.storage.clone());
     user_repo.create(user.clone()).await.unwrap();
 
     // Create session
@@ -59,11 +59,11 @@ async fn setup_user_with_role(
         .user_id(user_id)
         .session_type(SessionType::Web)
         .create();
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
+    let session_repo = UserSessionRepository::new(state.storage.clone());
     session_repo.create(session.clone()).await.unwrap();
 
     // Create or get organization
-    let org_repo = OrganizationRepository::new((*state.storage).clone());
+    let org_repo = OrganizationRepository::new(state.storage.clone());
     let org = if let Some(existing) = org_repo.get(organization).await.unwrap() {
         existing
     } else {
@@ -83,7 +83,7 @@ async fn setup_user_with_role(
     } else {
         OrganizationMember::new(member_id, organization, user_id, role)
     };
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
+    let member_repo = OrganizationMemberRepository::new(state.storage.clone());
     member_repo.create(member.clone()).await.unwrap();
 
     (user, session, org, member)
@@ -328,7 +328,7 @@ async fn test_member_cannot_delete_organization() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     // Verify organization still exists
-    let org_repo = OrganizationRepository::new((*state.storage).clone());
+    let org_repo = OrganizationRepository::new(state.storage.clone());
     let org_check = org_repo.get(org.id).await.unwrap();
     assert!(org_check.is_some());
 }
@@ -456,7 +456,7 @@ async fn test_member_cannot_remove_other_members() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     // Verify member2 still exists
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
+    let member_repo = OrganizationMemberRepository::new(state.storage.clone());
     let member_check = member_repo.get(member2.id).await.unwrap();
     assert!(member_check.is_some());
 }
@@ -468,12 +468,12 @@ async fn test_cannot_use_other_users_session() {
 
     // Setup User A
     let user_a = User::builder().id(100).name("userA").create().unwrap();
-    let user_repo = UserRepository::new((*state.storage).clone());
+    let user_repo = UserRepository::new(state.storage.clone());
     user_repo.create(user_a.clone()).await.unwrap();
 
     let session_a =
         UserSession::builder().id(1).user_id(user_a.id).session_type(SessionType::Web).create();
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
+    let session_repo = UserSessionRepository::new(state.storage.clone());
     session_repo.create(session_a.clone()).await.unwrap();
 
     // Setup User B
@@ -651,7 +651,7 @@ async fn test_member_cannot_delete_vault() {
     .await;
 
     // Create a vault
-    let vault_repo = VaultRepository::new((*state.storage).clone());
+    let vault_repo = VaultRepository::new(state.storage.clone());
     let vault = Vault::builder()
         .id(VaultSlug::from(5000_u64))
         .organization(org.id)

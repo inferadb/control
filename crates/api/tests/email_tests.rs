@@ -256,7 +256,7 @@ async fn test_verify_email_with_valid_token() {
     let email_id = json["email"]["id"].as_u64().unwrap();
 
     // Get the verification token from the repository
-    let token_repo = UserEmailVerificationTokenRepository::new((*state.storage).clone());
+    let token_repo = UserEmailVerificationTokenRepository::new(state.storage.clone());
     let tokens = token_repo.get_by_email(email_id).await.unwrap();
     assert!(!tokens.is_empty(), "Should have a verification token");
     let token_str = tokens[0].secure_token.token.clone();
@@ -444,7 +444,7 @@ async fn test_reused_verification_token_rejected() {
     let email_id = json["email"]["id"].as_u64().unwrap();
 
     // Get the verification token
-    let token_repo = UserEmailVerificationTokenRepository::new((*state.storage).clone());
+    let token_repo = UserEmailVerificationTokenRepository::new(state.storage.clone());
     let tokens = token_repo.get_by_email(email_id).await.unwrap();
     let token_str = tokens[0].secure_token.token.clone();
 
@@ -510,7 +510,7 @@ async fn test_verified_email_cannot_become_primary_while_another_exists() {
     let email_id = json["email"]["id"].as_u64().unwrap();
 
     // Get the verification token and verify the email
-    let token_repo = UserEmailVerificationTokenRepository::new((*state.storage).clone());
+    let token_repo = UserEmailVerificationTokenRepository::new(state.storage.clone());
     let tokens = token_repo.get_by_email(email_id).await.unwrap();
     let token_str = tokens[0].secure_token.token.clone();
 

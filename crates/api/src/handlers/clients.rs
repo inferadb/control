@@ -73,7 +73,7 @@ pub async fn create_client(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify organization exists
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     repos
         .org
         .get(org_ctx.organization)
@@ -126,7 +126,7 @@ pub async fn list_clients(
 
     let params = pagination.0.validate();
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let all_clients = repos.client.list_active_by_organization(org_ctx.organization).await?;
 
     // Apply pagination
@@ -160,7 +160,7 @@ pub async fn get_client(
     // Require member role or higher
     require_member(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let client = repos
         .client
         .get(client_id)
@@ -188,7 +188,7 @@ pub async fn update_client(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let mut client = repos
         .client
         .get(client_id)
@@ -229,7 +229,7 @@ pub async fn delete_client(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let mut client = repos
         .client
         .get(client_id)
@@ -272,7 +272,7 @@ pub async fn create_certificate(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify client exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let client = repos
         .client
         .get(client_id)
@@ -351,7 +351,7 @@ pub async fn create_certificate(
     };
 
     let organization = org_ctx.organization;
-    let signing_key_store = state.storage.signing_key_store();
+    let signing_key_store = state.signing_keys.clone();
 
     tracing::debug!(
         organization = %organization,
@@ -445,7 +445,7 @@ pub async fn list_certificates(
     require_member(&org_ctx)?;
 
     // Verify client exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let client = repos
         .client
         .get(client_id)
@@ -476,7 +476,7 @@ pub async fn get_certificate(
     require_member(&org_ctx)?;
 
     // Verify client exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let client = repos
         .client
         .get(client_id)
@@ -523,7 +523,7 @@ pub async fn revoke_certificate(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify client exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let client = repos
         .client
         .get(client_id)
@@ -556,7 +556,7 @@ pub async fn revoke_certificate(
 
     // Revoke the public key in Ledger
     let organization = org_ctx.organization;
-    let signing_key_store = state.storage.signing_key_store();
+    let signing_key_store = state.signing_keys.clone();
 
     tracing::debug!(
         organization = %organization,
@@ -669,7 +669,7 @@ pub async fn rotate_certificate(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify client exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let client = repos
         .client
         .get(client_id)
@@ -769,7 +769,7 @@ pub async fn rotate_certificate(
     };
 
     let organization = org_ctx.organization;
-    let signing_key_store = state.storage.signing_key_store();
+    let signing_key_store = state.signing_keys.clone();
 
     tracing::debug!(
         organization = %organization,

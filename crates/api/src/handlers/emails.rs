@@ -39,7 +39,7 @@ pub async fn add_email(
     Json(payload): Json<AddEmailRequest>,
 ) -> Result<Json<AddEmailResponse>> {
     // Create email record
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Check if email already exists
     if repos.user_email.get_by_email(&payload.email).await?.is_some() {
@@ -85,7 +85,7 @@ pub async fn list_emails(
     State(state): State<AppState>,
     Extension(ctx): Extension<SessionContext>,
 ) -> Result<Json<ListEmailsResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let emails = repos.user_email.get_user_emails(ctx.user_id).await?;
 
     Ok(Json(ListEmailsResponse { emails: emails.into_iter().map(user_email_to_info).collect() }))
@@ -102,7 +102,7 @@ pub async fn update_email(
     Path(email_id): Path<u64>,
     Json(payload): Json<SetPrimaryEmailRequest>,
 ) -> Result<Json<EmailOperationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get the email
     let email = repos
@@ -145,7 +145,7 @@ pub async fn verify_email(
     State(state): State<AppState>,
     Json(payload): Json<VerifyEmailRequest>,
 ) -> Result<Json<VerifyEmailResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get the token
     let mut token =
@@ -202,7 +202,7 @@ pub async fn resend_verification(
     Extension(ctx): Extension<SessionContext>,
     Path(email_id): Path<u64>,
 ) -> Result<Json<ResendVerificationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get the email
     let email = repos
@@ -259,7 +259,7 @@ pub async fn delete_email(
     Extension(ctx): Extension<SessionContext>,
     Path(email_id): Path<u64>,
 ) -> Result<Json<EmailOperationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get the email
     let email = repos
@@ -289,8 +289,6 @@ pub async fn delete_email(
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use std::sync::Arc;
-
     use axum::{
         body::Body,
         http::Request as HttpRequest,
@@ -299,34 +297,36 @@ mod tests {
     };
     use inferadb_control_const::auth::SESSION_COOKIE_NAME;
     use inferadb_control_core::{UserRepository, UserSessionRepository};
-    use inferadb_control_storage::Backend;
+    use inferadb_control_storage::DynBackend;
     use inferadb_control_types::entities::{SessionType, User, UserSession};
     use tower::ServiceExt;
 
     use super::*;
     use crate::middleware::require_session;
 
-    fn create_test_app(storage: Arc<Backend>) -> axum::Router {
+    fn create_test_app() -> (axum::Router, AppState) {
         let _ = IdGenerator::init(1);
 
-        let state = AppState::new_test(storage);
+        let state = AppState::new_test();
 
-        axum::Router::new()
+        let router = axum::Router::new()
             .route("/users/emails", post(add_email))
             .route("/users/emails", get(list_emails))
             .route("/users/emails/{id}", patch(update_email))
             .route("/users/emails/{id}", delete(delete_email))
             .layer(middleware::from_fn_with_state(state.clone(), require_session))
-            .with_state(state)
+            .with_state(state.clone());
+
+        (router, state)
     }
 
     async fn create_test_user_and_session(
-        storage: Arc<Backend>,
+        storage: DynBackend,
         user_id: u64,
         session_id: u64,
     ) -> (User, UserSession) {
         let user = User::builder().id(user_id).name("testuser").create().unwrap();
-        let user_repo = UserRepository::new((*storage).clone());
+        let user_repo = UserRepository::new(storage.clone());
         user_repo.create(user.clone()).await.unwrap();
 
         let session = UserSession::builder()
@@ -334,7 +334,7 @@ mod tests {
             .user_id(user_id)
             .session_type(SessionType::Web)
             .create();
-        let session_repo = UserSessionRepository::new((*storage).clone());
+        let session_repo = UserSessionRepository::new(storage);
         session_repo.create(session.clone()).await.unwrap();
 
         (user, session)
@@ -342,10 +342,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_email() {
-        let storage = Arc::new(Backend::memory());
-        let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
-
-        let app = create_test_app(storage.clone());
+        let (app, state) = create_test_app();
+        let (_user, session) = create_test_user_and_session(state.storage.clone(), 100, 1).await;
 
         let request = HttpRequest::builder()
             .method("POST")
@@ -372,11 +370,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_emails() {
-        let storage = Arc::new(Backend::memory());
-        let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
+        let (app, state) = create_test_app();
+        let (_user, session) = create_test_user_and_session(state.storage.clone(), 100, 1).await;
 
         // Add an email first
-        let repos = RepositoryContext::new((*storage).clone());
+        let repos = RepositoryContext::new(state.storage.clone());
         let email = UserEmail::builder()
             .id(200)
             .user_id(100)
@@ -385,8 +383,6 @@ mod tests {
             .create()
             .unwrap();
         repos.user_email.create(email).await.unwrap();
-
-        let app = create_test_app(storage.clone());
 
         let request = HttpRequest::builder()
             .method("GET")
@@ -407,11 +403,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_email() {
-        let storage = Arc::new(Backend::memory());
-        let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
+        let (app, state) = create_test_app();
+        let (_user, session) = create_test_user_and_session(state.storage.clone(), 100, 1).await;
 
         // Add a non-primary email
-        let repos = RepositoryContext::new((*storage).clone());
+        let repos = RepositoryContext::new(state.storage.clone());
         let email = UserEmail::builder()
             .id(200)
             .user_id(100)
@@ -420,8 +416,6 @@ mod tests {
             .create()
             .unwrap();
         repos.user_email.create(email).await.unwrap();
-
-        let app = create_test_app(storage.clone());
 
         let request = HttpRequest::builder()
             .method("DELETE")
@@ -440,11 +434,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_cannot_delete_primary_email() {
-        let storage = Arc::new(Backend::memory());
-        let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
+        let (app, state) = create_test_app();
+        let (_user, session) = create_test_user_and_session(state.storage.clone(), 100, 1).await;
 
         // Add a primary email
-        let repos = RepositoryContext::new((*storage).clone());
+        let repos = RepositoryContext::new(state.storage.clone());
         let email = UserEmail::builder()
             .id(200)
             .user_id(100)
@@ -453,8 +447,6 @@ mod tests {
             .create()
             .unwrap();
         repos.user_email.create(email).await.unwrap();
-
-        let app = create_test_app(storage.clone());
 
         let request = HttpRequest::builder()
             .method("DELETE")

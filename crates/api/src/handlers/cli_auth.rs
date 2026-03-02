@@ -56,7 +56,7 @@ pub async fn cli_authorize(
     );
 
     // Store the authorization code
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     repos.authorization_code.create(auth_code.clone()).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create authorization code: {e}"))
             .into_response()
@@ -82,7 +82,7 @@ pub async fn cli_token_exchange(
     Json(req): Json<CliTokenRequest>,
 ) -> Result<Json<CliTokenResponse>, Response> {
     // Get authorization code
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let mut auth_code = repos
         .authorization_code
         .get_by_code(&req.code)
@@ -159,10 +159,6 @@ fn generate_secure_code(length: usize) -> Vec<u8> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use std::sync::Arc;
-
-    use inferadb_control_storage::Backend;
-
     use super::*;
 
     #[test]
@@ -177,8 +173,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_authorize_invalid_method() {
-        let storage = Arc::new(Backend::memory());
-        let state = crate::handlers::AppState::new_test(storage);
+        let state = crate::handlers::AppState::new_test();
 
         let session_ctx = SessionContext { session_id: 1, user_id: 100 };
 
@@ -194,8 +189,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_token_exchange_invalid_code() {
-        let storage = Arc::new(Backend::memory());
-        let state = crate::handlers::AppState::new_test(storage);
+        let state = crate::handlers::AppState::new_test();
 
         let req = CliTokenRequest {
             code: "nonexistent-code".to_string(),

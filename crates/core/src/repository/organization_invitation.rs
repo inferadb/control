@@ -1,4 +1,4 @@
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     OrganizationSlug,
     entities::OrganizationInvitation,
@@ -49,22 +49,12 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize invitation: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Check for duplicate invitation (email + org)
         let email_org_key =
             Self::invitation_email_org_index_key(&invitation.email, invitation.organization);
-        if self
-            .storage
-            .get(&email_org_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to check duplicate invitation: {e}")))?
-            .is_some()
-        {
+        if self.storage.get(&email_org_key).await?.is_some() {
             return Err(Error::already_exists(format!(
                 "An invitation for '{}' already exists in this organization",
                 invitation.email
@@ -90,9 +80,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         txn.set(email_org_key, invitation.id.to_le_bytes().to_vec());
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit invitation creation: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -100,11 +88,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     /// Get an invitation by ID
     pub async fn get(&self, id: u64) -> Result<Option<OrganizationInvitation>> {
         let key = Self::invitation_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get invitation: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -121,11 +105,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
     /// Get an invitation by token
     pub async fn get_by_token(&self, token: &str) -> Result<Option<OrganizationInvitation>> {
         let index_key = Self::invitation_token_index_key(token);
-        let data = self
-            .storage
-            .get(&index_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get invitation by token: {e}")))?;
+        let data = self.storage.get(&index_key).await?;
 
         match data {
             Some(bytes) => {
@@ -148,10 +128,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("invite:org:{organization}~").into_bytes();
 
-        let kvs =
-            self.storage.get_range(start..end).await.map_err(|e| {
-                Error::internal(format!("Failed to get organization invitations: {e}"))
-            })?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut invitations = Vec::new();
         for kv in kvs {
@@ -171,10 +148,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         organization: OrganizationSlug,
     ) -> Result<bool> {
         let key = Self::invitation_email_org_index_key(email, organization);
-        let data =
-            self.storage.get(&key).await.map_err(|e| {
-                Error::internal(format!("Failed to check invitation existence: {e}"))
-            })?;
+        let data = self.storage.get(&key).await?;
 
         Ok(data.is_some())
     }
@@ -188,11 +162,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
             .ok_or_else(|| Error::not_found(format!("Invitation {id} not found")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Delete invitation record
         txn.delete(Self::invitation_key(id));
@@ -210,9 +180,7 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
         ));
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit invitation deletion: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -221,13 +189,13 @@ impl<S: StorageBackend> OrganizationInvitationRepository<S> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use inferadb_control_storage::Backend;
+    use inferadb_control_storage::MemoryBackend;
     use inferadb_control_types::{OrganizationSlug, entities::OrganizationRole};
 
     use super::*;
 
-    fn create_test_repo() -> OrganizationInvitationRepository<Backend> {
-        OrganizationInvitationRepository::new(Backend::memory())
+    fn create_test_repo() -> OrganizationInvitationRepository<MemoryBackend> {
+        OrganizationInvitationRepository::new(MemoryBackend::new())
     }
 
     fn create_test_invitation(

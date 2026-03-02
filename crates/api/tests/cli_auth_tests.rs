@@ -221,7 +221,7 @@ async fn test_cli_pkce_expired_authorization_code() {
     let code_str = authorize_body["code"].as_str().unwrap();
 
     // Manually expire the authorization code in storage
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let mut auth_code = repos
         .authorization_code
         .get_by_code(code_str)

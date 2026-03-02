@@ -132,10 +132,6 @@ pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use std::sync::Arc;
-
-    use inferadb_control_storage::Backend;
-
     use super::*;
 
     #[tokio::test]
@@ -146,8 +142,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_readyz_with_healthy_storage() {
-        let storage = Arc::new(Backend::memory());
-        let state = crate::handlers::AppState::new_test(storage);
+        let state = crate::handlers::AppState::new_test();
 
         let response = readyz_handler(State(state)).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -155,8 +150,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_healthz() {
-        let storage = Arc::new(Backend::memory());
-        let state = crate::handlers::AppState::new_test(storage);
+        let state = crate::handlers::AppState::new_test();
 
         let response = healthz_handler(State(state)).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);

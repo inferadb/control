@@ -1,4 +1,4 @@
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     entities::UserEmail,
     error::{Error, Result},
@@ -47,26 +47,14 @@ impl<S: StorageBackend> UserEmailRepository<S> {
     pub async fn create(&self, email: UserEmail) -> Result<()> {
         // Check if email already exists globally
         let email_idx_key = Self::email_index_key(&email.email);
-        if self
-            .storage
-            .get(&email_idx_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to check email uniqueness: {e}")))?
-            .is_some()
-        {
+        if self.storage.get(&email_idx_key).await?.is_some() {
             return Err(Error::validation(format!("Email '{}' is already in use", email.email)));
         }
 
         // If this is a primary email, check if user already has one
         if email.primary {
             let primary_key = Self::primary_email_index_key(email.user_id);
-            if self
-                .storage
-                .get(&primary_key)
-                .await
-                .map_err(|e| Error::internal(format!("Failed to check primary email: {e}")))?
-                .is_some()
-            {
+            if self.storage.get(&primary_key).await?.is_some() {
                 return Err(Error::validation("User already has a primary email".to_string()));
             }
         }
@@ -76,11 +64,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize email: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Store email record
         txn.set(Self::email_key(email.id), email_data);
@@ -100,9 +84,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
         }
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit email creation: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -110,11 +92,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
     /// Get an email by ID
     pub async fn get(&self, id: u64) -> Result<Option<UserEmail>> {
         let key = Self::email_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get email: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -129,11 +107,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
     /// Get an email by email address (case-insensitive)
     pub async fn get_by_email(&self, email: &str) -> Result<Option<UserEmail>> {
         let email_key = Self::email_index_key(email);
-        let id_data = self
-            .storage
-            .get(&email_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to lookup email: {e}")))?;
+        let id_data = self.storage.get(&email_key).await?;
 
         match id_data {
             Some(bytes) => {
@@ -150,11 +124,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
     /// Get user's primary email
     pub async fn get_primary_email(&self, user_id: u64) -> Result<Option<UserEmail>> {
         let primary_key = Self::primary_email_index_key(user_id);
-        let id_data = self
-            .storage
-            .get(&primary_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to lookup primary email: {e}")))?;
+        let id_data = self.storage.get(&primary_key).await?;
 
         match id_data {
             Some(bytes) => {
@@ -175,11 +145,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("user_email:user:{user_id}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get user emails: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut emails = Vec::new();
         for kv in kvs {
@@ -236,11 +202,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize email: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Update email record
         txn.set(Self::email_key(email.id), email_data);
@@ -260,9 +222,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
         }
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit email update: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -273,11 +233,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
         let email =
             self.get(id).await?.ok_or_else(|| Error::not_found("Email not found".to_string()))?;
 
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Delete email record
         txn.delete(Self::email_key(id));
@@ -294,9 +250,7 @@ impl<S: StorageBackend> UserEmailRepository<S> {
         }
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit email deletion: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }

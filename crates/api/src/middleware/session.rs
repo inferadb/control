@@ -54,7 +54,7 @@ pub async fn require_session(
     };
 
     // Get session from repository
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
+    let session_repo = UserSessionRepository::new(state.storage.clone());
     let session = session_repo
         .get(session_id)
         .await?

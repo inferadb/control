@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use inferadb_control_const::limits::MAX_CONCURRENT_SESSIONS;
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     entities::UserSession,
     error::{Error, Result},
@@ -44,16 +44,13 @@ impl<S: StorageBackend> UserSessionRepository<S> {
 
     /// Write all 3 session keys with the given TTL.
     ///
-    /// This is used after transaction commit (two-phase pattern) and for
-    /// non-transactional updates that need to set or reset TTL on every key.
+    /// Used for non-transactional updates that need to set or reset TTL
+    /// on every key (e.g. activity refresh, revocation).
     async fn set_all_keys_with_ttl(&self, session: &UserSession, ttl: Duration) -> Result<()> {
         let session_data = serde_json::to_vec(session)
             .map_err(|e| Error::internal(format!("Failed to serialize session: {e}")))?;
 
-        self.storage
-            .set_with_ttl(Self::session_key(session.id), session_data, ttl)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set session TTL: {e}")))?;
+        self.storage.set_with_ttl(Self::session_key(session.id), session_data, ttl).await?;
 
         self.storage
             .set_with_ttl(
@@ -61,8 +58,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
                 session.id.to_le_bytes().to_vec(),
                 ttl,
             )
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set user session index TTL: {e}")))?;
+            .await?;
 
         self.storage
             .set_with_ttl(
@@ -70,8 +66,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
                 session.id.to_le_bytes().to_vec(),
                 ttl,
             )
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set active session index TTL: {e}")))?;
+            .await?;
 
         Ok(())
     }
@@ -96,39 +91,28 @@ impl<S: StorageBackend> UserSessionRepository<S> {
             self.revoke(oldest_session.id).await?;
         }
 
-        // Serialize session
         let session_data = serde_json::to_vec(&session)
             .map_err(|e| Error::internal(format!("Failed to serialize session: {e}")))?;
 
-        let ttl_seconds =
-            session.time_until_expiry().map(|d| d.num_seconds().max(1) as u64).unwrap_or(1);
-
-        // Use transaction for atomicity (TTL is applied after commit via two-phase pattern)
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
-
-        // Store session record
-        txn.set(Self::session_key(session.id), session_data);
-
-        // Store user's session index
-        txn.set(
-            Self::user_session_index_key(session.user_id, session.id),
-            session.id.to_le_bytes().to_vec(),
+        let ttl = Duration::from_secs(
+            session.time_until_expiry().map(|d| d.num_seconds().max(1) as u64).unwrap_or(1),
         );
 
-        // Store active session index
-        txn.set(Self::active_session_index_key(session.id), session.id.to_le_bytes().to_vec());
+        let mut txn = self.storage.transaction().await?;
 
-        // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit session creation: {e}")))?;
+        txn.set_with_ttl(Self::session_key(session.id), session_data, ttl);
+        txn.set_with_ttl(
+            Self::user_session_index_key(session.user_id, session.id),
+            session.id.to_le_bytes().to_vec(),
+            ttl,
+        );
+        txn.set_with_ttl(
+            Self::active_session_index_key(session.id),
+            session.id.to_le_bytes().to_vec(),
+            ttl,
+        );
 
-        // Apply TTL to all keys (two-phase pattern: transaction for atomicity, then TTL)
-        self.set_all_keys_with_ttl(&session, Duration::from_secs(ttl_seconds)).await?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -138,11 +122,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
     /// Returns None if session doesn't exist, is expired, or is revoked
     pub async fn get(&self, id: u64) -> Result<Option<UserSession>> {
         let key = Self::session_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get session: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -163,11 +143,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("session:user:{user_id}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get user sessions: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut sessions = Vec::new();
         for kv in kvs {
@@ -204,10 +180,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize session: {e}")))?;
 
         // Update session record
-        self.storage
-            .set(Self::session_key(session.id), session_data)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to update session: {e}")))?;
+        self.storage.set(Self::session_key(session.id), session_data).await?;
 
         Ok(())
     }
@@ -261,11 +234,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
         let session = self.get(id).await?;
 
         if let Some(session) = session {
-            let mut txn = self
-                .storage
-                .transaction()
-                .await
-                .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+            let mut txn = self.storage.transaction().await?;
 
             // Delete session record
             txn.delete(Self::session_key(id));
@@ -277,9 +246,7 @@ impl<S: StorageBackend> UserSessionRepository<S> {
             txn.delete(Self::active_session_index_key(id));
 
             // Commit transaction
-            txn.commit()
-                .await
-                .map_err(|e| Error::internal(format!("Failed to commit session deletion: {e}")))?;
+            txn.commit().await?;
         }
 
         Ok(())

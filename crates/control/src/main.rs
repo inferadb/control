@@ -105,11 +105,11 @@ async fn main() -> Result<()> {
             StorageConfig::ledger(ledger_config)
         },
     };
-    let storage = Arc::new(create_storage_backend(&storage_config).await?);
+    let bundle = create_storage_backend(&storage_config).await?;
     startup::log_initialized(&format!("Storage ({effective_storage})"));
 
     // Acquire worker ID automatically (uses pod ordinal or random with collision detection)
-    let worker_id = acquire_worker_id(storage.as_ref(), None)
+    let worker_id = acquire_worker_id(&bundle.storage, None)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to acquire worker ID: {e}"))?;
 
@@ -118,7 +118,7 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to initialize ID generator: {e}"))?;
 
     // Start worker registry heartbeat to maintain registration
-    let worker_registry = Arc::new(WorkerRegistry::new(storage.as_ref().clone(), worker_id));
+    let worker_registry = Arc::new(WorkerRegistry::new(bundle.storage.clone(), worker_id));
     worker_registry.clone().start_heartbeat();
     startup::log_initialized(&format!("Worker ID ({worker_id})"));
 
@@ -175,7 +175,7 @@ async fn main() -> Result<()> {
     let config = Arc::new(config);
 
     inferadb_control_api::serve(
-        storage.clone(),
+        bundle,
         config.clone(),
         worker_id,
         inferadb_control_api::ServicesConfig {

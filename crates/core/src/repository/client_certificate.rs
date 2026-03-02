@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     entities::ClientCertificate,
     error::{Error, Result},
@@ -47,21 +47,11 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize certificate: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Check if kid already exists (should be unique globally)
         let kid_key = Self::cert_kid_index_key(&cert.kid);
-        if self
-            .storage
-            .get(&kid_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to check duplicate kid: {e}")))?
-            .is_some()
-        {
+        if self.storage.get(&kid_key).await?.is_some() {
             return Err(Error::already_exists(format!(
                 "A certificate with kid '{}' already exists",
                 cert.kid
@@ -81,9 +71,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
         );
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit certificate creation: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -91,11 +79,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
     /// Get a certificate by ID
     pub async fn get(&self, id: u64) -> Result<Option<ClientCertificate>> {
         let key = Self::cert_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get certificate: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -111,11 +95,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
     /// Get a certificate by kid (key ID) - used for JWT verification
     pub async fn get_by_kid(&self, kid: &str) -> Result<Option<ClientCertificate>> {
         let index_key = Self::cert_kid_index_key(kid);
-        let data = self
-            .storage
-            .get(&index_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get certificate by kid: {e}")))?;
+        let data = self.storage.get(&index_key).await?;
 
         match data {
             Some(bytes) => {
@@ -135,11 +115,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("cert:client:{client_id}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get client certificates: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut certs = Vec::new();
         for kv in kvs {
@@ -167,15 +143,11 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
         let cert_data = serde_json::to_vec(cert)
             .map_err(|e| Error::internal(format!("Failed to serialize certificate: {e}")))?;
 
-        self.storage
-            .set_with_ttl(Self::cert_key(cert.id), cert_data, ttl)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set TTL on cert key: {e}")))?;
+        self.storage.set_with_ttl(Self::cert_key(cert.id), cert_data, ttl).await?;
 
         self.storage
             .set_with_ttl(Self::cert_kid_index_key(&cert.kid), cert.id.to_le_bytes().to_vec(), ttl)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set TTL on kid index: {e}")))?;
+            .await?;
 
         self.storage
             .set_with_ttl(
@@ -183,8 +155,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
                 cert.id.to_le_bytes().to_vec(),
                 ttl,
             )
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set TTL on client index: {e}")))?;
+            .await?;
 
         Ok(())
     }
@@ -213,10 +184,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
             let cert_data = serde_json::to_vec(&cert)
                 .map_err(|e| Error::internal(format!("Failed to serialize certificate: {e}")))?;
 
-            self.storage
-                .set(Self::cert_key(cert.id), cert_data)
-                .await
-                .map_err(|e| Error::internal(format!("Failed to update certificate: {e}")))?;
+            self.storage.set(Self::cert_key(cert.id), cert_data).await?;
         }
 
         Ok(())
@@ -231,11 +199,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
             .ok_or_else(|| Error::not_found(format!("Certificate {id} not found")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Delete certificate record
         txn.delete(Self::cert_key(id));
@@ -247,9 +211,7 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
         txn.delete(Self::cert_client_index_key(cert.client_id, cert.id));
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit certificate deletion: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -270,13 +232,13 @@ impl<S: StorageBackend> ClientCertificateRepository<S> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use inferadb_control_storage::{Backend, MemoryBackend, backend::StorageBackend};
+    use inferadb_control_storage::{MemoryBackend, backend::StorageBackend};
     use inferadb_control_types::OrganizationSlug;
 
     use super::*;
 
-    fn create_test_repo() -> ClientCertificateRepository<Backend> {
-        ClientCertificateRepository::new(Backend::memory())
+    fn create_test_repo() -> ClientCertificateRepository<MemoryBackend> {
+        ClientCertificateRepository::new(MemoryBackend::new())
     }
 
     fn create_test_cert(

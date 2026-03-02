@@ -47,7 +47,7 @@ pub async fn login_rate_limit(State(state): State<AppState>, req: Request, next:
         "unknown".to_string()
     });
 
-    let limiter = RateLimiter::new((*state.storage).clone());
+    let limiter = RateLimiter::new(state.storage.clone());
     let limit = state.rate_limits.login.clone();
 
     match limiter.check_with_metadata(categories::LOGIN_IP, &ip, &limit).await {
@@ -95,7 +95,7 @@ pub async fn registration_rate_limit(
         "unknown".to_string()
     });
 
-    let limiter = RateLimiter::new((*state.storage).clone());
+    let limiter = RateLimiter::new(state.storage.clone());
     let limit = state.rate_limits.registration.clone();
 
     match limiter.check_with_metadata(categories::REGISTRATION_IP, &ip, &limit).await {
@@ -139,7 +139,7 @@ pub async fn rate_limit_middleware(
     req: Request,
     next: Next,
 ) -> Response {
-    let limiter = RateLimiter::new((*state.storage).clone());
+    let limiter = RateLimiter::new(state.storage.clone());
 
     match limiter.check_with_metadata(category, identifier.as_ref(), &limit).await {
         Ok(result) => {

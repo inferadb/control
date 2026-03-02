@@ -28,7 +28,7 @@ async fn setup_user_and_org(
     member_id: u64,
 ) -> (User, UserSession, Organization) {
     let user = User::builder().id(user_id).name("testuser").create().unwrap();
-    let user_repo = UserRepository::new((*state.storage).clone());
+    let user_repo = UserRepository::new(state.storage.clone());
     user_repo.create(user.clone()).await.unwrap();
 
     let session = UserSession::builder()
@@ -36,7 +36,7 @@ async fn setup_user_and_org(
         .user_id(user_id)
         .session_type(SessionType::Web)
         .create();
-    let session_repo = UserSessionRepository::new((*state.storage).clone());
+    let session_repo = UserSessionRepository::new(state.storage.clone());
     session_repo.create(session.clone()).await.unwrap();
 
     let org = Organization::builder()
@@ -45,7 +45,7 @@ async fn setup_user_and_org(
         .tier(OrganizationTier::TierDevV1)
         .create()
         .unwrap();
-    let org_repo = OrganizationRepository::new((*state.storage).clone());
+    let org_repo = OrganizationRepository::new(state.storage.clone());
     org_repo.create(org.clone()).await.unwrap();
 
     let member = OrganizationMember::new(
@@ -54,7 +54,7 @@ async fn setup_user_and_org(
         user_id,
         OrganizationRole::Owner,
     );
-    let member_repo = OrganizationMemberRepository::new((*state.storage).clone());
+    let member_repo = OrganizationMemberRepository::new(state.storage.clone());
     member_repo.create(member).await.unwrap();
 
     (user, session, org)

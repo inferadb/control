@@ -1,4 +1,4 @@
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     VaultSlug,
     entities::{SchemaDeploymentStatus, SchemaVersion, VaultSchema},
@@ -49,21 +49,11 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize schema: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Check for duplicate version within vault
         let version_key = Self::vault_version_index_key(schema.vault, &schema.version);
-        if self
-            .storage
-            .get(&version_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to check duplicate version: {e}")))?
-            .is_some()
-        {
+        if self.storage.get(&version_key).await?.is_some() {
             return Err(Error::already_exists(format!(
                 "Schema version {} already exists for this vault",
                 schema.version
@@ -83,9 +73,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         txn.set(version_key, schema.id.to_le_bytes().to_vec());
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit schema creation: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -93,11 +81,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     /// Get a schema by ID
     pub async fn get(&self, id: u64) -> Result<Option<VaultSchema>> {
         let key = Self::schema_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get schema: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -116,11 +100,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         version: &SchemaVersion,
     ) -> Result<Option<VaultSchema>> {
         let index_key = Self::vault_version_index_key(vault, version);
-        let data = self
-            .storage
-            .get(&index_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get schema by version: {e}")))?;
+        let data = self.storage.get(&index_key).await?;
 
         match data {
             Some(bytes) => {
@@ -137,11 +117,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
     /// Get the active schema for a vault
     pub async fn get_active(&self, vault: VaultSlug) -> Result<Option<VaultSchema>> {
         let key = Self::vault_active_schema_key(vault);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get active schema: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -160,11 +136,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         let start = format!("vault_schema:vault:{vault}:").into_bytes();
         let end = format!("vault_schema:vault:{vault}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get vault schemas: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut schemas = Vec::new();
         for kv in kvs {
@@ -192,10 +164,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize schema: {e}")))?;
 
         // Update schema record
-        self.storage
-            .set(Self::schema_key(schema.id), schema_data)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to update schema: {e}")))?;
+        self.storage.set(Self::schema_key(schema.id), schema_data).await?;
 
         Ok(())
     }
@@ -216,11 +185,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         }
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Deactivate the current active schema if any
         if let Some(mut current_active) = self.get_active(schema.vault).await?
@@ -244,9 +209,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         txn.set(Self::vault_active_schema_key(schema.vault), schema.id.to_le_bytes().to_vec());
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit schema activation: {e}")))?;
+        txn.commit().await?;
 
         Ok(schema)
     }
@@ -272,11 +235,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         }
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Mark current active as rolled back
         let mut rolled_back = current_active;
@@ -299,9 +258,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         );
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit schema rollback: {e}")))?;
+        txn.commit().await?;
 
         // Re-deserialize to get the updated state
         let result: VaultSchema = serde_json::from_slice(&reactivated_data)
@@ -336,11 +293,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         }
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Delete schema record
         txn.delete(Self::schema_key(id));
@@ -352,9 +305,7 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
         txn.delete(Self::vault_version_index_key(schema.vault, &schema.version));
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit schema deletion: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -373,12 +324,12 @@ impl<S: StorageBackend> VaultSchemaRepository<S> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use inferadb_control_storage::Backend;
+    use inferadb_control_storage::MemoryBackend;
 
     use super::*;
 
-    fn create_test_repo() -> VaultSchemaRepository<Backend> {
-        VaultSchemaRepository::new(Backend::memory())
+    fn create_test_repo() -> VaultSchemaRepository<MemoryBackend> {
+        VaultSchemaRepository::new(MemoryBackend::new())
     }
 
     fn create_test_schema(

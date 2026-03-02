@@ -91,7 +91,7 @@ pub async fn require_vault_access(
         .map_err(|_| CoreError::validation("Invalid vault ID in path".to_string()))?;
 
     // Verify vault exists and belongs to the organization
-    let vault_repo = VaultRepository::new((*state.storage).clone());
+    let vault_repo = VaultRepository::new(state.storage.clone());
     let vault = vault_repo
         .get(vault)
         .await?
@@ -133,14 +133,14 @@ pub async fn get_user_vault_role(
     use inferadb_control_core::{OrganizationTeamMemberRepository, VaultTeamGrantRepository};
 
     // Check direct user grant first
-    let user_grant_repo = VaultUserGrantRepository::new((*state.storage).clone());
+    let user_grant_repo = VaultUserGrantRepository::new(state.storage.clone());
     if let Some(grant) = user_grant_repo.get_by_vault_and_user(vault, user_id).await? {
         return Ok(Some(grant.role));
     }
 
     // Check team grants
-    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
-    let team_grant_repo = VaultTeamGrantRepository::new((*state.storage).clone());
+    let team_member_repo = OrganizationTeamMemberRepository::new(state.storage.clone());
+    let team_grant_repo = VaultTeamGrantRepository::new(state.storage.clone());
 
     // Get all teams the user is a member of
     let user_teams = team_member_repo.list_by_user(user_id).await?;

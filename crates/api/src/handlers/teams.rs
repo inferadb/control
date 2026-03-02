@@ -86,7 +86,7 @@ pub async fn create_team(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get organization to check tier limits
     let organization = repos
@@ -147,7 +147,7 @@ pub async fn list_teams(
 
     let params = pagination.0.validate();
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let all_teams = repos.org_team.list_active_by_organization(org_ctx.organization).await?;
 
     // Apply pagination
@@ -181,7 +181,7 @@ pub async fn get_team(
     // All organization members can view team details
     require_member(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let team = repos
         .org_team
         .get(team_id)
@@ -211,7 +211,7 @@ pub async fn update_team(
     Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
     Json(payload): Json<UpdateTeamRequest>,
 ) -> Result<Json<UpdateTeamResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get team and verify ownership
     let mut team = repos
@@ -274,7 +274,7 @@ pub async fn delete_team(
     // Require admin or owner
     require_admin_or_owner(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get team and verify ownership
     let mut team = repos
@@ -314,7 +314,7 @@ pub async fn add_team_member(
     Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
     Json(payload): Json<AddTeamMemberRequest>,
 ) -> Result<(StatusCode, Json<AddTeamMemberResponse>)> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get team and verify ownership
     let team = repos
@@ -394,7 +394,7 @@ pub async fn list_team_members(
     // All organization members can view team members
     require_member(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Verify team exists and belongs to organization
     let team = repos
@@ -429,7 +429,7 @@ pub async fn update_team_member(
     Path((_org, team_id, member_id)): Path<(OrganizationSlug, u64, u64)>,
     Json(payload): Json<UpdateTeamMemberRequest>,
 ) -> Result<Json<UpdateTeamMemberResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get team and verify ownership
     let team = repos
@@ -494,7 +494,7 @@ pub async fn remove_team_member(
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org, team_id, member_id)): Path<(OrganizationSlug, u64, u64)>,
 ) -> Result<Json<RemoveTeamMemberResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get team and verify ownership
     let team = repos
@@ -566,7 +566,7 @@ pub async fn grant_team_permission(
     // Only owners can grant permissions
     require_owner(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get team and verify ownership
     let team = repos
@@ -617,7 +617,7 @@ pub async fn list_team_permissions(
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<ListTeamPermissionsResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Verify team exists and belongs to organization
     let team = repos
@@ -671,7 +671,7 @@ pub async fn revoke_team_permission(
     // Only owners can revoke permissions
     require_owner(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get team and verify ownership
     let team = repos

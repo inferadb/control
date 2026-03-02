@@ -76,11 +76,8 @@
 
 #![deny(unsafe_code)]
 
-use std::sync::Arc;
-
 use axum::{body::Body, http::Request};
 use inferadb_control_api::{AppState, create_router_with_state};
-use inferadb_control_storage::Backend;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -103,8 +100,7 @@ use tower::ServiceExt;
 /// // Use state to create test app or access repositories directly
 /// ```
 pub fn create_test_state() -> AppState {
-    let backend = Backend::memory();
-    AppState::new_test(Arc::new(backend))
+    AppState::new_test()
 }
 
 /// Creates a fully configured Axum router with all middleware and routes.
@@ -456,8 +452,8 @@ pub async fn create_client_with_cert(
 pub async fn verify_user_email(state: &AppState, username: &str) {
     use inferadb_control_core::{UserEmailRepository, UserRepository};
 
-    let user_repo = UserRepository::new((*state.storage).clone());
-    let email_repo = UserEmailRepository::new((*state.storage).clone());
+    let user_repo = UserRepository::new(state.storage.clone());
+    let email_repo = UserEmailRepository::new(state.storage.clone());
 
     let user = user_repo.get_by_name(username).await.unwrap().unwrap();
     let mut emails = email_repo.get_user_emails(user.id).await.unwrap();

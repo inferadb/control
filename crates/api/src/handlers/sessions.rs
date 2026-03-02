@@ -36,7 +36,7 @@ pub async fn list_sessions(
     let ctx = extract_session_context(&request)?;
 
     // Get all user sessions
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let sessions = repos.user_session.get_user_sessions(ctx.user_id).await?;
 
     // Convert to response format
@@ -72,7 +72,7 @@ pub async fn revoke_session(
     let ctx = extract_session_context(&request)?;
 
     // Get the session to revoke
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let session = repos
         .user_session
         .get(session_id)
@@ -103,7 +103,7 @@ pub async fn revoke_other_sessions(
     let ctx = extract_session_context(&request)?;
 
     // Get all user sessions
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let sessions = repos.user_session.get_user_sessions(ctx.user_id).await?;
 
     // Revoke all sessions except the current one
@@ -121,8 +121,6 @@ pub async fn revoke_other_sessions(
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use std::sync::Arc;
-
     use axum::{
         body::Body,
         http::Request as HttpRequest,
@@ -131,29 +129,31 @@ mod tests {
     };
     use inferadb_control_const::auth::SESSION_COOKIE_NAME;
     use inferadb_control_core::IdGenerator;
-    use inferadb_control_storage::Backend;
+    use inferadb_control_storage::DynBackend;
     use inferadb_control_types::entities::{SessionType, UserSession};
     use tower::ServiceExt;
 
     use super::*;
     use crate::middleware::require_session;
 
-    fn create_test_app(storage: Arc<Backend>) -> axum::Router {
+    fn create_test_app() -> (axum::Router, AppState) {
         // Initialize ID generator
         let _ = IdGenerator::init(1);
 
-        let state = AppState::new_test(storage);
+        let state = AppState::new_test();
 
-        axum::Router::new()
+        let router = axum::Router::new()
             .route("/sessions", get(list_sessions))
             .route("/sessions/{id}", delete(revoke_session))
             .route("/sessions/revoke-others", post(revoke_other_sessions))
             .layer(middleware::from_fn_with_state(state.clone(), require_session))
-            .with_state(state)
+            .with_state(state.clone());
+
+        (router, state)
     }
 
     async fn create_test_session_in_storage(
-        storage: Arc<Backend>,
+        storage: DynBackend,
         session_id: u64,
         user_id: u64,
     ) -> UserSession {
@@ -162,20 +162,18 @@ mod tests {
             .user_id(user_id)
             .session_type(SessionType::Web)
             .create();
-        let repos = RepositoryContext::new((*storage).clone());
+        let repos = RepositoryContext::new(storage);
         repos.user_session.create(session.clone()).await.unwrap();
         session
     }
 
     #[tokio::test]
     async fn test_list_sessions() {
-        let storage = Arc::new(Backend::memory());
+        let (app, state) = create_test_app();
 
         // Create test sessions
-        let session1 = create_test_session_in_storage(storage.clone(), 1, 100).await;
-        let _session2 = create_test_session_in_storage(storage.clone(), 2, 100).await;
-
-        let app = create_test_app(storage.clone());
+        let session1 = create_test_session_in_storage(state.storage.clone(), 1, 100).await;
+        let _session2 = create_test_session_in_storage(state.storage.clone(), 2, 100).await;
 
         let request = HttpRequest::builder()
             .method("GET")
@@ -196,13 +194,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_revoke_session() {
-        let storage = Arc::new(Backend::memory());
+        let (app, state) = create_test_app();
 
         // Create test sessions
-        let session1 = create_test_session_in_storage(storage.clone(), 1, 100).await;
-        let session2 = create_test_session_in_storage(storage.clone(), 2, 100).await;
-
-        let app = create_test_app(storage.clone());
+        let session1 = create_test_session_in_storage(state.storage.clone(), 1, 100).await;
+        let session2 = create_test_session_in_storage(state.storage.clone(), 2, 100).await;
 
         let request = HttpRequest::builder()
             .method("DELETE")
@@ -215,21 +211,19 @@ mod tests {
         assert_eq!(response.status(), axum::http::StatusCode::OK);
 
         // Verify session2 is revoked
-        let repos = RepositoryContext::new((*storage).clone());
+        let repos = RepositoryContext::new(state.storage.clone());
         assert!(!repos.user_session.is_active(session2.id).await.unwrap());
         assert!(repos.user_session.is_active(session1.id).await.unwrap());
     }
 
     #[tokio::test]
     async fn test_revoke_other_sessions() {
-        let storage = Arc::new(Backend::memory());
+        let (app, state) = create_test_app();
 
         // Create test sessions
-        let session1 = create_test_session_in_storage(storage.clone(), 1, 100).await;
-        let _session2 = create_test_session_in_storage(storage.clone(), 2, 100).await;
-        let _session3 = create_test_session_in_storage(storage.clone(), 3, 100).await;
-
-        let app = create_test_app(storage.clone());
+        let session1 = create_test_session_in_storage(state.storage.clone(), 1, 100).await;
+        let _session2 = create_test_session_in_storage(state.storage.clone(), 2, 100).await;
+        let _session3 = create_test_session_in_storage(state.storage.clone(), 3, 100).await;
 
         let request = HttpRequest::builder()
             .method("POST")
@@ -246,7 +240,7 @@ mod tests {
         assert!(revoke_response.message.contains("2 other session"));
 
         // Verify only session1 is still active
-        let repos = RepositoryContext::new((*storage).clone());
+        let repos = RepositoryContext::new(state.storage.clone());
         assert!(repos.user_session.is_active(1).await.unwrap());
         assert!(!repos.user_session.is_active(2).await.unwrap());
         assert!(!repos.user_session.is_active(3).await.unwrap());
@@ -254,13 +248,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_cannot_revoke_other_users_session() {
-        let storage = Arc::new(Backend::memory());
+        let (app, state) = create_test_app();
 
         // Create sessions for different users
-        let session1 = create_test_session_in_storage(storage.clone(), 1, 100).await;
-        let session2 = create_test_session_in_storage(storage.clone(), 2, 200).await;
-
-        let app = create_test_app(storage.clone());
+        let session1 = create_test_session_in_storage(state.storage.clone(), 1, 100).await;
+        let session2 = create_test_session_in_storage(state.storage.clone(), 2, 200).await;
 
         let request = HttpRequest::builder()
             .method("DELETE")

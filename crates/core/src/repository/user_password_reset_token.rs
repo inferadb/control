@@ -28,14 +28,14 @@ impl<S: StorageBackend> UserPasswordResetTokenRepository<S> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use inferadb_control_storage::Backend;
+    use inferadb_control_storage::MemoryBackend;
     use inferadb_control_types::entities::UserPasswordResetToken;
 
     use super::*;
     use crate::IdGenerator;
 
-    async fn create_test_repo() -> UserPasswordResetTokenRepository<Backend> {
-        let storage = Backend::memory();
+    async fn create_test_repo() -> UserPasswordResetTokenRepository<MemoryBackend> {
+        let storage = MemoryBackend::new();
         UserPasswordResetTokenRepository::new(storage)
     }
 

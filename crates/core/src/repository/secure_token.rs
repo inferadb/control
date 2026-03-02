@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, time::Duration};
 
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     entities::SecureTokenEntity,
     error::{Error, Result},
@@ -39,72 +39,32 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
             .into_bytes()
     }
 
-    /// Apply TTL to all 3 storage keys for a token
-    ///
-    /// Uses `set_with_ttl` on each key individually. Called after transaction
-    /// commit to work around `BufferedBackend` silently dropping TTL.
-    /// See `AuthorizationCodeRepository::create` for the canonical two-phase pattern.
-    async fn set_all_keys_with_ttl(&self, token: &T, ttl: Duration) -> Result<()> {
-        let st = token.secure_token();
-        let token_data = serde_json::to_vec(token)
-            .map_err(|e| Error::internal(format!("Failed to serialize token: {e}")))?;
-
-        self.storage
-            .set_with_ttl(Self::token_key(st.id), token_data, ttl)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set TTL on token key: {e}")))?;
-
-        self.storage
-            .set_with_ttl(
-                Self::token_string_index_key(&st.token),
-                st.id.to_le_bytes().to_vec(),
-                ttl,
-            )
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set TTL on token index: {e}")))?;
-
-        self.storage
-            .set_with_ttl(
-                Self::foreign_key_index_key(token.foreign_key_id(), st.id),
-                st.id.to_le_bytes().to_vec(),
-                ttl,
-            )
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set TTL on foreign key index: {e}")))?;
-
-        Ok(())
-    }
-
     /// Store a new token entity
     ///
-    /// Creates the primary record and both secondary indexes atomically,
-    /// then applies TTL matching the token's time until expiry.
+    /// Creates the primary record and both secondary indexes atomically
+    /// with TTL matching the token's time until expiry.
     pub async fn create(&self, token: T) -> Result<()> {
         let st = token.secure_token();
         let token_data = serde_json::to_vec(&token)
             .map_err(|e| Error::internal(format!("Failed to serialize token: {e}")))?;
 
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let ttl = Duration::from_secs(st.time_until_expiry().num_seconds().max(1) as u64);
 
-        txn.set(Self::token_key(st.id), token_data);
-        txn.set(Self::token_string_index_key(&st.token), st.id.to_le_bytes().to_vec());
-        txn.set(
+        let mut txn = self.storage.transaction().await?;
+
+        txn.set_with_ttl(Self::token_key(st.id), token_data, ttl);
+        txn.set_with_ttl(
+            Self::token_string_index_key(&st.token),
+            st.id.to_le_bytes().to_vec(),
+            ttl,
+        );
+        txn.set_with_ttl(
             Self::foreign_key_index_key(token.foreign_key_id(), st.id),
             st.id.to_le_bytes().to_vec(),
+            ttl,
         );
 
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit token creation: {e}")))?;
-
-        // Two-phase write: apply TTL after transaction commit.
-        // BufferedBackend silently drops TTL, so we set it on each key individually.
-        let ttl_secs = st.time_until_expiry().num_seconds().max(1) as u64;
-        self.set_all_keys_with_ttl(&token, Duration::from_secs(ttl_secs)).await?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -112,11 +72,7 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
     /// Get a token by its primary ID
     pub async fn get(&self, id: u64) -> Result<Option<T>> {
         let key = Self::token_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get token: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -131,11 +87,7 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
     /// Get a token by its token string value
     pub async fn get_by_token(&self, token: &str) -> Result<Option<T>> {
         let index_key = Self::token_string_index_key(token);
-        let data = self
-            .storage
-            .get(&index_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get token by string: {e}")))?;
+        let data = self.storage.get(&index_key).await?;
 
         match data {
             Some(bytes) => {
@@ -158,10 +110,7 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
         let end = format!("{}:{}:{foreign_key_id}~", T::key_prefix(), T::foreign_key_prefix())
             .into_bytes();
 
-        let kvs =
-            self.storage.get_range(start..end).await.map_err(|e| {
-                Error::internal(format!("Failed to get tokens by foreign key: {e}"))
-            })?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut tokens = Vec::new();
         for kv in kvs {
@@ -183,10 +132,7 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
             .map_err(|e| Error::internal(format!("Failed to serialize token: {e}")))?;
 
         let token_key = Self::token_key(token.secure_token().id);
-        self.storage
-            .set(token_key, token_data)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to update token: {e}")))?;
+        self.storage.set(token_key, token_data).await?;
 
         Ok(())
     }
@@ -197,19 +143,13 @@ impl<S: StorageBackend, T: SecureTokenEntity> SecureTokenRepository<S, T> {
             self.get(id).await?.ok_or_else(|| Error::not_found(format!("Token {id} not found")))?;
         let st = token.secure_token();
 
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         txn.delete(Self::token_key(id));
         txn.delete(Self::token_string_index_key(&st.token));
         txn.delete(Self::foreign_key_index_key(token.foreign_key_id(), st.id));
 
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit token deletion: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }

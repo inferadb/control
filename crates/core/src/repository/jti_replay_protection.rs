@@ -23,11 +23,7 @@ impl<S: StorageBackend> JtiReplayProtectionRepository<S> {
     /// Check if a JTI has been used (exists in storage)
     pub async fn is_jti_used(&self, jti: &str) -> Result<bool> {
         let key = Self::jti_key(jti);
-        let result = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to check JTI: {e}")))?;
+        let result = self.storage.get(&key).await?;
         Ok(result.is_some())
     }
 
@@ -46,14 +42,10 @@ impl<S: StorageBackend> JtiReplayProtectionRepository<S> {
         if ttl_seconds > 0 {
             self.storage
                 .set_with_ttl(key, value, std::time::Duration::from_secs(ttl_seconds as u64))
-                .await
-                .map_err(|e| Error::internal(format!("Failed to mark JTI as used: {e}")))?;
+                .await?;
         } else {
             // If already expired, still set it with 1 second TTL to prevent race conditions
-            self.storage
-                .set_with_ttl(key, value, std::time::Duration::from_secs(1))
-                .await
-                .map_err(|e| Error::internal(format!("Failed to mark JTI as used: {e}")))?;
+            self.storage.set_with_ttl(key, value, std::time::Duration::from_secs(1)).await?;
         }
 
         Ok(())
@@ -79,13 +71,13 @@ impl<S: StorageBackend> JtiReplayProtectionRepository<S> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use chrono::Duration;
-    use inferadb_control_storage::Backend;
+    use inferadb_control_storage::MemoryBackend;
 
     use super::*;
 
     #[tokio::test]
     async fn test_jti_not_used_initially() {
-        let storage = Backend::memory();
+        let storage = MemoryBackend::new();
         let repo = JtiReplayProtectionRepository::new(storage);
 
         assert!(!repo.is_jti_used("test-jti-123").await.unwrap());
@@ -93,7 +85,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mark_jti_used() {
-        let storage = Backend::memory();
+        let storage = MemoryBackend::new();
         let repo = JtiReplayProtectionRepository::new(storage);
 
         let expires_at = Utc::now() + Duration::hours(1);
@@ -104,7 +96,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_and_mark_jti_success() {
-        let storage = Backend::memory();
+        let storage = MemoryBackend::new();
         let repo = JtiReplayProtectionRepository::new(storage);
 
         let expires_at = Utc::now() + Duration::hours(1);
@@ -117,7 +109,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_and_mark_jti_replay_detected() {
-        let storage = Backend::memory();
+        let storage = MemoryBackend::new();
         let repo = JtiReplayProtectionRepository::new(storage);
 
         let expires_at = Utc::now() + Duration::hours(1);
@@ -133,7 +125,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_different_jtis_independent() {
-        let storage = Backend::memory();
+        let storage = MemoryBackend::new();
         let repo = JtiReplayProtectionRepository::new(storage);
 
         let expires_at = Utc::now() + Duration::hours(1);

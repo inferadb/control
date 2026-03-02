@@ -29,6 +29,7 @@ mod tests {
     use std::time::Duration;
 
     use bytes::Bytes;
+    use inferadb_common_storage::to_storage_range;
 
     use super::*;
     use crate::backend::StorageBackend;
@@ -56,7 +57,8 @@ mod tests {
         backend.set(b"b".to_vec(), b"2".to_vec()).await.unwrap();
         backend.set(b"c".to_vec(), b"3".to_vec()).await.unwrap();
 
-        let range = backend.get_range(b"a".to_vec()..b"c".to_vec()).await.unwrap();
+        let range =
+            backend.get_range(to_storage_range(b"a".to_vec()..b"c".to_vec())).await.unwrap();
         assert_eq!(range.len(), 2);
         assert_eq!(range[0].key, Bytes::from("a"));
         assert_eq!(range[1].key, Bytes::from("b"));

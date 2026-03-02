@@ -1,3 +1,4 @@
+use inferadb_common_storage::StorageError;
 use snafu::{Backtrace, Snafu};
 
 /// Result type alias for management operations
@@ -176,6 +177,22 @@ impl Error {
             Error::TooManyPasskeys { .. } => "TOO_MANY_PASSKEYS",
             Error::External { .. } => "EXTERNAL_SERVICE_ERROR",
             Error::Internal { .. } => "INTERNAL_ERROR",
+        }
+    }
+}
+
+impl From<StorageError> for Error {
+    fn from(e: StorageError) -> Self {
+        match &e {
+            StorageError::NotFound { .. } => Error::not_found(e.to_string()),
+            StorageError::Conflict { .. } | StorageError::CasRetriesExhausted { .. } => {
+                Error::already_exists(e.to_string())
+            },
+            StorageError::RateLimitExceeded { .. } => Error::rate_limit(e.to_string()),
+            StorageError::CircuitOpen { .. } | StorageError::ShuttingDown { .. } => {
+                Error::external(e.to_string())
+            },
+            _ => Error::internal(e.to_string()),
         }
     }
 }

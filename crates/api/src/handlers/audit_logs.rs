@@ -26,7 +26,7 @@ pub async fn create_audit_log(
     State(state): State<AppState>,
     Json(payload): Json<CreateAuditLogRequest>,
 ) -> Response {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Build audit log entry
     let log = AuditLog::builder()
@@ -92,7 +92,7 @@ pub async fn list_audit_logs(
     };
 
     // Query audit logs
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     match repos.audit_log.list_by_organization(org_ctx.organization, filters, limit, offset).await {
         Ok((logs, total)) => {
             let audit_logs: Vec<AuditLogInfo> = logs
@@ -131,17 +131,13 @@ pub async fn list_audit_logs(
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use std::sync::Arc;
-
-    use inferadb_control_storage::Backend;
     use inferadb_control_types::{OrganizationSlug, entities::AuditEventType};
 
     use super::*;
 
     #[tokio::test]
     async fn test_create_audit_log() {
-        let storage = Arc::new(Backend::memory());
-        let state = AppState::new_test(storage);
+        let state = AppState::new_test();
 
         let payload = CreateAuditLogRequest {
             event_type: AuditEventType::UserLogin,

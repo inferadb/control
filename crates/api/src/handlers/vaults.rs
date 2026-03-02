@@ -80,7 +80,7 @@ pub async fn create_vault(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify organization exists and get tier
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let organization = repos
         .org
         .get(org_ctx.organization)
@@ -157,7 +157,7 @@ pub async fn list_vaults(
 
     let params = pagination.0.validate();
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let all_vaults = repos.vault.list_active_by_organization(org_ctx.organization).await?;
 
     // Apply pagination
@@ -191,7 +191,7 @@ pub async fn get_vault(
     // Require member role or higher
     require_member(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)
@@ -223,7 +223,7 @@ pub async fn get_vault_by_id(
     State(state): State<AppState>,
     Path(vault): Path<VaultSlug>,
 ) -> Result<Json<VaultResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)
@@ -251,7 +251,7 @@ pub async fn update_vault(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let mut vault = repos
         .vault
         .get(vault)
@@ -303,7 +303,7 @@ pub async fn delete_vault(
     // Require admin or owner role
     require_admin_or_owner(&org_ctx)?;
 
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     let mut vault = repos
         .vault
@@ -366,7 +366,7 @@ pub async fn create_user_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)
@@ -411,7 +411,7 @@ pub async fn list_user_grants(
     require_member(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)
@@ -443,7 +443,7 @@ pub async fn update_user_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)
@@ -486,7 +486,7 @@ pub async fn delete_user_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)
@@ -528,7 +528,7 @@ pub async fn create_team_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)
@@ -573,7 +573,7 @@ pub async fn list_team_grants(
     require_member(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)
@@ -605,7 +605,7 @@ pub async fn update_team_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)
@@ -648,7 +648,7 @@ pub async fn delete_team_grant(
     require_admin_or_owner(&org_ctx)?;
 
     // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let vault = repos
         .vault
         .get(vault)

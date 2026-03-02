@@ -157,7 +157,7 @@ impl ClientCertificate {
         })
     }
 
-    /// Generate a kid (key ID) in the format: org-<org_id>-client-<client_id>-cert-<cert_id>
+    /// Generate a kid (key ID) in the format: org-<organization>-client-<client_id>-cert-<cert_id>
     pub fn generate_kid(organization: OrganizationSlug, client_id: u64, cert_id: u64) -> String {
         format!("org-{organization}-client-{client_id}-cert-{cert_id}")
     }

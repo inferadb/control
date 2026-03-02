@@ -38,11 +38,11 @@ pub async fn has_organization_permission(
     }
 
     // Get user's team memberships
-    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
+    let team_member_repo = OrganizationTeamMemberRepository::new(state.storage.clone());
     let memberships = team_member_repo.list_by_user(org_ctx.member.user_id).await?;
 
     // For each team, check if the team has the required permission
-    let team_permission_repo = OrganizationTeamPermissionRepository::new((*state.storage).clone());
+    let team_permission_repo = OrganizationTeamPermissionRepository::new(state.storage.clone());
 
     for membership in memberships {
         let team_permissions = team_permission_repo.list_by_team(membership.team_id).await?;
@@ -130,11 +130,11 @@ pub async fn get_user_permissions(
     }
 
     // Get user's team memberships
-    let team_member_repo = OrganizationTeamMemberRepository::new((*state.storage).clone());
+    let team_member_repo = OrganizationTeamMemberRepository::new(state.storage.clone());
     let memberships = team_member_repo.list_by_user(org_ctx.member.user_id).await?;
 
     // Collect all unique permissions from all teams
-    let team_permission_repo = OrganizationTeamPermissionRepository::new((*state.storage).clone());
+    let team_permission_repo = OrganizationTeamPermissionRepository::new(state.storage.clone());
     let mut seen = std::collections::HashSet::new();
 
     for membership in memberships {
@@ -156,13 +156,10 @@ pub async fn get_user_permissions(
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use std::sync::Arc;
-
     use inferadb_control_core::{
         OrganizationTeamMemberRepository, OrganizationTeamPermissionRepository,
         OrganizationTeamRepository,
     };
-    use inferadb_control_storage::Backend;
     use inferadb_control_types::{
         OrganizationSlug,
         entities::{
@@ -176,8 +173,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_owner_has_all_permissions() {
-        let backend = Arc::new(Backend::memory());
-        let state = AppState::new_test(backend);
+        let state = AppState::new_test();
 
         let org_ctx = OrganizationContext {
             organization: OrganizationSlug::from(1_u64),
@@ -212,8 +208,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_admin_no_owner_actions() {
-        let backend = Arc::new(Backend::memory());
-        let state = AppState::new_test(backend);
+        let state = AppState::new_test();
 
         let org_ctx = OrganizationContext {
             organization: OrganizationSlug::from(1_u64),
@@ -250,9 +245,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_member_team_permissions() {
-        let backend = Backend::memory();
-        let memory = backend.as_memory().unwrap().clone();
-        let state = AppState::new_test(Arc::new(backend));
+        let state = AppState::new_test();
+        let storage = state.storage.clone();
 
         let org_ctx = OrganizationContext {
             organization: OrganizationSlug::from(1_u64),
@@ -265,7 +259,7 @@ mod tests {
         };
 
         // Create a team with a permission
-        let team_repo = OrganizationTeamRepository::new(memory.clone());
+        let team_repo = OrganizationTeamRepository::new(storage.clone());
         let team = OrganizationTeam::builder()
             .id(1)
             .organization(OrganizationSlug::from(1_u64))
@@ -275,12 +269,12 @@ mod tests {
         team_repo.create(team).await.unwrap();
 
         // Add user to team
-        let member_repo = OrganizationTeamMemberRepository::new(memory.clone());
+        let member_repo = OrganizationTeamMemberRepository::new(storage.clone());
         let member = OrganizationTeamMember::new(1, 1, 100, false);
         member_repo.create(member).await.unwrap();
 
         // Grant permission to team
-        let perm_repo = OrganizationTeamPermissionRepository::new(memory.clone());
+        let perm_repo = OrganizationTeamPermissionRepository::new(storage.clone());
         let permission =
             OrganizationTeamPermission::new(1, 1, OrganizationPermission::OrgPermClientCreate, 999);
         perm_repo.create(permission).await.unwrap();
@@ -310,9 +304,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_composite_permission() {
-        let backend = Backend::memory();
-        let memory = backend.as_memory().unwrap().clone();
-        let state = AppState::new_test(Arc::new(backend));
+        let state = AppState::new_test();
+        let storage = state.storage.clone();
 
         let org_ctx = OrganizationContext {
             organization: OrganizationSlug::from(1_u64),
@@ -325,7 +318,7 @@ mod tests {
         };
 
         // Create a team with CLIENT_MANAGE permission
-        let team_repo = OrganizationTeamRepository::new(memory.clone());
+        let team_repo = OrganizationTeamRepository::new(storage.clone());
         let team = OrganizationTeam::builder()
             .id(1)
             .organization(OrganizationSlug::from(1_u64))
@@ -334,11 +327,11 @@ mod tests {
             .unwrap();
         team_repo.create(team).await.unwrap();
 
-        let member_repo = OrganizationTeamMemberRepository::new(memory.clone());
+        let member_repo = OrganizationTeamMemberRepository::new(storage.clone());
         let member = OrganizationTeamMember::new(1, 1, 100, false);
         member_repo.create(member).await.unwrap();
 
-        let perm_repo = OrganizationTeamPermissionRepository::new(memory.clone());
+        let perm_repo = OrganizationTeamPermissionRepository::new(storage.clone());
         let permission =
             OrganizationTeamPermission::new(1, 1, OrganizationPermission::OrgPermClientManage, 999);
         perm_repo.create(permission).await.unwrap();

@@ -881,7 +881,7 @@ async fn test_certificate_creation_writes_to_ledger() {
     let public_key_from_response = json["certificate"]["public_key"].as_str().unwrap();
 
     // Verify the public signing key was written to Ledger storage
-    let signing_key_store = state.storage.signing_key_store();
+    let signing_key_store = state.signing_keys.clone();
     let stored_key = signing_key_store
         .get_key(organization.into(), kid)
         .await
@@ -982,7 +982,7 @@ async fn test_certificate_revocation_updates_ledger() {
     let kid = json["certificate"]["kid"].as_str().unwrap().to_string();
 
     // Verify key is active before revocation
-    let signing_key_store = state.storage.signing_key_store();
+    let signing_key_store = state.signing_keys.clone();
     let key_before = signing_key_store
         .get_key(organization.into(), &kid)
         .await
@@ -1136,7 +1136,7 @@ async fn test_certificate_rotation_writes_to_ledger() {
     let new_kid = json["certificate"]["kid"].as_str().unwrap();
 
     // Verify both keys exist in Ledger storage
-    let signing_key_store = state.storage.signing_key_store();
+    let signing_key_store = state.signing_keys.clone();
 
     // Original key should still exist and be active
     let original_key = signing_key_store
@@ -1265,7 +1265,7 @@ async fn test_certificate_revocation_creates_audit_log() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Query audit logs for this organization
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let (logs, _total) = repos
         .audit_log
         .list_by_organization(
@@ -1427,7 +1427,7 @@ async fn test_engine_rejects_tokens_after_revocation() {
     let token = encode(&header, &claims, &encoding_key).expect("encode JWT");
 
     // Create SigningKeyCache using shared storage
-    let signing_key_store = state.storage.signing_key_store();
+    let signing_key_store = state.signing_keys.clone();
     let cache = SigningKeyCache::new(signing_key_store.clone(), Duration::from_secs(300));
 
     // Verify token is valid before revocation

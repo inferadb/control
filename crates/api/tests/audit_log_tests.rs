@@ -17,7 +17,7 @@ async fn test_audit_log_creation() {
     let state = create_test_state();
 
     // Create an audit log directly
-    let repo = AuditLogRepository::new((*state.storage).clone());
+    let repo = AuditLogRepository::new(state.storage.clone());
     let log = AuditLog::builder()
         .event_type(AuditEventType::UserLogin)
         .organization(OrganizationSlug::from(1_u64))
@@ -50,7 +50,7 @@ async fn test_audit_log_creation() {
 async fn test_audit_log_list_by_organization() {
     let _ = IdGenerator::init(301);
     let state = create_test_state();
-    let repo = AuditLogRepository::new((*state.storage).clone());
+    let repo = AuditLogRepository::new(state.storage.clone());
 
     // Create multiple audit logs for different organizations
     for i in 0..10 {
@@ -94,7 +94,7 @@ async fn test_audit_log_list_by_organization() {
 async fn test_audit_log_filtering() {
     let _ = IdGenerator::init(302);
     let state = create_test_state();
-    let repo = AuditLogRepository::new((*state.storage).clone());
+    let repo = AuditLogRepository::new(state.storage.clone());
 
     // Create logs with different event types
     let log1 = AuditLog::builder()
@@ -151,7 +151,7 @@ async fn test_audit_log_filtering() {
 async fn test_audit_log_pagination() {
     let _ = IdGenerator::init(303);
     let state = create_test_state();
-    let repo = AuditLogRepository::new((*state.storage).clone());
+    let repo = AuditLogRepository::new(state.storage.clone());
 
     // Create 25 audit logs
     for i in 0..25 {
@@ -220,7 +220,7 @@ async fn test_audit_log_query_endpoint() {
     let organization = json["organizations"][0]["id"].as_u64().unwrap();
 
     // Create some audit logs for this organization
-    let repo = AuditLogRepository::new((*state.storage).clone());
+    let repo = AuditLogRepository::new(state.storage.clone());
     for i in 0..5 {
         let log = AuditLog::builder()
             .event_type(AuditEventType::UserLogin)

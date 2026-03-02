@@ -42,8 +42,8 @@ async fn test_create_and_list_invitations() {
     // (In production this would be done via the verification endpoint with a token)
     {
         use inferadb_control_core::UserRepository;
-        let user_repo = UserRepository::new((*state.storage).clone());
-        let email_repo = inferadb_control_core::UserEmailRepository::new((*state.storage).clone());
+        let user_repo = UserRepository::new(state.storage.clone());
+        let email_repo = inferadb_control_core::UserEmailRepository::new(state.storage.clone());
 
         // Get the user
         let user = user_repo.get_by_name("testuser").await.unwrap().unwrap();
@@ -165,8 +165,8 @@ async fn test_delete_invitation() {
     // (In production this would be done via the verification endpoint with a token)
     {
         use inferadb_control_core::UserRepository;
-        let user_repo = UserRepository::new((*state.storage).clone());
-        let email_repo = inferadb_control_core::UserEmailRepository::new((*state.storage).clone());
+        let user_repo = UserRepository::new(state.storage.clone());
+        let email_repo = inferadb_control_core::UserEmailRepository::new(state.storage.clone());
 
         // Get the user
         let user = user_repo.get_by_name("testuser").await.unwrap().unwrap();

@@ -22,7 +22,7 @@ pub async fn get_profile(
     State(state): State<AppState>,
     Extension(ctx): Extension<SessionContext>,
 ) -> Result<Json<GetUserProfileResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get user from repository
     let user = repos
@@ -51,7 +51,7 @@ pub async fn update_profile(
     Extension(ctx): Extension<SessionContext>,
     Json(payload): Json<UpdateProfileRequest>,
 ) -> Result<Json<UpdateProfileResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get user from repository
     let mut user = repos
@@ -93,7 +93,7 @@ pub async fn delete_user(
     State(state): State<AppState>,
     Extension(ctx): Extension<SessionContext>,
 ) -> Result<Json<DeleteUserResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // VALIDATION: Check if user is the only owner of any organizations
     let memberships = repos.org_member.get_by_user(ctx.user_id).await?;
@@ -165,8 +165,6 @@ pub async fn delete_user(
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use std::sync::Arc;
-
     use axum::{
         body::Body,
         http::Request as HttpRequest,
@@ -175,33 +173,35 @@ mod tests {
     };
     use inferadb_control_const::auth::SESSION_COOKIE_NAME;
     use inferadb_control_core::{IdGenerator, RepositoryContext};
-    use inferadb_control_storage::Backend;
+    use inferadb_control_storage::DynBackend;
     use inferadb_control_types::entities::{SessionType, User, UserSession};
     use tower::ServiceExt;
 
     use super::*;
     use crate::middleware::require_session;
 
-    fn create_test_app(storage: Arc<Backend>) -> axum::Router {
+    fn create_test_app() -> (axum::Router, AppState) {
         // Initialize ID generator
         let _ = IdGenerator::init(1);
 
-        let state = AppState::new_test(storage);
+        let state = AppState::new_test();
 
-        axum::Router::new()
+        let router = axum::Router::new()
             .route("/users/me", get(get_profile))
             .route("/users/me", patch(update_profile))
             .route("/users/me", delete(delete_user))
             .layer(middleware::from_fn_with_state(state.clone(), require_session))
-            .with_state(state)
+            .with_state(state.clone());
+
+        (router, state)
     }
 
     async fn create_test_user_and_session(
-        storage: Arc<Backend>,
+        storage: DynBackend,
         user_id: u64,
         session_id: u64,
     ) -> (User, UserSession) {
-        let repos = RepositoryContext::new((*storage).clone());
+        let repos = RepositoryContext::new(storage);
         let user = User::builder().id(user_id).name("testuser").create().unwrap();
         repos.user.create(user.clone()).await.unwrap();
 
@@ -217,10 +217,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_profile() {
-        let storage = Arc::new(Backend::memory());
-        let (user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
-
-        let app = create_test_app(storage.clone());
+        let (app, state) = create_test_app();
+        let (user, session) = create_test_user_and_session(state.storage.clone(), 100, 1).await;
 
         let request = HttpRequest::builder()
             .method("GET")
@@ -242,10 +240,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_profile_name() {
-        let storage = Arc::new(Backend::memory());
-        let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
-
-        let app = create_test_app(storage.clone());
+        let (app, state) = create_test_app();
+        let (_user, session) = create_test_user_and_session(state.storage.clone(), 100, 1).await;
 
         let request = HttpRequest::builder()
             .method("PATCH")
@@ -272,10 +268,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_profile_accept_tos() {
-        let storage = Arc::new(Backend::memory());
-        let (_user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
-
-        let app = create_test_app(storage.clone());
+        let (app, state) = create_test_app();
+        let (_user, session) = create_test_user_and_session(state.storage.clone(), 100, 1).await;
 
         let request = HttpRequest::builder()
             .method("PATCH")
@@ -299,10 +293,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_user() {
-        let storage = Arc::new(Backend::memory());
-        let (user, session) = create_test_user_and_session(storage.clone(), 100, 1).await;
-
-        let app = create_test_app(storage.clone());
+        let (app, state) = create_test_app();
+        let (user, session) = create_test_user_and_session(state.storage.clone(), 100, 1).await;
 
         let request = HttpRequest::builder()
             .method("DELETE")
@@ -315,7 +307,7 @@ mod tests {
         assert_eq!(response.status(), axum::http::StatusCode::OK);
 
         // Verify user is soft-deleted
-        let repos = RepositoryContext::new((*storage).clone());
+        let repos = RepositoryContext::new(state.storage.clone());
         let deleted_user = repos.user.get(user.id).await.unwrap();
         assert!(deleted_user.is_none()); // Soft-deleted users are filtered out by get()
     }

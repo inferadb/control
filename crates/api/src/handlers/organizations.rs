@@ -38,7 +38,7 @@ pub async fn create_organization(
     Extension(ctx): Extension<SessionContext>,
     Json(payload): Json<CreateOrganizationRequest>,
 ) -> Result<Json<CreateOrganizationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Validate organization name
     Organization::validate_name(&payload.name)?;
@@ -124,7 +124,7 @@ pub async fn list_organizations(
     Extension(ctx): Extension<SessionContext>,
     pagination: crate::pagination::PaginationQuery,
 ) -> Result<Json<ListOrganizationsResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
     let params = pagination.0.validate();
 
     // Get all memberships for the user
@@ -173,7 +173,7 @@ pub async fn get_organization(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
 ) -> Result<Json<GetOrganizationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get organization
     let org = repos
@@ -213,7 +213,7 @@ pub async fn get_organization_by_id(
     State(state): State<AppState>,
     Path(organization): Path<OrganizationSlug>,
 ) -> Result<Json<OrganizationServerResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get organization
     let org = repos
@@ -244,7 +244,7 @@ pub async fn update_organization(
     Extension(org_ctx): Extension<OrganizationContext>,
     Json(payload): Json<UpdateOrganizationRequest>,
 ) -> Result<Json<UpdateOrganizationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Require admin or owner
     crate::middleware::require_admin_or_owner(&org_ctx)?;
@@ -292,7 +292,7 @@ pub async fn delete_organization(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
 ) -> Result<Json<DeleteOrganizationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Require owner
     crate::middleware::require_owner(&org_ctx)?;
@@ -356,7 +356,7 @@ pub async fn suspend_organization(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
 ) -> Result<Json<SuspendOrganizationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Require owner
     crate::middleware::require_owner(&org_ctx)?;
@@ -397,7 +397,7 @@ pub async fn resume_organization(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
 ) -> Result<Json<ResumeOrganizationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Require owner
     crate::middleware::require_owner(&org_ctx)?;
@@ -441,7 +441,7 @@ pub async fn list_members(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
 ) -> Result<Json<ListMembersResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Get all members
     let members = repos.org_member.get_by_organization(org_ctx.organization).await?;
@@ -471,7 +471,7 @@ pub async fn update_member_role(
     Path((_org, member_id)): Path<(OrganizationSlug, u64)>,
     Json(payload): Json<UpdateMemberRoleRequest>,
 ) -> Result<Json<UpdateMemberRoleResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Require admin or owner
     crate::middleware::require_admin_or_owner(&org_ctx)?;
@@ -541,7 +541,7 @@ pub async fn remove_member(
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org, member_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<RemoveMemberResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Require admin or owner
     crate::middleware::require_admin_or_owner(&org_ctx)?;
@@ -589,7 +589,7 @@ pub async fn leave_organization(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
 ) -> Result<Json<RemoveMemberResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // If the user is an owner, check if there are other owners
     if org_ctx.member.role == OrganizationRole::Owner {
@@ -635,7 +635,7 @@ pub async fn create_invitation(
     Extension(org_ctx): Extension<OrganizationContext>,
     Json(payload): Json<CreateInvitationRequest>,
 ) -> Result<Json<CreateInvitationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Require admin or owner
     crate::middleware::require_admin_or_owner(&org_ctx)?;
@@ -715,7 +715,7 @@ pub async fn list_invitations(
     State(state): State<AppState>,
     Extension(org_ctx): Extension<OrganizationContext>,
 ) -> Result<Json<ListInvitationsResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Require admin or owner
     crate::middleware::require_admin_or_owner(&org_ctx)?;
@@ -737,7 +737,7 @@ pub async fn delete_invitation(
     Extension(org_ctx): Extension<OrganizationContext>,
     Path((_org, invitation_id)): Path<(OrganizationSlug, u64)>,
 ) -> Result<Json<DeleteInvitationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Require admin or owner
     crate::middleware::require_admin_or_owner(&org_ctx)?;
@@ -769,7 +769,7 @@ pub async fn accept_invitation(
     Extension(ctx): Extension<SessionContext>,
     Json(payload): Json<AcceptInvitationRequest>,
 ) -> Result<Json<AcceptInvitationResponse>> {
-    let repos = RepositoryContext::new((*state.storage).clone());
+    let repos = RepositoryContext::new(state.storage.clone());
 
     // Validate token format
     OrganizationInvitation::validate_token(&payload.token)?;

@@ -1,4 +1,4 @@
-use inferadb_control_storage::StorageBackend;
+use inferadb_control_storage::{StorageBackend, to_storage_range};
 use inferadb_control_types::{
     OrganizationSlug,
     entities::{
@@ -48,11 +48,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
     /// Read the raw active count from storage, returning None if uninitialized or corrupt
     async fn get_raw_active_count(&self, organization: OrganizationSlug) -> Result<Option<u64>> {
         let key = Self::org_active_count_key(organization);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get team active count: {e}")))?;
+        let data = self.storage.get(&key).await?;
         match data {
             Some(bytes) if bytes.len() == 8 => Ok(Some(super::parse_u64_id(&bytes)?)),
             _ => Ok(None),
@@ -65,8 +61,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
         let count = active.len();
         self.storage
             .set(Self::org_active_count_key(organization), (count as u64).to_le_bytes().to_vec())
-            .await
-            .map_err(|e| Error::internal(format!("Failed to set team active count: {e}")))?;
+            .await?;
         Ok(count)
     }
 
@@ -77,21 +72,11 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize team: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Check for duplicate name within organization
         let name_key = Self::team_name_index_key(team.organization, &team.name);
-        if self
-            .storage
-            .get(&name_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to check duplicate team name: {e}")))?
-            .is_some()
-        {
+        if self.storage.get(&name_key).await?.is_some() {
             return Err(Error::already_exists(format!(
                 "A team named '{}' already exists in this organization",
                 team.name
@@ -116,9 +101,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
         txn.set(active_count_key, (current_active + 1).to_le_bytes().to_vec());
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit team creation: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -126,11 +109,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
     /// Get a team by ID
     pub async fn get(&self, id: u64) -> Result<Option<OrganizationTeam>> {
         let key = Self::team_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get team: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -151,11 +130,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("team:org:{organization}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get organization teams: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut teams = Vec::new();
         for kv in kvs {
@@ -194,11 +169,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize team: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // If name changed, update name index
         if existing.name != team.name {
@@ -207,13 +178,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
 
             // Check for duplicate new name
             let new_name_key = Self::team_name_index_key(team.organization, &team.name);
-            if self
-                .storage
-                .get(&new_name_key)
-                .await
-                .map_err(|e| Error::internal(format!("Failed to check duplicate team name: {e}")))?
-                .is_some()
-            {
+            if self.storage.get(&new_name_key).await?.is_some() {
                 return Err(Error::already_exists(format!(
                     "A team named '{}' already exists in this organization",
                     team.name
@@ -241,9 +206,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
         txn.set(Self::team_key(team.id), team_data);
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit team update: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -255,11 +218,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
             self.get(id).await?.ok_or_else(|| Error::not_found(format!("Team {id} not found")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Delete team record
         txn.delete(Self::team_key(id));
@@ -280,9 +239,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
         }
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit team deletion: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -291,11 +248,7 @@ impl<S: StorageBackend> OrganizationTeamRepository<S> {
     pub async fn count_by_organization(&self, organization: OrganizationSlug) -> Result<usize> {
         let start = format!("team:org:{organization}:").into_bytes();
         let end = format!("team:org:{organization}~").into_bytes();
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to count organization teams: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
         Ok(kvs.len())
     }
 
@@ -354,21 +307,11 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize team member: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Check for duplicate member (team_id, user_id unique)
         let unique_key = Self::team_user_index_key(member.team_id, member.user_id);
-        if self
-            .storage
-            .get(&unique_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to check duplicate member: {e}")))?
-            .is_some()
-        {
+        if self.storage.get(&unique_key).await?.is_some() {
             return Err(Error::already_exists("User is already a member of this team".to_string()));
         }
 
@@ -385,9 +328,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
         );
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit team member creation: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -395,11 +336,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
     /// Get a member by ID
     pub async fn get(&self, id: u64) -> Result<Option<OrganizationTeamMember>> {
         let key = Self::member_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get team member: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -420,11 +357,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
         user_id: u64,
     ) -> Result<Option<OrganizationTeamMember>> {
         let index_key = Self::team_user_index_key(team_id, user_id);
-        let data = self
-            .storage
-            .get(&index_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get member by team/user: {e}")))?;
+        let data = self.storage.get(&index_key).await?;
 
         match data {
             Some(bytes) => {
@@ -444,11 +377,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("team_member:team:{team_id}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get team members: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut members = Vec::new();
         for kv in kvs {
@@ -467,11 +396,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("team_member:user:{user_id}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get user teams: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut members = Vec::new();
         for kv in kvs {
@@ -496,10 +421,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize team member: {e}")))?;
 
         // Update member record
-        self.storage
-            .set(Self::member_key(member.id), member_data)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to update team member: {e}")))?;
+        self.storage.set(Self::member_key(member.id), member_data).await?;
 
         Ok(())
     }
@@ -513,11 +435,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
             .ok_or_else(|| Error::not_found(format!("Team member {id} not found")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Delete member record
         txn.delete(Self::member_key(id));
@@ -529,9 +447,7 @@ impl<S: StorageBackend> OrganizationTeamMemberRepository<S> {
         txn.delete(Self::user_team_index_key(member.user_id, member.team_id));
 
         // Commit transaction
-        txn.commit()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to commit team member deletion: {e}")))?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -592,21 +508,11 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
             .map_err(|e| Error::internal(format!("Failed to serialize team permission: {e}")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Check for duplicate permission (team_id, permission unique)
         let unique_key = Self::team_permission_index_key(permission.team_id, permission.permission);
-        if self
-            .storage
-            .get(&unique_key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to check duplicate permission: {e}")))?
-            .is_some()
-        {
+        if self.storage.get(&unique_key).await?.is_some() {
             return Err(Error::already_exists("Team already has this permission".to_string()));
         }
 
@@ -623,9 +529,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
         );
 
         // Commit transaction
-        txn.commit().await.map_err(|e| {
-            Error::internal(format!("Failed to commit team permission creation: {e}"))
-        })?;
+        txn.commit().await?;
 
         Ok(())
     }
@@ -633,11 +537,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
     /// Get a permission by ID
     pub async fn get(&self, id: u64) -> Result<Option<OrganizationTeamPermission>> {
         let key = Self::permission_key(id);
-        let data = self
-            .storage
-            .get(&key)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get team permission: {e}")))?;
+        let data = self.storage.get(&key).await?;
 
         match data {
             Some(bytes) => {
@@ -658,9 +558,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
         permission: OrganizationPermission,
     ) -> Result<Option<OrganizationTeamPermission>> {
         let index_key = Self::team_permission_index_key(team_id, permission);
-        let data = self.storage.get(&index_key).await.map_err(|e| {
-            Error::internal(format!("Failed to get permission by team/permission: {e}"))
-        })?;
+        let data = self.storage.get(&index_key).await?;
 
         match data {
             Some(bytes) => {
@@ -680,11 +578,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
         let start = prefix.clone().into_bytes();
         let end = format!("team_permission:team_list:{team_id}~").into_bytes();
 
-        let kvs = self
-            .storage
-            .get_range(start..end)
-            .await
-            .map_err(|e| Error::internal(format!("Failed to get team permissions: {e}")))?;
+        let kvs = self.storage.get_range(to_storage_range(start..end)).await?;
 
         let mut permissions = Vec::new();
         for kv in kvs {
@@ -706,11 +600,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
             .ok_or_else(|| Error::not_found(format!("Team permission {id} not found")))?;
 
         // Use transaction for atomicity
-        let mut txn = self
-            .storage
-            .transaction()
-            .await
-            .map_err(|e| Error::internal(format!("Failed to start transaction: {e}")))?;
+        let mut txn = self.storage.transaction().await?;
 
         // Delete permission record
         txn.delete(Self::permission_key(id));
@@ -722,9 +612,7 @@ impl<S: StorageBackend> OrganizationTeamPermissionRepository<S> {
         txn.delete(Self::team_permission_list_key(permission.team_id, id));
 
         // Commit transaction
-        txn.commit().await.map_err(|e| {
-            Error::internal(format!("Failed to commit team permission deletion: {e}"))
-        })?;
+        txn.commit().await?;
 
         Ok(())
     }
