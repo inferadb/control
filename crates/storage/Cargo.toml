@@ -22,6 +22,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+inferadb-ledger-sdk = ">=0.1.0-0"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 
 [features]

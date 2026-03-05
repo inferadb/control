@@ -38,6 +38,9 @@ pub enum SkewSeverity {
 pub struct ClockValidator {
     max_skew_ms: i64,
     ntp_servers: Vec<String>,
+    /// When false, skip chronyc/ntpdate system fallbacks (useful in tests
+    /// where only the SNTP path should be exercised).
+    system_fallbacks: bool,
 }
 
 impl ClockValidator {
@@ -46,6 +49,7 @@ impl ClockValidator {
         Self {
             max_skew_ms: DEFAULT_MAX_SKEW_MS,
             ntp_servers: DEFAULT_NTP_SERVERS.iter().map(|s| (*s).to_string()).collect(),
+            system_fallbacks: true,
         }
     }
 
@@ -54,6 +58,7 @@ impl ClockValidator {
         Self {
             max_skew_ms: max_skew_seconds * 1000,
             ntp_servers: DEFAULT_NTP_SERVERS.iter().map(|s| (*s).to_string()).collect(),
+            system_fallbacks: true,
         }
     }
 
@@ -144,16 +149,18 @@ impl ClockValidator {
             return Ok(time);
         }
 
-        // 2. Parse chronyc tracking output
-        if let Some(offset_secs) = self.query_chronyc().await {
-            let offset_ms = (offset_secs * 1000.0) as i64;
-            return Ok(system_time - TimeDelta::milliseconds(offset_ms));
-        }
+        if self.system_fallbacks {
+            // 2. Parse chronyc tracking output
+            if let Some(offset_secs) = self.query_chronyc().await {
+                let offset_ms = (offset_secs * 1000.0) as i64;
+                return Ok(system_time - TimeDelta::milliseconds(offset_ms));
+            }
 
-        // 3. Parse ntpdate output
-        if let Some(offset_secs) = self.query_ntpdate().await {
-            let offset_ms = (offset_secs * 1000.0) as i64;
-            return Ok(system_time - TimeDelta::milliseconds(offset_ms));
+            // 3. Parse ntpdate output
+            if let Some(offset_secs) = self.query_ntpdate().await {
+                let offset_ms = (offset_secs * 1000.0) as i64;
+                return Ok(system_time - TimeDelta::milliseconds(offset_ms));
+            }
         }
 
         Err(Error::config(
@@ -500,6 +507,7 @@ Leap status     : Normal";
         let v = ClockValidator {
             max_skew_ms: DEFAULT_MAX_SKEW_MS,
             ntp_servers: vec!["192.0.2.1".to_string()], // RFC 5737 TEST-NET, won't resolve
+            system_fallbacks: false,
         };
 
         // Should soft-fail and return OK with no NTP data

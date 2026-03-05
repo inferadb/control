@@ -28,7 +28,8 @@ use inferadb_common_storage_ledger::{
     ClientConfig, LedgerBackend, LedgerBackendConfig, ServerSource,
 };
 use inferadb_control_storage::backend::StorageBackend;
-use tokio::time::sleep;
+use inferadb_ledger_sdk::{LedgerClient, OrganizationSlug, Region};
+use tokio::{sync::OnceCell, time::sleep};
 
 // ============================================================================
 // Test Configuration
@@ -41,6 +42,9 @@ static VAULT_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| {
     AtomicU64::new(30000 + (pid % 1000) * 10000)
 });
 
+/// Organization slug created once per process via the Ledger admin API.
+static TEST_ORG: OnceCell<OrganizationSlug> = OnceCell::const_new();
+
 fn should_run() -> bool {
     env::var("RUN_LEDGER_INTEGRATION_TESTS").is_ok()
 }
@@ -49,16 +53,31 @@ fn ledger_endpoint() -> String {
     env::var("LEDGER_ENDPOINT").unwrap_or_else(|_| "http://localhost:50051".to_string())
 }
 
-fn ledger_organization() -> u64 {
-    env::var("LEDGER_ORGANIZATION").ok().and_then(|s| s.parse().ok()).unwrap_or(1)
-}
-
 fn unique_vault() -> u64 {
     VAULT_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Ensure the test organization exists, creating it on first call.
+async fn ensure_organization() -> OrganizationSlug {
+    *TEST_ORG
+        .get_or_init(|| async {
+            let pid = std::process::id();
+            let client =
+                LedgerClient::connect(ledger_endpoint(), format!("control-test-setup-{pid}"))
+                    .await
+                    .expect("connect to ledger for org setup");
+            let org = client
+                .create_organization(format!("control-test-{pid}"), Region::US_EAST_VA)
+                .await
+                .expect("create test organization");
+            org.slug
+        })
+        .await
+}
+
 async fn create_ledger_backend() -> LedgerBackend {
     let vault = unique_vault();
+    let org = ensure_organization().await;
     let client_config = ClientConfig::builder()
         .servers(ServerSource::from_static([ledger_endpoint()]))
         .client_id(format!("control-test-{vault}"))
@@ -66,7 +85,7 @@ async fn create_ledger_backend() -> LedgerBackend {
         .expect("valid client config");
     let config = LedgerBackendConfig::builder()
         .client(client_config)
-        .organization(ledger_organization())
+        .organization(org)
         .vault(VaultSlug::from(vault))
         .build()
         .expect("valid ledger backend config");
@@ -256,11 +275,11 @@ async fn test_ledger_concurrent_writes() {
     }
 
     // Spawn concurrent writers (each gets its own backend with unique vault)
+    let org = ensure_organization().await;
     let mut handles = Vec::new();
     for i in 0..10 {
         let vault = unique_vault();
         let endpoint = ledger_endpoint();
-        let organization = ledger_organization();
 
         handles.push(tokio::spawn(async move {
             let client_config = ClientConfig::builder()
@@ -270,7 +289,7 @@ async fn test_ledger_concurrent_writes() {
                 .expect("valid client config");
             let config = LedgerBackendConfig::builder()
                 .client(client_config)
-                .organization(organization)
+                .organization(org)
                 .vault(VaultSlug::from(vault))
                 .build()
                 .expect("valid config");
@@ -301,6 +320,7 @@ async fn test_ledger_vault_isolation() {
 
     let vault_a = unique_vault();
     let vault_b = unique_vault();
+    let org = ensure_organization().await;
 
     let client_config_a = ClientConfig::builder()
         .servers(ServerSource::from_static([ledger_endpoint()]))
@@ -309,7 +329,7 @@ async fn test_ledger_vault_isolation() {
         .unwrap();
     let config_a = LedgerBackendConfig::builder()
         .client(client_config_a)
-        .organization(ledger_organization())
+        .organization(org)
         .vault(VaultSlug::from(vault_a))
         .build()
         .unwrap();
@@ -321,7 +341,7 @@ async fn test_ledger_vault_isolation() {
         .unwrap();
     let config_b = LedgerBackendConfig::builder()
         .client(client_config_b)
-        .organization(ledger_organization())
+        .organization(org)
         .vault(VaultSlug::from(vault_b))
         .build()
         .unwrap();
