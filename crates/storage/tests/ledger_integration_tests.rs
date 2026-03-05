@@ -1,13 +1,11 @@
 //! Integration tests for Ledger storage backend in Control
 //!
-//! These tests require a running Ledger server. They are skipped unless the
-//! `RUN_LEDGER_INTEGRATION_TESTS` environment variable is set.
+//! These tests require a running Ledger server. They are gated behind the
+//! `integration` feature flag and excluded from default `cargo nextest run`.
 //!
-//! Run with: cargo test --test ledger_integration_tests
-//!
-//! Or using Docker Compose:
+//! Run with:
 //! ```bash
-//! cd docker/ledger-integration-tests && ./run-tests.sh
+//! cargo nextest run -p inferadb-control-storage --features integration --test ledger_integration_tests
 //! ```
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -44,10 +42,6 @@ static VAULT_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| {
 
 /// Organization slug created once per process via the Ledger admin API.
 static TEST_ORG: OnceCell<OrganizationSlug> = OnceCell::const_new();
-
-fn should_run() -> bool {
-    env::var("RUN_LEDGER_INTEGRATION_TESTS").is_ok()
-}
 
 fn ledger_endpoint() -> String {
     env::var("LEDGER_ENDPOINT").unwrap_or_else(|_| "http://localhost:50051".to_string())
@@ -99,11 +93,6 @@ async fn create_ledger_backend() -> LedgerBackend {
 
 #[tokio::test]
 async fn test_ledger_basic_operations() {
-    if !should_run() {
-        eprintln!("Skipping Ledger integration test (RUN_LEDGER_INTEGRATION_TESTS not set)");
-        return;
-    }
-
     let backend = create_ledger_backend().await;
 
     // Test set and get
@@ -126,11 +115,6 @@ async fn test_ledger_basic_operations() {
 
 #[tokio::test]
 async fn test_ledger_range_operations() {
-    if !should_run() {
-        eprintln!("Skipping Ledger integration test (RUN_LEDGER_INTEGRATION_TESTS not set)");
-        return;
-    }
-
     let backend = create_ledger_backend().await;
 
     // Insert test data
@@ -169,11 +153,6 @@ async fn test_ledger_range_operations() {
 
 #[tokio::test]
 async fn test_ledger_ttl_expiration() {
-    if !should_run() {
-        eprintln!("Skipping Ledger integration test (RUN_LEDGER_INTEGRATION_TESTS not set)");
-        return;
-    }
-
     let backend = create_ledger_backend().await;
 
     // Set a key with 2 second TTL
@@ -198,11 +177,6 @@ async fn test_ledger_ttl_expiration() {
 
 #[tokio::test]
 async fn test_ledger_transaction() {
-    if !should_run() {
-        eprintln!("Skipping Ledger integration test (RUN_LEDGER_INTEGRATION_TESTS not set)");
-        return;
-    }
-
     let backend = create_ledger_backend().await;
 
     // Start a transaction
@@ -226,11 +200,6 @@ async fn test_ledger_transaction() {
 
 #[tokio::test]
 async fn test_ledger_transaction_delete() {
-    if !should_run() {
-        eprintln!("Skipping Ledger integration test (RUN_LEDGER_INTEGRATION_TESTS not set)");
-        return;
-    }
-
     let backend = create_ledger_backend().await;
 
     // Pre-populate
@@ -251,11 +220,6 @@ async fn test_ledger_transaction_delete() {
 
 #[tokio::test]
 async fn test_ledger_health_check() {
-    if !should_run() {
-        eprintln!("Skipping Ledger integration test (RUN_LEDGER_INTEGRATION_TESTS not set)");
-        return;
-    }
-
     let backend = create_ledger_backend().await;
 
     let result =
@@ -269,11 +233,6 @@ async fn test_ledger_health_check() {
 
 #[tokio::test]
 async fn test_ledger_concurrent_writes() {
-    if !should_run() {
-        eprintln!("Skipping Ledger integration test (RUN_LEDGER_INTEGRATION_TESTS not set)");
-        return;
-    }
-
     // Spawn concurrent writers (each gets its own backend with unique vault)
     let org = ensure_organization().await;
     let mut handles = Vec::new();
@@ -313,11 +272,6 @@ async fn test_ledger_concurrent_writes() {
 
 #[tokio::test]
 async fn test_ledger_vault_isolation() {
-    if !should_run() {
-        eprintln!("Skipping Ledger integration test (RUN_LEDGER_INTEGRATION_TESTS not set)");
-        return;
-    }
-
     let vault_a = unique_vault();
     let vault_b = unique_vault();
     let org = ensure_organization().await;
@@ -375,11 +329,6 @@ async fn test_ledger_vault_isolation() {
 
 #[tokio::test]
 async fn test_ledger_reconnection_after_idle() {
-    if !should_run() {
-        eprintln!("Skipping Ledger integration test (RUN_LEDGER_INTEGRATION_TESTS not set)");
-        return;
-    }
-
     let backend = create_ledger_backend().await;
 
     // First operation

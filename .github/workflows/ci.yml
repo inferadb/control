@@ -270,13 +270,12 @@ jobs:
 
       - name: Run Ledger integration tests
         env:
-          RUN_LEDGER_INTEGRATION_TESTS: "1"
           LEDGER_ENDPOINT: "http://localhost:50052"
-          LEDGER_NAMESPACE_ID: "1"
           RUST_BACKTRACE: "1"
         run: |
           cargo nextest run \
             --package inferadb-control-storage \
+            --features integration \
             --test ledger_integration_tests \
             --profile ci \
             --no-fail-fast
