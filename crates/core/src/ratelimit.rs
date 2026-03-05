@@ -7,7 +7,7 @@
 
 pub use inferadb_common_ratelimit::{
     AppRateLimiter as RateLimiter, RateLimitOutcome as RateLimitResult,
-    RateLimitPolicy as RateLimit, RateLimitWindow,
+    RateLimitPolicy as RateLimit, RateLimitResponse, RateLimitWindow,
 };
 
 /// Common rate limit categories
@@ -17,28 +17,32 @@ pub mod categories {
     pub use inferadb_control_const::ratelimit::*;
 }
 
-/// Standard rate limits for the management API
+/// Standard rate limits for the management API.
+///
+/// These functions construct policies from compile-time constants via direct
+/// struct construction, avoiding the fallible `per_hour`/`per_day` constructors
+/// (which validate runtime user input).
 pub mod limits {
-    use super::RateLimit;
+    use super::{RateLimit, RateLimitWindow};
 
-    /// Login attempts: 100 per hour per IP
+    /// Login attempts: 100 per hour per IP.
     pub fn login_ip() -> RateLimit {
-        RateLimit::per_hour(100)
+        RateLimit { max_requests: 100, window: RateLimitWindow::Hour }
     }
 
-    /// Registration attempts: 5 per day per IP
+    /// Registration attempts: 5 per day per IP.
     pub fn registration_ip() -> RateLimit {
-        RateLimit::per_day(5)
+        RateLimit { max_requests: 5, window: RateLimitWindow::Day }
     }
 
-    /// Email verification tokens: 5 per hour per email
+    /// Email verification tokens: 5 per hour per email.
     pub fn email_verification() -> RateLimit {
-        RateLimit::per_hour(5)
+        RateLimit { max_requests: 5, window: RateLimitWindow::Hour }
     }
 
-    /// Password reset tokens: 3 per hour per user
+    /// Password reset tokens: 3 per hour per user.
     pub fn password_reset() -> RateLimit {
-        RateLimit::per_hour(3)
+        RateLimit { max_requests: 3, window: RateLimitWindow::Hour }
     }
 }
 

@@ -36,7 +36,9 @@ pub use email::{
 };
 pub use id::{IdGenerator, WorkerRegistry, acquire_worker_id};
 pub use jwt::{JwtSigner, VaultTokenClaims};
-pub use ratelimit::{RateLimit, RateLimitResult, RateLimiter, categories, limits};
+pub use ratelimit::{
+    RateLimit, RateLimitResponse, RateLimitResult, RateLimiter, categories, limits,
+};
 pub use repository::{
     AuditLogFilters, AuditLogRepository, AuthorizationCodeRepository, ClientCertificateRepository,
     ClientRepository, JtiReplayProtectionRepository, OrganizationInvitationRepository,

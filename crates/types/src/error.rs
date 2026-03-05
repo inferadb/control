@@ -189,6 +189,7 @@ impl From<StorageError> for Error {
                 Error::already_exists(e.to_string())
             },
             StorageError::RateLimitExceeded { .. } => Error::rate_limit(e.to_string()),
+            StorageError::RangeLimitExceeded { .. } => Error::validation(e.to_string()),
             StorageError::CircuitOpen { .. } | StorageError::ShuttingDown { .. } => {
                 Error::external(e.to_string())
             },

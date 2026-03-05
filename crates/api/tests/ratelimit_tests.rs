@@ -39,8 +39,8 @@ fn create_rate_limited_test_state(
         .worker_id(0)
         .email_service(Arc::new(email_service))
         .rate_limits(RateLimitConfig {
-            login: RateLimit::per_hour(login_max),
-            registration: RateLimit::per_hour(registration_max),
+            login: RateLimit::per_hour(login_max).unwrap(),
+            registration: RateLimit::per_hour(registration_max).unwrap(),
         })
         .build()
 }

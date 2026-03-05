@@ -29,7 +29,6 @@ impl Default for RateLimitConfig {
 
 /// Convert a display-able value to a HeaderValue.
 ///
-/// # Safety
 /// This is safe because integer/numeric `.to_string()` always produces valid ASCII,
 /// which is always valid for HTTP headers. This avoids `.unwrap()` on infallible conversions.
 fn header_value(value: impl std::fmt::Display) -> HeaderValue {
@@ -50,7 +49,7 @@ pub async fn login_rate_limit(State(state): State<AppState>, req: Request, next:
     let limiter = RateLimiter::new(state.storage.clone());
     let limit = state.rate_limits.login.clone();
 
-    match limiter.check_with_metadata(categories::LOGIN_IP, &ip, &limit).await {
+    match limiter.check_response(categories::LOGIN_IP, &ip, &limit).await {
         Ok(result) => {
             if result.allowed {
                 // Add rate limit headers to response
@@ -58,7 +57,7 @@ pub async fn login_rate_limit(State(state): State<AppState>, req: Request, next:
                 let headers = response.headers_mut();
                 headers.insert("X-RateLimit-Limit", header_value(limit.max_requests));
                 headers.insert("X-RateLimit-Remaining", header_value(result.remaining));
-                headers.insert("X-RateLimit-Reset", header_value(result.reset_after));
+                headers.insert("X-RateLimit-Reset", header_value(result.reset_after_secs));
                 response
             } else {
                 // Rate limit exceeded
@@ -69,10 +68,10 @@ pub async fn login_rate_limit(State(state): State<AppState>, req: Request, next:
                     .into_response();
 
                 let headers = response.headers_mut();
-                headers.insert(header::RETRY_AFTER, header_value(result.reset_after));
+                headers.insert(header::RETRY_AFTER, header_value(result.reset_after_secs));
                 headers.insert("X-RateLimit-Limit", header_value(limit.max_requests));
                 headers.insert("X-RateLimit-Remaining", HeaderValue::from_static("0"));
-                headers.insert("X-RateLimit-Reset", header_value(result.reset_after));
+                headers.insert("X-RateLimit-Reset", header_value(result.reset_after_secs));
 
                 response
             }
@@ -98,14 +97,14 @@ pub async fn registration_rate_limit(
     let limiter = RateLimiter::new(state.storage.clone());
     let limit = state.rate_limits.registration.clone();
 
-    match limiter.check_with_metadata(categories::REGISTRATION_IP, &ip, &limit).await {
+    match limiter.check_response(categories::REGISTRATION_IP, &ip, &limit).await {
         Ok(result) => {
             if result.allowed {
                 let mut response = next.run(req).await;
                 let headers = response.headers_mut();
                 headers.insert("X-RateLimit-Limit", header_value(limit.max_requests));
                 headers.insert("X-RateLimit-Remaining", header_value(result.remaining));
-                headers.insert("X-RateLimit-Reset", header_value(result.reset_after));
+                headers.insert("X-RateLimit-Reset", header_value(result.reset_after_secs));
                 response
             } else {
                 let mut response = (
@@ -115,10 +114,10 @@ pub async fn registration_rate_limit(
                     .into_response();
 
                 let headers = response.headers_mut();
-                headers.insert(header::RETRY_AFTER, header_value(result.reset_after));
+                headers.insert(header::RETRY_AFTER, header_value(result.reset_after_secs));
                 headers.insert("X-RateLimit-Limit", header_value(limit.max_requests));
                 headers.insert("X-RateLimit-Remaining", HeaderValue::from_static("0"));
-                headers.insert("X-RateLimit-Reset", header_value(result.reset_after));
+                headers.insert("X-RateLimit-Reset", header_value(result.reset_after_secs));
 
                 response
             }
@@ -141,23 +140,23 @@ pub async fn rate_limit_middleware(
 ) -> Response {
     let limiter = RateLimiter::new(state.storage.clone());
 
-    match limiter.check_with_metadata(category, identifier.as_ref(), &limit).await {
+    match limiter.check_response(category, identifier.as_ref(), &limit).await {
         Ok(result) => {
             if result.allowed {
                 let mut response = next.run(req).await;
                 let headers = response.headers_mut();
                 headers.insert("X-RateLimit-Limit", header_value(limit.max_requests));
                 headers.insert("X-RateLimit-Remaining", header_value(result.remaining));
-                headers.insert("X-RateLimit-Reset", header_value(result.reset_after));
+                headers.insert("X-RateLimit-Reset", header_value(result.reset_after_secs));
                 response
             } else {
                 let mut response = (StatusCode::TOO_MANY_REQUESTS, error_message).into_response();
 
                 let headers = response.headers_mut();
-                headers.insert(header::RETRY_AFTER, header_value(result.reset_after));
+                headers.insert(header::RETRY_AFTER, header_value(result.reset_after_secs));
                 headers.insert("X-RateLimit-Limit", header_value(limit.max_requests));
                 headers.insert("X-RateLimit-Remaining", HeaderValue::from_static("0"));
-                headers.insert("X-RateLimit-Reset", header_value(result.reset_after));
+                headers.insert("X-RateLimit-Reset", header_value(result.reset_after_secs));
 
                 response
             }
