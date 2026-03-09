@@ -32,7 +32,7 @@ bon = "3"
 
 # Error handling
 anyhow = "1"
-snafu = "0.8"
+snafu = "0.9"
 
 # System
 num_cpus = "1"
