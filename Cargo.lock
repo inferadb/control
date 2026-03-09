@@ -1178,7 +1178,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1765,7 +1765,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -1935,7 +1935,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-common-authn"
-version = "0.1.0"
+version = "0.1.0-dev.20260309"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27386680d9f5c5c60839f8cbb326db3fcbeb5583a07208f1e2be231fc664c496"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1957,14 +1959,18 @@ dependencies = [
 
 [[package]]
 name = "inferadb-common-ratelimit"
-version = "0.1.0"
+version = "0.1.0-dev.20260309"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f7f88f8c95927818be16d27c72e0704a1bb4fe254342b07f21397a23b5ee9d7"
 dependencies = [
  "inferadb-common-storage",
 ]
 
 [[package]]
 name = "inferadb-common-storage"
-version = "0.1.0"
+version = "0.1.0-dev.20260309"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef910c13fb602730bd6106cea04a8bbe13933d3558f69b275ef1426fe74b5bc5"
 dependencies = [
  "async-trait",
  "bon",
@@ -1985,7 +1991,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-common-storage-ledger"
-version = "0.1.0"
+version = "0.1.0-dev.20260309"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6708d8f0b9e2378d95ac3545811dca4a030937c1e8e94fb683d7f5b7a2927f0"
 dependencies = [
  "async-trait",
  "bon",
@@ -2173,7 +2181,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-proto"
-version = "0.1.0"
+version = "0.1.0-dev.20260309"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9e5a57c88965277d4ccb42443b71976395c18ee7760caffd8ba3db3abe0ca2f"
 dependencies = [
  "chrono",
  "inferadb-ledger-types",
@@ -2189,7 +2199,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-raft"
-version = "0.1.0"
+version = "0.1.0-dev.20260309"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee1913f59a9a5f2d5b7501550bbfdaf32be6f130fb70bd400672d62acd122166"
 dependencies = [
  "arc-swap",
  "async-compression",
@@ -2233,7 +2245,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-sdk"
-version = "0.1.0"
+version = "0.1.0-dev.20260309"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1eb37387ae0d373841ad058a237c83f287dbd824ea8be2547d70a716d2392a0"
 dependencies = [
  "base64 0.22.1",
  "bon",
@@ -2266,7 +2280,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-state"
-version = "0.1.0"
+version = "0.1.0-dev.20260309"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee2e98fd2dda2bd3b176308731dfef2396afaee0dcf7c7a0d7ac028324139ff0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2291,7 +2307,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-store"
-version = "0.1.0"
+version = "0.1.0-dev.20260309"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d879bf5fd8f118ff177bd4c1aa0d5ba388ef6cc1ab740e7b3290c8f363c1847"
 dependencies = [
  "aes-gcm",
  "aes-kw",
@@ -2313,7 +2331,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-types"
-version = "0.1.0"
+version = "0.1.0-dev.20260309"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4aa18f866cf29a048894ef92e6a46f1bea1b4280979fd030cd8b694d91972386"
 dependencies = [
  "bon",
  "chrono",
@@ -2676,7 +2696,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3317,7 +3337,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -3354,9 +3374,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3665,9 +3685,9 @@ dependencies = [
 
 [[package]]
 name = "rsntp"
-version = "4.1.0"
+version = "4.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c475cc467404cd97386127e5c40be936ce69cf77767306fbc5ec0dc812afd87"
+checksum = "474edb0b3a6ccf4fd97360150a27e50f2a4c6ca67870fde22e288269d8b9f38d"
 dependencies = [
  "chrono",
  "tokio",
@@ -3729,7 +3749,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4247,7 +4267,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4782,9 +4802,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.21.0"
+version = "1.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b672338555252d43fd2240c714dc444b8c6fb0a5c5335e65a07bba7742735ddb"
+checksum = "a68d3c8f01c0cfa54a75291d83601161799e4a89a39e0929f4b0354d88757a37"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
@@ -5103,7 +5123,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
