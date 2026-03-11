@@ -1013,6 +1013,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid",
+ "pem-rfc7468",
  "zeroize",
 ]
 
@@ -1935,7 +1936,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-common-authn"
-version = "0.1.0"
+version = "0.1.0-dev.20260310"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7e501384ba68a25deb2497e596aca0de0fdaebc6e37b9a9b80ecfeddcf6bd9f"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1957,14 +1960,18 @@ dependencies = [
 
 [[package]]
 name = "inferadb-common-ratelimit"
-version = "0.1.0"
+version = "0.1.0-dev.20260310"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ab283b88ef265011dd137b6553cd5dd578527f067fbce23058c26dc9b19a575"
 dependencies = [
  "inferadb-common-storage",
 ]
 
 [[package]]
 name = "inferadb-common-storage"
-version = "0.1.0"
+version = "0.1.0-dev.20260310"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5d3ea93b4f028588f54d3da11c479531e23daf2beb941f2e1ef6bbe062d469"
 dependencies = [
  "async-trait",
  "bon",
@@ -1985,7 +1992,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-common-storage-ledger"
-version = "0.1.0"
+version = "0.1.0-dev.20260310"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89e2ca356684f2dd6540369799fd76fb0d29317bb2aaf268a67a01340e13aa85"
 dependencies = [
  "async-trait",
  "bon",
@@ -2173,7 +2182,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-proto"
-version = "0.1.0"
+version = "0.1.0-dev.20260310"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8cd3cbe5cec161e589c4bd7fbaf0cd62037cd66008de145d2db5fc6372722cc7"
 dependencies = [
  "chrono",
  "inferadb-ledger-types",
@@ -2189,7 +2200,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-raft"
-version = "0.1.0"
+version = "0.1.0-dev.20260310"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "979bae346de7638ba3fc6558d5b3c8033d6d93ac1387bec14aa71914dcf96987"
 dependencies = [
  "arc-swap",
  "async-compression",
@@ -2197,6 +2210,7 @@ dependencies = [
  "bon",
  "bytes",
  "chrono",
+ "ed25519-dalek",
  "fs2",
  "futures",
  "hmac",
@@ -2228,12 +2242,15 @@ dependencies = [
  "tower",
  "tracing",
  "uuid",
+ "zeroize",
  "zstd",
 ]
 
 [[package]]
 name = "inferadb-ledger-sdk"
-version = "0.1.0"
+version = "0.1.0-dev.20260310"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42c3a00abb6ab954dabe608f0a66667e19caa2806618d3282acb0f6f27071564"
 dependencies = [
  "base64 0.22.1",
  "bon",
@@ -2266,7 +2283,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-state"
-version = "0.1.0"
+version = "0.1.0-dev.20260310"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c360f3104c0c3bec4aaa460f41883a7c5213b5ca8877e7d565965b8cab00ad5d"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2291,7 +2310,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-store"
-version = "0.1.0"
+version = "0.1.0-dev.20260310"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9ad3b4931ec98f072d658227cf465ec6c888fa550ccda0deb4ddcfb003ed797"
 dependencies = [
  "aes-gcm",
  "aes-kw",
@@ -2313,7 +2334,9 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-types"
-version = "0.1.0"
+version = "0.1.0-dev.20260310"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bbb47e9880a0135464154b2d4f924852b7e56e6bc22348b8628b9a76825c531"
 dependencies = [
  "bon",
  "chrono",
@@ -3004,6 +3027,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pem-rfc7468"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412"
+dependencies = [
+ "base64ct",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3326,9 +3358,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.13"
+version = "0.11.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1906b49b0c3bc04b5fe5d86a77925ae6524a19b816ae38ce1e426255f1d8a31"
+checksum = "434b42fec591c96ef50e21e886936e66d3cc3f737104fdb9b737c40ffb94c098"
 dependencies = [
  "bytes",
  "getrandom 0.3.4",
