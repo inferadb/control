@@ -1,867 +1,404 @@
+//! Client (app) and certificate (assertion) management handlers.
+//!
+//! All operations delegate to Ledger SDK via the service layer.
+//! "Clients" in the Control API map to "apps" in Ledger terminology.
+//! "Certificates" map to "client assertions" in Ledger.
+
 use axum::{
     Extension, Json,
     extract::{Path, State},
     http::StatusCode,
 };
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use chrono::{Duration, Utc};
-use inferadb_common_storage::auth::PublicSigningKey;
-use inferadb_control_core::{
-    IdGenerator, MasterKey, PrivateKeyEncryptor, RepositoryContext, keypair,
-};
-use inferadb_control_types::{
-    Error as CoreError, OrganizationSlug,
-    dto::{
-        CertificateDetail, CertificateInfo, ClientDetail, ClientInfo, CreateCertificateRequest,
-        CreateCertificateResponse, CreateClientRequest, CreateClientResponse, DeleteClientResponse,
-        GetCertificateResponse, GetClientResponse, ListCertificatesResponse, ListClientsResponse,
-        RevokeCertificateResponse, RotateCertificateRequest, RotateCertificateResponse,
-        UpdateClientRequest, UpdateClientResponse,
-    },
-    entities::{AuditEventType, AuditResourceType, Client, ClientCertificate},
-};
-use serde_json::json;
+use chrono::{DateTime, Utc};
+use inferadb_control_core::service;
+use inferadb_control_types::Error as CoreError;
+use inferadb_ledger_sdk::{AppSlug, ClientAssertionId, OrganizationSlug};
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    AppState,
-    audit::{AuditEventParams, log_audit_event},
-    handlers::auth::Result,
-    middleware::{OrganizationContext, require_admin_or_owner, require_member},
+    handlers::auth::{AppState, Result},
+    middleware::UserClaims,
 };
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
+// ── Request Types ─────────────────────────────────────────────────────
 
-fn client_to_detail(client: Client) -> ClientDetail {
-    ClientDetail {
-        id: client.id,
-        name: client.name,
-        description: client.description,
-        vault: client.vault,
-        is_active: client.deleted_at.is_none(),
-        organization: client.organization,
-        created_at: client.created_at.to_rfc3339(),
+/// Request body for creating a client.
+#[derive(Debug, Deserialize)]
+pub struct CreateClientRequest {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+/// Request body for updating a client.
+#[derive(Debug, Deserialize)]
+pub struct UpdateClientRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+}
+
+/// Request body for creating a certificate (client assertion).
+#[derive(Debug, Deserialize)]
+pub struct CreateCertificateRequest {
+    pub name: String,
+    /// ISO 8601 expiration timestamp.
+    pub expires_at: String,
+}
+
+// ── Response Types ────────────────────────────────────────────────────
+
+/// Client summary response.
+#[derive(Debug, Serialize)]
+pub struct ClientResponse {
+    pub slug: u64,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials: Option<CredentialsResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+/// Credential configuration response.
+#[derive(Debug, Serialize)]
+pub struct CredentialsResponse {
+    pub client_secret_enabled: bool,
+    pub mtls_ca_enabled: bool,
+    pub mtls_self_signed_enabled: bool,
+    pub client_assertion_enabled: bool,
+}
+
+/// Wrapper for a single client.
+#[derive(Debug, Serialize)]
+pub struct SingleClientResponse {
+    pub client: ClientResponse,
+}
+
+/// List of clients.
+#[derive(Debug, Serialize)]
+pub struct ListClientsResponse {
+    pub clients: Vec<ClientResponse>,
+}
+
+/// Delete client response.
+#[derive(Debug, Serialize)]
+pub struct MessageResponse {
+    pub message: String,
+}
+
+/// Certificate (assertion) response.
+#[derive(Debug, Serialize)]
+pub struct CertificateResponse {
+    pub id: i64,
+    pub name: String,
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+}
+
+/// List of certificates.
+#[derive(Debug, Serialize)]
+pub struct ListCertificatesResponse {
+    pub certificates: Vec<CertificateResponse>,
+}
+
+/// Created certificate response (includes private key PEM).
+#[derive(Debug, Serialize)]
+pub struct CreateCertificateResponse {
+    pub certificate: CertificateResponse,
+    pub private_key_pem: String,
+}
+
+/// Rotate client secret response.
+#[derive(Debug, Serialize)]
+pub struct RotateSecretResponse {
+    pub secret: String,
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+fn system_time_to_rfc3339(t: &Option<std::time::SystemTime>) -> Option<String> {
+    t.map(|st| DateTime::<Utc>::from(st).to_rfc3339())
+}
+
+fn app_info_to_response(info: &inferadb_ledger_sdk::AppInfo) -> ClientResponse {
+    ClientResponse {
+        slug: info.slug.value(),
+        name: info.name.clone(),
+        description: info.description.clone(),
+        enabled: info.enabled,
+        credentials: info.credentials.as_ref().map(|c| CredentialsResponse {
+            client_secret_enabled: c.client_secret_enabled,
+            mtls_ca_enabled: c.mtls_ca_enabled,
+            mtls_self_signed_enabled: c.mtls_self_signed_enabled,
+            client_assertion_enabled: c.client_assertion_enabled,
+        }),
+        created_at: system_time_to_rfc3339(&info.created_at),
+        updated_at: system_time_to_rfc3339(&info.updated_at),
     }
 }
 
-fn cert_to_detail(cert: ClientCertificate) -> CertificateDetail {
-    CertificateDetail {
-        id: cert.id,
-        kid: cert.kid,
-        name: cert.name,
-        public_key: cert.public_key,
-        is_active: cert.revoked_at.is_none() && cert.deleted_at.is_none(),
-        created_at: cert.created_at.to_rfc3339(),
+fn assertion_to_response(
+    info: &inferadb_ledger_sdk::AppClientAssertionInfo,
+) -> CertificateResponse {
+    CertificateResponse {
+        id: info.id.value(),
+        name: info.name.clone(),
+        enabled: info.enabled,
+        expires_at: system_time_to_rfc3339(&info.expires_at),
+        created_at: system_time_to_rfc3339(&info.created_at),
     }
 }
 
-// ============================================================================
-// Client Management Endpoints
-// ============================================================================
+fn require_ledger(
+    state: &AppState,
+) -> std::result::Result<&inferadb_ledger_sdk::LedgerClient, CoreError> {
+    state
+        .ledger
+        .as_ref()
+        .map(|arc| arc.as_ref())
+        .ok_or_else(|| CoreError::internal("Ledger client not configured"))
+}
 
-/// Create a new client
-///
+// ── Client Handlers ──────────────────────────────────────────────────
+
 /// POST /v1/organizations/:org/clients
-/// Required role: ADMIN or OWNER
+///
+/// Creates a new client (app) in the organization.
 pub async fn create_client(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
+    Extension(claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
     Json(payload): Json<CreateClientRequest>,
-) -> Result<(StatusCode, Json<CreateClientResponse>)> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
+) -> Result<(StatusCode, Json<SingleClientResponse>)> {
+    let ledger = require_ledger(&state)?;
 
-    // Verify organization exists
-    let repos = RepositoryContext::new(state.storage.clone());
-    repos
-        .org
-        .get(org_ctx.organization)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
+    let info = service::app::create_app(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        &payload.name,
+        payload.description,
+    )
+    .await?;
 
-    // Generate ID for the client
-    let client_id = IdGenerator::next_id();
-
-    // Create client entity
-    let client = Client::builder()
-        .id(client_id)
-        .organization(org_ctx.organization)
-        .maybe_vault(payload.vault)
-        .name(payload.name)
-        .maybe_description(payload.description)
-        .created_by_user_id(org_ctx.member.user_id)
-        .create()?;
-
-    // Save to repository
-    repos.client.create(client.clone()).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(CreateClientResponse {
-            client: ClientInfo {
-                id: client.id,
-                name: client.name.clone(),
-                description: client.description,
-                vault: client.vault,
-                is_active: client.deleted_at.is_none(),
-                organization: client.organization,
-                created_at: client.created_at.to_rfc3339(),
-            },
-        }),
-    ))
+    Ok((StatusCode::CREATED, Json(SingleClientResponse { client: app_info_to_response(&info) })))
 }
 
-/// List all clients in an organization
+/// GET /v1/organizations/:org/clients
 ///
-/// GET /v1/organizations/:org/clients?limit=50&offset=0
-/// Required role: MEMBER or higher
+/// Lists all clients (apps) in the organization.
 pub async fn list_clients(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    pagination: crate::pagination::PaginationQuery,
+    Extension(claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
 ) -> Result<Json<ListClientsResponse>> {
-    // Require member role or higher
-    require_member(&org_ctx)?;
+    let ledger = require_ledger(&state)?;
 
-    let params = pagination.0.validate();
+    let apps =
+        service::app::list_apps(ledger, OrganizationSlug::new(org), claims.user_slug).await?;
 
-    let repos = RepositoryContext::new(state.storage.clone());
-    let all_clients = repos.client.list_active_by_organization(org_ctx.organization).await?;
-
-    // Apply pagination
-    let total = all_clients.len();
-    let clients: Vec<ClientDetail> = all_clients
-        .into_iter()
-        .map(client_to_detail)
-        .skip(params.offset)
-        .take(params.limit)
-        .collect();
-
-    let pagination_meta = inferadb_control_types::PaginationMeta::from_total(
-        total,
-        params.offset,
-        params.limit,
-        clients.len(),
-    );
-
-    Ok(Json(ListClientsResponse { clients, pagination: Some(pagination_meta) }))
+    Ok(Json(ListClientsResponse { clients: apps.iter().map(app_info_to_response).collect() }))
 }
 
-/// Get a specific client
-///
 /// GET /v1/organizations/:org/clients/:client
-/// Required role: MEMBER or higher
+///
+/// Returns details of a specific client (app).
 pub async fn get_client(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, client_id)): Path<(OrganizationSlug, u64)>,
-) -> Result<Json<GetClientResponse>> {
-    // Require member role or higher
-    require_member(&org_ctx)?;
+    Extension(claims): Extension<UserClaims>,
+    Path((org, client)): Path<(u64, u64)>,
+) -> Result<Json<SingleClientResponse>> {
+    let ledger = require_ledger(&state)?;
 
-    let repos = RepositoryContext::new(state.storage.clone());
-    let client = repos
-        .client
-        .get(client_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
+    let info = service::app::get_app(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        AppSlug::new(client),
+    )
+    .await?;
 
-    // Verify client belongs to this organization
-    if client.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Client not found".to_string()).into());
-    }
-
-    Ok(Json(GetClientResponse { client: client_to_detail(client) }))
+    Ok(Json(SingleClientResponse { client: app_info_to_response(&info) }))
 }
 
-/// Update a client
-///
 /// PATCH /v1/organizations/:org/clients/:client
-/// Required role: ADMIN or OWNER
+///
+/// Updates a client (app). Ledger enforces role requirements.
 pub async fn update_client(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, client_id)): Path<(OrganizationSlug, u64)>,
+    Extension(claims): Extension<UserClaims>,
+    Path((org, client)): Path<(u64, u64)>,
     Json(payload): Json<UpdateClientRequest>,
-) -> Result<Json<UpdateClientResponse>> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
+) -> Result<Json<SingleClientResponse>> {
+    let ledger = require_ledger(&state)?;
 
-    let repos = RepositoryContext::new(state.storage.clone());
-    let mut client = repos
-        .client
-        .get(client_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
+    let info = service::app::update_app(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        AppSlug::new(client),
+        payload.name,
+        payload.description,
+    )
+    .await?;
 
-    // Verify client belongs to this organization
-    if client.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Client not found".to_string()).into());
-    }
-
-    // Update fields if provided
-    if let Some(name) = payload.name {
-        client.set_name(name)?;
-    }
-    if let Some(description) = payload.description {
-        client.set_description(description);
-    }
-    if let Some(vault) = payload.vault {
-        client.set_vault(Some(vault));
-    }
-
-    // Save changes
-    repos.client.update(client.clone()).await?;
-
-    Ok(Json(UpdateClientResponse { client: client_to_detail(client) }))
+    Ok(Json(SingleClientResponse { client: app_info_to_response(&info) }))
 }
 
-/// Delete a client (soft delete)
-///
 /// DELETE /v1/organizations/:org/clients/:client
-/// Required role: ADMIN or OWNER
+///
+/// Deletes a client (app). Ledger enforces role requirements.
 pub async fn delete_client(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, client_id)): Path<(OrganizationSlug, u64)>,
-) -> Result<Json<DeleteClientResponse>> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
+    Extension(claims): Extension<UserClaims>,
+    Path((org, client)): Path<(u64, u64)>,
+) -> Result<Json<MessageResponse>> {
+    let ledger = require_ledger(&state)?;
 
-    let repos = RepositoryContext::new(state.storage.clone());
-    let mut client = repos
-        .client
-        .get(client_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
+    service::app::delete_app(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        AppSlug::new(client),
+    )
+    .await?;
 
-    // Verify client belongs to this organization
-    if client.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Client not found".to_string()).into());
-    }
-
-    // Soft delete
-    client.mark_deleted();
-    repos.client.update(client).await?;
-
-    Ok(Json(DeleteClientResponse { message: "Client deleted successfully".to_string() }))
+    Ok(Json(MessageResponse { message: "Client deleted successfully".to_string() }))
 }
 
-// ============================================================================
-// Certificate Management Endpoints
-// ============================================================================
+// ── Certificate (Assertion) Handlers ─────────────────────────────────
 
-/// Create a new certificate for a client
-///
 /// POST /v1/organizations/:org/clients/:client/certificates
-/// Required role: ADMIN or OWNER
 ///
-/// This handler:
-/// 1. Generates an Ed25519 keypair
-/// 2. Stores the encrypted private key in Control's database
-/// 3. Writes the public key to Ledger (scoped to the organization)
-/// 4. Returns the private key to the caller (one-time only)
+/// Creates a new certificate (client assertion) for a client. Returns the
+/// private key PEM — this is the only time it will be available.
 pub async fn create_certificate(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, client_id)): Path<(OrganizationSlug, u64)>,
+    Extension(claims): Extension<UserClaims>,
+    Path((org, client)): Path<(u64, u64)>,
     Json(payload): Json<CreateCertificateRequest>,
 ) -> Result<(StatusCode, Json<CreateCertificateResponse>)> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
+    let ledger = require_ledger(&state)?;
 
-    // Verify client exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let client = repos
-        .client
-        .get(client_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
+    let expires_at: DateTime<Utc> = payload
+        .expires_at
+        .parse()
+        .map_err(|_| CoreError::validation("Invalid expires_at timestamp; expected ISO 8601"))?;
+    let expires_at_system = std::time::SystemTime::from(expires_at);
 
-    if client.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Client not found".to_string()).into());
-    }
-
-    if client.is_deleted() {
-        return Err(CoreError::validation(
-            "Cannot create certificate for deleted client".to_string(),
-        )
-        .into());
-    }
-
-    // Generate Ed25519 key pair
-    tracing::debug!("Generating Ed25519 keypair for certificate");
-    let (public_key_base64, private_key_bytes) = keypair::generate();
-
-    // Encrypt private key for storage
-    tracing::debug!("Loading master key for encryption");
-    let master_key = MasterKey::load_or_generate(&state.config.key_file)?;
-    let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
-
-    tracing::debug!("Encrypting private key");
-    let private_key_encrypted = encryptor.encrypt(&private_key_bytes)?;
-
-    // Generate ID for the certificate
-    tracing::debug!("Generating certificate ID");
-    let cert_id = IdGenerator::next_id();
-
-    // Create certificate entity
-    let cert = ClientCertificate::builder()
-        .id(cert_id)
-        .client_id(client_id)
-        .organization(org_ctx.organization)
-        .public_key(public_key_base64.clone())
-        .private_key_encrypted(private_key_encrypted)
-        .name(payload.name)
-        .created_by_user_id(org_ctx.member.user_id)
-        .create()?;
-
-    tracing::debug!(
-        cert_id = cert.id,
-        client_id = cert.client_id,
-        organization = %org_ctx.organization,
-        kid = %cert.kid,
-        "Created certificate entity with kid"
-    );
-
-    // Save to repository
-    repos.client_certificate.create(cert.clone()).await?;
-
-    tracing::debug!(
-        cert_id = cert.id,
-        kid = %cert.kid,
-        "Certificate saved to repository"
-    );
-
-    // Write public key to Ledger (scoped to the organization)
-    // This enables Engine to validate tokens without Control connectivity
-    let now = Utc::now();
-    let public_signing_key = PublicSigningKey {
-        kid: cert.kid.clone(),
-        public_key: public_key_base64.clone().into(),
-        client_id: client_id.into(),
-        cert_id: cert.id.into(),
-        created_at: now,
-        valid_from: now,
-        valid_until: None,
-        active: true,
-        revoked_at: None,
-        revocation_reason: None,
-    };
-
-    let organization = org_ctx.organization;
-    let signing_key_store = state.signing_keys.clone();
-
-    tracing::debug!(
-        organization = %organization,
-        kid = %cert.kid,
-        "Writing public signing key to Ledger"
-    );
-
-    // Time the Ledger write operation for metrics
-    let ledger_start = std::time::Instant::now();
-    if let Err(e) = signing_key_store.create_key(organization, &public_signing_key).await {
-        tracing::error!(
-            error = %e,
-            kid = %cert.kid,
-            "Failed to write public signing key to Ledger, rolling back Control write"
-        );
-
-        // Compensating transaction: delete the certificate from Control
-        if let Err(rollback_err) = repos.client_certificate.delete(cert.id).await {
-            tracing::error!(
-                error = %rollback_err,
-                cert_id = cert.id,
-                kid = %cert.kid,
-                "Failed to roll back certificate creation in Control — manual intervention required"
-            );
-        }
-
-        return Err(
-            CoreError::internal(format!("Failed to register signing key in Ledger: {e}")).into()
-        );
-    }
-    let ledger_duration = ledger_start.elapsed().as_secs_f64();
-
-    // Record metrics for signing key registration
-    inferadb_control_core::metrics::record_signing_key_registered(organization, ledger_duration);
-
-    tracing::debug!(
-        organization = %organization,
-        kid = %cert.kid,
-        duration_ms = ledger_duration * 1000.0,
-        "Public signing key written to Ledger"
-    );
-
-    // Log audit event for certificate creation
-    log_audit_event(
-        &state,
-        AuditEventType::ClientCertificateCreated,
-        AuditEventParams {
-            organization: Some(org_ctx.organization),
-            user_id: Some(org_ctx.member.user_id),
-            client_id: Some(client_id),
-            resource_type: Some(AuditResourceType::ClientCertificate),
-            resource_id: Some(cert.id),
-            event_data: Some(json!({
-                "kid": cert.kid,
-                "created_by": org_ctx.member.user_id,
-            })),
-            ..Default::default()
-        },
+    let result = service::app::create_app_client_assertion(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        AppSlug::new(client),
+        &payload.name,
+        expires_at_system,
     )
-    .await;
-
-    // Return private key (base64 encoded) - this is the ONLY time it will be available unencrypted
-    let private_key_base64 = BASE64.encode(private_key_bytes.as_slice());
+    .await?;
 
     Ok((
         StatusCode::CREATED,
         Json(CreateCertificateResponse {
-            certificate: CertificateInfo {
-                id: cert.id,
-                kid: cert.kid.clone(),
-                name: cert.name.clone(),
-                public_key: public_key_base64,
-                is_active: cert.revoked_at.is_none() && cert.deleted_at.is_none(),
-                created_at: cert.created_at.to_rfc3339(),
-            },
-            private_key: private_key_base64,
+            certificate: assertion_to_response(&result.assertion),
+            private_key_pem: result.private_key_pem,
         }),
     ))
 }
 
-/// List all certificates for a client
-///
 /// GET /v1/organizations/:org/clients/:client/certificates
-/// Required role: MEMBER or higher
+///
+/// Lists all certificates (client assertions) for a client.
 pub async fn list_certificates(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, client_id)): Path<(OrganizationSlug, u64)>,
+    Extension(claims): Extension<UserClaims>,
+    Path((org, client)): Path<(u64, u64)>,
 ) -> Result<Json<ListCertificatesResponse>> {
-    // Require member role or higher
-    require_member(&org_ctx)?;
+    let ledger = require_ledger(&state)?;
 
-    // Verify client exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let client = repos
-        .client
-        .get(client_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
-
-    if client.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Client not found".to_string()).into());
-    }
-
-    let certs = repos.client_certificate.list_by_client(client_id).await?;
+    let assertions = service::app::list_app_client_assertions(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        AppSlug::new(client),
+    )
+    .await?;
 
     Ok(Json(ListCertificatesResponse {
-        certificates: certs.into_iter().map(cert_to_detail).collect(),
+        certificates: assertions.iter().map(assertion_to_response).collect(),
     }))
 }
 
-/// Get a specific certificate
-///
 /// GET /v1/organizations/:org/clients/:client/certificates/:cert
-/// Required role: MEMBER or higher
+///
+/// Returns details of a specific certificate (client assertion).
 pub async fn get_certificate(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, client_id, cert_id)): Path<(OrganizationSlug, u64, u64)>,
-) -> Result<Json<GetCertificateResponse>> {
-    // Require member role or higher
-    require_member(&org_ctx)?;
+    Extension(claims): Extension<UserClaims>,
+    Path((org, client, cert_id)): Path<(u64, u64, u64)>,
+) -> Result<Json<CertificateResponse>> {
+    let ledger = require_ledger(&state)?;
 
-    // Verify client exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let client = repos
-        .client
-        .get(client_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
+    let assertions = service::app::list_app_client_assertions(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        AppSlug::new(client),
+    )
+    .await?;
 
-    if client.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Client not found".to_string()).into());
-    }
+    let assertion = assertions
+        .iter()
+        .find(|a| a.id.value() == cert_id as i64)
+        .ok_or_else(|| CoreError::not_found("Certificate not found"))?;
 
-    // Get certificate
-    let cert = repos
-        .client_certificate
-        .get(cert_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Certificate not found".to_string()))?;
-
-    // Verify certificate belongs to this client
-    if cert.client_id != client_id {
-        return Err(CoreError::not_found("Certificate not found".to_string()).into());
-    }
-
-    Ok(Json(GetCertificateResponse { certificate: cert_to_detail(cert) }))
+    Ok(Json(assertion_to_response(assertion)))
 }
 
-/// Revoke a certificate
-///
 /// DELETE /v1/organizations/:org/clients/:client/certificates/:cert
-/// Required role: ADMIN or OWNER
 ///
-/// Revokes the certificate, preventing it from being used for authentication.
-/// The certificate record is retained for audit purposes and will be automatically
-/// cleaned up after 90 days by Ledger's TTL-based garbage collector.
-///
-/// This handler:
-/// 1. Marks the certificate as revoked in Control's database
-/// 2. Revokes the public key in Ledger (propagates within cache TTL)
+/// Revokes a certificate (deletes a client assertion).
 pub async fn revoke_certificate(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, client_id, cert_id)): Path<(OrganizationSlug, u64, u64)>,
-) -> Result<Json<RevokeCertificateResponse>> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
+    Extension(claims): Extension<UserClaims>,
+    Path((org, client, cert_id)): Path<(u64, u64, u64)>,
+) -> Result<Json<MessageResponse>> {
+    let ledger = require_ledger(&state)?;
 
-    // Verify client exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let client = repos
-        .client
-        .get(client_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
-
-    if client.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Client not found".to_string()).into());
-    }
-
-    // Get certificate
-    let mut cert = repos
-        .client_certificate
-        .get(cert_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Certificate not found".to_string()))?;
-
-    // Verify certificate belongs to this client
-    if cert.client_id != client_id {
-        return Err(CoreError::not_found("Certificate not found".to_string()).into());
-    }
-
-    if cert.is_revoked() {
-        return Err(CoreError::validation("Certificate is already revoked".to_string()).into());
-    }
-
-    // Revoke the certificate in Control's database
-    cert.mark_revoked(org_ctx.member.user_id);
-    repos.client_certificate.update(cert.clone()).await?;
-
-    // Revoke the public key in Ledger
-    let organization = org_ctx.organization;
-    let signing_key_store = state.signing_keys.clone();
-
-    tracing::debug!(
-        organization = %organization,
-        kid = %cert.kid,
-        "Revoking public signing key in Ledger"
-    );
-
-    // Time the Ledger revoke operation for metrics
-    let ledger_start = std::time::Instant::now();
-    if let Err(e) = signing_key_store
-        .revoke_key(organization, &cert.kid, Some("Certificate revoked by user"))
-        .await
-    {
-        tracing::error!(
-            error = %e,
-            kid = %cert.kid,
-            "Failed to revoke public signing key in Ledger, rolling back Control revocation"
-        );
-
-        // Compensating transaction: restore the certificate to active state in Control
-        cert.revoked_at = None;
-        cert.revoked_by_user_id = None;
-        if let Err(rollback_err) = repos.client_certificate.update(cert).await {
-            tracing::error!(
-                error = %rollback_err,
-                cert_id = cert_id,
-                "Failed to roll back certificate revocation in Control — certificate appears revoked in Control but active in Ledger, manual intervention required"
-            );
-        }
-
-        return Err(
-            CoreError::internal(format!("Failed to revoke signing key in Ledger: {e}")).into()
-        );
-    }
-    let ledger_duration = ledger_start.elapsed().as_secs_f64();
-
-    // Record metrics for signing key revocation
-    inferadb_control_core::metrics::record_signing_key_revoked(
-        organization,
-        "user_requested",
-        ledger_duration,
-    );
-
-    tracing::debug!(
-        organization = %organization,
-        kid = %cert.kid,
-        duration_ms = ledger_duration * 1000.0,
-        "Public signing key revoked in Ledger"
-    );
-
-    // Log audit event for certificate revocation
-    log_audit_event(
-        &state,
-        AuditEventType::ClientCertificateRevoked,
-        AuditEventParams {
-            organization: Some(org_ctx.organization),
-            user_id: Some(org_ctx.member.user_id),
-            client_id: Some(client_id),
-            resource_type: Some(AuditResourceType::ClientCertificate),
-            resource_id: Some(cert_id),
-            event_data: Some(json!({
-                "kid": cert.kid,
-                "revoked_by": org_ctx.member.user_id,
-            })),
-            ..Default::default()
-        },
+    service::app::delete_app_client_assertion(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        AppSlug::new(client),
+        ClientAssertionId::new(cert_id as i64),
     )
-    .await;
+    .await?;
 
-    Ok(Json(RevokeCertificateResponse { message: "Certificate revoked successfully".to_string() }))
+    Ok(Json(MessageResponse { message: "Certificate revoked successfully".to_string() }))
 }
 
-/// Rotate a certificate with a grace period
+/// POST /v1/organizations/:org/clients/:client/certificates/rotate
 ///
-/// POST /v1/organizations/:org/clients/:client/certificates/:cert/rotate
-/// Required role: ADMIN or OWNER
-///
-/// Creates a new certificate that becomes valid after the grace period,
-/// allowing the old certificate to remain valid during the overlap. This
-/// enables zero-downtime key rotation for clients.
-///
-/// The old certificate is not modified and remains valid until it expires
-/// or is explicitly revoked. The new certificate's `valid_from` is set to
-/// `now + grace_period_seconds`.
-///
-/// # Grace Period
-///
-/// The grace period (default: 300 seconds / 5 minutes) gives clients time
-/// to switch to the new certificate. During this period:
-/// - Old certificate: Valid and can be used for authentication
-/// - New certificate: Exists but `valid_from` is in the future
-///
-/// After the grace period:
-/// - Old certificate: Still valid (unless revoked or expired)
-/// - New certificate: Now valid and can be used for authentication
-///
-/// This handler:
-/// 1. Validates the existing certificate exists and is active
-/// 2. Generates a new Ed25519 keypair
-/// 3. Stores the new certificate in Control's database
-/// 4. Writes the new public key to Ledger with `valid_from` in the future
-/// 5. Returns both the new private key and info about the rotated certificate
+/// Rotates the client secret for a client. Returns the new plaintext secret.
 pub async fn rotate_certificate(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, client_id, cert_id)): Path<(OrganizationSlug, u64, u64)>,
-    Json(payload): Json<RotateCertificateRequest>,
-) -> Result<(StatusCode, Json<RotateCertificateResponse>)> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
+    Extension(claims): Extension<UserClaims>,
+    Path((org, client)): Path<(u64, u64)>,
+) -> Result<Json<RotateSecretResponse>> {
+    let ledger = require_ledger(&state)?;
 
-    // Verify client exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let client = repos
-        .client
-        .get(client_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Client not found".to_string()))?;
-
-    if client.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Client not found".to_string()).into());
-    }
-
-    if client.is_deleted() {
-        return Err(CoreError::validation(
-            "Cannot rotate certificate for deleted client".to_string(),
-        )
-        .into());
-    }
-
-    // Get the certificate to rotate
-    let old_cert = repos
-        .client_certificate
-        .get(cert_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Certificate not found".to_string()))?;
-
-    // Verify certificate belongs to this client
-    if old_cert.client_id != client_id {
-        return Err(CoreError::not_found("Certificate not found".to_string()).into());
-    }
-
-    // Cannot rotate a revoked certificate
-    if old_cert.is_revoked() {
-        return Err(CoreError::validation("Cannot rotate a revoked certificate".to_string()).into());
-    }
-
-    // Generate new Ed25519 key pair
-    tracing::debug!("Generating Ed25519 keypair for rotated certificate");
-    let (public_key_base64, private_key_bytes) = keypair::generate();
-
-    // Encrypt private key for storage
-    tracing::debug!("Loading master key for encryption");
-    let master_key = MasterKey::load_or_generate(&state.config.key_file)?;
-    let encryptor = PrivateKeyEncryptor::from_master_key(&master_key)?;
-
-    tracing::debug!("Encrypting private key");
-    let private_key_encrypted = encryptor.encrypt(&private_key_bytes)?;
-
-    // Generate ID for the new certificate
-    tracing::debug!("Generating certificate ID");
-    let new_cert_id = IdGenerator::next_id();
-
-    // Create new certificate entity
-    let new_cert = ClientCertificate::builder()
-        .id(new_cert_id)
-        .client_id(client_id)
-        .organization(org_ctx.organization)
-        .public_key(public_key_base64.clone())
-        .private_key_encrypted(private_key_encrypted)
-        .name(payload.name)
-        .created_by_user_id(org_ctx.member.user_id)
-        .create()?;
-
-    tracing::debug!(
-        new_cert_id = new_cert.id,
-        old_cert_id = old_cert.id,
-        client_id = new_cert.client_id,
-        organization = %org_ctx.organization,
-        kid = %new_cert.kid,
-        grace_period_seconds = payload.grace_period_seconds,
-        "Created rotated certificate entity"
-    );
-
-    // Save new certificate to repository
-    repos.client_certificate.create(new_cert.clone()).await?;
-
-    tracing::debug!(
-        new_cert_id = new_cert.id,
-        kid = %new_cert.kid,
-        "Rotated certificate saved to repository"
-    );
-
-    // Calculate valid_from with grace period
-    let now = Utc::now();
-    let valid_from = now + Duration::seconds(payload.grace_period_seconds as i64);
-
-    // Write public key to Ledger with valid_from in the future
-    let public_signing_key = PublicSigningKey {
-        kid: new_cert.kid.clone(),
-        public_key: public_key_base64.clone().into(),
-        client_id: client_id.into(),
-        cert_id: new_cert.id.into(),
-        created_at: now,
-        valid_from,
-        valid_until: None,
-        active: true,
-        revoked_at: None,
-        revocation_reason: None,
-    };
-
-    let organization = org_ctx.organization;
-    let signing_key_store = state.signing_keys.clone();
-
-    tracing::debug!(
-        organization = %organization,
-        kid = %new_cert.kid,
-        valid_from = %valid_from,
-        "Writing rotated public signing key to Ledger"
-    );
-
-    // Time the Ledger write operation for metrics
-    let ledger_start = std::time::Instant::now();
-    if let Err(e) = signing_key_store.create_key(organization, &public_signing_key).await {
-        tracing::error!(
-            error = %e,
-            kid = %new_cert.kid,
-            "Failed to write rotated public signing key to Ledger, rolling back Control write"
-        );
-
-        // Compensating transaction: delete the new certificate from Control
-        if let Err(rollback_err) = repos.client_certificate.delete(new_cert.id).await {
-            tracing::error!(
-                error = %rollback_err,
-                cert_id = new_cert.id,
-                kid = %new_cert.kid,
-                "Failed to roll back rotated certificate creation in Control — manual intervention required"
-            );
-        }
-
-        return Err(
-            CoreError::internal(format!("Failed to register signing key in Ledger: {e}")).into()
-        );
-    }
-    let ledger_duration = ledger_start.elapsed().as_secs_f64();
-
-    // Record metrics for signing key rotation
-    inferadb_control_core::metrics::record_signing_key_rotated(organization, ledger_duration);
-
-    tracing::info!(
-        organization = %organization,
-        old_kid = %old_cert.kid,
-        new_kid = %new_cert.kid,
-        valid_from = %valid_from,
-        duration_ms = ledger_duration * 1000.0,
-        "Certificate rotated successfully"
-    );
-
-    // Log audit event for certificate rotation
-    log_audit_event(
-        &state,
-        AuditEventType::ClientCertificateRotated,
-        AuditEventParams {
-            organization: Some(org_ctx.organization),
-            user_id: Some(org_ctx.member.user_id),
-            client_id: Some(client_id),
-            resource_type: Some(AuditResourceType::ClientCertificate),
-            resource_id: Some(new_cert.id),
-            event_data: Some(json!({
-                "new_kid": new_cert.kid,
-                "old_kid": old_cert.kid,
-                "old_cert_id": old_cert.id,
-                "grace_period_seconds": payload.grace_period_seconds,
-                "valid_from": valid_from.to_rfc3339(),
-                "rotated_by": org_ctx.member.user_id,
-            })),
-            ..Default::default()
-        },
+    let secret = service::app::rotate_app_client_secret(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        AppSlug::new(client),
     )
-    .await;
+    .await?;
 
-    // Return private key (base64 encoded) - this is the ONLY time it will be available
-    let private_key_base64 = BASE64.encode(private_key_bytes.as_slice());
-
-    Ok((
-        StatusCode::CREATED,
-        Json(RotateCertificateResponse {
-            certificate: CertificateInfo {
-                id: new_cert.id,
-                kid: new_cert.kid.clone(),
-                name: new_cert.name.clone(),
-                public_key: public_key_base64,
-                is_active: true,
-                created_at: new_cert.created_at.to_rfc3339(),
-            },
-            valid_from: valid_from.to_rfc3339(),
-            rotated_from: CertificateInfo {
-                id: old_cert.id,
-                kid: old_cert.kid.clone(),
-                name: old_cert.name.clone(),
-                public_key: old_cert.public_key.clone(),
-                is_active: old_cert.revoked_at.is_none() && old_cert.deleted_at.is_none(),
-                created_at: old_cert.created_at.to_rfc3339(),
-            },
-            private_key: private_key_base64,
-        }),
-    ))
+    Ok(Json(RotateSecretResponse { secret }))
 }

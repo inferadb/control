@@ -1,707 +1,381 @@
+//! Team and team member management handlers.
+//!
+//! All operations delegate to Ledger SDK via the service layer.
+//! Team state (members, roles) is owned by Ledger.
+
 use axum::{
     Extension, Json,
-    extract::{Path, State},
-    http::StatusCode,
+    extract::{Path, Query, State},
 };
-use inferadb_control_core::{IdGenerator, RepositoryContext};
-use inferadb_control_types::{
-    Error as CoreError, OrganizationSlug,
-    dto::{
-        AddTeamMemberRequest, AddTeamMemberResponse, CreateTeamRequest, CreateTeamResponse,
-        DeleteTeamResponse, GrantTeamPermissionRequest, GrantTeamPermissionResponse,
-        ListTeamMembersResponse, ListTeamPermissionsResponse, ListTeamsResponse,
-        RemoveTeamMemberResponse, RevokeTeamPermissionResponse, TeamInfo, TeamMemberInfo,
-        TeamMemberResponse, TeamPermissionInfo, TeamPermissionResponse, TeamResponse,
-        UpdateTeamMemberRequest, UpdateTeamMemberResponse, UpdateTeamRequest, UpdateTeamResponse,
-    },
-    entities::{
-        OrganizationRole, OrganizationTeam, OrganizationTeamMember, OrganizationTeamPermission,
-    },
-};
+use chrono::{DateTime, Utc};
+use inferadb_control_core::service;
+use inferadb_control_types::Error as CoreError;
+use inferadb_ledger_sdk::{TeamMemberRole, TeamSlug};
+use inferadb_ledger_types::{OrganizationSlug, UserSlug};
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    AppState,
-    handlers::auth::Result,
-    middleware::{OrganizationContext, require_admin_or_owner, require_member, require_owner},
+    handlers::auth::{AppState, Result},
+    middleware::UserClaims,
 };
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
+// ── Request Types ─────────────────────────────────────────────────────
 
-fn team_to_response(team: OrganizationTeam) -> TeamResponse {
-    TeamResponse {
-        id: team.id,
-        name: team.name,
-        description: team.description,
-        organization: team.organization,
-        created_at: team.created_at.to_rfc3339(),
-        deleted_at: team.deleted_at.map(|dt| dt.to_rfc3339()),
+/// Request body for creating a team.
+#[derive(Debug, Deserialize)]
+pub struct CreateTeamRequest {
+    pub name: String,
+}
+
+/// Request body for updating a team.
+#[derive(Debug, Deserialize)]
+pub struct UpdateTeamRequest {
+    pub name: Option<String>,
+}
+
+/// Request body for deleting a team.
+#[derive(Debug, Deserialize)]
+pub struct DeleteTeamRequest {
+    /// Optional team slug to move members to before deletion.
+    pub move_members_to: Option<u64>,
+}
+
+/// Request body for adding a team member.
+#[derive(Debug, Deserialize)]
+pub struct AddTeamMemberRequest {
+    pub user: u64,
+    #[serde(default = "default_member_role")]
+    pub role: String,
+}
+
+fn default_member_role() -> String {
+    "member".to_string()
+}
+
+/// Request body for updating a team member's role.
+#[derive(Debug, Deserialize)]
+pub struct UpdateTeamMemberRequest {
+    pub role: String,
+}
+
+/// Pagination query for cursor-based pagination.
+#[derive(Debug, Deserialize)]
+pub struct CursorPaginationQuery {
+    /// Number of items per page (default 50, max 100).
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+    /// Opaque cursor for the next page (base64-encoded).
+    pub page_token: Option<String>,
+}
+
+fn default_page_size() -> u32 {
+    50
+}
+
+impl CursorPaginationQuery {
+    fn validated_page_size(&self) -> u32 {
+        self.page_size.clamp(1, 100)
+    }
+
+    fn decoded_page_token(&self) -> Option<Vec<u8>> {
+        use base64::Engine;
+        self.page_token
+            .as_deref()
+            .and_then(|t| base64::engine::general_purpose::STANDARD.decode(t).ok())
     }
 }
 
-fn team_to_info(team: OrganizationTeam) -> TeamInfo {
-    TeamInfo {
-        id: team.id,
-        name: team.name,
-        description: team.description,
-        organization: team.organization,
-        created_at: team.created_at.to_rfc3339(),
+// ── Response Types ────────────────────────────────────────────────────
+
+/// Team member response.
+#[derive(Debug, Serialize)]
+pub struct TeamMemberResponse {
+    pub user: u64,
+    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub joined_at: Option<String>,
+}
+
+/// Team summary response.
+#[derive(Debug, Serialize)]
+pub struct TeamResponse {
+    pub slug: u64,
+    pub organization: u64,
+    pub name: String,
+    pub members: Vec<TeamMemberResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+/// Wrapper for a single team.
+#[derive(Debug, Serialize)]
+pub struct SingleTeamResponse {
+    pub team: TeamResponse,
+}
+
+/// Paginated list of teams.
+#[derive(Debug, Serialize)]
+pub struct ListTeamsResponse {
+    pub teams: Vec<TeamResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_page_token: Option<String>,
+}
+
+/// List of team members.
+#[derive(Debug, Serialize)]
+pub struct ListTeamMembersResponse {
+    pub members: Vec<TeamMemberResponse>,
+}
+
+/// Simple message response.
+#[derive(Debug, Serialize)]
+pub struct MessageResponse {
+    pub message: String,
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+fn encode_page_token(token: &Option<Vec<u8>>) -> Option<String> {
+    use base64::Engine;
+    token.as_ref().map(|t| base64::engine::general_purpose::STANDARD.encode(t))
+}
+
+fn system_time_to_rfc3339(t: &Option<std::time::SystemTime>) -> Option<String> {
+    t.map(|st| DateTime::<Utc>::from(st).to_rfc3339())
+}
+
+fn parse_team_member_role(s: &str) -> std::result::Result<TeamMemberRole, CoreError> {
+    match s.to_lowercase().as_str() {
+        "manager" => Ok(TeamMemberRole::Manager),
+        "member" => Ok(TeamMemberRole::Member),
+        _ => {
+            Err(CoreError::validation(format!("Invalid role '{s}'. Must be 'manager' or 'member'")))
+        },
     }
 }
 
-fn team_member_to_response(member: OrganizationTeamMember) -> TeamMemberResponse {
+fn team_member_to_response(info: &inferadb_ledger_sdk::TeamMemberInfo) -> TeamMemberResponse {
     TeamMemberResponse {
-        id: member.id,
-        team_id: member.team_id,
-        user_id: member.user_id,
-        manager: member.manager,
-        created_at: member.created_at.to_rfc3339(),
+        user: info.user.value(),
+        role: format!("{:?}", info.role),
+        joined_at: system_time_to_rfc3339(&info.joined_at),
     }
 }
 
-fn team_permission_to_response(permission: OrganizationTeamPermission) -> TeamPermissionResponse {
-    TeamPermissionResponse {
-        id: permission.id,
-        team_id: permission.team_id,
-        permission: permission.permission,
-        granted_at: permission.granted_at.to_rfc3339(),
-        granted_by_user_id: permission.granted_by_user_id,
+fn team_info_to_response(info: &inferadb_ledger_sdk::TeamInfo) -> TeamResponse {
+    TeamResponse {
+        slug: info.slug.value(),
+        organization: info.organization.value(),
+        name: info.name.clone(),
+        members: info.members.iter().map(team_member_to_response).collect(),
+        created_at: system_time_to_rfc3339(&info.created_at),
+        updated_at: system_time_to_rfc3339(&info.updated_at),
     }
 }
 
-// ============================================================================
-// Team Management Endpoints
-// ============================================================================
+// ── Team Handlers ─────────────────────────────────────────────────────
 
-/// Create a new team
-///
 /// POST /v1/organizations/:org/teams
-/// Required role: ADMIN or OWNER
+///
+/// Creates a new team within the organization.
 pub async fn create_team(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
+    Extension(claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
     Json(payload): Json<CreateTeamRequest>,
-) -> Result<(StatusCode, Json<CreateTeamResponse>)> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
+) -> Result<Json<SingleTeamResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    let repos = RepositoryContext::new(state.storage.clone());
+    let info = service::team::create_team(
+        ledger,
+        OrganizationSlug::new(org),
+        &payload.name,
+        claims.user_slug,
+    )
+    .await?;
 
-    // Get organization to check tier limits
-    let organization = repos
-        .org
-        .get(org_ctx.organization)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
-
-    // Check tier limits
-    let current_count = repos.org_team.count_active_by_organization(org_ctx.organization).await?;
-
-    if current_count >= organization.tier.max_teams() {
-        return Err(CoreError::tier_limit(format!(
-            "Team limit reached for tier {:?}. Maximum: {}",
-            organization.tier,
-            organization.tier.max_teams()
-        ))
-        .into());
-    }
-
-    // Generate ID and create team
-    let team_id = IdGenerator::next_id();
-    let team = OrganizationTeam::builder()
-        .id(team_id)
-        .organization(org_ctx.organization)
-        .name(payload.name)
-        .maybe_description(payload.description)
-        .create()?;
-
-    // Store team
-    repos.org_team.create(team.clone()).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(CreateTeamResponse {
-            team: TeamInfo {
-                id: team.id,
-                name: team.name.clone(),
-                description: team.description,
-                organization: team.organization,
-                created_at: team.created_at.to_rfc3339(),
-            },
-        }),
-    ))
+    Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
 
-/// List all teams in an organization
+/// GET /v1/organizations/:org/teams
 ///
-/// GET /v1/organizations/:org/teams?limit=50&offset=0
-/// Required role: MEMBER (all organization members can view teams)
+/// Lists teams in the organization with cursor-based pagination.
 pub async fn list_teams(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    pagination: crate::pagination::PaginationQuery,
+    Extension(claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
+    Query(pagination): Query<CursorPaginationQuery>,
 ) -> Result<Json<ListTeamsResponse>> {
-    // All organization members can view teams
-    require_member(&org_ctx)?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    let params = pagination.0.validate();
+    let (teams, next_token) = service::team::list_teams(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        pagination.validated_page_size(),
+        pagination.decoded_page_token(),
+    )
+    .await?;
 
-    let repos = RepositoryContext::new(state.storage.clone());
-    let all_teams = repos.org_team.list_active_by_organization(org_ctx.organization).await?;
-
-    // Apply pagination
-    let total = all_teams.len();
-    let teams: Vec<TeamResponse> = all_teams
-        .into_iter()
-        .map(team_to_response)
-        .skip(params.offset)
-        .take(params.limit)
-        .collect();
-
-    let pagination_meta = inferadb_control_types::PaginationMeta::from_total(
-        total,
-        params.offset,
-        params.limit,
-        teams.len(),
-    );
-
-    Ok(Json(ListTeamsResponse { teams, pagination: Some(pagination_meta) }))
+    Ok(Json(ListTeamsResponse {
+        teams: teams.iter().map(team_info_to_response).collect(),
+        next_page_token: encode_page_token(&next_token),
+    }))
 }
 
-/// Get team details
-///
 /// GET /v1/organizations/:org/teams/:team
-/// Required role: MEMBER (all organization members)
+///
+/// Returns details of a specific team. Caller must have visibility.
 pub async fn get_team(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
-) -> Result<Json<TeamResponse>> {
-    // All organization members can view team details
-    require_member(&org_ctx)?;
+    Extension(claims): Extension<UserClaims>,
+    Path((_org, team)): Path<(u64, u64)>,
+) -> Result<Json<SingleTeamResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    let repos = RepositoryContext::new(state.storage.clone());
-    let team = repos
-        .org_team
-        .get(team_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
+    let info = service::team::get_team(ledger, TeamSlug::new(team), claims.user_slug).await?;
 
-    // Verify team belongs to the organization
-    if team.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    // Don't return deleted teams
-    if team.is_deleted() {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    Ok(Json(team_to_response(team)))
+    Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
 
-/// Update team name
-///
 /// PATCH /v1/organizations/:org/teams/:team
-/// Required role: ADMIN, OWNER, or team manager
+///
+/// Updates team details. Ledger enforces role requirements.
 pub async fn update_team(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
+    Extension(claims): Extension<UserClaims>,
+    Path((_org, team)): Path<(u64, u64)>,
     Json(payload): Json<UpdateTeamRequest>,
-) -> Result<Json<UpdateTeamResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+) -> Result<Json<SingleTeamResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Get team and verify ownership
-    let mut team = repos
-        .org_team
-        .get(team_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
+    let info = service::team::update_team(
+        ledger,
+        TeamSlug::new(team),
+        claims.user_slug,
+        payload.name.as_deref(),
+    )
+    .await?;
 
-    if team.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    if team.is_deleted() {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    // Check authorization: ADMIN/OWNER or team manager
-    let is_admin_or_owner = org_ctx.member.role == OrganizationRole::Admin
-        || org_ctx.member.role == OrganizationRole::Owner;
-
-    let is_team_manager = if !is_admin_or_owner {
-        repos
-            .org_team_member
-            .get_by_team_and_user(team_id, org_ctx.member.user_id)
-            .await?
-            .map(|m| m.manager)
-            .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if !is_admin_or_owner && !is_team_manager {
-        return Err(CoreError::authz(
-            "Only team managers or organization admins can update teams".to_string(),
-        )
-        .into());
-    }
-
-    // Update team fields
-    if let Some(name) = payload.name {
-        team.set_name(name)?;
-    }
-    if let Some(description) = payload.description {
-        team.set_description(description);
-    }
-    repos.org_team.update(team.clone()).await?;
-
-    Ok(Json(UpdateTeamResponse { team: team_to_info(team) }))
+    Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
 
-/// Delete a team
-///
 /// DELETE /v1/organizations/:org/teams/:team
-/// Required role: ADMIN or OWNER
+///
+/// Deletes a team. Optionally moves members to another team.
+/// Ledger enforces permission checks.
 pub async fn delete_team(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
-) -> Result<Json<DeleteTeamResponse>> {
-    // Require admin or owner
-    require_admin_or_owner(&org_ctx)?;
+    Extension(claims): Extension<UserClaims>,
+    Path((_org, team)): Path<(u64, u64)>,
+    payload: Option<Json<DeleteTeamRequest>>,
+) -> Result<Json<MessageResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    let repos = RepositoryContext::new(state.storage.clone());
+    let move_members_to = payload.and_then(|p| p.0.move_members_to.map(TeamSlug::new));
 
-    // Get team and verify ownership
-    let mut team = repos
-        .org_team
-        .get(team_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
+    service::team::delete_team(ledger, TeamSlug::new(team), claims.user_slug, move_members_to)
+        .await?;
 
-    if team.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    // Soft delete team
-    team.mark_deleted();
-    repos.org_team.update(team).await?;
-
-    // Delete all team members
-    repos.org_team_member.delete_by_team(team_id).await?;
-
-    // Delete all team permissions
-    repos.org_team_permission.delete_by_team(team_id).await?;
-
-    Ok(Json(DeleteTeamResponse { message: "Team deleted successfully".to_string() }))
+    Ok(Json(MessageResponse { message: "Team deleted successfully".to_string() }))
 }
 
-// ============================================================================
-// Team Member Management Endpoints
-// ============================================================================
+// ── Team Member Handlers ──────────────────────────────────────────────
 
-/// Add a member to a team
-///
 /// POST /v1/organizations/:org/teams/:team/members
-/// Required role: ADMIN, OWNER, or team manager
+///
+/// Adds a member to the team. Ledger enforces permission checks.
 pub async fn add_team_member(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
+    Extension(claims): Extension<UserClaims>,
+    Path((_org, team)): Path<(u64, u64)>,
     Json(payload): Json<AddTeamMemberRequest>,
-) -> Result<(StatusCode, Json<AddTeamMemberResponse>)> {
-    let repos = RepositoryContext::new(state.storage.clone());
+) -> Result<Json<SingleTeamResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Get team and verify ownership
-    let team = repos
-        .org_team
-        .get(team_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
+    let role = parse_team_member_role(&payload.role)?;
 
-    if team.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
+    let info = service::team::add_team_member(
+        ledger,
+        TeamSlug::new(team),
+        UserSlug::new(payload.user),
+        role,
+        claims.user_slug,
+    )
+    .await?;
 
-    if team.is_deleted() {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    // Check authorization: ADMIN/OWNER or team manager
-    let is_admin_or_owner = org_ctx.member.role == OrganizationRole::Admin
-        || org_ctx.member.role == OrganizationRole::Owner;
-
-    let is_team_manager = if !is_admin_or_owner {
-        repos
-            .org_team_member
-            .get_by_team_and_user(team_id, org_ctx.member.user_id)
-            .await?
-            .map(|m| m.manager)
-            .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if !is_admin_or_owner && !is_team_manager {
-        return Err(CoreError::authz(
-            "Only team managers or organization admins can add team members".to_string(),
-        )
-        .into());
-    }
-
-    // Verify user is an organization member
-    let _target_member = repos
-        .org_member
-        .get_by_org_and_user(org_ctx.organization, payload.user_id)
-        .await?
-        .ok_or_else(|| {
-            CoreError::validation("User is not a member of this organization".to_string())
-        })?;
-
-    // Create team member
-    let member_id = IdGenerator::next_id();
-    let member = OrganizationTeamMember::new(member_id, team_id, payload.user_id, payload.manager);
-
-    repos.org_team_member.create(member.clone()).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(AddTeamMemberResponse {
-            member: TeamMemberInfo {
-                id: member.id,
-                team_id: member.team_id,
-                user_id: member.user_id,
-                is_manager: member.manager,
-                created_at: member.created_at.to_rfc3339(),
-            },
-        }),
-    ))
+    Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
 
-/// List team members
-///
 /// GET /v1/organizations/:org/teams/:team/members
-/// Required role: MEMBER (all organization members can view)
+///
+/// Lists members of a team by fetching team info and extracting members.
 pub async fn list_team_members(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
+    Extension(claims): Extension<UserClaims>,
+    Path((_org, team)): Path<(u64, u64)>,
 ) -> Result<Json<ListTeamMembersResponse>> {
-    // All organization members can view team members
-    require_member(&org_ctx)?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    let repos = RepositoryContext::new(state.storage.clone());
-
-    // Verify team exists and belongs to organization
-    let team = repos
-        .org_team
-        .get(team_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
-
-    if team.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    if team.is_deleted() {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    // Get team members
-    let members = repos.org_team_member.list_by_team(team_id).await?;
+    let info = service::team::get_team(ledger, TeamSlug::new(team), claims.user_slug).await?;
 
     Ok(Json(ListTeamMembersResponse {
-        members: members.into_iter().map(team_member_to_response).collect(),
+        members: info.members.iter().map(team_member_to_response).collect(),
     }))
 }
 
-/// Update team member (change manager flag)
-///
 /// PATCH /v1/organizations/:org/teams/:team/members/:member
-/// Required role: ADMIN, OWNER, or team manager
+///
+/// Updates a team member's role. Implemented as remove + add with the new role.
 pub async fn update_team_member(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id, member_id)): Path<(OrganizationSlug, u64, u64)>,
+    Extension(claims): Extension<UserClaims>,
+    Path((_org, team, member)): Path<(u64, u64, u64)>,
     Json(payload): Json<UpdateTeamMemberRequest>,
-) -> Result<Json<UpdateTeamMemberResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+) -> Result<Json<SingleTeamResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Get team and verify ownership
-    let team = repos
-        .org_team
-        .get(team_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
+    let role = parse_team_member_role(&payload.role)?;
+    let team_slug = TeamSlug::new(team);
+    let member_slug = UserSlug::new(member);
 
-    if team.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
+    service::team::remove_team_member(ledger, team_slug, member_slug, claims.user_slug).await?;
 
-    if team.is_deleted() {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
+    let info =
+        service::team::add_team_member(ledger, team_slug, member_slug, role, claims.user_slug)
+            .await?;
 
-    // Check authorization: ADMIN/OWNER or team manager
-    let is_admin_or_owner = org_ctx.member.role == OrganizationRole::Admin
-        || org_ctx.member.role == OrganizationRole::Owner;
-
-    let is_team_manager = if !is_admin_or_owner {
-        repos
-            .org_team_member
-            .get_by_team_and_user(team_id, org_ctx.member.user_id)
-            .await?
-            .map(|m| m.manager)
-            .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if !is_admin_or_owner && !is_team_manager {
-        return Err(CoreError::authz(
-            "Only team managers or organization admins can update team members".to_string(),
-        )
-        .into());
-    }
-
-    // Get and update member
-    let mut member = repos
-        .org_team_member
-        .get(member_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team member not found".to_string()))?;
-
-    if member.team_id != team_id {
-        return Err(CoreError::not_found("Team member not found".to_string()).into());
-    }
-
-    member.set_manager(payload.manager);
-    repos.org_team_member.update(member.clone()).await?;
-
-    Ok(Json(UpdateTeamMemberResponse { id: member.id, manager: member.manager }))
+    Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
 
-/// Remove a member from a team
-///
 /// DELETE /v1/organizations/:org/teams/:team/members/:member
-/// Required role: ADMIN, OWNER, or team manager
+///
+/// Removes a member from the team. Ledger enforces permission checks.
 pub async fn remove_team_member(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id, member_id)): Path<(OrganizationSlug, u64, u64)>,
-) -> Result<Json<RemoveTeamMemberResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+    Extension(claims): Extension<UserClaims>,
+    Path((_org, team, member)): Path<(u64, u64, u64)>,
+) -> Result<Json<MessageResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Get team and verify ownership
-    let team = repos
-        .org_team
-        .get(team_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
+    service::team::remove_team_member(
+        ledger,
+        TeamSlug::new(team),
+        UserSlug::new(member),
+        claims.user_slug,
+    )
+    .await?;
 
-    if team.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    if team.is_deleted() {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    // Check authorization: ADMIN/OWNER or team manager
-    let is_admin_or_owner = org_ctx.member.role == OrganizationRole::Admin
-        || org_ctx.member.role == OrganizationRole::Owner;
-
-    let is_team_manager = if !is_admin_or_owner {
-        repos
-            .org_team_member
-            .get_by_team_and_user(team_id, org_ctx.member.user_id)
-            .await?
-            .map(|m| m.manager)
-            .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if !is_admin_or_owner && !is_team_manager {
-        return Err(CoreError::authz(
-            "Only team managers or organization admins can remove team members".to_string(),
-        )
-        .into());
-    }
-
-    // Get and delete member
-    let member = repos
-        .org_team_member
-        .get(member_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team member not found".to_string()))?;
-
-    if member.team_id != team_id {
-        return Err(CoreError::not_found("Team member not found".to_string()).into());
-    }
-
-    repos.org_team_member.delete(member_id).await?;
-
-    Ok(Json(RemoveTeamMemberResponse { message: "Team member removed successfully".to_string() }))
-}
-
-// ============================================================================
-// Team Permission Management Endpoints
-// ============================================================================
-
-/// Grant a permission to a team
-///
-/// POST /v1/organizations/:org/teams/:team/permissions
-/// Required role: OWNER
-pub async fn grant_team_permission(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
-    Json(payload): Json<GrantTeamPermissionRequest>,
-) -> Result<(StatusCode, Json<GrantTeamPermissionResponse>)> {
-    // Only owners can grant permissions
-    require_owner(&org_ctx)?;
-
-    let repos = RepositoryContext::new(state.storage.clone());
-
-    // Get team and verify ownership
-    let team = repos
-        .org_team
-        .get(team_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
-
-    if team.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    if team.is_deleted() {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    // Create team permission
-    let permission_id = IdGenerator::next_id();
-    let permission = OrganizationTeamPermission::new(
-        permission_id,
-        team_id,
-        payload.permission,
-        org_ctx.member.user_id,
-    );
-
-    repos.org_team_permission.create(permission.clone()).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(GrantTeamPermissionResponse {
-            permission: TeamPermissionInfo {
-                id: permission.id,
-                team_id: permission.team_id,
-                permission: permission.permission,
-                granted_at: permission.granted_at.to_rfc3339(),
-                granted_by_user_id: permission.granted_by_user_id,
-            },
-        }),
-    ))
-}
-
-/// List team permissions
-///
-/// GET /v1/organizations/:org/teams/:team/permissions
-/// Required role: ADMIN, OWNER, or team member
-pub async fn list_team_permissions(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id)): Path<(OrganizationSlug, u64)>,
-) -> Result<Json<ListTeamPermissionsResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
-
-    // Verify team exists and belongs to organization
-    let team = repos
-        .org_team
-        .get(team_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
-
-    if team.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    if team.is_deleted() {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    // Check authorization: ADMIN/OWNER or team member
-    let is_admin_or_owner = org_ctx.member.role == OrganizationRole::Admin
-        || org_ctx.member.role == OrganizationRole::Owner;
-
-    let is_team_member = if !is_admin_or_owner {
-        repos.org_team_member.get_by_team_and_user(team_id, org_ctx.member.user_id).await?.is_some()
-    } else {
-        false
-    };
-
-    if !is_admin_or_owner && !is_team_member {
-        return Err(CoreError::authz(
-            "Only team members or organization admins can view team permissions".to_string(),
-        )
-        .into());
-    }
-
-    // Get team permissions
-    let permissions = repos.org_team_permission.list_by_team(team_id).await?;
-
-    Ok(Json(ListTeamPermissionsResponse {
-        permissions: permissions.into_iter().map(team_permission_to_response).collect(),
-    }))
-}
-
-/// Revoke a permission from a team
-///
-/// DELETE /v1/organizations/:org/teams/:team/permissions/:permission
-/// Required role: OWNER
-pub async fn revoke_team_permission(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, team_id, permission_id)): Path<(OrganizationSlug, u64, u64)>,
-) -> Result<Json<RevokeTeamPermissionResponse>> {
-    // Only owners can revoke permissions
-    require_owner(&org_ctx)?;
-
-    let repos = RepositoryContext::new(state.storage.clone());
-
-    // Get team and verify ownership
-    let team = repos
-        .org_team
-        .get(team_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team not found".to_string()))?;
-
-    if team.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    if team.is_deleted() {
-        return Err(CoreError::not_found("Team not found".to_string()).into());
-    }
-
-    // Get and delete permission
-    let permission = repos
-        .org_team_permission
-        .get(permission_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Team permission not found".to_string()))?;
-
-    if permission.team_id != team_id {
-        return Err(CoreError::not_found("Team permission not found".to_string()).into());
-    }
-
-    repos.org_team_permission.delete(permission_id).await?;
-
-    Ok(Json(RevokeTeamPermissionResponse {
-        message: "Team permission revoked successfully".to_string(),
-    }))
+    Ok(Json(MessageResponse { message: "Team member removed successfully".to_string() }))
 }

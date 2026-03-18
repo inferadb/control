@@ -21,25 +21,7 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
     // NOTE: Org/member/invitation routes have been moved to jwt_protected below.
     // These remaining routes still use the old session middleware.
     let org_scoped = Router::new()
-        // Client management routes
-        .route("/control/v1/organizations/{org}/clients", post(clients::create_client))
-        .route("/control/v1/organizations/{org}/clients", get(clients::list_clients))
-        .route("/control/v1/organizations/{org}/clients/{client}", get(clients::get_client))
-        .route("/control/v1/organizations/{org}/clients/{client}", patch(clients::update_client))
-        .route("/control/v1/organizations/{org}/clients/{client}", delete(clients::delete_client))
-        // Certificate management routes
-        .route(
-            "/control/v1/organizations/{org}/clients/{client}/certificates",
-            post(clients::create_certificate).get(clients::list_certificates),
-        )
-        .route(
-            "/control/v1/organizations/{org}/clients/{client}/certificates/{cert}",
-            get(clients::get_certificate).delete(clients::revoke_certificate),
-        )
-        .route(
-            "/control/v1/organizations/{org}/clients/{client}/certificates/{cert}/rotate",
-            post(clients::rotate_certificate),
-        )
+        // Client routes moved to jwt_protected
         // Vault management routes
         .route("/control/v1/organizations/{org}/vaults", post(vaults::create_vault))
         .route("/control/v1/organizations/{org}/vaults", get(vaults::list_vaults))
@@ -113,39 +95,7 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         )
         // Audit log routes (OWNER only)
         .route("/control/v1/organizations/{org}/audit-logs", get(audit_logs::list_audit_logs))
-        // Team management routes
-        .route("/control/v1/organizations/{org}/teams", post(teams::create_team))
-        .route("/control/v1/organizations/{org}/teams", get(teams::list_teams))
-        .route("/control/v1/organizations/{org}/teams/{team}", get(teams::get_team))
-        .route("/control/v1/organizations/{org}/teams/{team}", patch(teams::update_team))
-        .route("/control/v1/organizations/{org}/teams/{team}", delete(teams::delete_team))
-        // Team member routes
-        .route("/control/v1/organizations/{org}/teams/{team}/members", post(teams::add_team_member))
-        .route(
-            "/control/v1/organizations/{org}/teams/{team}/members",
-            get(teams::list_team_members),
-        )
-        .route(
-            "/control/v1/organizations/{org}/teams/{team}/members/{member}",
-            patch(teams::update_team_member),
-        )
-        .route(
-            "/control/v1/organizations/{org}/teams/{team}/members/{member}",
-            delete(teams::remove_team_member),
-        )
-        // Team permission routes
-        .route(
-            "/control/v1/organizations/{org}/teams/{team}/permissions",
-            post(teams::grant_team_permission),
-        )
-        .route(
-            "/control/v1/organizations/{org}/teams/{team}/permissions",
-            get(teams::list_team_permissions),
-        )
-        .route(
-            "/control/v1/organizations/{org}/teams/{team}/permissions/{permission}",
-            delete(teams::revoke_team_permission),
-        )
+        // Team routes moved to jwt_protected
         .with_state(state.clone())
         .route_layer(middleware::from_fn_with_state(state.clone(), require_organization_member))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_session));
@@ -208,10 +158,7 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             delete(organizations::delete_invitation),
         )
         // User invitations
-        .route(
-            "/control/v1/users/me/invitations",
-            get(organizations::list_received_invitations),
-        )
+        .route("/control/v1/users/me/invitations", get(organizations::list_received_invitations))
         .route(
             "/control/v1/users/me/invitations/{invitation}/accept",
             post(organizations::accept_invitation),
@@ -219,6 +166,45 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route(
             "/control/v1/users/me/invitations/{invitation}/decline",
             post(organizations::decline_invitation),
+        )
+        // Team management
+        .route("/control/v1/organizations/{org}/teams", post(teams::create_team))
+        .route("/control/v1/organizations/{org}/teams", get(teams::list_teams))
+        .route("/control/v1/organizations/{org}/teams/{team}", get(teams::get_team))
+        .route("/control/v1/organizations/{org}/teams/{team}", patch(teams::update_team))
+        .route("/control/v1/organizations/{org}/teams/{team}", delete(teams::delete_team))
+        // Team members
+        .route("/control/v1/organizations/{org}/teams/{team}/members", post(teams::add_team_member))
+        .route(
+            "/control/v1/organizations/{org}/teams/{team}/members",
+            get(teams::list_team_members),
+        )
+        .route(
+            "/control/v1/organizations/{org}/teams/{team}/members/{member}",
+            patch(teams::update_team_member),
+        )
+        .route(
+            "/control/v1/organizations/{org}/teams/{team}/members/{member}",
+            delete(teams::remove_team_member),
+        )
+        // Client/App management
+        .route("/control/v1/organizations/{org}/clients", post(clients::create_client))
+        .route("/control/v1/organizations/{org}/clients", get(clients::list_clients))
+        .route("/control/v1/organizations/{org}/clients/{client}", get(clients::get_client))
+        .route("/control/v1/organizations/{org}/clients/{client}", patch(clients::update_client))
+        .route("/control/v1/organizations/{org}/clients/{client}", delete(clients::delete_client))
+        // Certificate/Assertion management
+        .route(
+            "/control/v1/organizations/{org}/clients/{client}/certificates",
+            post(clients::create_certificate).get(clients::list_certificates),
+        )
+        .route(
+            "/control/v1/organizations/{org}/clients/{client}/certificates/{cert}",
+            get(clients::get_certificate).delete(clients::revoke_certificate),
+        )
+        .route(
+            "/control/v1/organizations/{org}/clients/{client}/certificates/{cert}/rotate",
+            post(clients::rotate_certificate),
         )
         .route_layer(middleware::from_fn_with_state(state.clone(), require_jwt))
         .with_state(state.clone());
