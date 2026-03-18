@@ -18,84 +18,11 @@ use crate::{
 /// accessible without authentication.
 pub fn create_router_with_state(state: AppState) -> axum::Router {
     // Routes that need organization context (session + org membership)
-    // NOTE: Org/member/invitation routes have been moved to jwt_protected below.
+    // NOTE: Most org-scoped routes have been moved to jwt_protected.
     // These remaining routes still use the old session middleware.
     let org_scoped = Router::new()
-        // Client routes moved to jwt_protected
-        // Vault management routes
-        .route("/control/v1/organizations/{org}/vaults", post(vaults::create_vault))
-        .route("/control/v1/organizations/{org}/vaults", get(vaults::list_vaults))
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}",
-            get(vaults::get_vault).patch(vaults::update_vault).delete(vaults::delete_vault),
-        )
-        // Vault user grant routes
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/user-grants",
-            post(vaults::create_user_grant),
-        )
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/user-grants",
-            get(vaults::list_user_grants),
-        )
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/user-grants/{grant}",
-            patch(vaults::update_user_grant),
-        )
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/user-grants/{grant}",
-            delete(vaults::delete_user_grant),
-        )
-        // Vault team grant routes
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/team-grants",
-            post(vaults::create_team_grant),
-        )
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/team-grants",
-            get(vaults::list_team_grants),
-        )
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/team-grants/{grant}",
-            patch(vaults::update_team_grant),
-        )
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/team-grants/{grant}",
-            delete(vaults::delete_team_grant),
-        )
-        // Schema management routes
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/schemas",
-            post(schemas::deploy_schema).get(schemas::list_schemas),
-        )
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/schemas/current",
-            get(schemas::get_current_schema),
-        )
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/schemas/diff",
-            get(schemas::diff_schemas),
-        )
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/schemas/rollback",
-            post(schemas::rollback_schema),
-        )
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/schemas/{version}",
-            get(schemas::get_schema),
-        )
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate",
-            post(schemas::activate_schema),
-        )
-        // Vault token generation route
-        .route(
-            "/control/v1/organizations/{org}/vaults/{vault}/tokens",
-            post(tokens::generate_vault_token),
-        )
         // Audit log routes (OWNER only)
         .route("/control/v1/organizations/{org}/audit-logs", get(audit_logs::list_audit_logs))
-        // Team routes moved to jwt_protected
         .with_state(state.clone())
         .route_layer(middleware::from_fn_with_state(state.clone(), require_organization_member))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_session));
@@ -106,8 +33,6 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/control/v1/users/sessions", get(sessions::list_sessions))
         .route("/control/v1/users/sessions/{id}", delete(sessions::revoke_session))
         .route("/control/v1/users/sessions/revoke-others", post(sessions::revoke_other_sessions))
-        // Token revocation routes
-        .route("/control/v1/tokens/revoke/vault/{vault}", post(tokens::revoke_vault_tokens))
         // Email management routes
         .route("/control/v1/users/emails", post(emails::add_email))
         .route("/control/v1/users/emails", get(emails::list_emails))
@@ -206,12 +131,45 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/control/v1/organizations/{org}/clients/{client}/certificates/{cert}/rotate",
             post(clients::rotate_certificate),
         )
+        // Vault management
+        .route("/control/v1/organizations/{org}/vaults", post(vaults::create_vault))
+        .route("/control/v1/organizations/{org}/vaults", get(vaults::list_vaults))
+        .route(
+            "/control/v1/organizations/{org}/vaults/{vault}",
+            get(vaults::get_vault).patch(vaults::update_vault).delete(vaults::delete_vault),
+        )
+        // Vault token generation and revocation
+        .route(
+            "/control/v1/organizations/{org}/vaults/{vault}/tokens",
+            post(tokens::generate_vault_token).delete(tokens::revoke_vault_tokens),
+        )
+        // Schema management (stubs)
+        .route(
+            "/control/v1/organizations/{org}/vaults/{vault}/schemas",
+            post(schemas::deploy_schema).get(schemas::list_schemas),
+        )
+        .route(
+            "/control/v1/organizations/{org}/vaults/{vault}/schemas/current",
+            get(schemas::get_current_schema),
+        )
+        .route(
+            "/control/v1/organizations/{org}/vaults/{vault}/schemas/diff",
+            get(schemas::diff_schemas),
+        )
+        .route(
+            "/control/v1/organizations/{org}/vaults/{vault}/schemas/rollback",
+            post(schemas::rollback_schema),
+        )
+        .route(
+            "/control/v1/organizations/{org}/vaults/{vault}/schemas/{version}",
+            get(schemas::get_schema),
+        )
+        .route(
+            "/control/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate",
+            post(schemas::activate_schema),
+        )
         .route_layer(middleware::from_fn_with_state(state.clone(), require_jwt))
         .with_state(state.clone());
-
-    // Rate-limited authentication routes (separate routers to avoid cross-contamination)
-    // Legacy rate-limited routes removed (password auth dropped).
-    // Email-code auth is in the public routes above.
 
     // Combine public, protected, and org-scoped routes
     Router::new()

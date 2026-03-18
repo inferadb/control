@@ -1,678 +1,211 @@
+//! Vault management handlers.
+//!
+//! All operations delegate to Ledger SDK via the service layer.
+//! Vault state (access, tokens) is owned by Ledger; direct user/team grants
+//! are not a concept in the Ledger model (access is managed via app-vault connections).
+
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
-use inferadb_control_core::{IdGenerator, RepositoryContext};
-use inferadb_control_types::{
-    Error as CoreError, OrganizationSlug, VaultSlug,
-    dto::{
-        CreateTeamGrantRequest, CreateTeamGrantResponse, CreateUserGrantRequest,
-        CreateUserGrantResponse, CreateVaultRequest, CreateVaultResponse, DeleteTeamGrantResponse,
-        ListTeamGrantsResponse, ListUserGrantsResponse, ListVaultsResponse, TeamGrantResponse,
-        UpdateTeamGrantRequest, UpdateTeamGrantResponse, UpdateUserGrantRequest,
-        UpdateUserGrantResponse, UpdateVaultRequest, UpdateVaultResponse, UserGrantResponse,
-        VaultInfo, VaultResponse,
-    },
-    entities::{Vault, VaultRole, VaultTeamGrant, VaultUserGrant},
-};
+use inferadb_control_core::service;
+use inferadb_control_types::Error as CoreError;
+use inferadb_ledger_sdk::{OrganizationSlug, VaultSlug};
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    AppState,
-    handlers::auth::Result,
-    middleware::{OrganizationContext, require_admin_or_owner, require_member},
+    handlers::auth::{AppState, Result},
+    middleware::UserClaims,
 };
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
+// ── Request Types ─────────────────────────────────────────────────────
 
-fn vault_to_response(vault: Vault) -> VaultResponse {
+/// Pagination query for cursor-based pagination.
+#[derive(Debug, Deserialize)]
+pub struct CursorPaginationQuery {
+    /// Number of items per page (default 50, max 100).
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+    /// Opaque cursor for the next page (base64-encoded).
+    pub page_token: Option<String>,
+}
+
+fn default_page_size() -> u32 {
+    50
+}
+
+impl CursorPaginationQuery {
+    fn validated_page_size(&self) -> u32 {
+        self.page_size.clamp(1, 100)
+    }
+
+    fn decoded_page_token(&self) -> Option<Vec<u8>> {
+        use base64::Engine;
+        self.page_token
+            .as_deref()
+            .and_then(|t| base64::engine::general_purpose::STANDARD.decode(t).ok())
+    }
+}
+
+// ── Response Types ────────────────────────────────────────────────────
+
+/// Vault summary response.
+#[derive(Debug, Serialize)]
+pub struct VaultResponse {
+    pub organization: u64,
+    pub vault: u64,
+    pub height: u64,
+    pub status: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub nodes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leader: Option<String>,
+}
+
+/// Wrapper for a single vault.
+#[derive(Debug, Serialize)]
+pub struct SingleVaultResponse {
+    pub vault: VaultResponse,
+}
+
+/// Paginated list of vaults.
+#[derive(Debug, Serialize)]
+pub struct ListVaultsResponse {
+    pub vaults: Vec<VaultResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_page_token: Option<String>,
+}
+
+/// Simple message response.
+#[derive(Debug, Serialize)]
+pub struct MessageResponse {
+    pub message: String,
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+fn vault_info_to_response(info: inferadb_ledger_sdk::VaultInfo) -> VaultResponse {
     VaultResponse {
-        id: vault.id,
-        name: vault.name,
-        description: vault.description,
-        organization: vault.organization,
-        sync_status: vault.sync_status,
-        sync_error: vault.sync_error,
-        created_at: vault.created_at.to_rfc3339(),
-        updated_at: vault.updated_at.to_rfc3339(),
-        deleted_at: vault.deleted_at.map(|dt| dt.to_rfc3339()),
+        organization: info.organization.value(),
+        vault: info.vault.value(),
+        height: info.height,
+        status: format!("{:?}", info.status),
+        nodes: info.nodes,
+        leader: info.leader,
     }
 }
 
-fn user_grant_to_response(grant: VaultUserGrant) -> UserGrantResponse {
-    UserGrantResponse {
-        id: grant.id,
-        vault: grant.vault,
-        user_id: grant.user_id,
-        role: grant.role,
-        granted_at: grant.granted_at.to_rfc3339(),
-        granted_by_user_id: grant.granted_by_user_id,
-    }
+fn require_ledger(
+    state: &AppState,
+) -> std::result::Result<&inferadb_ledger_sdk::LedgerClient, CoreError> {
+    state.ledger.as_deref().ok_or_else(|| CoreError::internal("Ledger client not configured"))
 }
 
-fn team_grant_to_response(grant: VaultTeamGrant) -> TeamGrantResponse {
-    TeamGrantResponse {
-        id: grant.id,
-        vault: grant.vault,
-        team_id: grant.team_id,
-        role: grant.role,
-        granted_at: grant.granted_at.to_rfc3339(),
-        granted_by_user_id: grant.granted_by_user_id,
-    }
-}
+// ── Vault CRUD Handlers ──────────────────────────────────────────────
 
-// ============================================================================
-// Vault Management Endpoints
-// ============================================================================
-
-/// Create a new vault
+/// Create a new vault in an organization.
 ///
-/// POST /v1/organizations/:org/vaults
-/// Required role: ADMIN or OWNER
+/// POST /control/v1/organizations/{org}/vaults
 pub async fn create_vault(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Json(payload): Json<CreateVaultRequest>,
-) -> Result<(StatusCode, Json<CreateVaultResponse>)> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
+    Extension(_claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
+) -> Result<(StatusCode, Json<SingleVaultResponse>)> {
+    let ledger = require_ledger(&state)?;
+    let organization = OrganizationSlug::new(org);
 
-    // Verify organization exists and get tier
-    let repos = RepositoryContext::new(state.storage.clone());
-    let organization = repos
-        .org
-        .get(org_ctx.organization)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
+    let info = service::vault::create_vault(ledger, organization).await?;
 
-    // Check tier limits
-    let current_count = repos.vault.count_active_by_organization(org_ctx.organization).await?;
-
-    if current_count >= organization.tier.max_vaults() {
-        return Err(CoreError::tier_limit(format!(
-            "Vault limit reached for tier {:?}. Maximum: {}",
-            organization.tier,
-            organization.tier.max_vaults()
-        ))
-        .into());
-    }
-
-    // Generate ID for the vault
-    let vault = VaultSlug::from(IdGenerator::next_id());
-
-    // Create vault entity (starts with PENDING sync status)
-    let mut vault = Vault::builder()
-        .id(vault)
-        .organization(org_ctx.organization)
-        .name(payload.name)
-        .maybe_description(payload.description.clone())
-        .created_by_user_id(org_ctx.member.user_id)
-        .create()?;
-
-    // Mark as synced immediately - Ledger is the source of truth
-    vault.mark_synced();
-
-    // Save to repository (writes to Ledger)
-    repos.vault.create(vault.clone()).await?;
-
-    // Auto-grant creator ADMIN role
-    let grant_id = IdGenerator::next_id();
-    let grant = VaultUserGrant::new(
-        grant_id,
-        vault.id,
-        org_ctx.member.user_id,
-        VaultRole::Admin,
-        org_ctx.member.user_id,
-    );
-    repos.vault_user_grant.create(grant).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(CreateVaultResponse {
-            vault: VaultInfo {
-                id: vault.id,
-                name: vault.name,
-                description: vault.description,
-                organization: vault.organization,
-                sync_status: vault.sync_status,
-                created_at: vault.created_at.to_rfc3339(),
-            },
-        }),
-    ))
+    Ok((StatusCode::CREATED, Json(SingleVaultResponse { vault: vault_info_to_response(info) })))
 }
 
-/// List all vaults in an organization
+/// List vaults (paginated).
 ///
-/// GET /v1/organizations/:org/vaults?limit=50&offset=0
-/// Required role: MEMBER or higher
+/// GET /control/v1/organizations/{org}/vaults
 pub async fn list_vaults(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    pagination: crate::pagination::PaginationQuery,
+    Extension(_claims): Extension<UserClaims>,
+    Path(_org): Path<u64>,
+    Query(pagination): Query<CursorPaginationQuery>,
 ) -> Result<Json<ListVaultsResponse>> {
-    // Require member role or higher
-    require_member(&org_ctx)?;
+    let ledger = require_ledger(&state)?;
 
-    let params = pagination.0.validate();
+    let (vaults, next_token) = service::vault::list_vaults(
+        ledger,
+        pagination.validated_page_size(),
+        pagination.decoded_page_token(),
+    )
+    .await?;
 
-    let repos = RepositoryContext::new(state.storage.clone());
-    let all_vaults = repos.vault.list_active_by_organization(org_ctx.organization).await?;
+    let next_page_token = next_token.map(|t| {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(t)
+    });
 
-    // Apply pagination
-    let total = all_vaults.len();
-    let vaults: Vec<VaultResponse> = all_vaults
-        .into_iter()
-        .map(vault_to_response)
-        .skip(params.offset)
-        .take(params.limit)
-        .collect();
-
-    let pagination_meta = inferadb_control_types::PaginationMeta::from_total(
-        total,
-        params.offset,
-        params.limit,
-        vaults.len(),
-    );
-
-    Ok(Json(ListVaultsResponse { vaults, pagination: Some(pagination_meta) }))
+    Ok(Json(ListVaultsResponse {
+        vaults: vaults.into_iter().map(vault_info_to_response).collect(),
+        next_page_token,
+    }))
 }
 
-/// Get a specific vault
+/// Get a vault by organization and vault slug.
 ///
-/// GET /v1/organizations/:org/vaults/:vault
-/// Required role: MEMBER or higher
+/// GET /control/v1/organizations/{org}/vaults/{vault}
 pub async fn get_vault(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
-) -> Result<Json<VaultResponse>> {
-    // Require member role or higher
-    require_member(&org_ctx)?;
+    Extension(_claims): Extension<UserClaims>,
+    Path((org, vault)): Path<(u64, u64)>,
+) -> Result<Json<SingleVaultResponse>> {
+    let ledger = require_ledger(&state)?;
+    let organization = OrganizationSlug::new(org);
+    let vault_slug = VaultSlug::new(vault);
 
-    let repos = RepositoryContext::new(state.storage.clone());
-    let vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
+    let info = service::vault::get_vault(ledger, organization, vault_slug).await?;
 
-    // Verify vault belongs to this organization
-    if vault.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    // Don't return deleted vaults
-    if vault.is_deleted() {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    Ok(Json(vault_to_response(vault)))
+    Ok(Json(SingleVaultResponse { vault: vault_info_to_response(info) }))
 }
 
-/// Get a specific vault by ID (engine-to-control endpoint)
+/// Get a vault by ID (engine-to-control endpoint, no org context needed).
 ///
-/// GET /v1/vaults/:vault
-/// Auth: Session or Engine JWT (dual authentication)
+/// GET /control/v1/vaults/{vault}
 ///
-/// This endpoint is used by the Engine to verify vault ownership and metadata.
-/// Unlike the organization-scoped endpoint, this uses the vault ID directly without
-/// requiring organization context.
+/// The Ledger SDK requires both organization and vault slugs. This endpoint
+/// returns 501 until the SDK supports vault lookup by slug alone.
 pub async fn get_vault_by_id(
-    State(state): State<AppState>,
-    Path(vault): Path<VaultSlug>,
-) -> Result<Json<VaultResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
-    let vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
-
-    // Don't return deleted vaults
-    if vault.is_deleted() {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    Ok(Json(vault_to_response(vault)))
+    State(_state): State<AppState>,
+    Path(_vault): Path<u64>,
+) -> Result<Json<MessageResponse>> {
+    Err(CoreError::internal("vault lookup by ID without organization context is not yet supported")
+        .into())
 }
 
-/// Update a vault
+/// Update a vault.
 ///
-/// PATCH /v1/organizations/:org/vaults/:vault
-/// Required role: ADMIN or OWNER
+/// PATCH /control/v1/organizations/{org}/vaults/{vault}
 pub async fn update_vault(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
-    Json(payload): Json<UpdateVaultRequest>,
-) -> Result<Json<UpdateVaultResponse>> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
+    Extension(_claims): Extension<UserClaims>,
+    Path((org, vault)): Path<(u64, u64)>,
+) -> Result<Json<MessageResponse>> {
+    let ledger = require_ledger(&state)?;
+    let organization = OrganizationSlug::new(org);
+    let vault_slug = VaultSlug::new(vault);
 
-    let repos = RepositoryContext::new(state.storage.clone());
-    let mut vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
+    service::vault::update_vault(ledger, organization, vault_slug).await?;
 
-    // Verify vault belongs to this organization
-    if vault.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    // Validate and update name
-    Vault::validate_name(&payload.name)?;
-    vault.name = payload.name.clone();
-
-    // Update description if provided
-    if let Some(desc) = payload.description.clone() {
-        vault.description = desc;
-    }
-
-    // Save changes
-    repos.vault.update(vault.clone()).await?;
-
-    Ok(Json(UpdateVaultResponse {
-        vault: VaultInfo {
-            id: vault.id,
-            name: vault.name,
-            description: vault.description,
-            organization: vault.organization,
-            sync_status: vault.sync_status,
-            created_at: vault.created_at.to_rfc3339(),
-        },
-    }))
+    Ok(Json(MessageResponse { message: "Vault updated".to_string() }))
 }
 
-/// Delete a vault (soft delete)
+/// Delete a vault.
 ///
-/// DELETE /v1/organizations/:org/vaults/:vault
-/// Required role: ADMIN or OWNER
+/// DELETE /control/v1/organizations/{org}/vaults/{vault}
 ///
-/// Cascade deletes:
-/// - All user grants for this vault
-/// - All team grants for this vault
+/// Vault deletion is not yet supported by the Ledger SDK.
 pub async fn delete_vault(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
-) -> Result<StatusCode> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
-
-    let repos = RepositoryContext::new(state.storage.clone());
-
-    let mut vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
-
-    // Verify vault belongs to this organization
-    if vault.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    // VALIDATION: Check for active refresh tokens before allowing deletion
-    let tokens = repos.vault_refresh_token.list_by_vault(vault.id).await?;
-    let active_token_count = tokens.iter().filter(|t| !t.is_expired() && !t.is_revoked()).count();
-
-    if active_token_count > 0 {
-        return Err(CoreError::validation(format!(
-            "Cannot delete vault with {} active refresh token{}. Please revoke all tokens first.",
-            active_token_count,
-            if active_token_count == 1 { "" } else { "s" }
-        ))
-        .into());
-    }
-
-    // CASCADE DELETE: Delete all vault user grants
-    let user_grants = repos.vault_user_grant.list_by_vault(vault.id).await?;
-    for grant in user_grants {
-        repos.vault_user_grant.delete(grant.id).await?;
-    }
-
-    // CASCADE DELETE: Delete all vault team grants
-    let team_grants = repos.vault_team_grant.list_by_vault(vault.id).await?;
-    for grant in team_grants {
-        repos.vault_team_grant.delete(grant.id).await?;
-    }
-
-    // Soft delete (Ledger is the source of truth)
-    vault.mark_deleted();
-    repos.vault.update(vault).await?;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-// ============================================================================
-// User Grant Endpoints
-// ============================================================================
-
-/// Create a user grant for a vault
-///
-/// POST /v1/organizations/:org/vaults/:vault/user-grants
-/// Required role: ADMIN or OWNER
-pub async fn create_user_grant(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
-    Json(payload): Json<CreateUserGrantRequest>,
-) -> Result<(StatusCode, Json<CreateUserGrantResponse>)> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
-
-    // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
-
-    if vault.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    // Generate ID for the grant
-    let grant_id = IdGenerator::next_id();
-
-    // Create grant entity
-    let grant = VaultUserGrant::new(
-        grant_id,
-        vault.id,
-        payload.user_id,
-        payload.role,
-        org_ctx.member.user_id,
-    );
-
-    // Save to repository
-    repos.vault_user_grant.create(grant.clone()).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(CreateUserGrantResponse { grant: user_grant_to_response(grant) }),
-    ))
-}
-
-/// List all user grants for a vault
-///
-/// GET /v1/organizations/:org/vaults/:vault/user-grants
-/// Required role: MEMBER or higher
-pub async fn list_user_grants(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
-) -> Result<Json<ListUserGrantsResponse>> {
-    // Require member role or higher
-    require_member(&org_ctx)?;
-
-    // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
-
-    if vault.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    let grants = repos.vault_user_grant.list_by_vault(vault.id).await?;
-
-    Ok(Json(ListUserGrantsResponse {
-        grants: grants.into_iter().map(user_grant_to_response).collect(),
-    }))
-}
-
-/// Update a user grant
-///
-/// PATCH /v1/organizations/:org/vaults/:vault/user-grants/:grant
-/// Required role: ADMIN or OWNER
-pub async fn update_user_grant(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, vault, grant_id)): Path<(OrganizationSlug, VaultSlug, u64)>,
-    Json(payload): Json<UpdateUserGrantRequest>,
-) -> Result<Json<UpdateUserGrantResponse>> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
-
-    // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
-
-    if vault.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    // Get grant
-    let mut grant = repos
-        .vault_user_grant
-        .get(grant_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
-
-    // Verify grant belongs to this vault
-    if grant.vault != vault.id {
-        return Err(CoreError::not_found("Grant not found".to_string()).into());
-    }
-
-    // Update role
-    grant.role = payload.role;
-    repos.vault_user_grant.update(grant.clone()).await?;
-
-    Ok(Json(UpdateUserGrantResponse { id: grant.id, role: grant.role }))
-}
-
-/// Delete a user grant
-///
-/// DELETE /v1/organizations/:org/vaults/:vault/user-grants/:user
-/// Required role: ADMIN or OWNER
-pub async fn delete_user_grant(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, vault, user_id)): Path<(OrganizationSlug, VaultSlug, u64)>,
-) -> Result<StatusCode> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
-
-    // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
-
-    if vault.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    // Get grant by user_id
-    let grant = repos
-        .vault_user_grant
-        .get_by_vault_and_user(vault.id, user_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
-
-    // Delete the grant
-    repos.vault_user_grant.delete(grant.id).await?;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-// ============================================================================
-// Team Grant Endpoints
-// ============================================================================
-
-/// Create a team grant for a vault
-///
-/// POST /v1/organizations/:org/vaults/:vault/team-grants
-/// Required role: ADMIN or OWNER
-pub async fn create_team_grant(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
-    Json(payload): Json<CreateTeamGrantRequest>,
-) -> Result<(StatusCode, Json<CreateTeamGrantResponse>)> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
-
-    // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
-
-    if vault.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    // Generate ID for the grant
-    let grant_id = IdGenerator::next_id();
-
-    // Create grant entity
-    let grant = VaultTeamGrant::new(
-        grant_id,
-        vault.id,
-        payload.team_id,
-        payload.role,
-        org_ctx.member.user_id,
-    );
-
-    // Save to repository
-    repos.vault_team_grant.create(grant.clone()).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(CreateTeamGrantResponse { grant: team_grant_to_response(grant) }),
-    ))
-}
-
-/// List all team grants for a vault
-///
-/// GET /v1/organizations/:org/vaults/:vault/team-grants
-/// Required role: MEMBER or higher
-pub async fn list_team_grants(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, vault)): Path<(OrganizationSlug, VaultSlug)>,
-) -> Result<Json<ListTeamGrantsResponse>> {
-    // Require member role or higher
-    require_member(&org_ctx)?;
-
-    // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
-
-    if vault.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    let grants = repos.vault_team_grant.list_by_vault(vault.id).await?;
-
-    Ok(Json(ListTeamGrantsResponse {
-        grants: grants.into_iter().map(team_grant_to_response).collect(),
-    }))
-}
-
-/// Update a team grant
-///
-/// PATCH /v1/organizations/:org/vaults/:vault/team-grants/:grant
-/// Required role: ADMIN or OWNER
-pub async fn update_team_grant(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, vault, grant_id)): Path<(OrganizationSlug, VaultSlug, u64)>,
-    Json(payload): Json<UpdateTeamGrantRequest>,
-) -> Result<Json<UpdateTeamGrantResponse>> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
-
-    // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
-
-    if vault.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    // Get grant
-    let mut grant = repos
-        .vault_team_grant
-        .get(grant_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
-
-    // Verify grant belongs to this vault
-    if grant.vault != vault.id {
-        return Err(CoreError::not_found("Grant not found".to_string()).into());
-    }
-
-    // Update role
-    grant.role = payload.role;
-    repos.vault_team_grant.update(grant.clone()).await?;
-
-    Ok(Json(UpdateTeamGrantResponse { id: grant.id, role: grant.role }))
-}
-
-/// Delete a team grant
-///
-/// DELETE /v1/organizations/:org/vaults/:vault/team-grants/:grant
-/// Required role: ADMIN or OWNER
-pub async fn delete_team_grant(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, vault, grant_id)): Path<(OrganizationSlug, VaultSlug, u64)>,
-) -> Result<Json<DeleteTeamGrantResponse>> {
-    // Require admin or owner role
-    require_admin_or_owner(&org_ctx)?;
-
-    // Verify vault exists and belongs to this organization
-    let repos = RepositoryContext::new(state.storage.clone());
-    let vault = repos
-        .vault
-        .get(vault)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Vault not found".to_string()))?;
-
-    if vault.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Vault not found".to_string()).into());
-    }
-
-    // Get grant
-    let grant = repos
-        .vault_team_grant
-        .get(grant_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Grant not found".to_string()))?;
-
-    // Verify grant belongs to this vault
-    if grant.vault != vault.id {
-        return Err(CoreError::not_found("Grant not found".to_string()).into());
-    }
-
-    // Delete the grant
-    repos.vault_team_grant.delete(grant_id).await?;
-
-    Ok(Json(DeleteTeamGrantResponse { message: "Team grant deleted successfully".to_string() }))
+    State(_state): State<AppState>,
+    Extension(_claims): Extension<UserClaims>,
+    Path((_org, _vault)): Path<(u64, u64)>,
+) -> Result<Json<MessageResponse>> {
+    Err(CoreError::internal("vault deletion is not yet supported by the Ledger SDK").into())
 }
