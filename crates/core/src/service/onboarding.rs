@@ -19,10 +19,7 @@ pub async fn initiate_email_verification(
     email: &str,
     region: Region,
 ) -> Result<EmailVerificationCode> {
-    ledger
-        .initiate_email_verification(email, region)
-        .await
-        .map_sdk_err()
+    ledger.initiate_email_verification(email, region).await.map_sdk_err()
 }
 
 /// Verifies the email code.
@@ -37,10 +34,7 @@ pub async fn verify_email_code(
     code: &str,
     region: Region,
 ) -> Result<EmailVerificationResult> {
-    ledger
-        .verify_email_code(email, code, region)
-        .await
-        .map_sdk_err()
+    ledger.verify_email_code(email, code, region).await.map_sdk_err()
 }
 
 /// Completes registration for a new user after email verification.

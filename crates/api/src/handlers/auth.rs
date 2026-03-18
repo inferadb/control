@@ -14,10 +14,7 @@ use axum::{
 };
 use bon::Builder;
 use inferadb_control_storage::{DynBackend, PublicSigningKeyStore, memory_storage};
-use inferadb_control_types::{
-    Error as CoreError,
-    dto::ErrorResponse,
-};
+use inferadb_control_types::{Error as CoreError, dto::ErrorResponse};
 
 /// Application state shared across handlers
 #[derive(Clone, Builder)]

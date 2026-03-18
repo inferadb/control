@@ -47,10 +47,8 @@ pub async fn get_profile(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
 ) -> Result<Json<UserProfileResponse>> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     let user = service::user::get_user(ledger, claims.user_slug).await?;
 
@@ -59,9 +57,7 @@ pub async fn get_profile(
         name: user.name,
         status: format!("{:?}", user.status),
         role: format!("{:?}", user.role),
-        created_at: user.created_at.map(|t| {
-            DateTime::<Utc>::from(t).to_rfc3339()
-        }),
+        created_at: user.created_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
     }))
 }
 
@@ -73,14 +69,11 @@ pub async fn update_profile(
     Extension(claims): Extension<UserClaims>,
     Json(payload): Json<UpdateProfileRequest>,
 ) -> Result<Json<UserProfileResponse>> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    let name = payload
-        .name
-        .ok_or_else(|| CoreError::validation("at least one field must be provided"))?;
+    let name =
+        payload.name.ok_or_else(|| CoreError::validation("at least one field must be provided"))?;
 
     let user = service::user::update_user_name(ledger, claims.user_slug, name).await?;
 
@@ -89,9 +82,7 @@ pub async fn update_profile(
         name: user.name,
         status: format!("{:?}", user.status),
         role: format!("{:?}", user.role),
-        created_at: user.created_at.map(|t| {
-            DateTime::<Utc>::from(t).to_rfc3339()
-        }),
+        created_at: user.created_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
     }))
 }
 
@@ -103,10 +94,8 @@ pub async fn delete_user(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
 ) -> Result<Json<DeleteUserResponse>> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     let slug_str = claims.user_slug.value().to_string();
     service::user::delete_user(ledger, claims.user_slug, &slug_str).await?;

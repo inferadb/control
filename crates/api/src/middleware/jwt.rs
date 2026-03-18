@@ -16,8 +16,8 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 use inferadb_control_const::auth::ACCESS_TOKEN_COOKIE_NAME;
 use inferadb_control_core::service::SdkResultExt;
-use inferadb_ledger_types::UserSlug;
 use inferadb_control_types::Error as CoreError;
+use inferadb_ledger_types::UserSlug;
 
 use crate::handlers::auth::{ApiError, AppState};
 
@@ -47,10 +47,8 @@ pub async fn require_jwt(
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     let token = extract_access_token(&jar, &request)?;
 
@@ -64,10 +62,10 @@ pub async fn require_jwt(
             UserClaims { user_slug: user, role }
         },
         inferadb_ledger_sdk::token::ValidatedToken::VaultAccess { .. } => {
-            return Err(
-                CoreError::auth("vault access tokens cannot be used for user authentication")
-                    .into(),
-            );
+            return Err(CoreError::auth(
+                "vault access tokens cannot be used for user authentication",
+            )
+            .into());
         },
     };
 

@@ -1,847 +1,685 @@
+//! Organization, membership, and invitation management handlers.
+//!
+//! All operations delegate to Ledger SDK via the service layer.
+//! Organization state (members, invitations, tiers) is owned by Ledger.
+
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
 };
-use inferadb_control_const::limits::{GLOBAL_ORGANIZATION_LIMIT, PER_USER_ORGANIZATION_LIMIT};
-use inferadb_control_core::{IdGenerator, RepositoryContext};
-use inferadb_control_types::{
-    Error as CoreError, OrganizationSlug,
-    dto::{
-        AcceptInvitationRequest, AcceptInvitationResponse, CreateInvitationRequest,
-        CreateInvitationResponse, CreateOrganizationRequest, CreateOrganizationResponse,
-        DeleteInvitationResponse, DeleteOrganizationResponse, GetOrganizationResponse,
-        InvitationResponse, ListInvitationsResponse, ListMembersResponse,
-        ListOrganizationsResponse, OrganizationMemberResponse, OrganizationResponse,
-        OrganizationServerResponse, OrganizationStatus, RemoveMemberResponse,
-        ResumeOrganizationResponse, SuspendOrganizationResponse, UpdateMemberRoleRequest,
-        UpdateMemberRoleResponse, UpdateOrganizationRequest, UpdateOrganizationResponse,
-    },
-    entities::{
-        Organization, OrganizationInvitation, OrganizationMember, OrganizationRole,
-        OrganizationTier,
-    },
+use chrono::{DateTime, Utc};
+use inferadb_control_core::service;
+use inferadb_control_types::Error as CoreError;
+use inferadb_ledger_sdk::{
+    InvitationStatus, InviteSlug, OrganizationMemberRole, OrganizationSlug, OrganizationTier,
+    Region, UserSlug,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     handlers::auth::{AppState, Result},
-    middleware::{OrganizationContext, SessionContext},
+    middleware::UserClaims,
 };
 
-/// Create a new organization
-///
+// ── Request Types ─────────────────────────────────────────────────────
+
+/// Request body for creating an organization.
+#[derive(Debug, Deserialize)]
+pub struct CreateOrganizationRequest {
+    pub name: String,
+}
+
+/// Request body for updating an organization.
+#[derive(Debug, Deserialize)]
+pub struct UpdateOrganizationRequest {
+    pub name: Option<String>,
+}
+
+/// Request body for updating a member's role.
+#[derive(Debug, Deserialize)]
+pub struct UpdateMemberRoleRequest {
+    pub role: String,
+}
+
+/// Request body for creating an invitation.
+#[derive(Debug, Deserialize)]
+pub struct CreateInvitationRequest {
+    pub email: String,
+    pub role: Option<String>,
+}
+
+/// Request body for accepting an invitation.
+#[derive(Debug, Deserialize)]
+pub struct AcceptInvitationRequest {
+    pub invite: u64,
+}
+
+/// Request body for declining an invitation.
+#[derive(Debug, Deserialize)]
+pub struct DeclineInvitationRequest {
+    pub invite: u64,
+}
+
+/// Pagination query for cursor-based pagination.
+#[derive(Debug, Deserialize)]
+pub struct CursorPaginationQuery {
+    /// Number of items per page (default 50, max 100).
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+    /// Opaque cursor for the next page (base64-encoded).
+    pub page_token: Option<String>,
+}
+
+fn default_page_size() -> u32 {
+    50
+}
+
+impl CursorPaginationQuery {
+    fn validated_page_size(&self) -> u32 {
+        self.page_size.clamp(1, 100)
+    }
+
+    fn decoded_page_token(&self) -> Option<Vec<u8>> {
+        use base64::Engine;
+        self.page_token
+            .as_deref()
+            .and_then(|t| base64::engine::general_purpose::STANDARD.decode(t).ok())
+    }
+}
+
+// ── Response Types ────────────────────────────────────────────────────
+
+/// Organization summary response.
+#[derive(Debug, Serialize)]
+pub struct OrganizationResponse {
+    pub slug: u64,
+    pub name: String,
+    pub region: String,
+    pub status: String,
+    pub tier: String,
+}
+
+/// Wrapper for a single organization.
+#[derive(Debug, Serialize)]
+pub struct SingleOrganizationResponse {
+    pub organization: OrganizationResponse,
+}
+
+/// Paginated list of organizations.
+#[derive(Debug, Serialize)]
+pub struct ListOrganizationsResponse {
+    pub organizations: Vec<OrganizationResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_page_token: Option<String>,
+}
+
+/// Delete organization response.
+#[derive(Debug, Serialize)]
+pub struct DeleteOrganizationResponse {
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_days: Option<u32>,
+}
+
+/// Organization member response.
+#[derive(Debug, Serialize)]
+pub struct MemberResponse {
+    pub user: u64,
+    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub joined_at: Option<String>,
+}
+
+/// Paginated list of members.
+#[derive(Debug, Serialize)]
+pub struct ListMembersResponse {
+    pub members: Vec<MemberResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_page_token: Option<String>,
+}
+
+/// Updated member response wrapper.
+#[derive(Debug, Serialize)]
+pub struct UpdateMemberRoleResponse {
+    pub member: MemberResponse,
+}
+
+/// Simple message response.
+#[derive(Debug, Serialize)]
+pub struct MessageResponse {
+    pub message: String,
+}
+
+/// Invitation response (admin view).
+#[derive(Debug, Serialize)]
+pub struct InvitationResponse {
+    pub slug: u64,
+    pub organization: u64,
+    pub inviter: u64,
+    pub invitee_email: String,
+    pub role: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
+/// Paginated list of invitations (admin view).
+#[derive(Debug, Serialize)]
+pub struct ListInvitationsResponse {
+    pub invitations: Vec<InvitationResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_page_token: Option<String>,
+}
+
+/// Received invitation response (user view).
+#[derive(Debug, Serialize)]
+pub struct ReceivedInvitationResponse {
+    pub slug: u64,
+    pub organization: u64,
+    pub organization_name: String,
+    pub role: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
+/// Paginated list of received invitations.
+#[derive(Debug, Serialize)]
+pub struct ListReceivedInvitationsResponse {
+    pub invitations: Vec<ReceivedInvitationResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_page_token: Option<String>,
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+fn encode_page_token(token: &Option<Vec<u8>>) -> Option<String> {
+    use base64::Engine;
+    token.as_ref().map(|t| base64::engine::general_purpose::STANDARD.encode(t))
+}
+
+fn system_time_to_rfc3339(t: &Option<std::time::SystemTime>) -> Option<String> {
+    t.map(|st| DateTime::<Utc>::from(st).to_rfc3339())
+}
+
+fn parse_member_role(s: &str) -> std::result::Result<OrganizationMemberRole, CoreError> {
+    match s.to_lowercase().as_str() {
+        "admin" => Ok(OrganizationMemberRole::Admin),
+        "member" => Ok(OrganizationMemberRole::Member),
+        _ => Err(CoreError::validation(format!("Invalid role '{s}'. Must be 'admin' or 'member'"))),
+    }
+}
+
+fn org_info_to_response(info: &inferadb_ledger_sdk::OrganizationInfo) -> OrganizationResponse {
+    OrganizationResponse {
+        slug: info.slug.value(),
+        name: info.name.clone(),
+        region: format!("{:?}", info.region),
+        status: format!("{:?}", info.status),
+        tier: format!("{:?}", info.tier),
+    }
+}
+
+fn member_info_to_response(info: &inferadb_ledger_sdk::OrganizationMemberInfo) -> MemberResponse {
+    MemberResponse {
+        user: info.user.value(),
+        role: format!("{:?}", info.role),
+        joined_at: system_time_to_rfc3339(&info.joined_at),
+    }
+}
+
+fn invitation_info_to_response(info: &inferadb_ledger_sdk::InvitationInfo) -> InvitationResponse {
+    InvitationResponse {
+        slug: info.slug.value(),
+        organization: info.organization.value(),
+        inviter: info.inviter.value(),
+        invitee_email: info.invitee_email.clone(),
+        role: format!("{:?}", info.role),
+        status: format!("{:?}", info.status),
+        created_at: system_time_to_rfc3339(&info.created_at),
+        expires_at: system_time_to_rfc3339(&info.expires_at),
+        token: None,
+    }
+}
+
+fn received_info_to_response(
+    info: &inferadb_ledger_sdk::ReceivedInvitationInfo,
+) -> ReceivedInvitationResponse {
+    ReceivedInvitationResponse {
+        slug: info.slug.value(),
+        organization: info.organization.value(),
+        organization_name: info.organization_name.clone(),
+        role: format!("{:?}", info.role),
+        status: format!("{:?}", info.status),
+        created_at: system_time_to_rfc3339(&info.created_at),
+        expires_at: system_time_to_rfc3339(&info.expires_at),
+    }
+}
+
+// ── Organization Handlers ─────────────────────────────────────────────
+
 /// POST /v1/organizations
 ///
-/// Creates a new organization with the authenticated user as owner.
-/// Requires verified email and enforces per-user and global limits.
+/// Creates a new organization with the authenticated user as admin.
+/// Uses default region (US_EAST_VA) and tier (Free).
 pub async fn create_organization(
     State(state): State<AppState>,
-    Extension(ctx): Extension<SessionContext>,
+    Extension(claims): Extension<UserClaims>,
     Json(payload): Json<CreateOrganizationRequest>,
-) -> Result<Json<CreateOrganizationResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+) -> Result<Json<SingleOrganizationResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Validate organization name
-    Organization::validate_name(&payload.name)?;
+    let info = service::organization::create_organization(
+        ledger,
+        &payload.name,
+        Region::US_EAST_VA,
+        claims.user_slug,
+        OrganizationTier::Free,
+    )
+    .await?;
 
-    // Check if user has a verified email
-    let user_emails = repos.user_email.get_user_emails(ctx.user_id).await?;
-    let has_verified_email = user_emails.iter().any(|e| e.verified_at.is_some());
-
-    if !has_verified_email {
-        return Err(CoreError::validation(
-            "You must verify your email before creating an organization".to_string(),
-        )
-        .into());
-    }
-
-    // Check per-user organization limit
-    let user_org_count = repos.org_member.get_user_organization_count(ctx.user_id).await?;
-
-    if user_org_count >= PER_USER_ORGANIZATION_LIMIT {
-        return Err(CoreError::tier_limit(format!(
-            "You have reached the maximum number of organizations ({PER_USER_ORGANIZATION_LIMIT})"
-        ))
-        .into());
-    }
-
-    // Check global organization limit
-    let total_org_count = repos.org.get_total_count().await?;
-
-    if total_org_count >= GLOBAL_ORGANIZATION_LIMIT {
-        return Err(CoreError::tier_limit(
-            "Global organization limit reached. Please contact support.".to_string(),
-        )
-        .into());
-    }
-
-    // Generate IDs
-    let organization = OrganizationSlug::from(IdGenerator::next_id());
-    let member_id = IdGenerator::next_id();
-
-    // Create organization with TIER_DEV_V1
-    let org = Organization::builder()
-        .id(organization)
-        .name(payload.name)
-        .tier(OrganizationTier::TierDevV1)
-        .create()?;
-
-    repos.org.create(org.clone()).await?;
-
-    // Create organization member (owner role)
-    let member =
-        OrganizationMember::new(member_id, organization, ctx.user_id, OrganizationRole::Owner);
-
-    // Create member
-    repos.org_member.create(member).await?;
-
-    Ok(Json(CreateOrganizationResponse {
-        organization: OrganizationResponse {
-            id: org.id,
-            name: org.name,
-            tier: tier_to_string(&org.tier),
-            created_at: org.created_at.to_rfc3339(),
-            role: OrganizationRole::Owner.to_string(),
-        },
-    }))
+    Ok(Json(SingleOrganizationResponse { organization: org_info_to_response(&info) }))
 }
 
-/// Convert OrganizationTier to string
-fn tier_to_string(tier: &OrganizationTier) -> String {
-    match tier {
-        OrganizationTier::TierDevV1 => "TIER_DEV_V1".to_string(),
-        OrganizationTier::TierProV1 => "TIER_PRO_V1".to_string(),
-        OrganizationTier::TierMaxV1 => "TIER_MAX_V1".to_string(),
-    }
-}
-
-/// List organizations
+/// GET /v1/organizations
 ///
-/// GET /v1/organizations?limit=50&offset=0
-///
-/// Returns organizations the authenticated user is a member of, with pagination support.
+/// Lists organizations the authenticated user belongs to, with cursor-based pagination.
 pub async fn list_organizations(
     State(state): State<AppState>,
-    Extension(ctx): Extension<SessionContext>,
-    pagination: crate::pagination::PaginationQuery,
+    Extension(claims): Extension<UserClaims>,
+    Query(pagination): Query<CursorPaginationQuery>,
 ) -> Result<Json<ListOrganizationsResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
-    let params = pagination.0.validate();
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Get all memberships for the user
-    let memberships = repos.org_member.get_by_user(ctx.user_id).await?;
+    let (orgs, next_token) = service::organization::list_organizations(
+        ledger,
+        claims.user_slug,
+        pagination.validated_page_size(),
+        pagination.decoded_page_token(),
+    )
+    .await?;
 
-    // Fetch organization details for each membership
-    let mut all_organizations = Vec::new();
-    for member in memberships {
-        if let Some(org) = repos.org.get(member.organization).await? {
-            // Skip deleted organizations
-            if org.is_deleted() {
-                continue;
-            }
-
-            all_organizations.push(OrganizationResponse {
-                id: org.id,
-                name: org.name,
-                tier: tier_to_string(&org.tier),
-                created_at: org.created_at.to_rfc3339(),
-                role: member.role.to_string(),
-            });
-        }
-    }
-
-    // Apply pagination
-    let total = all_organizations.len();
-    let organizations: Vec<OrganizationResponse> =
-        all_organizations.into_iter().skip(params.offset).take(params.limit).collect();
-
-    let pagination_meta = inferadb_control_types::PaginationMeta::from_total(
-        total,
-        params.offset,
-        params.limit,
-        organizations.len(),
-    );
-
-    Ok(Json(ListOrganizationsResponse { organizations, pagination: Some(pagination_meta) }))
+    Ok(Json(ListOrganizationsResponse {
+        organizations: orgs.iter().map(org_info_to_response).collect(),
+        next_page_token: encode_page_token(&next_token),
+    }))
 }
 
-/// Get organization details
-///
 /// GET /v1/organizations/:org
 ///
-/// Returns details of a specific organization. User must be a member.
+/// Returns details of a specific organization. Caller must be a member.
 pub async fn get_organization(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-) -> Result<Json<GetOrganizationResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+    Extension(claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
+) -> Result<Json<SingleOrganizationResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Get organization
-    let org = repos
-        .org
-        .get(org_ctx.organization)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
+    let info = service::organization::get_organization(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+    )
+    .await?;
 
-    // Check if deleted
-    if org.is_deleted() {
-        return Err(CoreError::not_found("Organization not found".to_string()).into());
-    }
-
-    Ok(Json(GetOrganizationResponse {
-        organization: OrganizationResponse {
-            id: org.id,
-            name: org.name,
-            tier: tier_to_string(&org.tier),
-            created_at: org.created_at.to_rfc3339(),
-            role: org_ctx.member.role.to_string(),
-        },
-    }))
+    Ok(Json(SingleOrganizationResponse { organization: org_info_to_response(&info) }))
 }
 
-/// Get organization by ID (engine-to-control endpoint)
-///
-/// GET /v1/organizations/:org
-/// Auth: Session or Engine JWT (dual authentication)
-///
-/// This endpoint is used by the Engine to verify organization status.
-/// Unlike `get_organization`, this does not require organization context
-/// and returns minimal information (no user role).
-///
-/// Returns organization status as Active, Suspended, or Deleted.
-/// Currently only Active and Deleted states are implemented.
-pub async fn get_organization_by_id(
-    State(state): State<AppState>,
-    Path(organization): Path<OrganizationSlug>,
-) -> Result<Json<OrganizationServerResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
-
-    // Get organization
-    let org = repos
-        .org
-        .get(organization)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
-
-    // Determine status: Deleted > Suspended > Active
-    let status = if org.is_deleted() {
-        OrganizationStatus::Deleted
-    } else if org.is_suspended() {
-        OrganizationStatus::Suspended
-    } else {
-        OrganizationStatus::Active
-    };
-
-    Ok(Json(OrganizationServerResponse { id: org.id, name: org.name, status }))
-}
-
-/// Update organization
-///
 /// PATCH /v1/organizations/:org
 ///
-/// Updates organization details. Requires admin or owner role.
+/// Updates organization details. Ledger enforces role requirements.
 pub async fn update_organization(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
+    Extension(claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
     Json(payload): Json<UpdateOrganizationRequest>,
-) -> Result<Json<UpdateOrganizationResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+) -> Result<Json<SingleOrganizationResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Require admin or owner
-    crate::middleware::require_admin_or_owner(&org_ctx)?;
+    let info = service::organization::update_organization(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        payload.name,
+    )
+    .await?;
 
-    // Get organization
-    let mut org = repos
-        .org
-        .get(org_ctx.organization)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
-
-    // Check if deleted
-    if org.is_deleted() {
-        return Err(CoreError::not_found("Organization not found".to_string()).into());
-    }
-
-    // Update name
-    org.set_name(payload.name)?;
-    repos.org.update(org.clone()).await?;
-
-    Ok(Json(UpdateOrganizationResponse {
-        organization: OrganizationResponse {
-            id: org.id,
-            name: org.name,
-            tier: tier_to_string(&org.tier),
-            created_at: org.created_at.to_rfc3339(),
-            role: org_ctx.member.role.to_string(),
-        },
-    }))
+    Ok(Json(SingleOrganizationResponse { organization: org_info_to_response(&info) }))
 }
 
-/// Delete organization
-///
 /// DELETE /v1/organizations/:org
 ///
-/// Soft-deletes an organization and cascades to all related resources.
-/// Requires owner role.
-///
-/// Cascade deletes:
-/// - All teams (and their members/permissions)
-/// - All vaults (and their grants)
-/// - All organization members
-/// - All pending invitations
+/// Soft-deletes an organization. Ledger handles cascade deletion and
+/// enforces that no active vaults remain.
 pub async fn delete_organization(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
+    Extension(claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
 ) -> Result<Json<DeleteOrganizationResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Require owner
-    crate::middleware::require_owner(&org_ctx)?;
-
-    // VALIDATION: Check for active vaults before allowing deletion
-    let vaults = repos.vault.list_by_organization(org_ctx.organization).await?;
-    let active_vault_count = vaults.iter().filter(|v| !v.is_deleted()).count();
-
-    if active_vault_count > 0 {
-        return Err(CoreError::validation(format!(
-            "Cannot delete organization with {} active vault{}. Please delete all vaults first.",
-            active_vault_count,
-            if active_vault_count == 1 { "" } else { "s" }
-        ))
-        .into());
-    }
-
-    // CASCADE DELETE: Delete all teams first (and their members/permissions)
-    let teams = repos.org_team.list_by_organization(org_ctx.organization).await?;
-    for team in teams {
-        if !team.is_deleted() {
-            // Delete team members
-            repos.org_team_member.delete_by_team(team.id).await?;
-            // Delete team permissions
-            repos.org_team_permission.delete_by_team(team.id).await?;
-            // Soft delete team
-            repos.org_team.delete(team.id).await?;
-        }
-    }
-
-    // NOTE: Vaults must be deleted manually before organization deletion
-    // This is enforced by the validation check above
-
-    // CASCADE DELETE: Delete all organization members
-    let members = repos.org_member.get_by_organization(org_ctx.organization).await?;
-    for member in members {
-        repos.org_member.delete(member.id).await?;
-    }
-
-    // CASCADE DELETE: Delete all pending invitations
-    let invitations = repos.org_invitation.list_by_organization(org_ctx.organization).await?;
-    for invitation in invitations {
-        repos.org_invitation.delete(invitation.id).await?;
-    }
-
-    // Finally, soft delete the organization
-    repos.org.delete(org_ctx.organization).await?;
+    let delete_info = service::organization::delete_organization(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+    )
+    .await?;
 
     Ok(Json(DeleteOrganizationResponse {
         message: "Organization deleted successfully".to_string(),
+        retention_days: Some(delete_info.retention_days),
     }))
 }
 
-/// Suspend organization
-///
-/// POST /v1/organizations/:org/suspend
-///
-/// Suspends an organization, blocking all API access for that organization.
-/// Requires owner role.
-pub async fn suspend_organization(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-) -> Result<Json<SuspendOrganizationResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+// ── Membership Handlers ───────────────────────────────────────────────
 
-    // Require owner
-    crate::middleware::require_owner(&org_ctx)?;
-
-    // Get organization
-    let mut org = repos
-        .org
-        .get(org_ctx.organization)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
-
-    // Check if deleted
-    if org.is_deleted() {
-        return Err(CoreError::not_found("Organization not found".to_string()).into());
-    }
-
-    // Check if already suspended
-    if org.is_suspended() {
-        return Err(CoreError::validation("Organization is already suspended".to_string()).into());
-    }
-
-    // Suspend the organization
-    org.suspend();
-    repos.org.update(org).await?;
-
-    Ok(Json(SuspendOrganizationResponse {
-        message: "Organization suspended successfully".to_string(),
-    }))
-}
-
-/// Resume organization
-///
-/// POST /v1/organizations/:org/resume
-///
-/// Resumes a suspended organization, restoring API access.
-/// Requires owner role.
-pub async fn resume_organization(
-    State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-) -> Result<Json<ResumeOrganizationResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
-
-    // Require owner
-    crate::middleware::require_owner(&org_ctx)?;
-
-    // Get organization
-    let mut org = repos
-        .org
-        .get(org_ctx.organization)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
-
-    // Check if deleted
-    if org.is_deleted() {
-        return Err(CoreError::not_found("Organization not found".to_string()).into());
-    }
-
-    // Check if not suspended
-    if !org.is_suspended() {
-        return Err(CoreError::validation("Organization is not suspended".to_string()).into());
-    }
-
-    // Resume the organization
-    org.resume();
-    repos.org.update(org).await?;
-
-    Ok(Json(ResumeOrganizationResponse {
-        message: "Organization resumed successfully".to_string(),
-    }))
-}
-
-// ============================================================================
-// Organization Member Management
-// ============================================================================
-
-/// List organization members
-///
 /// GET /v1/organizations/:org/members
 ///
-/// Returns all members of an organization. User must be a member.
+/// Lists members of an organization with cursor-based pagination.
 pub async fn list_members(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
+    Extension(claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
+    Query(pagination): Query<CursorPaginationQuery>,
 ) -> Result<Json<ListMembersResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Get all members
-    let members = repos.org_member.get_by_organization(org_ctx.organization).await?;
+    let (members, next_token) = service::membership::list_members(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        pagination.validated_page_size(),
+        pagination.decoded_page_token(),
+    )
+    .await?;
 
-    let member_responses: Vec<OrganizationMemberResponse> = members
-        .into_iter()
-        .map(|m| OrganizationMemberResponse {
-            id: m.id,
-            user_id: m.user_id,
-            role: m.role.to_string(),
-            joined_at: m.created_at.to_rfc3339(),
-        })
-        .collect();
-
-    Ok(Json(ListMembersResponse { members: member_responses }))
+    Ok(Json(ListMembersResponse {
+        members: members.iter().map(member_info_to_response).collect(),
+        next_page_token: encode_page_token(&next_token),
+    }))
 }
 
-/// Update organization member's role
-///
 /// PATCH /v1/organizations/:org/members/:member
 ///
-/// Updates a member's role. Requires admin or owner role.
-/// Cannot demote the last owner.
+/// Updates a member's role. Ledger enforces permission checks (admin/owner required).
 pub async fn update_member_role(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, member_id)): Path<(OrganizationSlug, u64)>,
+    Extension(claims): Extension<UserClaims>,
+    Path((org, member)): Path<(u64, u64)>,
     Json(payload): Json<UpdateMemberRoleRequest>,
 ) -> Result<Json<UpdateMemberRoleResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Require admin or owner
-    crate::middleware::require_admin_or_owner(&org_ctx)?;
+    let role = parse_member_role(&payload.role)?;
 
-    // Get the target member
-    let mut target_member = repos
-        .org_member
-        .get(member_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Member not found".to_string()))?;
+    let updated = service::membership::update_member_role(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        UserSlug::new(member),
+        role,
+    )
+    .await?;
 
-    // Verify the member belongs to this organization
-    if target_member.organization != org_ctx.organization {
-        return Err(
-            CoreError::not_found("Member not found in this organization".to_string()).into()
-        );
-    }
-
-    // Parse new role
-    let new_role: OrganizationRole = payload.role.parse().map_err(|_| {
-        CoreError::validation(format!(
-            "Invalid role '{}'. Must be MEMBER, ADMIN, or OWNER",
-            payload.role
-        ))
-    })?;
-
-    // Only owners can promote someone to OWNER
-    if new_role == OrganizationRole::Owner && org_ctx.member.role != OrganizationRole::Owner {
-        return Err(
-            CoreError::authz("Only owners can promote members to OWNER role".to_string()).into()
-        );
-    }
-
-    // If demoting from owner, check if there are other owners
-    if target_member.role == OrganizationRole::Owner && new_role != OrganizationRole::Owner {
-        let owner_count = repos.org_member.count_owners(org_ctx.organization).await?;
-        if owner_count <= 1 {
-            return Err(CoreError::validation(
-                "Cannot demote the last owner. Promote another member to OWNER first.".to_string(),
-            )
-            .into());
-        }
-    }
-
-    // Update role
-    target_member.set_role(new_role);
-    repos.org_member.update(target_member.clone()).await?;
-
-    Ok(Json(UpdateMemberRoleResponse {
-        member: OrganizationMemberResponse {
-            id: target_member.id,
-            user_id: target_member.user_id,
-            role: target_member.role.to_string(),
-            joined_at: target_member.created_at.to_rfc3339(),
-        },
-    }))
+    Ok(Json(UpdateMemberRoleResponse { member: member_info_to_response(&updated) }))
 }
 
-/// Remove organization member
-///
 /// DELETE /v1/organizations/:org/members/:member
 ///
-/// Removes a member from the organization. Requires admin or owner role.
-/// Cannot remove the last owner.
+/// Removes a member from the organization. Ledger enforces permission checks.
 pub async fn remove_member(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, member_id)): Path<(OrganizationSlug, u64)>,
-) -> Result<Json<RemoveMemberResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+    Extension(claims): Extension<UserClaims>,
+    Path((org, member)): Path<(u64, u64)>,
+) -> Result<Json<MessageResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Require admin or owner
-    crate::middleware::require_admin_or_owner(&org_ctx)?;
+    service::membership::remove_member(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        UserSlug::new(member),
+    )
+    .await?;
 
-    // Get the target member
-    let target_member = repos
-        .org_member
-        .get(member_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Member not found".to_string()))?;
-
-    // Verify the member belongs to this organization
-    if target_member.organization != org_ctx.organization {
-        return Err(
-            CoreError::not_found("Member not found in this organization".to_string()).into()
-        );
-    }
-
-    // If removing an owner, check if there are other owners
-    if target_member.role == OrganizationRole::Owner {
-        let owner_count = repos.org_member.count_owners(org_ctx.organization).await?;
-        if owner_count <= 1 {
-            return Err(CoreError::validation(
-                "Cannot remove the last owner. Transfer ownership first or delete the organization."
-                    .to_string(),
-            )
-            .into());
-        }
-    }
-
-    // Remove member
-    repos.org_member.delete(member_id).await?;
-
-    Ok(Json(RemoveMemberResponse { message: "Member removed successfully".to_string() }))
+    Ok(Json(MessageResponse { message: "Member removed successfully".to_string() }))
 }
 
-/// Leave an organization (remove self)
-///
 /// DELETE /v1/organizations/:org/members/self
 ///
-/// Allows any member to remove themselves from an organization.
-/// Owners cannot leave if they are the last owner - they must first
-/// promote another member to owner or delete the organization.
+/// Removes the authenticated user from the organization (leave).
+/// Ledger enforces last-owner protection.
 pub async fn leave_organization(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-) -> Result<Json<RemoveMemberResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+    Extension(claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
+) -> Result<Json<MessageResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // If the user is an owner, check if there are other owners
-    if org_ctx.member.role == OrganizationRole::Owner {
-        let owner_count = repos.org_member.count_owners(org_ctx.organization).await?;
-        if owner_count <= 1 {
-            return Err(CoreError::validation(
-                "Cannot leave as the last owner. Promote another member to owner first or delete the organization."
-                    .to_string(),
-            )
-            .into());
-        }
-    }
+    service::membership::remove_member(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        claims.user_slug,
+    )
+    .await?;
 
-    // Remove self from organization
-    repos.org_member.delete(org_ctx.member.id).await?;
-
-    Ok(Json(RemoveMemberResponse { message: "You have left the organization".to_string() }))
+    Ok(Json(MessageResponse { message: "You have left the organization".to_string() }))
 }
 
-// ============================================================================
-// Organization Invitations
-// ============================================================================
+// ── Invitation Handlers ───────────────────────────────────────────────
 
-fn invitation_to_response(invitation: OrganizationInvitation) -> InvitationResponse {
-    InvitationResponse {
-        id: invitation.id,
-        email: invitation.email,
-        role: invitation.role.to_string(),
-        created_at: invitation.created_at.to_rfc3339(),
-        expires_at: invitation.expires_at.to_rfc3339(),
-        invited_by_user_id: invitation.invited_by_user_id,
-        token: None, // Token not included by default
-    }
-}
+/// Default invitation TTL in hours (7 days).
+const DEFAULT_INVITE_TTL_HOURS: u32 = 168;
 
-/// Create a new organization invitation
-///
 /// POST /v1/organizations/:org/invitations
 ///
-/// Invite a user to join an organization by email. Requires ADMIN or OWNER role.
+/// Creates an invitation to join the organization. Ledger enforces role
+/// and member-limit checks. If the email service is configured, sends an
+/// invitation email.
 pub async fn create_invitation(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
+    Extension(claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
     Json(payload): Json<CreateInvitationRequest>,
-) -> Result<Json<CreateInvitationResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+) -> Result<Json<InvitationResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Require admin or owner
-    crate::middleware::require_admin_or_owner(&org_ctx)?;
+    let role = match payload.role.as_deref() {
+        Some(r) => parse_member_role(r)?,
+        None => OrganizationMemberRole::Member,
+    };
 
-    // Validate email
-    OrganizationInvitation::validate_email(&payload.email)?;
+    let created = service::invitation::create_invite(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        &payload.email,
+        role,
+        DEFAULT_INVITE_TTL_HOURS,
+        None,
+    )
+    .await?;
 
-    // Get organization to check member limits
-    let org = repos
-        .org
-        .get(org_ctx.organization)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
-
-    // Check member count against tier limit
-    let member_count = repos.org_member.count_by_organization(org_ctx.organization).await?;
-
-    if member_count >= org.tier.max_members() {
-        return Err(CoreError::tier_limit(format!(
-            "Organization has reached the maximum number of members ({}) for tier {:?}",
-            org.tier.max_members(),
-            org.tier
-        ))
-        .into());
-    }
-
-    // Check if user with this email already exists and is a member
-    if let Some(existing_email) = repos.user_email.get_by_email(&payload.email).await?
-        && repos
-            .org_member
-            .get_by_org_and_user(org_ctx.organization, existing_email.user_id)
-            .await?
-            .is_some()
-    {
-        return Err(CoreError::already_exists(
-            "User is already a member of this organization".to_string(),
+    // Attempt to send invitation email if the email service is configured.
+    if let Some(email_svc) = &state.email_service {
+        // Fetch org name for the email template.
+        let org_info = service::organization::get_organization(
+            ledger,
+            OrganizationSlug::new(org),
+            claims.user_slug,
         )
-        .into());
+        .await;
+
+        let org_name = org_info.as_ref().map(|o| o.name.as_str()).unwrap_or("the organization");
+
+        // Fetch inviter name for the email template.
+        let inviter_info = service::user::get_user(ledger, claims.user_slug).await;
+
+        let inviter_name =
+            inviter_info.as_ref().map(|u| u.name.as_str()).unwrap_or("A team member");
+
+        let frontend_url = &state.config.frontend_url;
+        let invite_link = format!("{frontend_url}/invitations/accept?token={}", created.token);
+
+        let template = inferadb_control_core::InvitationEmailTemplate {
+            invitee_email: payload.email.clone(),
+            organization_name: org_name.to_string(),
+            inviter_name: inviter_name.to_string(),
+            role: format!("{role:?}"),
+            invitation_link: invite_link,
+            invitation_token: created.token.clone(),
+            expires_in: format!("{} days", DEFAULT_INVITE_TTL_HOURS / 24),
+        };
+
+        use inferadb_control_core::EmailTemplate;
+        let _ = email_svc
+            .send_email(
+                &payload.email,
+                &template.subject(),
+                &template.html_body(),
+                &template.text_body(),
+            )
+            .await;
     }
 
-    // Check for existing invitation
-    if repos.org_invitation.exists_for_email_in_org(&payload.email, org_ctx.organization).await? {
-        return Err(CoreError::already_exists(
-            "An invitation for this email already exists".to_string(),
-        )
-        .into());
-    }
+    let mut response = InvitationResponse {
+        slug: created.slug.value(),
+        organization: org,
+        inviter: claims.user_slug.value(),
+        invitee_email: payload.email,
+        role: format!("{role:?}"),
+        status: format!("{:?}", created.status),
+        created_at: system_time_to_rfc3339(&created.created_at),
+        expires_at: system_time_to_rfc3339(&created.expires_at),
+        token: None,
+    };
+    response.token = Some(created.token);
 
-    // Generate invitation
-    let invitation_id = IdGenerator::next_id();
-    let token = OrganizationInvitation::generate_token()?;
-    let invitation = OrganizationInvitation::builder()
-        .id(invitation_id)
-        .organization(org_ctx.organization)
-        .invited_by_user_id(org_ctx.member.user_id)
-        .email(payload.email)
-        .role(payload.role)
-        .token(token.clone())
-        .create()?;
-
-    // Create invitation
-    repos.org_invitation.create(invitation.clone()).await?;
-
-    // Convert to response and include token
-    let mut invitation_response = invitation_to_response(invitation);
-    invitation_response.token = Some(token);
-
-    Ok(Json(CreateInvitationResponse { invitation: invitation_response }))
+    Ok(Json(response))
 }
 
-/// List organization invitations
-///
 /// GET /v1/organizations/:org/invitations
 ///
-/// List all pending invitations for an organization. Requires ADMIN or OWNER role.
+/// Lists invitations for an organization (admin view) with cursor-based pagination.
 pub async fn list_invitations(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
+    Extension(claims): Extension<UserClaims>,
+    Path(org): Path<u64>,
+    Query(pagination): Query<CursorPaginationQuery>,
 ) -> Result<Json<ListInvitationsResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Require admin or owner
-    crate::middleware::require_admin_or_owner(&org_ctx)?;
-
-    let invitations = repos.org_invitation.list_by_organization(org_ctx.organization).await?;
+    let page = service::invitation::list_invites(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        None::<InvitationStatus>,
+        pagination.decoded_page_token(),
+        pagination.validated_page_size(),
+    )
+    .await?;
 
     Ok(Json(ListInvitationsResponse {
-        invitations: invitations.into_iter().map(invitation_to_response).collect(),
+        invitations: page.invitations.iter().map(invitation_info_to_response).collect(),
+        next_page_token: encode_page_token(&page.next_page_token),
     }))
 }
 
-/// Delete an organization invitation
+/// DELETE /v1/organizations/:org/invitations/:invite
 ///
-/// DELETE /v1/organizations/:org/invitations/:invitation
-///
-/// Revoke a pending invitation. Requires ADMIN or OWNER role.
+/// Revokes a pending invitation. Ledger enforces admin/owner permission.
 pub async fn delete_invitation(
     State(state): State<AppState>,
-    Extension(org_ctx): Extension<OrganizationContext>,
-    Path((_org, invitation_id)): Path<(OrganizationSlug, u64)>,
-) -> Result<Json<DeleteInvitationResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+    Extension(claims): Extension<UserClaims>,
+    Path((_org, invite)): Path<(u64, u64)>,
+) -> Result<Json<MessageResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Require admin or owner
-    crate::middleware::require_admin_or_owner(&org_ctx)?;
+    service::invitation::revoke_invite(ledger, InviteSlug::new(invite), claims.user_slug).await?;
 
-    // Verify invitation belongs to this organization
-    let invitation: OrganizationInvitation = repos
-        .org_invitation
-        .get(invitation_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Invitation not found".to_string()))?;
-
-    if invitation.organization != org_ctx.organization {
-        return Err(CoreError::not_found("Invitation not found".to_string()).into());
-    }
-
-    // Delete invitation
-    repos.org_invitation.delete(invitation_id).await?;
-
-    Ok(Json(DeleteInvitationResponse { message: "Invitation deleted successfully".to_string() }))
+    Ok(Json(MessageResponse { message: "Invitation revoked successfully".to_string() }))
 }
 
-/// Accept an organization invitation
+/// POST /v1/invitations/accept
 ///
-/// POST /v1/organizations/invitations/accept
-///
-/// Accept an invitation to join an organization using the invitation token.
+/// Accepts a pending invitation, adding the user to the organization.
 pub async fn accept_invitation(
     State(state): State<AppState>,
-    Extension(ctx): Extension<SessionContext>,
+    Extension(claims): Extension<UserClaims>,
     Json(payload): Json<AcceptInvitationRequest>,
-) -> Result<Json<AcceptInvitationResponse>> {
-    let repos = RepositoryContext::new(state.storage.clone());
+) -> Result<Json<InvitationResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Validate token format
-    OrganizationInvitation::validate_token(&payload.token)?;
+    let info = service::invitation::accept_invitation(
+        ledger,
+        InviteSlug::new(payload.invite),
+        claims.user_slug,
+    )
+    .await?;
 
-    // Get invitation by token
-    let invitation: OrganizationInvitation = repos
-        .org_invitation
-        .get_by_token(&payload.token)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Invalid or expired invitation".to_string()))?;
+    Ok(Json(invitation_info_to_response(&info)))
+}
 
-    // Check if invitation has expired
-    if invitation.is_expired() {
-        // Clean up expired invitation
-        repos.org_invitation.delete(invitation.id).await?;
-        return Err(CoreError::not_found("Invalid or expired invitation".to_string()).into());
-    }
+/// GET /v1/invitations/received
+///
+/// Lists invitations received by the authenticated user.
+pub async fn list_received_invitations(
+    State(state): State<AppState>,
+    Extension(claims): Extension<UserClaims>,
+    Query(pagination): Query<CursorPaginationQuery>,
+) -> Result<Json<ListReceivedInvitationsResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Get user's email to verify it matches
-    let user_emails = repos.user_email.get_user_emails(ctx.user_id).await?;
-    let has_matching_email =
-        user_emails.iter().any(|e| e.email.to_lowercase() == invitation.email.to_lowercase());
+    let page = service::invitation::list_received(
+        ledger,
+        claims.user_slug,
+        None::<InvitationStatus>,
+        pagination.decoded_page_token(),
+        pagination.validated_page_size(),
+    )
+    .await?;
 
-    if !has_matching_email {
-        return Err(CoreError::validation(
-            "This invitation was sent to a different email address".to_string(),
-        )
-        .into());
-    }
+    Ok(Json(ListReceivedInvitationsResponse {
+        invitations: page.invitations.iter().map(received_info_to_response).collect(),
+        next_page_token: encode_page_token(&page.next_page_token),
+    }))
+}
 
-    // Check if user is already a member
-    if repos.org_member.get_by_org_and_user(invitation.organization, ctx.user_id).await?.is_some() {
-        // Delete invitation and return success
-        repos.org_invitation.delete(invitation.id).await?;
-        return Err(CoreError::already_exists(
-            "You are already a member of this organization".to_string(),
-        )
-        .into());
-    }
+/// POST /v1/invitations/:invite/decline
+///
+/// Declines a pending invitation.
+pub async fn decline_invitation(
+    State(state): State<AppState>,
+    Extension(claims): Extension<UserClaims>,
+    Path(invite): Path<u64>,
+) -> Result<Json<ReceivedInvitationResponse>> {
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    // Check organization member limit
-    let org = repos
-        .org
-        .get(invitation.organization)
-        .await?
-        .ok_or_else(|| CoreError::not_found("Organization not found".to_string()))?;
+    let info =
+        service::invitation::decline_invitation(ledger, InviteSlug::new(invite), claims.user_slug)
+            .await?;
 
-    let member_count = repos.org_member.count_by_organization(invitation.organization).await?;
-    if member_count >= org.tier.max_members() {
-        return Err(CoreError::tier_limit(
-            "Organization has reached the maximum number of members".to_string(),
-        )
-        .into());
-    }
-
-    // Create organization member
-    let member_id = IdGenerator::next_id();
-    let member =
-        OrganizationMember::new(member_id, invitation.organization, ctx.user_id, invitation.role);
-    repos.org_member.create(member).await?;
-
-    // Delete invitation
-    repos.org_invitation.delete(invitation.id).await?;
-
-    // Return organization details
-    let org_response = OrganizationResponse {
-        id: org.id,
-        name: org.name,
-        tier: tier_to_string(&org.tier),
-        created_at: org.created_at.to_rfc3339(),
-        role: invitation.role.to_string(),
-    };
-
-    Ok(Json(AcceptInvitationResponse { organization: org_response }))
+    Ok(Json(received_info_to_response(&info)))
 }

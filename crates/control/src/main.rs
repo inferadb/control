@@ -172,8 +172,7 @@ async fn main() -> Result<()> {
     };
 
     // Parse email blinding key (if configured)
-    let blinding_key = parse_blinding_key(config.email_blinding_key.as_deref())?
-        .map(Arc::new);
+    let blinding_key = parse_blinding_key(config.email_blinding_key.as_deref())?.map(Arc::new);
     if blinding_key.is_some() {
         startup::log_initialized("Email blinding key");
     }

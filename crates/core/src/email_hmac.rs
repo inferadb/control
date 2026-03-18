@@ -4,11 +4,10 @@
 //! use the exact same HMAC algorithm, normalization rules, and key format.
 //! See [`inferadb_ledger_types::email_hash`] for implementation details.
 
+use inferadb_control_types::error::{Error, Result};
 pub use inferadb_ledger_types::{
     EmailBlindingKey, EmailBlindingKeyParseError, compute_email_hmac, normalize_email,
 };
-
-use inferadb_control_types::error::{Error, Result};
 
 /// Parses a hex-encoded blinding key from config, returning a typed key.
 ///

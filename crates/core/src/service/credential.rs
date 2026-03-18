@@ -6,8 +6,7 @@
 
 use inferadb_control_types::error::Result;
 use inferadb_ledger_sdk::{
-    CredentialData, CredentialType, LedgerClient, RecoveryCodeResult, TokenPair,
-    UserCredentialInfo,
+    CredentialData, CredentialType, LedgerClient, RecoveryCodeResult, TokenPair, UserCredentialInfo,
 };
 use inferadb_ledger_types::{UserCredentialId, UserSlug};
 
@@ -19,10 +18,7 @@ pub async fn list_user_credentials(
     user: UserSlug,
     credential_type: Option<CredentialType>,
 ) -> Result<Vec<UserCredentialInfo>> {
-    ledger
-        .list_user_credentials(user, credential_type)
-        .await
-        .map_sdk_err()
+    ledger.list_user_credentials(user, credential_type).await.map_sdk_err()
 }
 
 /// Creates a new credential for a user.
@@ -32,10 +28,7 @@ pub async fn create_user_credential(
     name: &str,
     data: CredentialData,
 ) -> Result<UserCredentialInfo> {
-    ledger
-        .create_user_credential(user, name, data)
-        .await
-        .map_sdk_err()
+    ledger.create_user_credential(user, name, data).await.map_sdk_err()
 }
 
 /// Updates credential metadata or passkey-specific fields.
@@ -46,10 +39,7 @@ pub async fn update_user_credential(
     name: Option<String>,
     enabled: Option<bool>,
 ) -> Result<UserCredentialInfo> {
-    ledger
-        .update_user_credential(user, credential_id, name, enabled, None)
-        .await
-        .map_sdk_err()
+    ledger.update_user_credential(user, credential_id, name, enabled, None).await.map_sdk_err()
 }
 
 /// Deletes a credential. Rejects if it's the user's last credential.
@@ -58,10 +48,7 @@ pub async fn delete_user_credential(
     user: UserSlug,
     credential_id: UserCredentialId,
 ) -> Result<()> {
-    ledger
-        .delete_user_credential(user, credential_id)
-        .await
-        .map_sdk_err()
+    ledger.delete_user_credential(user, credential_id).await.map_sdk_err()
 }
 
 /// Creates a TOTP challenge after primary auth (passkey or email).
@@ -71,10 +58,7 @@ pub async fn create_totp_challenge(
     user: UserSlug,
     primary_method: &str,
 ) -> Result<Vec<u8>> {
-    ledger
-        .create_totp_challenge(user, primary_method)
-        .await
-        .map_sdk_err()
+    ledger.create_totp_challenge(user, primary_method).await.map_sdk_err()
 }
 
 /// Verifies a TOTP code against a pending challenge.
@@ -85,10 +69,7 @@ pub async fn verify_totp(
     totp_code: &str,
     challenge_nonce: Vec<u8>,
 ) -> Result<TokenPair> {
-    ledger
-        .verify_totp(user, totp_code, challenge_nonce)
-        .await
-        .map_sdk_err()
+    ledger.verify_totp(user, totp_code, challenge_nonce).await.map_sdk_err()
 }
 
 /// Consumes a recovery code to bypass TOTP.
@@ -99,8 +80,5 @@ pub async fn consume_recovery_code(
     code: &str,
     challenge_nonce: Vec<u8>,
 ) -> Result<RecoveryCodeResult> {
-    ledger
-        .consume_recovery_code(user, code, challenge_nonce)
-        .await
-        .map_sdk_err()
+    ledger.consume_recovery_code(user, code, challenge_nonce).await.map_sdk_err()
 }

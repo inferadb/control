@@ -7,12 +7,11 @@ use axum::{Json, extract::State};
 use axum_extra::extract::cookie::CookieJar;
 use base64::Engine;
 use inferadb_control_core::service;
-use inferadb_ledger_types::UserSlug;
 use inferadb_control_types::Error as CoreError;
+use inferadb_ledger_types::UserSlug;
 use serde::{Deserialize, Serialize};
 
-use super::auth::ApiError;
-use super::auth_v2::set_token_cookies;
+use super::{auth::ApiError, auth_v2::set_token_cookies};
 use crate::handlers::AppState;
 
 // ── Request Types ───────────────────────────────────────────────────────
@@ -86,16 +85,13 @@ pub async fn verify_totp(
     jar: CookieJar,
     Json(body): Json<VerifyTotpRequest>,
 ) -> Result<(CookieJar, Json<MfaAuthResponse>), ApiError> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     let nonce = decode_challenge_nonce(&body.challenge_nonce)?;
     let user = UserSlug::new(body.user_slug);
 
-    let token_pair =
-        service::credential::verify_totp(ledger, user, &body.totp_code, nonce).await?;
+    let token_pair = service::credential::verify_totp(ledger, user, &body.totp_code, nonce).await?;
 
     let jar = set_token_cookies(jar, &token_pair);
     Ok((
@@ -118,10 +114,8 @@ pub async fn consume_recovery(
     jar: CookieJar,
     Json(body): Json<RecoveryCodeRequest>,
 ) -> Result<(CookieJar, Json<RecoveryCodeResponse>), ApiError> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     let nonce = decode_challenge_nonce(&body.challenge_nonce)?;
     let user = UserSlug::new(body.user_slug);
@@ -154,10 +148,8 @@ pub async fn passkey_begin(
     State(state): State<AppState>,
     Json(_body): Json<PasskeyBeginRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let _ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let _ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     // WebAuthn ceremony implementation:
     // 1. Look up user by email (or accept user_slug directly)
@@ -182,10 +174,8 @@ pub async fn passkey_finish(
     _jar: CookieJar,
     Json(_body): Json<serde_json::Value>,
 ) -> Result<(CookieJar, Json<serde_json::Value>), ApiError> {
-    let _ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let _ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     // WebAuthn ceremony implementation:
     // 1. Extract challenge from memory store

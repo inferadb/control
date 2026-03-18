@@ -6,9 +6,7 @@
 
 use axum::{Json, extract::State};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use inferadb_control_const::auth::{
-    ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME,
-};
+use inferadb_control_const::auth::{ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME};
 use inferadb_control_core::service;
 use inferadb_control_types::Error as CoreError;
 use serde::{Deserialize, Serialize};
@@ -96,10 +94,8 @@ pub async fn refresh(
     jar: CookieJar,
     Json(body): Json<RefreshTokenRequest>,
 ) -> Result<(CookieJar, Json<TokenPairResponse>), ApiError> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     // Extract refresh token from body or cookie
     let refresh_token = body
@@ -126,10 +122,8 @@ pub async fn logout(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Json<LogoutResponse>), ApiError> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     // Try to revoke the refresh token if present
     if let Some(cookie) = jar.get(REFRESH_TOKEN_COOKIE_NAME) {
@@ -154,10 +148,8 @@ pub async fn revoke_all(
     axum::Extension(claims): axum::Extension<UserClaims>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Json<RevokeAllResponse>), ApiError> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     let revoked_count =
         service::session::revoke_all_user_sessions(ledger, claims.user_slug).await?;

@@ -29,13 +29,13 @@ pub mod startup;
 
 pub use clock::{ClockStatus, ClockValidator, SkewSeverity};
 pub use crypto::{MasterKey, PrivateKeyEncryptor, keypair};
-pub use email_hmac::{EmailBlindingKey, compute_email_hmac, normalize_email, parse_blinding_key};
 pub use email::{
     EmailSender, EmailService, EmailTemplate, InvitationAcceptedEmailTemplate,
     InvitationEmailTemplate, MockEmailSender, OrganizationDeletionWarningEmailTemplate,
     PasswordResetEmailTemplate, RoleChangeEmailTemplate, SmtpEmailService,
     VerificationEmailTemplate,
 };
+pub use email_hmac::{EmailBlindingKey, compute_email_hmac, normalize_email, parse_blinding_key};
 pub use id::{IdGenerator, WorkerRegistry, acquire_worker_id};
 pub use jwt::{JwtSigner, VaultTokenClaims};
 pub use ratelimit::{

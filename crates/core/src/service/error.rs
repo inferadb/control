@@ -41,11 +41,7 @@ pub fn sdk_error_to_control(err: SdkError) -> Error {
             Error::storage(format!("ledger unavailable: {message}"))
         },
 
-        SdkError::RetryExhausted {
-            attempts,
-            last_error,
-            ..
-        } => Error::storage(format!(
+        SdkError::RetryExhausted { attempts, last_error, .. } => Error::storage(format!(
             "ledger retry exhausted after {attempts} attempts: {last_error}"
         )),
 

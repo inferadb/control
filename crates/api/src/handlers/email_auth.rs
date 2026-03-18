@@ -8,13 +8,12 @@
 use axum::{Json, extract::State};
 use axum_extra::extract::cookie::CookieJar;
 use inferadb_control_core::service;
+use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::EmailVerificationResult;
 use inferadb_ledger_types::Region;
-use inferadb_control_types::Error as CoreError;
 use serde::{Deserialize, Serialize};
 
-use super::auth::ApiError;
-use super::auth_v2::set_token_cookies;
+use super::{auth::ApiError, auth_v2::set_token_cookies};
 use crate::handlers::AppState;
 
 // ── Request Types ───────────────────────────────────────────────────────
@@ -56,11 +55,7 @@ pub struct InitiateResponse {
 pub enum VerifyResponse {
     /// Existing user without TOTP — session created.
     #[serde(rename = "authenticated")]
-    Authenticated {
-        access_token: String,
-        refresh_token: String,
-        token_type: &'static str,
-    },
+    Authenticated { access_token: String, refresh_token: String, token_type: &'static str },
     /// Existing user with TOTP — second factor required.
     #[serde(rename = "totp_required")]
     TotpRequired {
@@ -69,9 +64,7 @@ pub enum VerifyResponse {
     },
     /// New user — must complete registration.
     #[serde(rename = "registration_required")]
-    RegistrationRequired {
-        onboarding_token: String,
-    },
+    RegistrationRequired { onboarding_token: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -100,10 +93,8 @@ pub async fn initiate(
     State(state): State<AppState>,
     Json(body): Json<InitiateRequest>,
 ) -> Result<Json<InitiateResponse>, ApiError> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     let region = body.region.unwrap_or_else(default_region);
 
@@ -121,7 +112,8 @@ pub async fn initiate(
                 "<p>Your verification code is: <strong>{code}</strong></p>\
                  <p>This code expires in 10 minutes.</p>"
             );
-            let body_text = format!("Your verification code is: {code}\n\nThis code expires in 10 minutes.");
+            let body_text =
+                format!("Your verification code is: {code}\n\nThis code expires in 10 minutes.");
             if let Err(e) = svc.send_email(&email, subject, &body_html, &body_text).await {
                 tracing::warn!(error = %e, email = %email, "Failed to send verification email");
             }
@@ -144,10 +136,8 @@ pub async fn verify(
     jar: CookieJar,
     Json(body): Json<VerifyRequest>,
 ) -> Result<(CookieJar, Json<VerifyResponse>), ApiError> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     let region = body.region.unwrap_or_else(default_region);
 
@@ -186,10 +176,8 @@ pub async fn complete(
     jar: CookieJar,
     Json(body): Json<CompleteRegistrationRequest>,
 ) -> Result<(CookieJar, Json<CompleteRegistrationResponse>), ApiError> {
-    let ledger = state
-        .ledger
-        .as_ref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger =
+        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     let region = body.region.unwrap_or_else(default_region);
 

@@ -9,9 +9,7 @@ use crate::{
         metrics as metrics_handler, mfa_auth, organizations, schemas, sessions, teams, tokens,
         users, vaults,
     },
-    middleware::{
-        logging_middleware, require_jwt, require_organization_member, require_session,
-    },
+    middleware::{logging_middleware, require_jwt, require_organization_member, require_session},
 };
 
 /// Create router with state and middleware applied
@@ -20,41 +18,9 @@ use crate::{
 /// accessible without authentication.
 pub fn create_router_with_state(state: AppState) -> axum::Router {
     // Routes that need organization context (session + org membership)
+    // NOTE: Org/member/invitation routes have been moved to jwt_protected below.
+    // These remaining routes still use the old session middleware.
     let org_scoped = Router::new()
-        // Organization management routes
-        .route(
-            "/control/v1/organizations/{org}",
-            get(organizations::get_organization)
-                .patch(organizations::update_organization)
-                .delete(organizations::delete_organization),
-        )
-        // Organization member management routes
-        .route("/control/v1/organizations/{org}/members", get(organizations::list_members))
-        .route(
-            "/control/v1/organizations/{org}/members/self",
-            delete(organizations::leave_organization),
-        )
-        .route(
-            "/control/v1/organizations/{org}/members/{member}",
-            patch(organizations::update_member_role),
-        )
-        .route(
-            "/control/v1/organizations/{org}/members/{member}",
-            delete(organizations::remove_member),
-        )
-        // Organization invitation routes
-        .route(
-            "/control/v1/organizations/{org}/invitations",
-            post(organizations::create_invitation),
-        )
-        .route("/control/v1/organizations/{org}/invitations", get(organizations::list_invitations))
-        .route(
-            "/control/v1/organizations/{org}/invitations/{invitation}",
-            delete(organizations::delete_invitation),
-        )
-        // Organization suspension routes
-        .route("/control/v1/organizations/{org}/suspend", post(organizations::suspend_organization))
-        .route("/control/v1/organizations/{org}/resume", post(organizations::resume_organization))
         // Client management routes
         .route("/control/v1/organizations/{org}/clients", post(clients::create_client))
         .route("/control/v1/organizations/{org}/clients", get(clients::list_clients))
@@ -197,26 +163,63 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/control/v1/users/emails", get(emails::list_emails))
         .route("/control/v1/users/emails/{id}", patch(emails::update_email))
         .route("/control/v1/users/emails/{id}", delete(emails::delete_email))
-        // Organization management routes (non-scoped)
-        .route("/control/v1/organizations", post(organizations::create_organization))
-        .route("/control/v1/organizations", get(organizations::list_organizations))
-        // Accept invitation route (protected, needs session)
-        .route(
-            "/control/v1/organizations/invitations/accept",
-            post(organizations::accept_invitation),
-        )
         // Vault GET by ID route (session-protected, no org membership required)
         .route("/control/v1/vaults/{vault}", get(vaults::get_vault_by_id))
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state.clone(), require_session));
 
-    // JWT-protected routes (new Ledger-backed auth)
+    // JWT-protected routes (Ledger-backed auth)
     let jwt_protected = Router::new()
         .route("/control/v1/auth/revoke-all", post(auth_v2::revoke_all))
-        // User profile management (migrated to Ledger SDK)
+        // User profile management
         .route("/control/v1/users/me", get(users::get_profile))
         .route("/control/v1/users/me", patch(users::update_profile))
         .route("/control/v1/users/me", delete(users::delete_user))
+        // Organization CRUD
+        .route("/control/v1/organizations", post(organizations::create_organization))
+        .route("/control/v1/organizations", get(organizations::list_organizations))
+        .route(
+            "/control/v1/organizations/{org}",
+            get(organizations::get_organization)
+                .patch(organizations::update_organization)
+                .delete(organizations::delete_organization),
+        )
+        // Organization membership
+        .route("/control/v1/organizations/{org}/members", get(organizations::list_members))
+        .route(
+            "/control/v1/organizations/{org}/members/self",
+            delete(organizations::leave_organization),
+        )
+        .route(
+            "/control/v1/organizations/{org}/members/{member}",
+            patch(organizations::update_member_role),
+        )
+        .route(
+            "/control/v1/organizations/{org}/members/{member}",
+            delete(organizations::remove_member),
+        )
+        // Organization invitations (admin)
+        .route(
+            "/control/v1/organizations/{org}/invitations",
+            post(organizations::create_invitation).get(organizations::list_invitations),
+        )
+        .route(
+            "/control/v1/organizations/{org}/invitations/{invitation}",
+            delete(organizations::delete_invitation),
+        )
+        // User invitations
+        .route(
+            "/control/v1/users/me/invitations",
+            get(organizations::list_received_invitations),
+        )
+        .route(
+            "/control/v1/users/me/invitations/{invitation}/accept",
+            post(organizations::accept_invitation),
+        )
+        .route(
+            "/control/v1/users/me/invitations/{invitation}/decline",
+            post(organizations::decline_invitation),
+        )
         .route_layer(middleware::from_fn_with_state(state.clone(), require_jwt))
         .with_state(state.clone());
 

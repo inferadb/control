@@ -3,9 +3,9 @@
 //! Provides typed wrappers for creating sessions, refreshing tokens, and revoking
 //! sessions. All state is managed by Ledger — Control is stateless.
 
+use inferadb_control_types::error::Result;
 use inferadb_ledger_sdk::LedgerClient;
 use inferadb_ledger_types::UserSlug;
-use inferadb_control_types::error::Result;
 
 use super::error::SdkResultExt;
 
