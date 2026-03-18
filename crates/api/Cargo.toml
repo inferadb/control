@@ -18,6 +18,8 @@ inferadb-control-storage = { path = "../storage" }
 inferadb-control-types = { path = "../types" }
 # Internal (uses latest from crates.io; consider using .cargo/config.toml override for local development)
 inferadb-common-storage = ">=0.1.0-0"
+inferadb-ledger-sdk = { version = ">=0.1.0-0", features = ["serde"] }
+inferadb-ledger-types = ">=0.1.0-0"
 
 # External dependencies
 anyhow = { workspace = true }

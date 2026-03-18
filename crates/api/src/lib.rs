@@ -114,6 +114,8 @@ async fn shutdown_signal() {
 pub struct ServicesConfig {
     pub email_service: Option<Arc<inferadb_control_core::EmailService>>,
     pub control_identity: Option<Arc<ControlIdentity>>,
+    pub ledger: Option<Arc<inferadb_ledger_sdk::LedgerClient>>,
+    pub blinding_key: Option<Arc<inferadb_ledger_types::EmailBlindingKey>>,
 }
 
 /// Start the Control API HTTP server
@@ -131,6 +133,8 @@ pub async fn serve(
         .worker_id(worker_id)
         .maybe_email_service(services.email_service)
         .maybe_control_identity(services.control_identity)
+        .maybe_ledger(services.ledger)
+        .maybe_blinding_key(services.blinding_key)
         .build();
 
     // Create router

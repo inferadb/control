@@ -5,7 +5,7 @@ use clap::Parser;
 use inferadb_control_config::{Cli, LogFormat, StorageBackend};
 use inferadb_control_core::{
     EmailService, IdGenerator, SmtpEmailService, WorkerRegistry, acquire_worker_id, logging,
-    startup,
+    parse_blinding_key, startup,
 };
 use inferadb_control_storage::{
     LedgerConfig as StorageLedgerConfig,
@@ -171,6 +171,30 @@ async fn main() -> Result<()> {
         None
     };
 
+    // Parse email blinding key (if configured)
+    let blinding_key = parse_blinding_key(config.email_blinding_key.as_deref())?
+        .map(Arc::new);
+    if blinding_key.is_some() {
+        startup::log_initialized("Email blinding key");
+    }
+
+    // Initialize Ledger SDK client (when not in dev-mode with memory storage)
+    let ledger = if effective_storage == StorageBackend::Ledger {
+        // config.validate() ensures these fields are present when storage == ledger
+        #[allow(clippy::expect_used)]
+        let endpoint = config.ledger_endpoint.as_ref().expect("validated");
+        #[allow(clippy::expect_used)]
+        let client_id = config.ledger_client_id.as_ref().expect("validated");
+
+        let ledger_client = inferadb_ledger_sdk::LedgerClient::connect(endpoint, client_id)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to connect to Ledger: {e}"))?;
+        startup::log_initialized("Ledger SDK client");
+        Some(Arc::new(ledger_client))
+    } else {
+        None
+    };
+
     // Wrap config in Arc for sharing across services
     let config = Arc::new(config);
 
@@ -181,6 +205,8 @@ async fn main() -> Result<()> {
         inferadb_control_api::ServicesConfig {
             email_service,
             control_identity: Some(control_identity),
+            ledger,
+            blinding_key,
         },
     )
     .await?;

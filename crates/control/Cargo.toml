@@ -21,6 +21,9 @@ inferadb-control-core = { path = "../core" }
 inferadb-control-storage = { path = "../storage" }
 inferadb-control-types = { path = "../types" }
 
+# Ledger SDK
+inferadb-ledger-sdk = ">=0.1.0-0"
+
 # External dependencies (anyhow at application level, snafu in libraries)
 anyhow = { workspace = true }
 clap = { workspace = true }

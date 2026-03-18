@@ -42,6 +42,11 @@ pub struct AppState {
     pub control_identity: Option<Arc<inferadb_control_types::ControlIdentity>>,
     #[builder(default)]
     pub rate_limits: crate::middleware::RateLimitConfig,
+    /// Ledger SDK client for direct service calls (replaces StorageBackend for
+    /// user/org/team/credential/invitation/app/vault operations).
+    pub ledger: Option<Arc<inferadb_ledger_sdk::LedgerClient>>,
+    /// Email blinding key for HMAC computation. Must match the Ledger cluster's key.
+    pub blinding_key: Option<Arc<inferadb_ledger_types::EmailBlindingKey>>,
 }
 
 impl AppState {
