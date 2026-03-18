@@ -63,6 +63,7 @@ inferadb-common-ratelimit = ">=0.1.0-0"
 # Ledger SDK + types
 inferadb-ledger-sdk = { version = ">=0.1.0-0", features = ["serde"] }
 inferadb-ledger-types = ">=0.1.0-0"
+tonic = { workspace = true }
 
 # Storage
 inferadb-control-storage = { path = "../storage" }

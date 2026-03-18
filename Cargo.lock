@@ -2076,6 +2076,7 @@ dependencies = [
  "tempfile",
  "terminal_size",
  "tokio",
+ "tonic",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
