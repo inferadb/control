@@ -192,11 +192,6 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/control/v1/users/sessions/revoke-others", post(sessions::revoke_other_sessions))
         // Token revocation routes
         .route("/control/v1/tokens/revoke/vault/{vault}", post(tokens::revoke_vault_tokens))
-        // User profile management routes
-        .route("/control/v1/users/me", get(users::get_profile))
-        .route("/control/v1/users/me", patch(users::update_profile))
-        .route("/control/v1/users/me", delete(users::delete_user))
-        .route("/control/v1/auth/me", get(users::get_profile))
         // Email management routes
         .route("/control/v1/users/emails", post(emails::add_email))
         .route("/control/v1/users/emails", get(emails::list_emails))
@@ -218,6 +213,10 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
     // JWT-protected routes (new Ledger-backed auth)
     let jwt_protected = Router::new()
         .route("/control/v1/auth/revoke-all", post(auth_v2::revoke_all))
+        // User profile management (migrated to Ledger SDK)
+        .route("/control/v1/users/me", get(users::get_profile))
+        .route("/control/v1/users/me", patch(users::update_profile))
+        .route("/control/v1/users/me", delete(users::delete_user))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_jwt))
         .with_state(state.clone());
 
