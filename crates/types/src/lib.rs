@@ -129,12 +129,12 @@ impl PaginationMeta {
 pub mod entities;
 
 pub use entities::{
-    AuditEventType, AuditLog, AuditResourceType, AuthorizationCode, Client, ClientCertificate,
-    Organization, OrganizationInvitation, OrganizationMember, OrganizationPermission,
-    OrganizationRole, OrganizationTeam, OrganizationTeamMember, OrganizationTeamPermission,
-    OrganizationTier, PasskeyCredential, SecureToken, SecureTokenEntity, SessionType, User,
-    UserEmail, UserEmailVerificationToken, UserPasswordResetToken, UserSession, Vault,
-    VaultRefreshToken, VaultRole, VaultSyncStatus, VaultTeamGrant, VaultUserGrant,
+    AuditEventType, AuditLog, AuditResourceType, Client, ClientCertificate, Organization,
+    OrganizationInvitation, OrganizationMember, OrganizationPermission, OrganizationRole,
+    OrganizationTeam, OrganizationTeamMember, OrganizationTeamPermission, OrganizationTier,
+    PasskeyCredential, SecureToken, SecureTokenEntity, SessionType, User, UserEmail,
+    UserEmailVerificationToken, UserSession, Vault, VaultRefreshToken, VaultRole, VaultSyncStatus,
+    VaultTeamGrant, VaultUserGrant,
 };
 
 // ============================================================================

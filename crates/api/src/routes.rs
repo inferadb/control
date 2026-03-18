@@ -5,13 +5,12 @@ use axum::{
 
 use crate::{
     handlers::{
-        AppState, audit_logs, auth, auth_v2, cli_auth, clients, email_auth, emails, health,
+        AppState, audit_logs, auth_v2, clients, email_auth, emails, health,
         metrics as metrics_handler, mfa_auth, organizations, schemas, sessions, teams, tokens,
         users, vaults,
     },
     middleware::{
-        logging_middleware, login_rate_limit, registration_rate_limit, require_jwt,
-        require_organization_member, require_session,
+        logging_middleware, require_jwt, require_organization_member, require_session,
     },
 };
 
@@ -211,8 +210,6 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/control/v1/organizations/invitations/accept",
             post(organizations::accept_invitation),
         )
-        // CLI authentication routes (protected, needs session for authorize)
-        .route("/control/v1/auth/cli/authorize", post(cli_auth::cli_authorize))
         // Vault GET by ID route (session-protected, no org membership required)
         .route("/control/v1/vaults/{vault}", get(vaults::get_vault_by_id))
         .with_state(state.clone())
@@ -225,15 +222,8 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .with_state(state.clone());
 
     // Rate-limited authentication routes (separate routers to avoid cross-contamination)
-    let register_rate_limited = Router::new()
-        .route("/control/v1/auth/register", post(auth::register))
-        .route_layer(middleware::from_fn_with_state(state.clone(), registration_rate_limit))
-        .with_state(state.clone());
-
-    let login_rate_limited = Router::new()
-        .route("/control/v1/auth/login/password", post(auth::login))
-        .route_layer(middleware::from_fn_with_state(state.clone(), login_rate_limit))
-        .with_state(state.clone());
+    // Legacy rate-limited routes removed (password auth dropped).
+    // Email-code auth is in the public routes above.
 
     // Combine public, protected, and org-scoped routes
     Router::new()
@@ -247,10 +237,6 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/metrics", get(metrics_handler::metrics_handler))
         // Internal audit logging endpoint (no authentication, for internal use)
         .route("/internal/audit", post(audit_logs::create_audit_log))
-        .route("/control/v1/auth/logout", post(auth::logout))
-        .route("/control/v1/auth/verify-email", post(auth::verify_email))
-        .route("/control/v1/auth/password-reset/request", post(auth::request_password_reset))
-        .route("/control/v1/auth/password-reset/confirm", post(auth::confirm_password_reset))
         // Ledger-backed auth endpoints (v2)
         .route("/control/v1/auth/refresh", post(auth_v2::refresh))
         .route("/control/v1/auth/v2/logout", post(auth_v2::logout))
@@ -268,11 +254,7 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/control/v1/tokens/refresh", post(tokens::refresh_vault_token))
         // Client assertion authentication endpoint (public, OAuth 2.0 JWT Bearer)
         .route("/control/v1/token", post(tokens::client_assertion_authenticate))
-        // CLI token exchange endpoint (public, authorization code provides authentication)
-        .route("/control/v1/auth/cli/token", post(cli_auth::cli_token_exchange))
         .with_state(state)
-        .merge(register_rate_limited)
-        .merge(login_rate_limited)
         .merge(org_scoped)
         .merge(protected)
         .merge(jwt_protected)

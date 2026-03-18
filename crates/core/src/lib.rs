@@ -27,7 +27,6 @@ pub mod repository_context;
 pub mod service;
 pub mod startup;
 
-pub use auth::{PasswordHasher, hash_password, verify_password};
 pub use clock::{ClockStatus, ClockValidator, SkewSeverity};
 pub use crypto::{MasterKey, PrivateKeyEncryptor, keypair};
 pub use email_hmac::{EmailBlindingKey, compute_email_hmac, normalize_email, parse_blinding_key};
@@ -43,13 +42,12 @@ pub use ratelimit::{
     RateLimit, RateLimitResponse, RateLimitResult, RateLimiter, categories, limits,
 };
 pub use repository::{
-    AuditLogFilters, AuditLogRepository, AuthorizationCodeRepository, ClientCertificateRepository,
-    ClientRepository, JtiReplayProtectionRepository, OrganizationInvitationRepository,
-    OrganizationMemberRepository, OrganizationRepository, OrganizationTeamMemberRepository,
-    OrganizationTeamPermissionRepository, OrganizationTeamRepository, PasskeyCredentialRepository,
-    SecureTokenRepository, UserEmailRepository, UserEmailVerificationTokenRepository,
-    UserPasswordResetTokenRepository, UserRepository, UserSessionRepository,
-    VaultRefreshTokenRepository, VaultRepository, VaultTeamGrantRepository,
+    AuditLogFilters, AuditLogRepository, ClientCertificateRepository, ClientRepository,
+    JtiReplayProtectionRepository, OrganizationInvitationRepository, OrganizationMemberRepository,
+    OrganizationRepository, OrganizationTeamMemberRepository, OrganizationTeamPermissionRepository,
+    OrganizationTeamRepository, PasskeyCredentialRepository, SecureTokenRepository,
+    UserEmailRepository, UserEmailVerificationTokenRepository, UserRepository,
+    UserSessionRepository, VaultRefreshTokenRepository, VaultRepository, VaultTeamGrantRepository,
     VaultUserGrantRepository,
 };
 pub use repository_context::RepositoryContext;

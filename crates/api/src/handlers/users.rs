@@ -149,12 +149,6 @@ pub async fn delete_user(
         repos.user_email.delete(email.id).await?;
     }
 
-    // CASCADE DELETE: Delete all password reset tokens
-    let reset_tokens = repos.user_password_reset_token.get_by_user(ctx.user_id).await?;
-    for token in reset_tokens {
-        repos.user_password_reset_token.delete(token.secure_token.id).await?;
-    }
-
     // Soft-delete the user
     user.soft_delete();
     repos.user.update(user).await?;

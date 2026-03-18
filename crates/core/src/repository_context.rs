@@ -24,7 +24,6 @@ pub struct RepositoryContext<S: StorageBackend> {
     pub user_email: UserEmailRepository<S>,
     pub user_session: UserSessionRepository<S>,
     pub user_email_verification_token: UserEmailVerificationTokenRepository<S>,
-    pub user_password_reset_token: UserPasswordResetTokenRepository<S>,
     pub passkey_credential: PasskeyCredentialRepository<S>,
 
     // Organization management
@@ -46,8 +45,7 @@ pub struct RepositoryContext<S: StorageBackend> {
     pub client: ClientRepository<S>,
     pub client_certificate: ClientCertificateRepository<S>,
 
-    // OAuth2/Authorization
-    pub authorization_code: AuthorizationCodeRepository<S>,
+    // JWT replay protection
     pub jti_replay_protection: JtiReplayProtectionRepository<S>,
 
     // Audit
@@ -74,7 +72,6 @@ impl<S: StorageBackend + Clone> RepositoryContext<S> {
             user_email_verification_token: UserEmailVerificationTokenRepository::new(
                 storage.clone(),
             ),
-            user_password_reset_token: UserPasswordResetTokenRepository::new(storage.clone()),
             passkey_credential: PasskeyCredentialRepository::new(storage.clone()),
 
             // Organization management
@@ -96,8 +93,7 @@ impl<S: StorageBackend + Clone> RepositoryContext<S> {
             client: ClientRepository::new(storage.clone()),
             client_certificate: ClientCertificateRepository::new(storage.clone()),
 
-            // OAuth2/Authorization
-            authorization_code: AuthorizationCodeRepository::new(storage.clone()),
+            // JWT replay protection
             jti_replay_protection: JtiReplayProtectionRepository::new(storage.clone()),
 
             // Audit

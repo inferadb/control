@@ -1,3 +1,4 @@
-pub mod password;
-
-pub use password::{PasswordHasher, hash_password, verify_password};
+//! Authentication utilities.
+//!
+//! Password hashing has been removed — the system is passwordless.
+//! See PRD Decision 1 for details.
