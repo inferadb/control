@@ -4,12 +4,7 @@ use anyhow::Result;
 use clap::Parser;
 use inferadb_control_config::{Cli, LogFormat, StorageBackend};
 use inferadb_control_core::{
-    EmailService, IdGenerator, SmtpEmailService, WorkerRegistry, acquire_worker_id, logging,
-    parse_blinding_key, startup,
-};
-use inferadb_control_storage::{
-    LedgerConfig as StorageLedgerConfig,
-    factory::{StorageConfig, create_storage_backend},
+    EmailService, IdGenerator, SmtpEmailService, logging, parse_blinding_key, startup,
 };
 use inferadb_control_types::ControlIdentity;
 
@@ -90,36 +85,13 @@ async fn main() -> Result<()> {
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "Starting InferaDB Control");
     }
 
-    // Storage backend
-    let storage_config = match effective_storage {
-        StorageBackend::Memory => StorageConfig::memory(),
-        StorageBackend::Ledger => {
-            // config.validate() ensures these fields are present when storage == ledger
-            #[allow(clippy::expect_used)]
-            let ledger_config = StorageLedgerConfig {
-                endpoint: config.ledger_endpoint.clone().expect("validated"),
-                client_id: config.ledger_client_id.clone().expect("validated"),
-                organization: config.ledger_organization.expect("validated"),
-                vault: config.ledger_vault,
-            };
-            StorageConfig::ledger(ledger_config)
-        },
-    };
-    let bundle = create_storage_backend(&storage_config).await?;
-    startup::log_initialized(&format!("Storage ({effective_storage})"));
+    // Generate a random worker ID (0..1024) for the ID generator
+    let worker_id: u16 = rand::random::<u16>() % 1024;
 
-    // Acquire worker ID automatically (uses pod ordinal or random with collision detection)
-    let worker_id = acquire_worker_id(&bundle.storage, None)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to acquire worker ID: {e}"))?;
-
-    // Initialize the ID generator with the acquired worker ID
+    // Initialize the ID generator with the worker ID
     IdGenerator::init(worker_id)
         .map_err(|e| anyhow::anyhow!("Failed to initialize ID generator: {e}"))?;
 
-    // Start worker registry heartbeat to maintain registration
-    let worker_registry = Arc::new(WorkerRegistry::new(bundle.storage.clone(), worker_id));
-    worker_registry.clone().start_heartbeat();
     startup::log_initialized(&format!("Worker ID ({worker_id})"));
 
     // Identity for engine authentication
@@ -198,7 +170,6 @@ async fn main() -> Result<()> {
     let config = Arc::new(config);
 
     inferadb_control_api::serve(
-        bundle,
         config.clone(),
         worker_id,
         inferadb_control_api::ServicesConfig {

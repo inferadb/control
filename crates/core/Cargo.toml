@@ -28,7 +28,6 @@ inferadb-control-const = { path = "../const" }
 
 # Cryptography
 aes-gcm = { workspace = true }
-argon2 = { workspace = true }
 base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
 hex = { workspace = true }
@@ -64,9 +63,6 @@ inferadb-common-ratelimit = ">=0.1.0-0"
 inferadb-ledger-sdk = { version = ">=0.1.0-0", features = ["serde"] }
 inferadb-ledger-types = ">=0.1.0-0"
 tonic = { workspace = true }
-
-# Storage
-inferadb-control-storage = { path = "../storage" }
 
 uuid = { workspace = true }
 

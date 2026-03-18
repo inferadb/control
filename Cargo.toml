@@ -5,7 +5,6 @@ members = [
   "crates/config",
   "crates/const",
   "crates/core",
-  "crates/storage",
   "crates/test-fixtures",
   "crates/types",
 ]
@@ -77,7 +76,6 @@ rand = "0.10"
 
 # Authentication & Cryptography
 aes-gcm = "0.10"
-argon2 = { version = "0.5", features = ["std"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 ed25519-dalek = { version = "2", features = ["rand_core", "zeroize", "pkcs8"] }
@@ -88,7 +86,6 @@ jsonwebtoken = { version = "10", default-features = false, features = [
   "use_pem",
 ] }
 pem = "3"
-secrecy = "0.10"
 sha2 = "0.10"
 uuid = { version = "1.0", features = ["serde", "v4"] }
 zeroize = { version = "1", features = ["derive"] }
@@ -139,10 +136,6 @@ unicode-width = "0.2"
 
 # Validation
 validator = { version = "0.20", features = ["derive"] }
-
-# Kubernetes client
-k8s-openapi = { version = "0.27", features = ["v1_31"] }
-kube = { version = "3", features = ["client"] }
 
 # Caching
 moka = { version = "0.12", features = ["sync"] }

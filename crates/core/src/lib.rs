@@ -4,13 +4,9 @@
 //!
 //! Core business logic for the InferaDB Control Plane.
 //!
-//! ## Imports
-//!
-//! Import types from their source crates:
-//! - Entity types: `inferadb_control_types::entities`
-//! - DTOs: `inferadb_control_types::dto`
-//! - Errors: `inferadb_control_types::Error`
-//! - Config: `inferadb_control_config::Config`
+//! All domain operations delegate to Ledger via the [`service`] module.
+//! The remaining modules handle local concerns: email delivery, JWT signing,
+//! ID generation, logging, and rate limiting.
 
 pub mod auth;
 pub mod clock;
@@ -22,8 +18,6 @@ pub mod jwt;
 pub mod logging;
 pub mod metrics;
 pub mod ratelimit;
-pub mod repository;
-pub mod repository_context;
 pub mod service;
 pub mod startup;
 
@@ -36,18 +30,7 @@ pub use email::{
     VerificationEmailTemplate,
 };
 pub use email_hmac::{EmailBlindingKey, compute_email_hmac, normalize_email, parse_blinding_key};
-pub use id::{IdGenerator, WorkerRegistry, acquire_worker_id};
-pub use jwt::{JwtSigner, VaultTokenClaims};
+pub use id::IdGenerator;
 pub use ratelimit::{
     RateLimit, RateLimitResponse, RateLimitResult, RateLimiter, categories, limits,
 };
-pub use repository::{
-    AuditLogFilters, AuditLogRepository, ClientCertificateRepository, ClientRepository,
-    JtiReplayProtectionRepository, OrganizationInvitationRepository, OrganizationMemberRepository,
-    OrganizationRepository, OrganizationTeamMemberRepository, OrganizationTeamPermissionRepository,
-    OrganizationTeamRepository, PasskeyCredentialRepository, SecureTokenRepository,
-    UserEmailRepository, UserEmailVerificationTokenRepository, UserRepository,
-    UserSessionRepository, VaultRefreshTokenRepository, VaultRepository, VaultTeamGrantRepository,
-    VaultUserGrantRepository,
-};
-pub use repository_context::RepositoryContext;

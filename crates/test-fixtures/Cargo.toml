@@ -13,7 +13,6 @@ version.workspace = true
 # Workspace crates
 inferadb-control-api = { path = "../api" }
 inferadb-control-core = { path = "../core" }
-inferadb-control-storage = { path = "../storage" }
 inferadb-control-types = { path = "../types" }
 
 # External dependencies

@@ -198,18 +198,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "argon2"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c3610892ee6e0cbce8ae2700349fcf8f98adb0dbfbee85aec3c9179d29cc072"
-dependencies = [
- "base64ct",
- "blake2",
- "cpufeatures 0.2.17",
- "password-hash",
-]
-
-[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -478,15 +466,6 @@ dependencies = [
  "radium",
  "tap",
  "wyz",
-]
-
-[[package]]
-name = "blake2"
-version = "0.10.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
-dependencies = [
- "digest",
 ]
 
 [[package]]
@@ -1955,26 +1934,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "inferadb-common-storage-ledger"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bon",
- "bytes",
- "chrono",
- "hex",
- "inferadb-common-storage",
- "inferadb-ledger-sdk",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tonic",
- "tracing",
-]
-
-[[package]]
 name = "inferadb-control"
 version = "0.1.0"
 dependencies = [
@@ -1983,9 +1942,9 @@ dependencies = [
  "inferadb-control-api",
  "inferadb-control-config",
  "inferadb-control-core",
- "inferadb-control-storage",
  "inferadb-control-types",
  "inferadb-ledger-sdk",
+ "rand 0.10.0",
  "rustls",
  "tokio",
  "tracing",
@@ -2004,11 +1963,9 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "inferadb-common-authn",
- "inferadb-common-storage",
  "inferadb-control-config",
  "inferadb-control-const",
  "inferadb-control-core",
- "inferadb-control-storage",
  "inferadb-control-test-fixtures",
  "inferadb-control-types",
  "inferadb-ledger-sdk",
@@ -2050,7 +2007,6 @@ name = "inferadb-control-core"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
- "argon2",
  "async-trait",
  "base64 0.22.1",
  "bon",
@@ -2060,7 +2016,6 @@ dependencies = [
  "idgenerator",
  "inferadb-common-ratelimit",
  "inferadb-control-const",
- "inferadb-control-storage",
  "inferadb-control-types",
  "inferadb-ledger-sdk",
  "inferadb-ledger-types",
@@ -2091,21 +2046,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "inferadb-control-storage"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bon",
- "bytes",
- "inferadb-common-storage",
- "inferadb-common-storage-ledger",
- "inferadb-ledger-sdk",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "inferadb-control-test-fixtures"
 version = "0.1.0"
 dependencies = [
@@ -2114,7 +2054,6 @@ dependencies = [
  "bon",
  "inferadb-control-api",
  "inferadb-control-core",
- "inferadb-control-storage",
  "inferadb-control-types",
  "serde_json",
  "tokio",
@@ -2957,17 +2896,6 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
-]
-
-[[package]]
-name = "password-hash"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "346f04948ba92c43e8469c1ee6736c7563d71012b17d40745260fe106aac2166"
-dependencies = [
- "base64ct",
- "rand_core 0.6.4",
- "subtle",
 ]
 
 [[package]]
@@ -5704,3 +5632,7 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[patch.unused]]
+name = "inferadb-common-storage-ledger"
+version = "0.1.0"

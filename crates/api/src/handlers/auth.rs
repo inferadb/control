@@ -13,15 +13,12 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use bon::Builder;
-use inferadb_control_storage::{DynBackend, PublicSigningKeyStore, memory_storage};
 use inferadb_control_types::{Error as CoreError, dto::ErrorResponse};
 
 /// Application state shared across handlers
 #[derive(Clone, Builder)]
 #[builder(on(Arc<_>, into))]
 pub struct AppState {
-    pub storage: DynBackend,
-    pub signing_keys: Arc<dyn PublicSigningKeyStore>,
     pub config: Arc<inferadb_control_config::Config>,
     pub worker_id: u16,
     #[builder(default = std::time::SystemTime::now())]
@@ -41,8 +38,6 @@ impl AppState {
     pub fn new_test() -> Self {
         use inferadb_control_config::{Config, StorageBackend};
 
-        let bundle = memory_storage();
-
         let config = Config::builder()
             .storage(StorageBackend::Memory)
             .key_file(std::path::PathBuf::from("/tmp/test-master.key"))
@@ -52,8 +47,6 @@ impl AppState {
         let email_service = inferadb_control_core::EmailService::new(email_sender);
 
         Self::builder()
-            .storage(bundle.storage)
-            .signing_keys(bundle.signing_keys)
             .config(Arc::new(config))
             .worker_id(0)
             .email_service(Arc::new(email_service))

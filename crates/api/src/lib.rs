@@ -38,10 +38,8 @@
 //! use std::sync::Arc;
 //! use inferadb_control_api::AppState;
 //!
-//! async fn example(bundle: StorageBundle, config: Arc<Config>) {
+//! async fn example(config: Arc<Config>) {
 //!     let state = AppState::builder()
-//!         .storage(bundle.storage)
-//!         .signing_keys(bundle.signing_keys)
 //!         .config(config)
 //!         .worker_id(1)
 //!         .maybe_email_service(None)    // Optional email service
@@ -56,7 +54,6 @@ use std::sync::Arc;
 
 use inferadb_control_config::Config;
 use inferadb_control_core::startup;
-use inferadb_control_storage::StorageBundle;
 use inferadb_control_types::ControlIdentity;
 use tracing::info;
 
@@ -68,12 +65,7 @@ pub mod pagination;
 pub mod routes;
 
 pub use handlers::AppState;
-pub use middleware::{
-    OrganizationContext, RateLimitConfig, SessionContext, UserClaims, VaultContext,
-    extract_session_context, get_user_vault_role, require_admin, require_admin_or_owner,
-    require_jwt, require_manager, require_member, require_organization_member, require_owner,
-    require_reader, require_session, require_vault_access, require_writer,
-};
+pub use middleware::{RateLimitConfig, UserClaims, require_jwt};
 pub use pagination::{Paginated, PaginationMeta, PaginationParams, PaginationQuery};
 pub use routes::create_router_with_state;
 
@@ -120,15 +112,12 @@ pub struct ServicesConfig {
 
 /// Start the Control API HTTP server
 pub async fn serve(
-    bundle: StorageBundle,
     config: Arc<Config>,
     worker_id: u16,
     services: ServicesConfig,
 ) -> anyhow::Result<()> {
     // Create AppState with services using the builder pattern
     let state = AppState::builder()
-        .storage(bundle.storage)
-        .signing_keys(bundle.signing_keys)
         .config(config.clone())
         .worker_id(worker_id)
         .maybe_email_service(services.email_service)

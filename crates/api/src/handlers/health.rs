@@ -1,20 +1,22 @@
-//! Health check endpoints for Kubernetes probes
+//! Health check endpoints for Kubernetes probes.
 //!
-//! Provides standard Kubernetes health endpoints following the API server conventions:
-//! - `/livez` - Liveness probe (is the process alive?)
-//! - `/readyz` - Readiness probe (can it accept traffic?)
-//! - `/startupz` - Startup probe (has initialization completed?)
-//! - `/healthz` - Detailed health status for debugging/monitoring
+//! Provides standard Kubernetes health endpoints:
+//! - `/livez` — Liveness probe (is the process alive?)
+//! - `/readyz` — Readiness probe (can it accept traffic?)
+//! - `/startupz` — Startup probe (has initialization completed?)
+//! - `/healthz` — Detailed health status for debugging/monitoring
+//!
+//! Health checks probe the Ledger SDK client when configured, falling back
+//! to a simple "alive" check when running without a Ledger connection.
 
 use std::time::SystemTime;
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use inferadb_control_storage::StorageBackend;
 use serde::{Deserialize, Serialize};
 
 use crate::handlers::AppState;
 
-/// Health check status
+/// Health check status.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HealthStatus {
@@ -23,110 +25,74 @@ pub enum HealthStatus {
     Unhealthy,
 }
 
-/// Detailed health status response
+/// Detailed health status response.
 #[derive(Debug, Clone, Serialize)]
 pub struct HealthResponse {
-    /// Overall health status
     pub status: HealthStatus,
-
-    /// Service name
     pub service: String,
-
-    /// Service version
     pub version: String,
-
-    /// Instance identifier (worker ID)
     pub instance_id: u16,
-
-    /// Uptime in seconds
     pub uptime_seconds: u64,
-
-    /// Whether storage backend is healthy
-    pub storage_healthy: bool,
-
-    /// Additional details (optional)
+    pub ledger_healthy: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
 }
 
-/// Liveness probe handler (`/livez`)
+/// Checks Ledger SDK health, returning true if healthy or if no Ledger is configured.
+async fn check_ledger_health(state: &AppState) -> bool {
+    let Some(ref ledger) = state.ledger else {
+        // No Ledger configured (dev-mode) — consider healthy
+        return true;
+    };
+    ledger.health_check().await.unwrap_or(false)
+}
+
+/// Liveness probe handler (`/livez`).
 ///
-/// Indicates whether the service is running. If this fails, Kubernetes will restart the pod.
 /// Always returns 200 OK if the server is running.
-///
-/// Returns:
-/// - 200 OK if the service is alive
-/// - 503 Service Unavailable if the service is dead (unreachable in practice)
 pub async fn livez_handler() -> impl IntoResponse {
     StatusCode::OK
 }
 
-/// Readiness probe handler (`/readyz`)
+/// Readiness probe handler (`/readyz`).
 ///
-/// Indicates whether the service is ready to accept traffic.
-/// If this fails, Kubernetes will remove the pod from the load balancer.
-///
-/// Checks:
-/// - Storage backend is accessible
-///
-/// Returns:
-/// - 200 OK if the service is ready
-/// - 503 Service Unavailable if the service is not ready
+/// Checks whether the Ledger SDK client is reachable.
 pub async fn readyz_handler(State(state): State<AppState>) -> impl IntoResponse {
-    // Check storage health by doing a simple operation
-    let storage_healthy = state.storage.get(b"health_check".as_ref()).await.is_ok();
-
-    if storage_healthy { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE }
+    if check_ledger_health(&state).await {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    }
 }
 
-/// Startup probe handler (`/startupz`)
+/// Startup probe handler (`/startupz`).
 ///
-/// Indicates whether the service has completed initialization.
-/// Kubernetes will not send traffic until this succeeds.
-///
-/// Returns:
-/// - 200 OK if startup is complete
-/// - 503 Service Unavailable if still initializing
+/// Same as readiness — Ledger must be accessible.
 pub async fn startupz_handler(State(state): State<AppState>) -> impl IntoResponse {
-    // For now, same as readiness (storage must be accessible)
     readyz_handler(State(state)).await
 }
 
-/// Detailed health check handler (`/healthz`)
+/// Detailed health check handler (`/healthz`).
 ///
-/// Returns comprehensive health information including component status.
-/// Useful for debugging and monitoring dashboards.
-///
-/// Returns JSON with detailed health status including:
-/// - Overall status (healthy/degraded/unhealthy)
-/// - Service name and version
-/// - Uptime in seconds
-/// - Storage backend status
+/// Returns JSON with service health, version, uptime, and Ledger status.
 pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse {
-    // Check storage health
-    let storage_healthy = state.storage.get(b"health_check".as_ref()).await.is_ok();
+    let ledger_healthy = check_ledger_health(&state).await;
+    let uptime_seconds = SystemTime::now()
+        .duration_since(state.start_time)
+        .unwrap_or_default()
+        .as_secs();
 
-    // Get instance details from state
-    let instance_id = state.worker_id;
-    let start_time = state.start_time;
+    let status = if ledger_healthy { HealthStatus::Healthy } else { HealthStatus::Unhealthy };
 
-    // Calculate uptime
-    let uptime_seconds = SystemTime::now().duration_since(start_time).unwrap_or_default().as_secs();
-
-    // Determine overall status
-    let status = if storage_healthy { HealthStatus::Healthy } else { HealthStatus::Unhealthy };
-
-    let response = HealthResponse {
+    Json(HealthResponse {
         status,
         service: "inferadb-control".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        instance_id,
+        instance_id: state.worker_id,
         uptime_seconds,
-        storage_healthy,
+        ledger_healthy,
         details: None,
-    };
-
-    Json(response)
+    })
 }
 
 #[cfg(test)]
@@ -141,17 +107,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_readyz_with_healthy_storage() {
+    async fn test_readyz_no_ledger() {
         let state = crate::handlers::AppState::new_test();
-
+        // new_test() has no Ledger configured — should be healthy (dev-mode fallback)
         let response = readyz_handler(State(state)).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
-    async fn test_healthz() {
+    async fn test_healthz_no_ledger() {
         let state = crate::handlers::AppState::new_test();
-
         let response = healthz_handler(State(state)).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
     }

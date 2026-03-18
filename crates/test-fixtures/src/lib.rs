@@ -446,21 +446,12 @@ pub async fn create_client_with_cert(
 
 /// Verifies a user's email directly via the repository (bypasses HTTP).
 ///
-/// # Panics
-///
-/// Panics if the user or email cannot be found.
-pub async fn verify_user_email(state: &AppState, username: &str) {
-    use inferadb_control_core::{UserEmailRepository, UserRepository};
-
-    let user_repo = UserRepository::new(state.storage.clone());
-    let email_repo = UserEmailRepository::new(state.storage.clone());
-
-    let user = user_repo.get_by_name(username).await.unwrap().unwrap();
-    let mut emails = email_repo.get_user_emails(user.id).await.unwrap();
-    if let Some(email) = emails.first_mut() {
-        email.verify();
-        email_repo.update(email.clone()).await.unwrap();
-    }
+/// This is a no-op stub. The storage backend has been removed from AppState.
+/// Email verification in tests should use the Ledger SDK once test infrastructure
+/// is rebuilt (see task #19).
+pub async fn verify_user_email(_state: &AppState, _username: &str) {
+    // No-op: storage backend removed from AppState.
+    // Tests relying on this function will need to be updated to use the Ledger SDK.
 }
 
 /// Invites a member to an organization and accepts the invitation.

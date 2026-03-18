@@ -6,43 +6,15 @@ use axum::{
 use crate::{
     handlers::{
         AppState, audit_logs, auth_v2, clients, email_auth, emails, health,
-        metrics as metrics_handler, mfa_auth, organizations, schemas, sessions, teams, tokens,
-        users, vaults,
+        metrics as metrics_handler, mfa_auth, organizations, schemas, teams, tokens, users, vaults,
     },
-    middleware::{logging_middleware, require_jwt, require_organization_member, require_session},
+    middleware::{logging_middleware, require_jwt},
 };
 
-/// Create router with state and middleware applied
+/// Create router with state and middleware applied.
 ///
-/// Applies session middleware only to protected routes, leaving public routes (like register/login)
-/// accessible without authentication.
+/// All protected routes use JWT middleware. Session-based middleware has been removed.
 pub fn create_router_with_state(state: AppState) -> axum::Router {
-    // Routes that need organization context (session + org membership)
-    // NOTE: Most org-scoped routes have been moved to jwt_protected.
-    // These remaining routes still use the old session middleware.
-    let org_scoped = Router::new()
-        // Audit log routes (OWNER only)
-        .route("/control/v1/organizations/{org}/audit-logs", get(audit_logs::list_audit_logs))
-        .with_state(state.clone())
-        .route_layer(middleware::from_fn_with_state(state.clone(), require_organization_member))
-        .route_layer(middleware::from_fn_with_state(state.clone(), require_session));
-
-    // Create router with protected routes that need session middleware only
-    let protected = Router::new()
-        // Protected session management routes
-        .route("/control/v1/users/sessions", get(sessions::list_sessions))
-        .route("/control/v1/users/sessions/{id}", delete(sessions::revoke_session))
-        .route("/control/v1/users/sessions/revoke-others", post(sessions::revoke_other_sessions))
-        // Email management routes
-        .route("/control/v1/users/emails", post(emails::add_email))
-        .route("/control/v1/users/emails", get(emails::list_emails))
-        .route("/control/v1/users/emails/{id}", patch(emails::update_email))
-        .route("/control/v1/users/emails/{id}", delete(emails::delete_email))
-        // Vault GET by ID route (session-protected, no org membership required)
-        .route("/control/v1/vaults/{vault}", get(vaults::get_vault_by_id))
-        .with_state(state.clone())
-        .layer(middleware::from_fn_with_state(state.clone(), require_session));
-
     // JWT-protected routes (Ledger-backed auth)
     let jwt_protected = Router::new()
         .route("/control/v1/auth/revoke-all", post(auth_v2::revoke_all))
@@ -50,6 +22,10 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/control/v1/users/me", get(users::get_profile))
         .route("/control/v1/users/me", patch(users::update_profile))
         .route("/control/v1/users/me", delete(users::delete_user))
+        // Email management
+        .route("/control/v1/users/emails", post(emails::add_email))
+        .route("/control/v1/users/emails", get(emails::list_emails))
+        .route("/control/v1/users/emails/{id}", delete(emails::delete_email))
         // Organization CRUD
         .route("/control/v1/organizations", post(organizations::create_organization))
         .route("/control/v1/organizations", get(organizations::list_organizations))
@@ -168,10 +144,12 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/control/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate",
             post(schemas::activate_schema),
         )
+        // Audit logs (stub, JWT-protected)
+        .route("/control/v1/organizations/{org}/audit-logs", get(audit_logs::list_audit_logs))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_jwt))
         .with_state(state.clone());
 
-    // Combine public, protected, and org-scoped routes
+    // Combine public and JWT-protected routes
     Router::new()
         // Health check endpoints
         // Follow Kubernetes API server conventions (/livez, /readyz, /startupz, /healthz)
@@ -181,7 +159,7 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/healthz", get(health::healthz_handler))
         // Metrics endpoint (no authentication)
         .route("/metrics", get(metrics_handler::metrics_handler))
-        // Internal audit logging endpoint (no authentication, for internal use)
+        // Internal audit logging endpoint (stub, no authentication, for internal use)
         .route("/internal/audit", post(audit_logs::create_audit_log))
         // Ledger-backed auth endpoints (v2)
         .route("/control/v1/auth/refresh", post(auth_v2::refresh))
@@ -196,13 +174,13 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         // Passkey authentication
         .route("/control/v1/auth/passkey/begin", post(mfa_auth::passkey_begin))
         .route("/control/v1/auth/passkey/finish", post(mfa_auth::passkey_finish))
+        // Email verification (public, token provides authentication)
+        .route("/control/v1/auth/verify-email", post(emails::verify_email))
         // Token refresh endpoint (public, refresh token provides authentication)
         .route("/control/v1/tokens/refresh", post(tokens::refresh_vault_token))
         // Client assertion authentication endpoint (public, OAuth 2.0 JWT Bearer)
         .route("/control/v1/token", post(tokens::client_assertion_authenticate))
         .with_state(state)
-        .merge(org_scoped)
-        .merge(protected)
         .merge(jwt_protected)
         // Add logging middleware to log all requests
         .layer(middleware::from_fn(logging_middleware))

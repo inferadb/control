@@ -9,7 +9,6 @@ pub mod metrics;
 pub mod mfa_auth;
 pub mod organizations;
 pub mod schemas;
-pub mod sessions;
 pub mod teams;
 pub mod tokens;
 pub mod users;
