@@ -165,6 +165,17 @@ pub struct Config {
     #[arg(long = "ledger-vault", env = "INFERADB__CONTROL__LEDGER_VAULT")]
     pub ledger_vault: Option<u64>,
 
+    // ── Email Blinding ────────────────────────────────────────────────
+    /// Email blinding key for HMAC-SHA256 computation (64-char hex string, 32 bytes).
+    /// Must match the key configured on the Ledger cluster.
+    /// Generate with: `openssl rand -hex 32`
+    #[arg(
+        long = "email-blinding-key",
+        env = "INFERADB__CONTROL__EMAIL_BLINDING_KEY",
+        hide_env_values = true
+    )]
+    pub email_blinding_key: Option<String>,
+
     // ── Email (SMTP) ─────────────────────────────────────────────────
     /// SMTP host. Empty string disables email.
     #[arg(long = "email-host", env = "INFERADB__CONTROL__EMAIL_HOST", default_value = "")]

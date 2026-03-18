@@ -16,6 +16,7 @@ pub mod auth;
 pub mod clock;
 pub mod crypto;
 pub mod email;
+pub mod email_hmac;
 pub mod id;
 pub mod jwt;
 pub mod logging;
@@ -28,6 +29,7 @@ pub mod startup;
 pub use auth::{PasswordHasher, hash_password, verify_password};
 pub use clock::{ClockStatus, ClockValidator, SkewSeverity};
 pub use crypto::{MasterKey, PrivateKeyEncryptor, keypair};
+pub use email_hmac::{EmailBlindingKey, compute_email_hmac, normalize_email, parse_blinding_key};
 pub use email::{
     EmailSender, EmailService, EmailTemplate, InvitationAcceptedEmailTemplate,
     InvitationEmailTemplate, MockEmailSender, OrganizationDeletionWarningEmailTemplate,
