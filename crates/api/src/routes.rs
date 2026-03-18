@@ -5,12 +5,12 @@ use axum::{
 
 use crate::{
     handlers::{
-        AppState, audit_logs, auth, cli_auth, clients, emails, health, metrics as metrics_handler,
-        organizations, schemas, sessions, teams, tokens, users, vaults,
+        AppState, audit_logs, auth, auth_v2, cli_auth, clients, emails, health,
+        metrics as metrics_handler, organizations, schemas, sessions, teams, tokens, users, vaults,
     },
     middleware::{
-        logging_middleware, login_rate_limit, registration_rate_limit, require_organization_member,
-        require_session,
+        logging_middleware, login_rate_limit, registration_rate_limit, require_jwt,
+        require_organization_member, require_session,
     },
 };
 
@@ -217,6 +217,12 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state.clone(), require_session));
 
+    // JWT-protected routes (new Ledger-backed auth)
+    let jwt_protected = Router::new()
+        .route("/control/v1/auth/revoke-all", post(auth_v2::revoke_all))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_jwt))
+        .with_state(state.clone());
+
     // Rate-limited authentication routes (separate routers to avoid cross-contamination)
     let register_rate_limited = Router::new()
         .route("/control/v1/auth/register", post(auth::register))
@@ -244,6 +250,9 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/control/v1/auth/verify-email", post(auth::verify_email))
         .route("/control/v1/auth/password-reset/request", post(auth::request_password_reset))
         .route("/control/v1/auth/password-reset/confirm", post(auth::confirm_password_reset))
+        // Ledger-backed auth endpoints (v2)
+        .route("/control/v1/auth/refresh", post(auth_v2::refresh))
+        .route("/control/v1/auth/v2/logout", post(auth_v2::logout))
         // Token refresh endpoint (public, refresh token provides authentication)
         .route("/control/v1/tokens/refresh", post(tokens::refresh_vault_token))
         // Client assertion authentication endpoint (public, OAuth 2.0 JWT Bearer)
@@ -255,6 +264,7 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .merge(login_rate_limited)
         .merge(org_scoped)
         .merge(protected)
+        .merge(jwt_protected)
         // Add logging middleware to log all requests
         .layer(middleware::from_fn(logging_middleware))
 }
