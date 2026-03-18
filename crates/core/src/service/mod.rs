@@ -14,6 +14,7 @@ pub mod credential;
 pub mod email;
 pub mod invitation;
 pub mod membership;
+pub mod onboarding;
 pub mod organization;
 pub mod session;
 pub mod team;

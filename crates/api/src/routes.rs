@@ -5,7 +5,7 @@ use axum::{
 
 use crate::{
     handlers::{
-        AppState, audit_logs, auth, auth_v2, cli_auth, clients, emails, health,
+        AppState, audit_logs, auth, auth_v2, cli_auth, clients, email_auth, emails, health,
         metrics as metrics_handler, organizations, schemas, sessions, teams, tokens, users, vaults,
     },
     middleware::{
@@ -253,6 +253,10 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         // Ledger-backed auth endpoints (v2)
         .route("/control/v1/auth/refresh", post(auth_v2::refresh))
         .route("/control/v1/auth/v2/logout", post(auth_v2::logout))
+        // Email-code authentication flow
+        .route("/control/v1/auth/email/initiate", post(email_auth::initiate))
+        .route("/control/v1/auth/email/verify", post(email_auth::verify))
+        .route("/control/v1/auth/email/complete", post(email_auth::complete))
         // Token refresh endpoint (public, refresh token provides authentication)
         .route("/control/v1/tokens/refresh", post(tokens::refresh_vault_token))
         // Client assertion authentication endpoint (public, OAuth 2.0 JWT Bearer)
