@@ -3,6 +3,7 @@ pub mod auth;
 pub mod auth_v2;
 pub mod cli_auth;
 pub mod email_auth;
+pub mod mfa_auth;
 pub mod clients;
 pub mod emails;
 pub mod health;

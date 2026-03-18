@@ -6,7 +6,8 @@ use axum::{
 use crate::{
     handlers::{
         AppState, audit_logs, auth, auth_v2, cli_auth, clients, email_auth, emails, health,
-        metrics as metrics_handler, organizations, schemas, sessions, teams, tokens, users, vaults,
+        metrics as metrics_handler, mfa_auth, organizations, schemas, sessions, teams, tokens,
+        users, vaults,
     },
     middleware::{
         logging_middleware, login_rate_limit, registration_rate_limit, require_jwt,
@@ -257,6 +258,12 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/control/v1/auth/email/initiate", post(email_auth::initiate))
         .route("/control/v1/auth/email/verify", post(email_auth::verify))
         .route("/control/v1/auth/email/complete", post(email_auth::complete))
+        // TOTP and recovery code verification
+        .route("/control/v1/auth/totp/verify", post(mfa_auth::verify_totp))
+        .route("/control/v1/auth/recovery", post(mfa_auth::consume_recovery))
+        // Passkey authentication
+        .route("/control/v1/auth/passkey/begin", post(mfa_auth::passkey_begin))
+        .route("/control/v1/auth/passkey/finish", post(mfa_auth::passkey_finish))
         // Token refresh endpoint (public, refresh token provides authentication)
         .route("/control/v1/tokens/refresh", post(tokens::refresh_vault_token))
         // Client assertion authentication endpoint (public, OAuth 2.0 JWT Bearer)
