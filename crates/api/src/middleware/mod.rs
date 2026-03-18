@@ -1,3 +1,4 @@
+pub mod jwt;
 pub mod logging;
 pub mod organization;
 pub mod permission;
@@ -5,6 +6,7 @@ pub mod ratelimit;
 pub mod session;
 pub mod vault;
 
+pub use jwt::{UserClaims, require_jwt};
 pub use logging::logging_middleware;
 pub use organization::{
     OrganizationContext, require_admin_or_owner, require_member, require_organization_member,

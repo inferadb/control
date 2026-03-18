@@ -22,3 +22,15 @@ pub const SESSION_COOKIE_NAME: &str = "infera_session";
 ///
 /// After this duration, the session cookie expires and users must re-authenticate.
 pub const SESSION_COOKIE_MAX_AGE: i64 = 24 * 60 * 60;
+
+/// Cookie name for the JWT access token (short-lived).
+///
+/// Used by web clients as an alternative to the `Authorization: Bearer` header.
+/// HttpOnly, Secure, SameSite=Lax.
+pub const ACCESS_TOKEN_COOKIE_NAME: &str = "inferadb_access";
+
+/// Cookie name for the opaque refresh token (long-lived).
+///
+/// Stored in a separate HttpOnly cookie. Used to obtain new token pairs
+/// when the access token expires.
+pub const REFRESH_TOKEN_COOKIE_NAME: &str = "inferadb_refresh";
