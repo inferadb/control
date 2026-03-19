@@ -221,6 +221,27 @@ pub struct Config {
     #[builder(default = DEFAULT_FRONTEND_URL.to_string())]
     pub frontend_url: String,
 
+    // ── WebAuthn ─────────────────────────────────────────────────────
+    /// WebAuthn Relying Party ID (domain). Must be an effective domain suffix
+    /// of the origin. Cannot be changed after credentials are registered.
+    #[arg(
+        long = "webauthn-rp-id",
+        env = "INFERADB__CONTROL__WEBAUTHN_RP_ID",
+        default_value = "localhost"
+    )]
+    #[builder(default = "localhost".to_string())]
+    pub webauthn_rp_id: String,
+
+    /// WebAuthn Relying Party origin URL (e.g., https://app.inferadb.com).
+    /// Must include scheme. The RP ID must be a suffix of this origin's domain.
+    #[arg(
+        long = "webauthn-origin",
+        env = "INFERADB__CONTROL__WEBAUTHN_ORIGIN",
+        default_value = "http://localhost:3000"
+    )]
+    #[builder(default = "http://localhost:3000".to_string())]
+    pub webauthn_origin: String,
+
     // ── Mode Flags ───────────────────────────────────────────────────
     /// Force development mode: uses in-memory storage regardless of --storage.
     /// No environment variable — this must be an explicit CLI choice.

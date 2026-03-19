@@ -166,6 +166,17 @@ async fn main() -> Result<()> {
         None
     };
 
+    // Initialize WebAuthn
+    let webauthn = inferadb_control_core::webauthn::build_webauthn(
+        &config.webauthn_rp_id,
+        &config.webauthn_origin,
+    )?;
+    startup::log_initialized(&format!(
+        "WebAuthn (rp_id={}, origin={})",
+        config.webauthn_rp_id, config.webauthn_origin
+    ));
+    let webauthn = Arc::new(webauthn);
+
     // Wrap config in Arc for sharing across services
     let config = Arc::new(config);
 
@@ -177,6 +188,7 @@ async fn main() -> Result<()> {
             control_identity: Some(control_identity),
             ledger,
             blinding_key,
+            webauthn: Some(webauthn),
         },
     )
     .await?;

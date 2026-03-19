@@ -58,11 +58,7 @@ pub async fn livez_handler() -> impl IntoResponse {
 ///
 /// Checks whether the Ledger SDK client is reachable.
 pub async fn readyz_handler(State(state): State<AppState>) -> impl IntoResponse {
-    if check_ledger_health(&state).await {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    }
+    if check_ledger_health(&state).await { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE }
 }
 
 /// Startup probe handler (`/startupz`).
@@ -77,10 +73,8 @@ pub async fn startupz_handler(State(state): State<AppState>) -> impl IntoRespons
 /// Returns JSON with service health, version, uptime, and Ledger status.
 pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse {
     let ledger_healthy = check_ledger_health(&state).await;
-    let uptime_seconds = SystemTime::now()
-        .duration_since(state.start_time)
-        .unwrap_or_default()
-        .as_secs();
+    let uptime_seconds =
+        SystemTime::now().duration_since(state.start_time).unwrap_or_default().as_secs();
 
     let status = if ledger_healthy { HealthStatus::Healthy } else { HealthStatus::Unhealthy };
 

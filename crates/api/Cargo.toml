@@ -17,6 +17,7 @@ inferadb-control-core = { path = "../core" }
 inferadb-control-types = { path = "../types" }
 inferadb-ledger-sdk = { version = ">=0.1.0-0", features = ["serde"] }
 inferadb-ledger-types = ">=0.1.0-0"
+webauthn-rs = { workspace = true }
 
 # External dependencies
 anyhow = { workspace = true }

@@ -93,6 +93,7 @@ zeroize = { version = "1", features = ["derive"] }
 # WebAuthn/Passkey support
 webauthn-rs = { version = "0.5", features = [
   "danger-allow-state-serialisation",
+  "danger-credential-internals",
 ] }
 
 # Enum derive macros

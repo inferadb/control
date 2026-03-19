@@ -144,6 +144,15 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/control/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate",
             post(schemas::activate_schema),
         )
+        // Passkey credential management (JWT-protected)
+        .route(
+            "/control/v1/users/me/credentials/passkeys/begin",
+            post(mfa_auth::passkey_register_begin),
+        )
+        .route(
+            "/control/v1/users/me/credentials/passkeys/finish",
+            post(mfa_auth::passkey_register_finish),
+        )
         // Audit logs (stub, JWT-protected)
         .route("/control/v1/organizations/{org}/audit-logs", get(audit_logs::list_audit_logs))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_jwt))

@@ -6,7 +6,8 @@
 
 use inferadb_control_types::error::Result;
 use inferadb_ledger_sdk::{
-    CredentialData, CredentialType, LedgerClient, RecoveryCodeResult, TokenPair, UserCredentialInfo,
+    CredentialData, CredentialType, LedgerClient, PasskeyCredentialInfo, RecoveryCodeResult,
+    TokenPair, UserCredentialInfo,
 };
 use inferadb_ledger_types::{UserCredentialId, UserSlug};
 
@@ -38,8 +39,12 @@ pub async fn update_user_credential(
     credential_id: UserCredentialId,
     name: Option<String>,
     enabled: Option<bool>,
+    passkey_data: Option<PasskeyCredentialInfo>,
 ) -> Result<UserCredentialInfo> {
-    ledger.update_user_credential(user, credential_id, name, enabled, None).await.map_sdk_err()
+    ledger
+        .update_user_credential(user, credential_id, name, enabled, passkey_data)
+        .await
+        .map_sdk_err()
 }
 
 /// Deletes a credential. Rejects if it's the user's last credential.

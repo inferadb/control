@@ -10,6 +10,7 @@ pub mod error;
 pub use error::{SdkResultExt, sdk_error_to_control};
 
 pub mod app;
+pub mod audit;
 pub mod credential;
 pub mod email;
 pub mod invitation;

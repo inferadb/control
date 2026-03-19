@@ -20,6 +20,7 @@ pub mod metrics;
 pub mod ratelimit;
 pub mod service;
 pub mod startup;
+pub mod webauthn;
 
 pub use clock::{ClockStatus, ClockValidator, SkewSeverity};
 pub use crypto::{MasterKey, PrivateKeyEncryptor, keypair};

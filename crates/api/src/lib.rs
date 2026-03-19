@@ -1,34 +1,7 @@
 //! # InferaDB Control API
 //!
-//! REST API handlers and routes for the InferaDB Control Plane.
-//!
-//! ## Request/Response Builders
-//!
-//! API request and response types use [`bon::Builder`] for ergonomic construction,
-//! particularly useful in tests:
-//!
-//! ```no_run
-//! use inferadb_control_types::dto::{RegisterRequest, LoginRequest, CreateVaultRequest};
-//!
-//! // Registration request with all required fields
-//! let register = RegisterRequest::builder()
-//!     .email("user@example.com")
-//!     .password("secure_password")
-//!     .name("Alice")
-//!     .build();
-//!
-//! // Login request
-//! let login = LoginRequest::builder()
-//!     .email("user@example.com")
-//!     .password("secure_password")
-//!     .build();
-//!
-//! // Vault creation with optional description
-//! let vault = CreateVaultRequest::builder()
-//!     .name("my-vault")
-//!     .maybe_description(Some("Production policies".to_string()))
-//!     .build();
-//! ```
+//! Stateless REST API gateway for the InferaDB Control Plane.
+//! All domain operations delegate to Ledger via the SDK.
 //!
 //! ## AppState Builder
 //!
@@ -42,8 +15,10 @@
 //!     let state = AppState::builder()
 //!         .config(config)
 //!         .worker_id(1)
-//!         .maybe_email_service(None)    // Optional email service
-//!         .maybe_control_identity(None) // Optional control identity
+//!         .maybe_email_service(None)
+//!         .maybe_control_identity(None)
+//!         .maybe_ledger(None)
+//!         .maybe_blinding_key(None)
 //!         .build();
 //! }
 //! ```
@@ -108,6 +83,7 @@ pub struct ServicesConfig {
     pub control_identity: Option<Arc<ControlIdentity>>,
     pub ledger: Option<Arc<inferadb_ledger_sdk::LedgerClient>>,
     pub blinding_key: Option<Arc<inferadb_ledger_types::EmailBlindingKey>>,
+    pub webauthn: Option<Arc<webauthn_rs::Webauthn>>,
 }
 
 /// Start the Control API HTTP server
@@ -124,6 +100,7 @@ pub async fn serve(
         .maybe_control_identity(services.control_identity)
         .maybe_ledger(services.ledger)
         .maybe_blinding_key(services.blinding_key)
+        .maybe_webauthn(services.webauthn)
         .build();
 
     // Create router

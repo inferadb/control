@@ -30,7 +30,6 @@ inferadb-control-const = { path = "../const" }
 aes-gcm = { workspace = true }
 base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
-hex = { workspace = true }
 jsonwebtoken = { workspace = true }
 rand = { workspace = true }
 zeroize = { workspace = true }
@@ -46,6 +45,9 @@ webauthn-rs = { workspace = true }
 
 # HTTP client (for webhook notifications)
 url = { workspace = true }
+
+# Caching (for WebAuthn challenge state)
+moka = { workspace = true }
 
 # Metrics
 metrics = { workspace = true }

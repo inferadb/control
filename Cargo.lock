@@ -1984,6 +1984,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "uuid",
+ "webauthn-rs",
 ]
 
 [[package]]
@@ -2012,7 +2013,6 @@ dependencies = [
  "bon",
  "chrono",
  "ed25519-dalek",
- "hex",
  "idgenerator",
  "inferadb-common-ratelimit",
  "inferadb-control-const",
@@ -2022,6 +2022,7 @@ dependencies = [
  "jsonwebtoken",
  "lettre",
  "metrics",
+ "moka",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
@@ -2068,7 +2069,6 @@ dependencies = [
  "bon",
  "chrono",
  "ed25519-dalek",
- "hex",
  "hostname",
  "idgenerator",
  "inferadb-common-storage",
@@ -2080,7 +2080,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "snafu 0.8.9",
- "strum",
  "uuid",
  "webauthn-rs",
  "zeroize",

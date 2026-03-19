@@ -31,6 +31,11 @@ pub struct AppState {
     pub ledger: Option<Arc<inferadb_ledger_sdk::LedgerClient>>,
     /// Email blinding key for HMAC computation.
     pub blinding_key: Option<Arc<inferadb_ledger_types::EmailBlindingKey>>,
+    /// WebAuthn instance for passkey ceremony validation.
+    pub webauthn: Option<Arc<webauthn_rs::Webauthn>>,
+    /// In-memory challenge store for WebAuthn begin/finish ceremonies.
+    #[builder(default)]
+    pub challenge_store: inferadb_control_core::webauthn::ChallengeStore,
 }
 
 impl AppState {

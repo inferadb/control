@@ -1,7 +1,7 @@
 //! Vault management service wrapping Ledger SDK vault operations.
 
 use inferadb_control_types::error::Result;
-use inferadb_ledger_sdk::{LedgerClient, VaultInfo, token::TokenPair};
+use inferadb_ledger_sdk::{LedgerClient, Operation, VaultInfo, token::TokenPair};
 use inferadb_ledger_types::{AppSlug, OrganizationSlug, VaultSlug};
 
 use super::error::SdkResultExt;
@@ -59,4 +59,39 @@ pub async fn create_vault_token(
 /// Revokes all sessions for an app. Returns the number of sessions revoked.
 pub async fn revoke_all_app_sessions(ledger: &LedgerClient, app: AppSlug) -> Result<u64> {
     ledger.revoke_all_app_sessions(app).await.map_sdk_err()
+}
+
+/// Reads an entity value by key from a vault's entity store.
+pub async fn read_entity(
+    ledger: &LedgerClient,
+    organization: OrganizationSlug,
+    vault: VaultSlug,
+    key: &str,
+) -> Result<Option<Vec<u8>>> {
+    ledger.read(organization, Some(vault), key, None, None).await.map_sdk_err()
+}
+
+/// Writes an entity value by key to a vault's entity store.
+pub async fn write_entity(
+    ledger: &LedgerClient,
+    organization: OrganizationSlug,
+    vault: VaultSlug,
+    key: &str,
+    value: Vec<u8>,
+) -> Result<()> {
+    let ops = vec![Operation::set_entity(key, value, None, None)];
+    ledger.write(organization, Some(vault), ops, None).await.map_sdk_err()?;
+    Ok(())
+}
+
+/// Deletes an entity by key from a vault's entity store.
+pub async fn delete_entity_key(
+    ledger: &LedgerClient,
+    organization: OrganizationSlug,
+    vault: VaultSlug,
+    key: &str,
+) -> Result<()> {
+    let ops = vec![Operation::delete_entity(key)];
+    ledger.write(organization, Some(vault), ops, None).await.map_sdk_err()?;
+    Ok(())
 }
