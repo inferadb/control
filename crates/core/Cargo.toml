@@ -31,7 +31,6 @@ inferadb-control-const = { path = "../const" }
 aes-gcm = { workspace = true }
 base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
-jsonwebtoken = { workspace = true }
 rand = { workspace = true }
 zeroize = { workspace = true }
 

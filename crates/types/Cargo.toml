@@ -16,33 +16,12 @@ inferadb-ledger-types = ">=0.1.0-0"
 
 # Core dependencies
 bon = { workspace = true }
-chrono = { workspace = true }
-hostname = "0.4"
 serde = { workspace = true }
 serde_json = { workspace = true }
 snafu = { workspace = true }
 
-# Cryptography (for entity types that use crypto primitives)
-base64 = { workspace = true }
-ed25519-dalek = { workspace = true }
-sha2 = { workspace = true }
-
-# WebAuthn (for passkey types)
-webauthn-rs = { workspace = true }
-
-# Random (for token generation)
-rand = { workspace = true }
-
-# Secure handling
-zeroize = { workspace = true }
-
-# Snowflake ID generation (for entity types)
+# Snowflake ID generation
 idgenerator = { workspace = true }
-
-# JWT and PEM encoding (for ControlIdentity)
-jsonwebtoken = { workspace = true }
-pem = { workspace = true }
-uuid = { workspace = true }
 
 [lints]
 workspace = true
