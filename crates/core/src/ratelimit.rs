@@ -9,6 +9,25 @@ pub use inferadb_common_ratelimit::{
     AppRateLimiter as RateLimiter, RateLimitOutcome as RateLimitResult,
     RateLimitPolicy as RateLimit, RateLimitResponse, RateLimitWindow,
 };
+use inferadb_common_storage::MemoryBackend;
+
+/// Concrete rate limiter backed by an in-memory storage backend.
+///
+/// Suitable for single-node deployments. For multi-node deployments,
+/// use [`LedgerRateLimiter`] instead.
+pub type InMemoryRateLimiter = RateLimiter<MemoryBackend>;
+
+/// Concrete rate limiter backed by Ledger's entity store.
+///
+/// Suitable for multi-node deployments with shared rate limit state.
+/// All rate limit counters are stored as entities in a system
+/// organization namespace within Ledger.
+pub type LedgerRateLimiter = RateLimiter<crate::ratelimit_ledger::LedgerStorageBackend>;
+
+/// Creates a new in-memory rate limiter.
+pub fn in_memory_rate_limiter() -> InMemoryRateLimiter {
+    RateLimiter::new(MemoryBackend::new())
+}
 
 /// Common rate limit categories
 ///
@@ -34,16 +53,6 @@ pub mod limits {
     pub fn registration_ip() -> RateLimit {
         RateLimit { max_requests: 5, window: RateLimitWindow::Day }
     }
-
-    /// Email verification tokens: 5 per hour per email.
-    pub fn email_verification() -> RateLimit {
-        RateLimit { max_requests: 5, window: RateLimitWindow::Hour }
-    }
-
-    /// Password reset tokens: 3 per hour per user.
-    pub fn password_reset() -> RateLimit {
-        RateLimit { max_requests: 3, window: RateLimitWindow::Hour }
-    }
 }
 
 #[cfg(test)]
@@ -58,11 +67,5 @@ mod tests {
 
         let registration = limits::registration_ip();
         assert_eq!(registration.max_requests, 5);
-
-        let email_verification = limits::email_verification();
-        assert_eq!(email_verification.max_requests, 5);
-
-        let password_reset = limits::password_reset();
-        assert_eq!(password_reset.max_requests, 3);
     }
 }

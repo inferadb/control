@@ -24,7 +24,6 @@ pub struct AppState {
     #[builder(default = std::time::SystemTime::now())]
     pub start_time: std::time::SystemTime,
     pub email_service: Option<Arc<inferadb_control_core::EmailService>>,
-    pub control_identity: Option<Arc<inferadb_control_types::ControlIdentity>>,
     #[builder(default)]
     pub rate_limits: crate::middleware::RateLimitConfig,
     /// Ledger SDK client for direct service calls.
@@ -33,9 +32,15 @@ pub struct AppState {
     pub blinding_key: Option<Arc<inferadb_ledger_types::EmailBlindingKey>>,
     /// WebAuthn instance for passkey ceremony validation.
     pub webauthn: Option<Arc<webauthn_rs::Webauthn>>,
-    /// In-memory challenge store for WebAuthn begin/finish ceremonies.
+    /// Stateless challenge store for WebAuthn begin/finish ceremonies.
     #[builder(default)]
     pub challenge_store: inferadb_control_core::webauthn::ChallengeStore,
+    /// Application-level rate limiter for auth endpoints.
+    #[builder(default = Arc::new(inferadb_control_core::in_memory_rate_limiter()))]
+    pub rate_limiter: Arc<inferadb_control_core::InMemoryRateLimiter>,
+    /// JWKS cache for local JWT validation on read routes.
+    #[builder(default)]
+    pub jwks_cache: crate::middleware::JwksCache,
 }
 
 impl AppState {

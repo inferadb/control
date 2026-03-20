@@ -10,8 +10,6 @@ impl IdGenerator {
     ///
     /// This assumes the ID generator has been initialized by the core crate.
     pub fn next_id() -> u64 {
-        let id = idgenerator::IdInstance::next_id();
-        debug_assert!(id >= 0, "ID generator returned negative value: {id}");
-        id as u64
+        idgenerator::IdInstance::next_id() as u64
     }
 }

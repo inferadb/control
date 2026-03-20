@@ -5,11 +5,13 @@
 //! Passkey handlers implement the full WebAuthn ceremony for both
 //! authentication and registration flows.
 
+use std::time::Instant;
+
 use axum::{Extension, Json, extract::State};
 use axum_extra::extract::cookie::CookieJar;
 use base64::Engine;
 use inferadb_control_core::{
-    service,
+    SdkResultExt,
     webauthn::{ChallengeState, credential_info_to_passkey},
 };
 use inferadb_control_types::Error as CoreError;
@@ -19,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use webauthn_rs::prelude::*;
 
-use super::{auth::ApiError, auth_v2::set_token_cookies};
+use super::{auth::ApiError, auth_v2::set_token_cookies, common::require_ledger};
 use crate::{handlers::AppState, middleware::UserClaims};
 
 // ── Request Types ───────────────────────────────────────────────────────
@@ -106,19 +108,16 @@ pub struct PasskeyBeginResponse {
     pub challenge: RequestChallengeResponse,
 }
 
-/// Response from passkey authentication finish when TOTP is required.
+/// Response from passkey authentication finish — either a session or TOTP challenge.
 #[derive(Debug, Serialize)]
-pub struct PasskeyFinishTotpResponse {
-    pub status: &'static str,
-    pub challenge_nonce: String,
-}
-
-/// Response from passkey authentication finish when session is created.
-#[derive(Debug, Serialize)]
-pub struct PasskeyFinishSessionResponse {
-    pub access_token: String,
-    pub refresh_token: String,
-    pub token_type: &'static str,
+#[serde(tag = "status")]
+pub enum PasskeyFinishResponse {
+    /// Session created — no TOTP required.
+    #[serde(rename = "authenticated")]
+    Authenticated { access_token: String, refresh_token: String, token_type: &'static str },
+    /// TOTP is required — complete via `/auth/totp/verify`.
+    #[serde(rename = "totp_required")]
+    TotpRequired { challenge_nonce: String },
 }
 
 /// Response from passkey registration begin.
@@ -131,7 +130,7 @@ pub struct PasskeyRegisterBeginResponse {
 /// Response from passkey registration finish.
 #[derive(Debug, Serialize)]
 pub struct PasskeyRegisterFinishResponse {
-    pub credential_id: i64,
+    pub slug: u64,
     pub name: String,
 }
 
@@ -149,14 +148,6 @@ fn require_webauthn(state: &AppState) -> Result<&webauthn_rs::Webauthn, ApiError
     state.webauthn.as_deref().ok_or_else(|| CoreError::internal("WebAuthn not configured").into())
 }
 
-/// Extracts the required Ledger client from app state.
-fn require_ledger(state: &AppState) -> Result<&inferadb_ledger_sdk::LedgerClient, ApiError> {
-    state
-        .ledger
-        .as_deref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured").into())
-}
-
 /// Extracts `PasskeyCredentialInfo` from a `CredentialData::Passkey` variant.
 fn extract_passkey_info(data: &CredentialData) -> Option<&PasskeyCredentialInfo> {
     match data {
@@ -172,6 +163,12 @@ fn extract_passkey_info(data: &CredentialData) -> Option<&PasskeyCredentialInfo>
 /// Verifies a TOTP code against a pending challenge. On success, creates
 /// a session and returns a token pair. The challenge nonce is consumed
 /// atomically (single-use).
+///
+/// # Trust assumption
+///
+/// The `user_slug` is provided by the client (pre-auth endpoint). Ledger's
+/// `verify_totp` validates that the challenge nonce was issued for the given
+/// user — a mismatched user/nonce pair is rejected server-side.
 pub async fn verify_totp(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -182,7 +179,11 @@ pub async fn verify_totp(
     let nonce = decode_challenge_nonce(&body.challenge_nonce)?;
     let user = UserSlug::new(body.user_slug);
 
-    let token_pair = service::credential::verify_totp(ledger, user, &body.totp_code, nonce).await?;
+    let start = Instant::now();
+    let token_pair = ledger
+        .verify_totp(user, &body.totp_code, nonce)
+        .await
+        .map_sdk_err_instrumented("verify_totp", start)?;
 
     let jar = set_token_cookies(jar, &token_pair);
     Ok((
@@ -200,6 +201,12 @@ pub async fn verify_totp(
 /// Consumes a recovery code to bypass TOTP verification. On success,
 /// creates a session. Returns the token pair and remaining unused code count.
 /// The recovery code is atomically consumed (single-use).
+///
+/// # Trust assumption
+///
+/// The `user_slug` is provided by the client (pre-auth endpoint). Ledger's
+/// `consume_recovery_code` validates that the challenge nonce was issued for
+/// the given user — a mismatched user/nonce pair is rejected server-side.
 pub async fn consume_recovery(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -210,8 +217,11 @@ pub async fn consume_recovery(
     let nonce = decode_challenge_nonce(&body.challenge_nonce)?;
     let user = UserSlug::new(body.user_slug);
 
-    let result =
-        service::credential::consume_recovery_code(ledger, user, &body.code, nonce).await?;
+    let start = Instant::now();
+    let result = ledger
+        .consume_recovery_code(user, &body.code, nonce)
+        .await
+        .map_sdk_err_instrumented("consume_recovery_code", start)?;
 
     let jar = set_token_cookies(jar, &result.tokens);
     Ok((
@@ -239,9 +249,11 @@ pub async fn passkey_begin(
     let user = UserSlug::new(body.user_slug);
 
     // Fetch the user's passkey credentials from Ledger.
-    let credentials =
-        service::credential::list_user_credentials(ledger, user, Some(CredentialType::Passkey))
-            .await?;
+    let start = Instant::now();
+    let credentials = ledger
+        .list_user_credentials(user, Some(CredentialType::Passkey))
+        .await
+        .map_sdk_err_instrumented("list_user_credentials", start)?;
 
     // Convert each credential to a webauthn-rs Passkey.
     let passkeys: Vec<Passkey> = credentials
@@ -293,7 +305,7 @@ pub async fn passkey_finish(
     State(state): State<AppState>,
     jar: CookieJar,
     Json(body): Json<PasskeyFinishRequest>,
-) -> Result<(CookieJar, Json<serde_json::Value>), ApiError> {
+) -> Result<(CookieJar, Json<PasskeyFinishResponse>), ApiError> {
     let ledger = require_ledger(&state)?;
     let webauthn = require_webauthn(&state)?;
 
@@ -323,9 +335,11 @@ pub async fn passkey_finish(
     // Update the sign count for the credential that was used.
     // Find the matching credential by comparing credential IDs.
     let used_cred_id: &[u8] = auth_result.cred_id().as_ref();
-    let credentials =
-        service::credential::list_user_credentials(ledger, user, Some(CredentialType::Passkey))
-            .await?;
+    let start = Instant::now();
+    let credentials = ledger
+        .list_user_credentials(user, Some(CredentialType::Passkey))
+        .await
+        .map_sdk_err_instrumented("list_user_credentials", start)?;
 
     for cred in &credentials {
         if let Some(passkey_info) = cred.data.as_ref().and_then(extract_passkey_info)
@@ -342,43 +356,47 @@ pub async fn passkey_finish(
                 attestation_format: passkey_info.attestation_format.clone(),
                 aaguid: passkey_info.aaguid.clone(),
             };
-            let _ = service::credential::update_user_credential(
-                ledger,
-                user,
-                cred.id,
-                None,
-                None,
-                Some(updated_info),
-            )
-            .await?;
+            let start = Instant::now();
+            let _ = ledger
+                .update_user_credential(user, cred.id, None, None, Some(updated_info))
+                .await
+                .map_sdk_err_instrumented("update_user_credential", start)?;
             break;
         }
     }
 
     // Check if the user has TOTP enabled.
-    let totp_credentials =
-        service::credential::list_user_credentials(ledger, user, Some(CredentialType::Totp))
-            .await?;
+    let start = Instant::now();
+    let totp_credentials = ledger
+        .list_user_credentials(user, Some(CredentialType::Totp))
+        .await
+        .map_sdk_err_instrumented("list_user_credentials", start)?;
 
     if totp_credentials.is_empty() {
         // No TOTP — create a session directly.
-        let token_pair = service::session::create_user_session(ledger, user).await?;
+        let start = Instant::now();
+        let token_pair = ledger
+            .create_user_session(user)
+            .await
+            .map_sdk_err_instrumented("create_user_session", start)?;
         let jar = set_token_cookies(jar, &token_pair);
-        let response = serde_json::json!({
-            "access_token": token_pair.access_token,
-            "refresh_token": token_pair.refresh_token,
-            "token_type": "Bearer",
-        });
-        Ok((jar, Json(response)))
+        Ok((
+            jar,
+            Json(PasskeyFinishResponse::Authenticated {
+                access_token: token_pair.access_token,
+                refresh_token: token_pair.refresh_token,
+                token_type: "Bearer",
+            }),
+        ))
     } else {
         // TOTP is enabled — create a TOTP challenge.
-        let nonce = service::credential::create_totp_challenge(ledger, user, "passkey").await?;
+        let start = Instant::now();
+        let nonce = ledger
+            .create_totp_challenge(user, "passkey")
+            .await
+            .map_sdk_err_instrumented("create_totp_challenge", start)?;
         let nonce_b64 = base64::engine::general_purpose::STANDARD.encode(&nonce);
-        let response = serde_json::json!({
-            "status": "totp_required",
-            "challenge_nonce": nonce_b64,
-        });
-        Ok((jar, Json(response)))
+        Ok((jar, Json(PasskeyFinishResponse::TotpRequired { challenge_nonce: nonce_b64 })))
     }
 }
 
@@ -399,9 +417,11 @@ pub async fn passkey_register_begin(
     let name = body.name.unwrap_or_else(|| "Passkey".to_string());
 
     // Fetch existing passkey credentials to use as exclude list.
-    let existing =
-        service::credential::list_user_credentials(ledger, user, Some(CredentialType::Passkey))
-            .await?;
+    let start = Instant::now();
+    let existing = ledger
+        .list_user_credentials(user, Some(CredentialType::Passkey))
+        .await
+        .map_sdk_err_instrumented("list_user_credentials", start)?;
 
     let exclude_creds: Vec<CredentialID> = existing
         .iter()
@@ -501,11 +521,14 @@ pub async fn passkey_register_finish(
     });
 
     // Store the credential in Ledger.
-    let created =
-        service::credential::create_user_credential(ledger, user, &body.name, cred_data).await?;
+    let start = Instant::now();
+    let created = ledger
+        .create_user_credential(user, &body.name, cred_data)
+        .await
+        .map_sdk_err_instrumented("create_user_credential", start)?;
 
     Ok(Json(PasskeyRegisterFinishResponse {
-        credential_id: created.id.value(),
+        slug: u64::try_from(created.id.value()).unwrap_or(0),
         name: created.name,
     }))
 }

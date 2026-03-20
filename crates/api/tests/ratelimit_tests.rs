@@ -1,8 +1,7 @@
 //! Integration tests for rate limiting middleware.
 //!
-//! Rate limiting is now handled at the infrastructure layer (e.g., API gateway).
-//! The middleware functions are pass-throughs. These tests verify that requests
-//! are not blocked by the (now no-op) rate limit middleware.
+//! Verifies that the rate limit middleware allows requests under the limit
+//! by sending requests to actual rate-limited auth endpoints.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -12,23 +11,22 @@ use inferadb_control_test_fixtures::{create_test_app, create_test_state};
 use serde_json::json;
 use tower::ServiceExt;
 
-fn login_request(email: &str, password: &str, ip: &str) -> axum::http::Request<axum::body::Body> {
+fn auth_request(ip: &str) -> axum::http::Request<axum::body::Body> {
     axum::http::Request::builder()
         .method("POST")
-        .uri("/control/v1/auth/login/password")
+        .uri("/control/v1/auth/email/initiate")
         .header("content-type", "application/json")
         .header("x-forwarded-for", ip)
         .body(axum::body::Body::from(
             json!({
-                "email": email,
-                "password": password
+                "email": "test@example.com"
             })
             .to_string(),
         ))
         .unwrap()
 }
 
-/// Verify that the pass-through rate limit middleware does not block requests.
+/// Requests under the rate limit threshold should not be blocked.
 #[tokio::test]
 async fn test_login_not_rate_limited() {
     let _ = IdGenerator::init(800);
@@ -38,18 +36,15 @@ async fn test_login_not_rate_limited() {
 
     let ip = "10.0.0.1";
 
-    // Multiple login attempts should never return 429 (rate limiting is a no-op)
+    // A small number of requests should never trigger rate limiting
+    // (login limit is 100/hour per IP).
     for i in 0..5 {
-        let response = app
-            .clone()
-            .oneshot(login_request(&format!("attempt{i}@example.com"), "wrong", ip))
-            .await
-            .unwrap();
+        let response = app.clone().oneshot(auth_request(ip)).await.unwrap();
 
         assert_ne!(
             response.status(),
             StatusCode::TOO_MANY_REQUESTS,
-            "Request {} should not be rate limited (middleware is a no-op)",
+            "Request {} should not be rate limited",
             i + 1
         );
     }

@@ -4,8 +4,8 @@
 //!
 //! Core business logic for the InferaDB Control Plane.
 //!
-//! All domain operations delegate to Ledger via the [`service`] module.
-//! The remaining modules handle local concerns: email delivery, JWT signing,
+//! Handlers call the Ledger SDK directly and use [`SdkResultExt`] for error
+//! mapping. The remaining modules handle local concerns: email delivery,
 //! ID generation, logging, and rate limiting.
 
 pub mod auth;
@@ -14,11 +14,11 @@ pub mod crypto;
 pub mod email;
 pub mod email_hmac;
 pub mod id;
-pub mod jwt;
 pub mod logging;
 pub mod metrics;
 pub mod ratelimit;
-pub mod service;
+pub mod ratelimit_ledger;
+pub mod sdk_error;
 pub mod startup;
 pub mod webauthn;
 
@@ -33,5 +33,8 @@ pub use email::{
 pub use email_hmac::{EmailBlindingKey, compute_email_hmac, normalize_email, parse_blinding_key};
 pub use id::IdGenerator;
 pub use ratelimit::{
-    RateLimit, RateLimitResponse, RateLimitResult, RateLimiter, categories, limits,
+    InMemoryRateLimiter, LedgerRateLimiter, RateLimit, RateLimitResponse, RateLimitResult,
+    RateLimiter, categories, in_memory_rate_limiter, limits,
 };
+pub use ratelimit_ledger::LedgerStorageBackend;
+pub use sdk_error::{SdkResultExt, sdk_error_to_control};

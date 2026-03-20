@@ -1,21 +1,20 @@
 //! Schema management handlers.
 //!
-//! Schemas are stored as JSON blobs in the Ledger vault entity store with
-//! well-known key prefixes:
-//! - `schema:v{version}` — schema definition JSON for a specific version
-//! - `schema:current` — pointer to the currently active version
-//! - `schema:latest` — pointer to the highest deployed version
+//! Delegates all schema storage logic to the Ledger SDK's schema operations
+//! via the core service layer.
+
+use std::time::Instant;
 
 use axum::{
     Extension, Json,
     extract::{Path, Query, State},
     http::StatusCode,
 };
-use inferadb_control_core::service;
-use inferadb_control_types::Error as CoreError;
+use inferadb_control_core::SdkResultExt;
 use inferadb_ledger_sdk::{OrganizationSlug, VaultSlug};
 use serde::{Deserialize, Serialize};
 
+use super::common::require_ledger;
 use crate::{
     handlers::auth::{AppState, Result},
     middleware::UserClaims,
@@ -34,20 +33,6 @@ pub struct DeploySchemaRequest {
     pub description: Option<String>,
 }
 
-/// Stored schema definition (persisted in the entity store).
-#[derive(Debug, Serialize, Deserialize)]
-struct StoredSchema {
-    definition: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-}
-
-/// Version pointer stored at `schema:current` and `schema:latest`.
-#[derive(Debug, Serialize, Deserialize)]
-struct VersionPointer {
-    version: u32,
-}
-
 /// Response for deploy and activate operations.
 #[derive(Debug, Serialize)]
 pub struct SchemaStatusResponse {
@@ -60,6 +45,7 @@ pub struct SchemaStatusResponse {
 pub struct SchemaVersionSummary {
     pub version: u32,
     pub has_definition: bool,
+    pub is_active: bool,
 }
 
 /// Response for listing schema versions.
@@ -99,93 +85,6 @@ pub struct DiffResponse {
     pub changes: Vec<FieldChange>,
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────
-
-fn require_ledger(
-    state: &AppState,
-) -> std::result::Result<&inferadb_ledger_sdk::LedgerClient, CoreError> {
-    state.ledger.as_deref().ok_or_else(|| CoreError::internal("Ledger client not configured"))
-}
-
-fn schema_version_key(version: u32) -> String {
-    format!("schema:v{version}")
-}
-
-async fn read_version_pointer(
-    ledger: &inferadb_ledger_sdk::LedgerClient,
-    org: OrganizationSlug,
-    vault: VaultSlug,
-    key: &str,
-) -> std::result::Result<Option<VersionPointer>, CoreError> {
-    let data = service::vault::read_entity(ledger, org, vault, key).await?;
-    match data {
-        Some(bytes) => {
-            let pointer: VersionPointer = serde_json::from_slice(&bytes).map_err(|e| {
-                CoreError::internal(format!("corrupt version pointer at {key}: {e}"))
-            })?;
-            Ok(Some(pointer))
-        },
-        None => Ok(None),
-    }
-}
-
-async fn write_version_pointer(
-    ledger: &inferadb_ledger_sdk::LedgerClient,
-    org: OrganizationSlug,
-    vault: VaultSlug,
-    key: &str,
-    version: u32,
-) -> std::result::Result<(), CoreError> {
-    let pointer = VersionPointer { version };
-    let bytes = serde_json::to_vec(&pointer)
-        .map_err(|e| CoreError::internal(format!("failed to serialize version pointer: {e}")))?;
-    service::vault::write_entity(ledger, org, vault, key, bytes).await
-}
-
-async fn read_stored_schema(
-    ledger: &inferadb_ledger_sdk::LedgerClient,
-    org: OrganizationSlug,
-    vault: VaultSlug,
-    version: u32,
-) -> std::result::Result<Option<StoredSchema>, CoreError> {
-    let key = schema_version_key(version);
-    let data = service::vault::read_entity(ledger, org, vault, &key).await?;
-    match data {
-        Some(bytes) => {
-            let schema: StoredSchema = serde_json::from_slice(&bytes)
-                .map_err(|e| CoreError::internal(format!("corrupt schema at {key}: {e}")))?;
-            Ok(Some(schema))
-        },
-        None => Ok(None),
-    }
-}
-
-/// Computes flat key-level differences between two JSON objects.
-fn diff_json_objects(from: &serde_json::Value, to: &serde_json::Value) -> Vec<FieldChange> {
-    let empty = serde_json::Map::new();
-    let from_obj = from.as_object().unwrap_or(&empty);
-    let to_obj = to.as_object().unwrap_or(&empty);
-
-    let mut changes = Vec::new();
-
-    for key in from_obj.keys() {
-        if !to_obj.contains_key(key) {
-            changes.push(FieldChange { field: key.clone(), change_type: "removed".to_string() });
-        } else if from_obj.get(key) != to_obj.get(key) {
-            changes.push(FieldChange { field: key.clone(), change_type: "changed".to_string() });
-        }
-    }
-
-    for key in to_obj.keys() {
-        if !from_obj.contains_key(key) {
-            changes.push(FieldChange { field: key.clone(), change_type: "added".to_string() });
-        }
-    }
-
-    changes.sort_by(|a, b| a.field.cmp(&b.field));
-    changes
-}
-
 // ── Schema Handlers ─────────────────────────────────────────────────
 
 /// Deploy a new schema version.
@@ -193,39 +92,28 @@ fn diff_json_objects(from: &serde_json::Value, to: &serde_json::Value) -> Vec<Fi
 /// POST /control/v1/organizations/{org}/vaults/{vault}/schemas
 pub async fn deploy_schema(
     State(state): State<AppState>,
-    Extension(_claims): Extension<UserClaims>,
+    Extension(claims): Extension<UserClaims>,
     Path((org, vault)): Path<(u64, u64)>,
     Json(body): Json<DeploySchemaRequest>,
 ) -> Result<(StatusCode, Json<SchemaStatusResponse>)> {
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
+    let start = Instant::now();
+    ledger
+        .get_organization(org_slug, claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("get_organization", start)?;
 
-    let version = match body.version {
-        Some(v) => {
-            if v == 0 {
-                return Err(CoreError::validation("schema version must be greater than 0").into());
-            }
-            v
-        },
-        None => {
-            let latest =
-                read_version_pointer(ledger, org_slug, vault_slug, "schema:latest").await?;
-            latest.map_or(1, |p| p.version + 1)
-        },
-    };
-
-    let stored = StoredSchema { definition: body.definition, description: body.description };
-    let bytes = serde_json::to_vec(&stored)
-        .map_err(|e| CoreError::internal(format!("failed to serialize schema: {e}")))?;
-
-    let key = schema_version_key(version);
-    service::vault::write_entity(ledger, org_slug, vault_slug, &key, bytes).await?;
-    write_version_pointer(ledger, org_slug, vault_slug, "schema:latest", version).await?;
+    let start = Instant::now();
+    let result = ledger
+        .deploy_schema(org_slug, vault_slug, body.definition, body.version, body.description)
+        .await
+        .map_sdk_err_instrumented("deploy_schema", start)?;
 
     Ok((
         StatusCode::CREATED,
-        Json(SchemaStatusResponse { version, status: "deployed".to_string() }),
+        Json(SchemaStatusResponse { version: result.version, status: "deployed".to_string() }),
     ))
 }
 
@@ -234,29 +122,32 @@ pub async fn deploy_schema(
 /// GET /control/v1/organizations/{org}/vaults/{vault}/schemas
 pub async fn list_schemas(
     State(state): State<AppState>,
-    Extension(_claims): Extension<UserClaims>,
+    Extension(claims): Extension<UserClaims>,
     Path((org, vault)): Path<(u64, u64)>,
 ) -> Result<Json<ListSchemasResponse>> {
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
+    let start = Instant::now();
+    ledger
+        .get_organization(org_slug, claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("get_organization", start)?;
 
-    let latest = read_version_pointer(ledger, org_slug, vault_slug, "schema:latest").await?;
+    let start = Instant::now();
+    let versions = ledger
+        .list_schema_versions(org_slug, vault_slug)
+        .await
+        .map_sdk_err_instrumented("list_schema_versions", start)?;
 
-    let max_version = match latest {
-        Some(p) => p.version,
-        None => {
-            return Ok(Json(ListSchemasResponse { schemas: vec![] }));
-        },
-    };
-
-    let mut schemas = Vec::with_capacity(max_version as usize);
-    for v in 1..=max_version {
-        let key = schema_version_key(v);
-        let exists =
-            service::vault::read_entity(ledger, org_slug, vault_slug, &key).await?.is_some();
-        schemas.push(SchemaVersionSummary { version: v, has_definition: exists });
-    }
+    let schemas = versions
+        .into_iter()
+        .map(|v| SchemaVersionSummary {
+            version: v.version,
+            has_definition: v.has_definition,
+            is_active: v.is_active,
+        })
+        .collect();
 
     Ok(Json(ListSchemasResponse { schemas }))
 }
@@ -266,21 +157,28 @@ pub async fn list_schemas(
 /// GET /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}
 pub async fn get_schema(
     State(state): State<AppState>,
-    Extension(_claims): Extension<UserClaims>,
+    Extension(claims): Extension<UserClaims>,
     Path((org, vault, version)): Path<(u64, u64, u32)>,
 ) -> Result<Json<SchemaDefinitionResponse>> {
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
+    let start = Instant::now();
+    ledger
+        .get_organization(org_slug, claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("get_organization", start)?;
 
-    let stored = read_stored_schema(ledger, org_slug, vault_slug, version)
-        .await?
-        .ok_or_else(|| CoreError::not_found(format!("schema version {version} not found")))?;
+    let start = Instant::now();
+    let schema = ledger
+        .get_schema(org_slug, vault_slug, version)
+        .await
+        .map_sdk_err_instrumented("get_schema", start)?;
 
     Ok(Json(SchemaDefinitionResponse {
-        version,
-        definition: stored.definition,
-        description: stored.description,
+        version: schema.version,
+        definition: schema.definition,
+        description: schema.description,
     }))
 }
 
@@ -289,30 +187,28 @@ pub async fn get_schema(
 /// GET /control/v1/organizations/{org}/vaults/{vault}/schemas/current
 pub async fn get_current_schema(
     State(state): State<AppState>,
-    Extension(_claims): Extension<UserClaims>,
+    Extension(claims): Extension<UserClaims>,
     Path((org, vault)): Path<(u64, u64)>,
 ) -> Result<Json<SchemaDefinitionResponse>> {
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
+    let start = Instant::now();
+    ledger
+        .get_organization(org_slug, claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("get_organization", start)?;
 
-    let current = read_version_pointer(ledger, org_slug, vault_slug, "schema:current")
-        .await?
-        .ok_or_else(|| CoreError::not_found("no active schema version"))?;
-
-    let stored = read_stored_schema(ledger, org_slug, vault_slug, current.version)
-        .await?
-        .ok_or_else(|| {
-            CoreError::not_found(format!(
-                "active schema version {} has no definition",
-                current.version
-            ))
-        })?;
+    let start = Instant::now();
+    let schema = ledger
+        .get_active_schema(org_slug, vault_slug)
+        .await
+        .map_sdk_err_instrumented("get_active_schema", start)?;
 
     Ok(Json(SchemaDefinitionResponse {
-        version: current.version,
-        definition: stored.definition,
-        description: stored.description,
+        version: schema.version,
+        definition: schema.definition,
+        description: schema.description,
     }))
 }
 
@@ -321,22 +217,25 @@ pub async fn get_current_schema(
 /// POST /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate
 pub async fn activate_schema(
     State(state): State<AppState>,
-    Extension(_claims): Extension<UserClaims>,
+    Extension(claims): Extension<UserClaims>,
     Path((org, vault, version)): Path<(u64, u64, u32)>,
 ) -> Result<Json<SchemaStatusResponse>> {
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
+    let start = Instant::now();
+    ledger
+        .get_organization(org_slug, claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("get_organization", start)?;
 
-    let key = schema_version_key(version);
-    let exists = service::vault::read_entity(ledger, org_slug, vault_slug, &key).await?.is_some();
-    if !exists {
-        return Err(CoreError::not_found(format!("schema version {version} not found")).into());
-    }
+    let start = Instant::now();
+    let activated_version = ledger
+        .activate_schema(org_slug, vault_slug, version)
+        .await
+        .map_sdk_err_instrumented("activate_schema", start)?;
 
-    write_version_pointer(ledger, org_slug, vault_slug, "schema:current", version).await?;
-
-    Ok(Json(SchemaStatusResponse { version, status: "active".to_string() }))
+    Ok(Json(SchemaStatusResponse { version: activated_version, status: "active".to_string() }))
 }
 
 /// Rollback to a previous schema version.
@@ -344,27 +243,25 @@ pub async fn activate_schema(
 /// POST /control/v1/organizations/{org}/vaults/{vault}/schemas/rollback
 pub async fn rollback_schema(
     State(state): State<AppState>,
-    Extension(_claims): Extension<UserClaims>,
+    Extension(claims): Extension<UserClaims>,
     Path((org, vault)): Path<(u64, u64)>,
 ) -> Result<Json<SchemaStatusResponse>> {
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
+    let start = Instant::now();
+    ledger
+        .get_organization(org_slug, claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("get_organization", start)?;
 
-    let current = read_version_pointer(ledger, org_slug, vault_slug, "schema:current")
-        .await?
-        .ok_or_else(|| CoreError::validation("no active schema version to rollback from"))?;
+    let start = Instant::now();
+    let restored_version = ledger
+        .rollback_schema(org_slug, vault_slug)
+        .await
+        .map_sdk_err_instrumented("rollback_schema", start)?;
 
-    if current.version <= 1 {
-        return Err(
-            CoreError::validation("cannot rollback: already at the earliest version").into()
-        );
-    }
-
-    let previous = current.version - 1;
-    write_version_pointer(ledger, org_slug, vault_slug, "schema:current", previous).await?;
-
-    Ok(Json(SchemaStatusResponse { version: previous, status: "active".to_string() }))
+    Ok(Json(SchemaStatusResponse { version: restored_version, status: "active".to_string() }))
 }
 
 /// Compare two schema versions.
@@ -372,23 +269,29 @@ pub async fn rollback_schema(
 /// GET /control/v1/organizations/{org}/vaults/{vault}/schemas/diff?from=N&to=M
 pub async fn diff_schemas(
     State(state): State<AppState>,
-    Extension(_claims): Extension<UserClaims>,
+    Extension(claims): Extension<UserClaims>,
     Path((org, vault)): Path<(u64, u64)>,
     Query(params): Query<DiffQuery>,
 ) -> Result<Json<DiffResponse>> {
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
+    let start = Instant::now();
+    ledger
+        .get_organization(org_slug, claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("get_organization", start)?;
 
-    let from_schema = read_stored_schema(ledger, org_slug, vault_slug, params.from)
-        .await?
-        .ok_or_else(|| CoreError::not_found(format!("schema version {} not found", params.from)))?;
+    let start = Instant::now();
+    let changes = ledger
+        .diff_schemas(org_slug, vault_slug, params.from, params.to)
+        .await
+        .map_sdk_err_instrumented("diff_schemas", start)?;
 
-    let to_schema = read_stored_schema(ledger, org_slug, vault_slug, params.to)
-        .await?
-        .ok_or_else(|| CoreError::not_found(format!("schema version {} not found", params.to)))?;
+    let field_changes = changes
+        .into_iter()
+        .map(|c| FieldChange { field: c.field, change_type: c.change_type })
+        .collect();
 
-    let changes = diff_json_objects(&from_schema.definition, &to_schema.definition);
-
-    Ok(Json(DiffResponse { from: params.from, to: params.to, changes }))
+    Ok(Json(DiffResponse { from: params.from, to: params.to, changes: field_changes }))
 }

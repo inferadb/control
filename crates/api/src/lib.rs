@@ -16,7 +16,6 @@
 //!         .config(config)
 //!         .worker_id(1)
 //!         .maybe_email_service(None)
-//!         .maybe_control_identity(None)
 //!         .maybe_ledger(None)
 //!         .maybe_blinding_key(None)
 //!         .build();
@@ -29,19 +28,15 @@ use std::sync::Arc;
 
 use inferadb_control_config::Config;
 use inferadb_control_core::startup;
-use inferadb_control_types::ControlIdentity;
 use tracing::info;
 
-pub mod audit;
 pub mod extract;
 pub mod handlers;
 pub mod middleware;
-pub mod pagination;
 pub mod routes;
 
 pub use handlers::AppState;
 pub use middleware::{RateLimitConfig, UserClaims, require_jwt};
-pub use pagination::{Paginated, PaginationMeta, PaginationParams, PaginationQuery};
 pub use routes::create_router_with_state;
 
 /// Graceful shutdown signal handler
@@ -80,7 +75,6 @@ async fn shutdown_signal() {
 /// Configuration for optional services in the Control API
 pub struct ServicesConfig {
     pub email_service: Option<Arc<inferadb_control_core::EmailService>>,
-    pub control_identity: Option<Arc<ControlIdentity>>,
     pub ledger: Option<Arc<inferadb_ledger_sdk::LedgerClient>>,
     pub blinding_key: Option<Arc<inferadb_ledger_types::EmailBlindingKey>>,
     pub webauthn: Option<Arc<webauthn_rs::Webauthn>>,
@@ -97,7 +91,6 @@ pub async fn serve(
         .config(config.clone())
         .worker_id(worker_id)
         .maybe_email_service(services.email_service)
-        .maybe_control_identity(services.control_identity)
         .maybe_ledger(services.ledger)
         .maybe_blinding_key(services.blinding_key)
         .maybe_webauthn(services.webauthn)

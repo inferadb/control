@@ -13,6 +13,7 @@ version.workspace = true
 # Core dependencies
 bon = { workspace = true }
 async-trait = { workspace = true }
+bytes = { workspace = true }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
@@ -46,9 +47,6 @@ webauthn-rs = { workspace = true }
 # HTTP client (for webhook notifications)
 url = { workspace = true }
 
-# Caching (for WebAuthn challenge state)
-moka = { workspace = true }
-
 # Metrics
 metrics = { workspace = true }
 
@@ -60,13 +58,12 @@ inferadb-control-types = { path = "../types" }
 
 # Rate limiting
 inferadb-common-ratelimit = ">=0.1.0-0"
+inferadb-common-storage = ">=0.1.0-0"
 
 # Ledger SDK + types
 inferadb-ledger-sdk = { version = ">=0.1.0-0", features = ["serde"] }
 inferadb-ledger-types = ">=0.1.0-0"
 tonic = { workspace = true }
-
-uuid = { workspace = true }
 
 # OpenTelemetry (optional, for distributed tracing)
 opentelemetry = { workspace = true, optional = true }

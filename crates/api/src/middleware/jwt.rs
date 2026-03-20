@@ -15,7 +15,7 @@ use axum::{
 };
 use axum_extra::extract::cookie::CookieJar;
 use inferadb_control_const::auth::ACCESS_TOKEN_COOKIE_NAME;
-use inferadb_control_core::service::SdkResultExt;
+use inferadb_control_core::SdkResultExt;
 use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_types::UserSlug;
 
@@ -77,7 +77,7 @@ pub async fn require_jwt(
 ///
 /// Checks the `Authorization: Bearer <token>` header first, then falls back
 /// to the `inferadb_access` cookie.
-fn extract_access_token(jar: &CookieJar, request: &Request) -> Result<String, ApiError> {
+pub(crate) fn extract_access_token(jar: &CookieJar, request: &Request) -> Result<String, ApiError> {
     // Try Authorization header first
     if let Some(auth_header) = request.headers().get("authorization") {
         let auth_str = auth_header

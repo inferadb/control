@@ -3,12 +3,15 @@
 //! All operations delegate to Ledger SDK via the service layer.
 //! User state (profile, emails, credentials) is owned by Ledger.
 
+use std::time::Instant;
+
 use axum::{Extension, Json, extract::State};
 use chrono::{DateTime, Utc};
-use inferadb_control_core::service;
+use inferadb_control_core::SdkResultExt;
 use inferadb_control_types::Error as CoreError;
 use serde::{Deserialize, Serialize};
 
+use super::common::require_ledger;
 use crate::{
     handlers::auth::{AppState, Result},
     middleware::UserClaims,
@@ -18,12 +21,18 @@ use crate::{
 
 /// User profile response (mapped from Ledger SDK UserInfo).
 #[derive(Debug, Serialize)]
-pub struct UserProfileResponse {
+pub struct UserProfileData {
     pub slug: u64,
     pub name: String,
     pub status: String,
     pub role: String,
     pub created_at: Option<String>,
+}
+
+/// Wrapped user profile response.
+#[derive(Debug, Serialize)]
+pub struct UserProfileResponse {
+    pub user: UserProfileData,
 }
 
 /// Update profile request.
@@ -47,17 +56,20 @@ pub async fn get_profile(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
 ) -> Result<Json<UserProfileResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
-    let user = service::user::get_user(ledger, claims.user_slug).await?;
+    let start = Instant::now();
+    let user =
+        ledger.get_user(claims.user_slug).await.map_sdk_err_instrumented("get_user", start)?;
 
     Ok(Json(UserProfileResponse {
-        slug: user.slug.value(),
-        name: user.name,
-        status: format!("{:?}", user.status),
-        role: format!("{:?}", user.role),
-        created_at: user.created_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
+        user: UserProfileData {
+            slug: user.slug.value(),
+            name: user.name,
+            status: user.status.to_string(),
+            role: user.role.to_string(),
+            created_at: user.created_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
+        },
     }))
 }
 
@@ -69,20 +81,25 @@ pub async fn update_profile(
     Extension(claims): Extension<UserClaims>,
     Json(payload): Json<UpdateProfileRequest>,
 ) -> Result<Json<UserProfileResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
     let name =
         payload.name.ok_or_else(|| CoreError::validation("at least one field must be provided"))?;
 
-    let user = service::user::update_user_name(ledger, claims.user_slug, name).await?;
+    let start = Instant::now();
+    let user = ledger
+        .update_user(claims.user_slug, Some(name), None, None)
+        .await
+        .map_sdk_err_instrumented("update_user_name", start)?;
 
     Ok(Json(UserProfileResponse {
-        slug: user.slug.value(),
-        name: user.name,
-        status: format!("{:?}", user.status),
-        role: format!("{:?}", user.role),
-        created_at: user.created_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
+        user: UserProfileData {
+            slug: user.slug.value(),
+            name: user.name,
+            status: user.status.to_string(),
+            role: user.role.to_string(),
+            created_at: user.created_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
+        },
     }))
 }
 
@@ -94,11 +111,14 @@ pub async fn delete_user(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
 ) -> Result<Json<DeleteUserResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
     let slug_str = claims.user_slug.value().to_string();
-    service::user::delete_user(ledger, claims.user_slug, &slug_str).await?;
+    let start = Instant::now();
+    ledger
+        .delete_user(claims.user_slug, &slug_str)
+        .await
+        .map_sdk_err_instrumented("delete_user", start)?;
 
     Ok(Json(DeleteUserResponse { message: "User account deleted successfully".to_string() }))
 }

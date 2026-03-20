@@ -58,7 +58,6 @@
 // Re-exports from upstream crates
 // ============================================================================
 pub use inferadb_ledger_types::{OrganizationSlug, VaultSlug};
-use serde::{Deserialize, Serialize};
 
 // ============================================================================
 // ID Generation
@@ -77,53 +76,7 @@ pub mod error;
 pub use error::{Error, Result};
 
 // ============================================================================
-// Control Identity (for webhook authentication)
-// ============================================================================
-
-pub mod identity;
-
-pub use identity::{ControlIdentity, SharedControlIdentity};
-
-// ============================================================================
-// Pagination Types
-// ============================================================================
-
-/// Pagination metadata for responses
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PaginationMeta {
-    /// Total number of items (if known)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub total: Option<usize>,
-
-    /// Number of items in this page
-    pub count: usize,
-
-    /// Current offset
-    pub offset: usize,
-
-    /// Items per page
-    pub limit: usize,
-
-    /// Whether there are more items
-    pub has_more: bool,
-}
-
-impl PaginationMeta {
-    /// Create pagination metadata from total count
-    pub fn from_total(total: usize, offset: usize, limit: usize, count: usize) -> Self {
-        Self { total: Some(total), count, offset, limit, has_more: offset + count < total }
-    }
-
-    /// Create pagination metadata without total count (streaming pagination)
-    pub fn from_count(count: usize, offset: usize, limit: usize) -> Self {
-        // If we got exactly limit items, there might be more
-        let has_more = count == limit;
-        Self { total: None, count, offset, limit, has_more }
-    }
-}
-
-// ============================================================================
-// Request/Response Types (legacy — being migrated to Ledger SDK types)
+// Request/Response Types
 // ============================================================================
 
 pub mod dto;

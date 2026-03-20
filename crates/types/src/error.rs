@@ -66,6 +66,10 @@ pub enum Error {
     #[snafu(display("Too many passkeys registered (max: {max})"))]
     TooManyPasskeys { max: usize, backtrace: Backtrace },
 
+    /// Upstream service temporarily unavailable
+    #[snafu(display("Service unavailable: {message}"))]
+    Unavailable { message: String, backtrace: Backtrace },
+
     /// External service errors
     #[snafu(display("External service error: {message}"))]
     External { message: String, backtrace: Backtrace },
@@ -130,6 +134,11 @@ impl Error {
         TooManyPasskeysSnafu { max }.build()
     }
 
+    /// Create an unavailable error (upstream service temporarily unavailable)
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        UnavailableSnafu { message: message.into() }.build()
+    }
+
     /// Create an external service error
     pub fn external(message: impl Into<String>) -> Self {
         ExternalSnafu { message: message.into() }.build()
@@ -157,6 +166,7 @@ impl Error {
             Error::RateLimit { .. } => 429,
             Error::TierLimit { .. } => 402,
             Error::TooManyPasskeys { .. } => 400,
+            Error::Unavailable { .. } => 503,
             Error::External { .. } => 502,
             Error::Internal { .. } => 500,
         }
@@ -175,6 +185,7 @@ impl Error {
             Error::RateLimit { .. } => "RATE_LIMIT_EXCEEDED",
             Error::TierLimit { .. } => "TIER_LIMIT_EXCEEDED",
             Error::TooManyPasskeys { .. } => "TOO_MANY_PASSKEYS",
+            Error::Unavailable { .. } => "SERVICE_UNAVAILABLE",
             Error::External { .. } => "EXTERNAL_SERVICE_ERROR",
             Error::Internal { .. } => "INTERNAL_ERROR",
         }
@@ -191,7 +202,7 @@ impl From<StorageError> for Error {
             StorageError::RateLimitExceeded { .. } => Error::rate_limit(e.to_string()),
             StorageError::RangeLimitExceeded { .. } => Error::validation(e.to_string()),
             StorageError::CircuitOpen { .. } | StorageError::ShuttingDown { .. } => {
-                Error::external(e.to_string())
+                Error::unavailable("storage service temporarily unavailable")
             },
             _ => Error::internal(e.to_string()),
         }

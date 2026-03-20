@@ -3,17 +3,20 @@
 //! All operations delegate to Ledger SDK via the service layer.
 //! Email state (verification, primary flag) is owned by Ledger.
 
+use std::time::Instant;
+
 use axum::{
     Extension, Json,
     extract::{Path, State},
 };
 use chrono::{DateTime, Utc};
-use inferadb_control_core::service;
+use inferadb_control_core::SdkResultExt;
 use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::UserEmailInfo;
 use inferadb_ledger_types::UserEmailId;
 use serde::{Deserialize, Serialize};
 
+use super::common::require_ledger;
 use crate::{
     handlers::auth::{AppState, Result},
     middleware::UserClaims,
@@ -30,7 +33,7 @@ pub struct AddEmailRequest {
 /// Email info response (mapped from Ledger SDK UserEmailInfo).
 #[derive(Debug, Serialize)]
 pub struct EmailInfoResponse {
-    pub id: i64,
+    pub slug: u64,
     pub email: String,
     pub verified: bool,
     pub created_at: Option<String>,
@@ -73,18 +76,12 @@ pub struct VerifyEmailResponse {
 
 fn map_email_info(info: &UserEmailInfo) -> EmailInfoResponse {
     EmailInfoResponse {
-        id: info.id.value(),
+        slug: u64::try_from(info.id.value()).unwrap_or(0),
         email: info.email.clone(),
         verified: info.verified,
         created_at: info.created_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
         verified_at: info.verified_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
     }
-}
-
-fn require_ledger(
-    state: &AppState,
-) -> std::result::Result<&inferadb_ledger_sdk::LedgerClient, CoreError> {
-    state.ledger.as_deref().ok_or_else(|| CoreError::internal("Ledger client not configured"))
 }
 
 fn require_blinding_key(
@@ -115,8 +112,11 @@ pub async fn add_email(
     let normalized = inferadb_control_core::normalize_email(&payload.email);
     let hmac = inferadb_control_core::compute_email_hmac(blinding_key, &normalized);
 
-    let info =
-        service::email::create_user_email(ledger, claims.user_slug, &normalized, &hmac).await?;
+    let start = Instant::now();
+    let info = ledger
+        .create_user_email(claims.user_slug, &normalized, &hmac)
+        .await
+        .map_sdk_err_instrumented("create_user_email", start)?;
 
     Ok(Json(AddEmailResponse {
         email: map_email_info(&info),
@@ -133,7 +133,11 @@ pub async fn list_emails(
 ) -> Result<Json<ListEmailsResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let emails = service::email::list_user_emails(ledger, claims.user_slug).await?;
+    let start = Instant::now();
+    let emails = ledger
+        .search_user_email(Some(claims.user_slug), None)
+        .await
+        .map_sdk_err_instrumented("list_user_emails", start)?;
 
     Ok(Json(ListEmailsResponse { emails: emails.iter().map(map_email_info).collect() }))
 }
@@ -148,7 +152,11 @@ pub async fn delete_email(
 ) -> Result<Json<EmailOperationResponse>> {
     let ledger = require_ledger(&state)?;
 
-    service::email::delete_user_email(ledger, claims.user_slug, UserEmailId::new(email_id)).await?;
+    let start = Instant::now();
+    ledger
+        .delete_user_email(claims.user_slug, UserEmailId::new(email_id))
+        .await
+        .map_sdk_err_instrumented("delete_user_email", start)?;
 
     Ok(Json(EmailOperationResponse { message: "Email deleted successfully".to_string() }))
 }
@@ -162,7 +170,11 @@ pub async fn verify_email(
 ) -> Result<Json<VerifyEmailResponse>> {
     let ledger = require_ledger(&state)?;
 
-    service::email::verify_user_email(ledger, &payload.token).await?;
+    let start = Instant::now();
+    ledger
+        .verify_user_email(&payload.token)
+        .await
+        .map_sdk_err_instrumented("verify_user_email", start)?;
 
     Ok(Json(VerifyEmailResponse {
         message: "Email verified successfully".to_string(),

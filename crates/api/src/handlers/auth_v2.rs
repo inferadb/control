@@ -4,10 +4,12 @@
 //! Ledger's token service. These coexist with the old auth handlers
 //! during migration.
 
+use std::time::Instant;
+
 use axum::{Json, extract::State};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use inferadb_control_const::auth::{ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME};
-use inferadb_control_core::service;
+use inferadb_control_core::SdkResultExt;
 use inferadb_control_types::Error as CoreError;
 use serde::{Deserialize, Serialize};
 use time;
@@ -57,12 +59,21 @@ pub fn set_token_cookies(
     jar: CookieJar,
     token_pair: &inferadb_ledger_sdk::token::TokenPair,
 ) -> CookieJar {
+    // Derive access cookie max-age from token expiry when available,
+    // falling back to the default constant.
+    let access_max_age_secs = token_pair
+        .access_expires_at
+        .and_then(|expires_at| {
+            expires_at.duration_since(std::time::SystemTime::now()).ok().map(|d| d.as_secs() as i64)
+        })
+        .unwrap_or(ACCESS_COOKIE_MAX_AGE_SECS);
+
     let access_cookie = Cookie::build((ACCESS_TOKEN_COOKIE_NAME, token_pair.access_token.clone()))
         .path("/")
         .http_only(true)
         .secure(true)
         .same_site(SameSite::Lax)
-        .max_age(time::Duration::seconds(ACCESS_COOKIE_MAX_AGE_SECS))
+        .max_age(time::Duration::seconds(access_max_age_secs))
         .build();
 
     let refresh_cookie =
@@ -94,8 +105,10 @@ pub async fn refresh(
     jar: CookieJar,
     Json(body): Json<RefreshTokenRequest>,
 ) -> Result<(CookieJar, Json<TokenPairResponse>), ApiError> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = state
+        .ledger
+        .as_deref()
+        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     // Extract refresh token from body or cookie
     let refresh_token = body
@@ -103,7 +116,11 @@ pub async fn refresh(
         .or_else(|| jar.get(REFRESH_TOKEN_COOKIE_NAME).map(|c| c.value().to_string()))
         .ok_or_else(|| CoreError::auth("no refresh token provided"))?;
 
-    let token_pair = service::session::refresh_token(ledger, &refresh_token).await?;
+    let start = Instant::now();
+    let token_pair = ledger
+        .refresh_token(&refresh_token)
+        .await
+        .map_sdk_err_instrumented("refresh_token", start)?;
 
     let response = TokenPairResponse {
         access_token: token_pair.access_token.clone(),
@@ -122,15 +139,22 @@ pub async fn logout(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Json<LogoutResponse>), ApiError> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = state
+        .ledger
+        .as_deref()
+        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
     // Try to revoke the refresh token if present
     if let Some(cookie) = jar.get(REFRESH_TOKEN_COOKIE_NAME) {
         let refresh_token = cookie.value();
         if !refresh_token.is_empty() {
             // Best-effort revocation — don't fail the logout if revocation fails
-            if let Err(e) = service::session::revoke_token(ledger, refresh_token).await {
+            let start = Instant::now();
+            if let Err(e) = ledger
+                .revoke_token(refresh_token)
+                .await
+                .map_sdk_err_instrumented("revoke_token", start)
+            {
                 tracing::warn!(error = %e, "Failed to revoke refresh token during logout");
             }
         }
@@ -148,11 +172,16 @@ pub async fn revoke_all(
     axum::Extension(claims): axum::Extension<UserClaims>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Json<RevokeAllResponse>), ApiError> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = state
+        .ledger
+        .as_deref()
+        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
 
-    let revoked_count =
-        service::session::revoke_all_user_sessions(ledger, claims.user_slug).await?;
+    let start = Instant::now();
+    let revoked_count = ledger
+        .revoke_all_user_sessions(claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("revoke_all_user_sessions", start)?;
 
     let jar = clear_token_cookies(jar);
     Ok((jar, Json(RevokeAllResponse { revoked_count })))

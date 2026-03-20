@@ -3,17 +3,22 @@
 //! All operations delegate to Ledger SDK via the service layer.
 //! Team state (members, roles) is owned by Ledger.
 
+use std::time::Instant;
+
 use axum::{
     Extension, Json,
     extract::{Path, Query, State},
 };
-use chrono::{DateTime, Utc};
-use inferadb_control_core::service;
+use inferadb_control_core::SdkResultExt;
 use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::{TeamMemberRole, TeamSlug};
 use inferadb_ledger_types::{OrganizationSlug, UserSlug};
 use serde::{Deserialize, Serialize};
 
+use super::common::{
+    CursorPaginationQuery, MessageResponse, encode_page_token, require_ledger,
+    system_time_to_rfc3339,
+};
 use crate::{
     handlers::auth::{AppState, Result},
     middleware::UserClaims,
@@ -56,33 +61,6 @@ fn default_member_role() -> String {
 #[derive(Debug, Deserialize)]
 pub struct UpdateTeamMemberRequest {
     pub role: String,
-}
-
-/// Pagination query for cursor-based pagination.
-#[derive(Debug, Deserialize)]
-pub struct CursorPaginationQuery {
-    /// Number of items per page (default 50, max 100).
-    #[serde(default = "default_page_size")]
-    pub page_size: u32,
-    /// Opaque cursor for the next page (base64-encoded).
-    pub page_token: Option<String>,
-}
-
-fn default_page_size() -> u32 {
-    50
-}
-
-impl CursorPaginationQuery {
-    fn validated_page_size(&self) -> u32 {
-        self.page_size.clamp(1, 100)
-    }
-
-    fn decoded_page_token(&self) -> Option<Vec<u8>> {
-        use base64::Engine;
-        self.page_token
-            .as_deref()
-            .and_then(|t| base64::engine::general_purpose::STANDARD.decode(t).ok())
-    }
 }
 
 // ── Response Types ────────────────────────────────────────────────────
@@ -129,22 +107,7 @@ pub struct ListTeamMembersResponse {
     pub members: Vec<TeamMemberResponse>,
 }
 
-/// Simple message response.
-#[derive(Debug, Serialize)]
-pub struct MessageResponse {
-    pub message: String,
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────
-
-fn encode_page_token(token: &Option<Vec<u8>>) -> Option<String> {
-    use base64::Engine;
-    token.as_ref().map(|t| base64::engine::general_purpose::STANDARD.encode(t))
-}
-
-fn system_time_to_rfc3339(t: &Option<std::time::SystemTime>) -> Option<String> {
-    t.map(|st| DateTime::<Utc>::from(st).to_rfc3339())
-}
 
 fn parse_team_member_role(s: &str) -> std::result::Result<TeamMemberRole, CoreError> {
     match s.to_lowercase().as_str() {
@@ -159,7 +122,7 @@ fn parse_team_member_role(s: &str) -> std::result::Result<TeamMemberRole, CoreEr
 fn team_member_to_response(info: &inferadb_ledger_sdk::TeamMemberInfo) -> TeamMemberResponse {
     TeamMemberResponse {
         user: info.user.value(),
-        role: format!("{:?}", info.role),
+        role: info.role.to_string(),
         joined_at: system_time_to_rfc3339(&info.joined_at),
     }
 }
@@ -186,16 +149,13 @@ pub async fn create_team(
     Path(org): Path<u64>,
     Json(payload): Json<CreateTeamRequest>,
 ) -> Result<Json<SingleTeamResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
-    let info = service::team::create_team(
-        ledger,
-        OrganizationSlug::new(org),
-        &payload.name,
-        claims.user_slug,
-    )
-    .await?;
+    let start = Instant::now();
+    let info = ledger
+        .create_organization_team(OrganizationSlug::new(org), &payload.name, claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("create_team", start)?;
 
     Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
@@ -209,17 +169,18 @@ pub async fn list_teams(
     Path(org): Path<u64>,
     Query(pagination): Query<CursorPaginationQuery>,
 ) -> Result<Json<ListTeamsResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
-    let (teams, next_token) = service::team::list_teams(
-        ledger,
-        OrganizationSlug::new(org),
-        claims.user_slug,
-        pagination.validated_page_size(),
-        pagination.decoded_page_token(),
-    )
-    .await?;
+    let start = Instant::now();
+    let (teams, next_token) = ledger
+        .list_organization_teams(
+            OrganizationSlug::new(org),
+            claims.user_slug,
+            pagination.validated_page_size(),
+            pagination.decoded_page_token(),
+        )
+        .await
+        .map_sdk_err_instrumented("list_teams", start)?;
 
     Ok(Json(ListTeamsResponse {
         teams: teams.iter().map(team_info_to_response).collect(),
@@ -235,10 +196,13 @@ pub async fn get_team(
     Extension(claims): Extension<UserClaims>,
     Path((_org, team)): Path<(u64, u64)>,
 ) -> Result<Json<SingleTeamResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
-    let info = service::team::get_team(ledger, TeamSlug::new(team), claims.user_slug).await?;
+    let start = Instant::now();
+    let info = ledger
+        .get_organization_team(TeamSlug::new(team), claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("get_team", start)?;
 
     Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
@@ -252,16 +216,13 @@ pub async fn update_team(
     Path((_org, team)): Path<(u64, u64)>,
     Json(payload): Json<UpdateTeamRequest>,
 ) -> Result<Json<SingleTeamResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
-    let info = service::team::update_team(
-        ledger,
-        TeamSlug::new(team),
-        claims.user_slug,
-        payload.name.as_deref(),
-    )
-    .await?;
+    let start = Instant::now();
+    let info = ledger
+        .update_organization_team(TeamSlug::new(team), claims.user_slug, payload.name.as_deref())
+        .await
+        .map_sdk_err_instrumented("update_team", start)?;
 
     Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
@@ -276,13 +237,15 @@ pub async fn delete_team(
     Path((_org, team)): Path<(u64, u64)>,
     payload: Option<Json<DeleteTeamRequest>>,
 ) -> Result<Json<MessageResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
     let move_members_to = payload.and_then(|p| p.0.move_members_to.map(TeamSlug::new));
 
-    service::team::delete_team(ledger, TeamSlug::new(team), claims.user_slug, move_members_to)
-        .await?;
+    let start = Instant::now();
+    ledger
+        .delete_organization_team(TeamSlug::new(team), claims.user_slug, move_members_to)
+        .await
+        .map_sdk_err_instrumented("delete_team", start)?;
 
     Ok(Json(MessageResponse { message: "Team deleted successfully".to_string() }))
 }
@@ -298,19 +261,15 @@ pub async fn add_team_member(
     Path((_org, team)): Path<(u64, u64)>,
     Json(payload): Json<AddTeamMemberRequest>,
 ) -> Result<Json<SingleTeamResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
     let role = parse_team_member_role(&payload.role)?;
 
-    let info = service::team::add_team_member(
-        ledger,
-        TeamSlug::new(team),
-        UserSlug::new(payload.user),
-        role,
-        claims.user_slug,
-    )
-    .await?;
+    let start = Instant::now();
+    let info = ledger
+        .add_team_member(TeamSlug::new(team), UserSlug::new(payload.user), role, claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("add_team_member", start)?;
 
     Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
@@ -323,10 +282,13 @@ pub async fn list_team_members(
     Extension(claims): Extension<UserClaims>,
     Path((_org, team)): Path<(u64, u64)>,
 ) -> Result<Json<ListTeamMembersResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
-    let info = service::team::get_team(ledger, TeamSlug::new(team), claims.user_slug).await?;
+    let start = Instant::now();
+    let info = ledger
+        .get_organization_team(TeamSlug::new(team), claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("get_team", start)?;
 
     Ok(Json(ListTeamMembersResponse {
         members: info.members.iter().map(team_member_to_response).collect(),
@@ -335,25 +297,22 @@ pub async fn list_team_members(
 
 /// PATCH /v1/organizations/:org/teams/:team/members/:member
 ///
-/// Updates a team member's role. Implemented as remove + add with the new role.
+/// Updates a team member's role atomically via a single Ledger RPC.
 pub async fn update_team_member(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
     Path((_org, team, member)): Path<(u64, u64, u64)>,
     Json(payload): Json<UpdateTeamMemberRequest>,
 ) -> Result<Json<SingleTeamResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
     let role = parse_team_member_role(&payload.role)?;
-    let team_slug = TeamSlug::new(team);
-    let member_slug = UserSlug::new(member);
 
-    service::team::remove_team_member(ledger, team_slug, member_slug, claims.user_slug).await?;
-
-    let info =
-        service::team::add_team_member(ledger, team_slug, member_slug, role, claims.user_slug)
-            .await?;
+    let start = Instant::now();
+    let info = ledger
+        .update_team_member_role(TeamSlug::new(team), UserSlug::new(member), role, claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("update_team_member_role", start)?;
 
     Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
@@ -366,16 +325,13 @@ pub async fn remove_team_member(
     Extension(claims): Extension<UserClaims>,
     Path((_org, team, member)): Path<(u64, u64, u64)>,
 ) -> Result<Json<MessageResponse>> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
-    service::team::remove_team_member(
-        ledger,
-        TeamSlug::new(team),
-        UserSlug::new(member),
-        claims.user_slug,
-    )
-    .await?;
+    let start = Instant::now();
+    ledger
+        .remove_team_member(TeamSlug::new(team), UserSlug::new(member), claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("remove_team_member", start)?;
 
     Ok(Json(MessageResponse { message: "Team member removed successfully".to_string() }))
 }

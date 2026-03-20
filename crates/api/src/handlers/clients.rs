@@ -4,17 +4,20 @@
 //! "Clients" in the Control API map to "apps" in Ledger terminology.
 //! "Certificates" map to "client assertions" in Ledger.
 
+use std::time::Instant;
+
 use axum::{
     Extension, Json,
     extract::{Path, State},
     http::StatusCode,
 };
 use chrono::{DateTime, Utc};
-use inferadb_control_core::service;
+use inferadb_control_core::SdkResultExt;
 use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::{AppSlug, ClientAssertionId, OrganizationSlug};
 use serde::{Deserialize, Serialize};
 
+use super::common::{MessageResponse, require_ledger};
 use crate::{
     handlers::auth::{AppState, Result},
     middleware::UserClaims,
@@ -83,16 +86,10 @@ pub struct ListClientsResponse {
     pub clients: Vec<ClientResponse>,
 }
 
-/// Delete client response.
-#[derive(Debug, Serialize)]
-pub struct MessageResponse {
-    pub message: String,
-}
-
 /// Certificate (assertion) response.
 #[derive(Debug, Serialize)]
 pub struct CertificateResponse {
-    pub id: i64,
+    pub slug: u64,
     pub name: String,
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -147,22 +144,12 @@ fn assertion_to_response(
     info: &inferadb_ledger_sdk::AppClientAssertionInfo,
 ) -> CertificateResponse {
     CertificateResponse {
-        id: info.id.value(),
+        slug: u64::try_from(info.id.value()).unwrap_or(0),
         name: info.name.clone(),
         enabled: info.enabled,
         expires_at: system_time_to_rfc3339(&info.expires_at),
         created_at: system_time_to_rfc3339(&info.created_at),
     }
-}
-
-fn require_ledger(
-    state: &AppState,
-) -> std::result::Result<&inferadb_ledger_sdk::LedgerClient, CoreError> {
-    state
-        .ledger
-        .as_ref()
-        .map(|arc| arc.as_ref())
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))
 }
 
 // ── Client Handlers ──────────────────────────────────────────────────
@@ -178,14 +165,16 @@ pub async fn create_client(
 ) -> Result<(StatusCode, Json<SingleClientResponse>)> {
     let ledger = require_ledger(&state)?;
 
-    let info = service::app::create_app(
-        ledger,
-        OrganizationSlug::new(org),
-        claims.user_slug,
-        &payload.name,
-        payload.description,
-    )
-    .await?;
+    let start = Instant::now();
+    let info = ledger
+        .create_app(
+            OrganizationSlug::new(org),
+            claims.user_slug,
+            &payload.name,
+            payload.description,
+        )
+        .await
+        .map_sdk_err_instrumented("create_app", start)?;
 
     Ok((StatusCode::CREATED, Json(SingleClientResponse { client: app_info_to_response(&info) })))
 }
@@ -200,8 +189,11 @@ pub async fn list_clients(
 ) -> Result<Json<ListClientsResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let apps =
-        service::app::list_apps(ledger, OrganizationSlug::new(org), claims.user_slug).await?;
+    let start = Instant::now();
+    let apps = ledger
+        .list_apps(OrganizationSlug::new(org), claims.user_slug)
+        .await
+        .map_sdk_err_instrumented("list_apps", start)?;
 
     Ok(Json(ListClientsResponse { clients: apps.iter().map(app_info_to_response).collect() }))
 }
@@ -216,13 +208,11 @@ pub async fn get_client(
 ) -> Result<Json<SingleClientResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let info = service::app::get_app(
-        ledger,
-        OrganizationSlug::new(org),
-        claims.user_slug,
-        AppSlug::new(client),
-    )
-    .await?;
+    let start = Instant::now();
+    let info = ledger
+        .get_app(OrganizationSlug::new(org), claims.user_slug, AppSlug::new(client))
+        .await
+        .map_sdk_err_instrumented("get_app", start)?;
 
     Ok(Json(SingleClientResponse { client: app_info_to_response(&info) }))
 }
@@ -238,15 +228,17 @@ pub async fn update_client(
 ) -> Result<Json<SingleClientResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let info = service::app::update_app(
-        ledger,
-        OrganizationSlug::new(org),
-        claims.user_slug,
-        AppSlug::new(client),
-        payload.name,
-        payload.description,
-    )
-    .await?;
+    let start = Instant::now();
+    let info = ledger
+        .update_app(
+            OrganizationSlug::new(org),
+            claims.user_slug,
+            AppSlug::new(client),
+            payload.name,
+            payload.description,
+        )
+        .await
+        .map_sdk_err_instrumented("update_app", start)?;
 
     Ok(Json(SingleClientResponse { client: app_info_to_response(&info) }))
 }
@@ -261,13 +253,11 @@ pub async fn delete_client(
 ) -> Result<Json<MessageResponse>> {
     let ledger = require_ledger(&state)?;
 
-    service::app::delete_app(
-        ledger,
-        OrganizationSlug::new(org),
-        claims.user_slug,
-        AppSlug::new(client),
-    )
-    .await?;
+    let start = Instant::now();
+    ledger
+        .delete_app(OrganizationSlug::new(org), claims.user_slug, AppSlug::new(client))
+        .await
+        .map_sdk_err_instrumented("delete_app", start)?;
 
     Ok(Json(MessageResponse { message: "Client deleted successfully".to_string() }))
 }
@@ -292,15 +282,17 @@ pub async fn create_certificate(
         .map_err(|_| CoreError::validation("Invalid expires_at timestamp; expected ISO 8601"))?;
     let expires_at_system = std::time::SystemTime::from(expires_at);
 
-    let result = service::app::create_app_client_assertion(
-        ledger,
-        OrganizationSlug::new(org),
-        claims.user_slug,
-        AppSlug::new(client),
-        &payload.name,
-        expires_at_system,
-    )
-    .await?;
+    let start = Instant::now();
+    let result = ledger
+        .create_app_client_assertion(
+            OrganizationSlug::new(org),
+            claims.user_slug,
+            AppSlug::new(client),
+            &payload.name,
+            expires_at_system,
+        )
+        .await
+        .map_sdk_err_instrumented("create_app_client_assertion", start)?;
 
     Ok((
         StatusCode::CREATED,
@@ -321,13 +313,15 @@ pub async fn list_certificates(
 ) -> Result<Json<ListCertificatesResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let assertions = service::app::list_app_client_assertions(
-        ledger,
-        OrganizationSlug::new(org),
-        claims.user_slug,
-        AppSlug::new(client),
-    )
-    .await?;
+    let start = Instant::now();
+    let assertions = ledger
+        .list_app_client_assertions(
+            OrganizationSlug::new(org),
+            claims.user_slug,
+            AppSlug::new(client),
+        )
+        .await
+        .map_sdk_err_instrumented("list_app_client_assertions", start)?;
 
     Ok(Json(ListCertificatesResponse {
         certificates: assertions.iter().map(assertion_to_response).collect(),
@@ -344,17 +338,19 @@ pub async fn get_certificate(
 ) -> Result<Json<CertificateResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let assertions = service::app::list_app_client_assertions(
-        ledger,
-        OrganizationSlug::new(org),
-        claims.user_slug,
-        AppSlug::new(client),
-    )
-    .await?;
+    let start = Instant::now();
+    let assertions = ledger
+        .list_app_client_assertions(
+            OrganizationSlug::new(org),
+            claims.user_slug,
+            AppSlug::new(client),
+        )
+        .await
+        .map_sdk_err_instrumented("list_app_client_assertions", start)?;
 
     let assertion = assertions
         .iter()
-        .find(|a| a.id.value() == cert_id as i64)
+        .find(|a| u64::try_from(a.id.value()).unwrap_or(0) == cert_id)
         .ok_or_else(|| CoreError::not_found("Certificate not found"))?;
 
     Ok(Json(assertion_to_response(assertion)))
@@ -370,14 +366,16 @@ pub async fn revoke_certificate(
 ) -> Result<Json<MessageResponse>> {
     let ledger = require_ledger(&state)?;
 
-    service::app::delete_app_client_assertion(
-        ledger,
-        OrganizationSlug::new(org),
-        claims.user_slug,
-        AppSlug::new(client),
-        ClientAssertionId::new(cert_id as i64),
-    )
-    .await?;
+    let start = Instant::now();
+    ledger
+        .delete_app_client_assertion(
+            OrganizationSlug::new(org),
+            claims.user_slug,
+            AppSlug::new(client),
+            ClientAssertionId::new(i64::try_from(cert_id).unwrap_or(0)),
+        )
+        .await
+        .map_sdk_err_instrumented("delete_app_client_assertion", start)?;
 
     Ok(Json(MessageResponse { message: "Certificate revoked successfully".to_string() }))
 }
@@ -392,13 +390,15 @@ pub async fn rotate_certificate(
 ) -> Result<Json<RotateSecretResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let secret = service::app::rotate_app_client_secret(
-        ledger,
-        OrganizationSlug::new(org),
-        claims.user_slug,
-        AppSlug::new(client),
-    )
-    .await?;
+    let start = Instant::now();
+    let secret = ledger
+        .rotate_app_client_secret(
+            OrganizationSlug::new(org),
+            claims.user_slug,
+            AppSlug::new(client),
+        )
+        .await
+        .map_sdk_err_instrumented("rotate_app_client_secret", start)?;
 
     Ok(Json(RotateSecretResponse { secret }))
 }

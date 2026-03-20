@@ -6,8 +6,6 @@ use inferadb_control_config::{Cli, LogFormat, StorageBackend};
 use inferadb_control_core::{
     EmailService, IdGenerator, SmtpEmailService, logging, parse_blinding_key, startup,
 };
-use inferadb_control_types::ControlIdentity;
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // Install the rustls crypto provider early, before any TLS operations.
@@ -58,12 +56,6 @@ async fn main() -> Result<()> {
 
     // Display startup banner and configuration summary
     if config.log_format != LogFormat::Json {
-        let private_key_entry = if let Some(ref pem) = config.pem {
-            startup::ConfigEntry::new("Identity", "Private Key", startup::private_key_hint(pem))
-        } else {
-            startup::ConfigEntry::warning("Identity", "Private Key", "○ Unassigned")
-        };
-
         startup::StartupDisplay::new(startup::ServiceInfo {
             name: "InferaDB",
             subtext: "Control",
@@ -77,8 +69,6 @@ async fn main() -> Result<()> {
         .entries(vec![
             startup::ConfigEntry::new("Storage", "Backend", effective_storage.to_string()),
             startup::ConfigEntry::new("Listen", "HTTP", config.listen.to_string()),
-            startup::ConfigEntry::separator("Listen"),
-            private_key_entry,
         ])
         .display();
     } else {
@@ -93,25 +83,6 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to initialize ID generator: {e}"))?;
 
     startup::log_initialized(&format!("Worker ID ({worker_id})"));
-
-    // Identity for engine authentication
-    let control_identity = if let Some(ref pem) = config.pem {
-        ControlIdentity::from_pem(pem)?
-    } else {
-        let identity = ControlIdentity::generate();
-        let pem = identity.to_pem()?;
-        startup::print_generated_keypair(&pem, "pem");
-        identity
-    };
-
-    tracing::info!(
-        control_id = %control_identity.control_id,
-        kid = %control_identity.kid,
-        "Control identity initialized"
-    );
-
-    let control_identity = Arc::new(control_identity);
-    startup::log_initialized("Identity");
 
     // Initialize email service (if configured)
     let email_service = if config.is_email_enabled() {
@@ -185,7 +156,6 @@ async fn main() -> Result<()> {
         worker_id,
         inferadb_control_api::ServicesConfig {
             email_service,
-            control_identity: Some(control_identity),
             ledger,
             blinding_key,
             webauthn: Some(webauthn),

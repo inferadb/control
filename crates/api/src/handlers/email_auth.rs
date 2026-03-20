@@ -5,15 +5,16 @@
 //! 2. `POST /v1/auth/email/verify` — verify code, get session or onboarding token
 //! 3. `POST /v1/auth/email/complete` — complete registration for new users
 
+use std::time::Instant;
+
 use axum::{Json, extract::State};
 use axum_extra::extract::cookie::CookieJar;
-use inferadb_control_core::service;
-use inferadb_control_types::Error as CoreError;
+use inferadb_control_core::SdkResultExt;
 use inferadb_ledger_sdk::EmailVerificationResult;
 use inferadb_ledger_types::Region;
 use serde::{Deserialize, Serialize};
 
-use super::{auth::ApiError, auth_v2::set_token_cookies};
+use super::{auth::ApiError, auth_v2::set_token_cookies, common::require_ledger};
 use crate::handlers::AppState;
 
 // ── Request Types ───────────────────────────────────────────────────────
@@ -67,13 +68,20 @@ pub enum VerifyResponse {
     RegistrationRequired { onboarding_token: String },
 }
 
+/// Inner registration data.
 #[derive(Debug, Serialize)]
-pub struct CompleteRegistrationResponse {
-    pub user_slug: u64,
-    pub organization_slug: Option<u64>,
+pub struct CompleteRegistrationData {
+    pub user: u64,
+    pub organization: Option<u64>,
     pub access_token: String,
     pub refresh_token: String,
     pub token_type: &'static str,
+}
+
+/// Wrapped registration response.
+#[derive(Debug, Serialize)]
+pub struct CompleteRegistrationResponse {
+    pub registration: CompleteRegistrationData,
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -93,13 +101,15 @@ pub async fn initiate(
     State(state): State<AppState>,
     Json(body): Json<InitiateRequest>,
 ) -> Result<Json<InitiateResponse>, ApiError> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
     let region = body.region.unwrap_or_else(default_region);
 
-    let result =
-        service::onboarding::initiate_email_verification(ledger, &body.email, region).await?;
+    let start = Instant::now();
+    let result = ledger
+        .initiate_email_verification(&body.email, region)
+        .await
+        .map_sdk_err_instrumented("initiate_email_verification", start)?;
 
     // Send the code via email (fire-and-forget)
     if let Some(ref email_service) = state.email_service {
@@ -119,7 +129,7 @@ pub async fn initiate(
             }
         });
     } else {
-        tracing::info!(code = %result.code, email = %body.email, "Verification code (email disabled)");
+        tracing::warn!(email = %body.email, "Email service not configured — verification code generated but cannot be delivered");
     }
 
     Ok(Json(InitiateResponse { message: "verification code sent" }))
@@ -136,13 +146,15 @@ pub async fn verify(
     jar: CookieJar,
     Json(body): Json<VerifyRequest>,
 ) -> Result<(CookieJar, Json<VerifyResponse>), ApiError> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
     let region = body.region.unwrap_or_else(default_region);
 
-    let result =
-        service::onboarding::verify_email_code(ledger, &body.email, &body.code, region).await?;
+    let start = Instant::now();
+    let result = ledger
+        .verify_email_code(&body.email, &body.code, region)
+        .await
+        .map_sdk_err_instrumented("verify_email_code", start)?;
 
     match result {
         EmailVerificationResult::ExistingUser { session, .. } => {
@@ -176,31 +188,34 @@ pub async fn complete(
     jar: CookieJar,
     Json(body): Json<CompleteRegistrationRequest>,
 ) -> Result<(CookieJar, Json<CompleteRegistrationResponse>), ApiError> {
-    let ledger =
-        state.ledger.as_ref().ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
     let region = body.region.unwrap_or_else(default_region);
 
-    let result = service::onboarding::complete_registration(
-        ledger,
-        &body.onboarding_token,
-        &body.email,
-        region,
-        &body.name,
-        &body.organization_name,
-    )
-    .await?;
+    let start = Instant::now();
+    let result = ledger
+        .complete_registration(
+            &body.onboarding_token,
+            &body.email,
+            region,
+            &body.name,
+            &body.organization_name,
+        )
+        .await
+        .map_sdk_err_instrumented("complete_registration", start)?;
 
     let jar = set_token_cookies(jar, &result.session);
 
     Ok((
         jar,
         Json(CompleteRegistrationResponse {
-            user_slug: result.user.value(),
-            organization_slug: result.organization.map(|o| o.value()),
-            access_token: result.session.access_token,
-            refresh_token: result.session.refresh_token,
-            token_type: "Bearer",
+            registration: CompleteRegistrationData {
+                user: result.user.value(),
+                organization: result.organization.map(|o| o.value()),
+                access_token: result.session.access_token,
+                refresh_token: result.session.refresh_token,
+                token_type: "Bearer",
+            },
         }),
     ))
 }

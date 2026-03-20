@@ -3,17 +3,19 @@
 //! Delegates vault token operations to the Ledger SDK.
 //! User session tokens are managed in `auth_v2.rs` and `session.rs`.
 
+use std::time::Instant;
+
 use axum::{
     Extension, Json,
     extract::{Path, State},
     http::StatusCode,
 };
-use base64::Engine as _;
-use inferadb_control_core::service;
+use inferadb_control_core::SdkResultExt;
 use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::{AppSlug, OrganizationSlug, VaultSlug};
 use serde::{Deserialize, Serialize};
 
+use super::common::require_ledger;
 use crate::{
     handlers::auth::{AppState, Result},
     middleware::UserClaims,
@@ -65,22 +67,6 @@ pub struct ClientAssertionRequest {
     pub requested_role: Option<String>,
 }
 
-/// JWT claims expected in the client assertion.
-#[derive(Debug, Deserialize)]
-struct AssertionClaims {
-    /// Issuer — the app slug (numeric string).
-    iss: String,
-    /// Subject — same as issuer for M2M auth.
-    sub: String,
-    /// Audience — the token endpoint URL. Captured for future validation.
-    #[serde(default)]
-    #[allow(dead_code)]
-    aud: serde_json::Value,
-    /// JWT ID — unique per assertion to prevent replay.
-    #[allow(dead_code)]
-    jti: Option<String>,
-}
-
 /// Request body for revoking vault tokens.
 #[derive(Debug, Deserialize)]
 pub struct RevokeVaultTokensRequest {
@@ -99,12 +85,6 @@ pub struct TokenPairResponse {
     pub expires_in: u64,
 }
 
-/// Simple message response.
-#[derive(Debug, Serialize)]
-pub struct MessageResponse {
-    pub message: String,
-}
-
 /// Revoke tokens response.
 #[derive(Debug, Serialize)]
 pub struct RevokeTokensResponse {
@@ -112,12 +92,6 @@ pub struct RevokeTokensResponse {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
-
-fn require_ledger(
-    state: &AppState,
-) -> std::result::Result<&inferadb_ledger_sdk::LedgerClient, CoreError> {
-    state.ledger.as_deref().ok_or_else(|| CoreError::internal("Ledger client not configured"))
-}
 
 fn token_pair_to_response(pair: inferadb_ledger_sdk::token::TokenPair) -> TokenPairResponse {
     use std::time::SystemTime;
@@ -159,71 +133,6 @@ fn validate_assertion_request(req: &ClientAssertionRequest) -> std::result::Resu
     Ok(())
 }
 
-/// Decodes a JWT without signature verification and extracts the claims.
-///
-/// The JWT header is parsed to extract `kid` and confirm `alg` is EdDSA.
-/// Claims are decoded from the payload segment. Signature verification is
-/// delegated to Ledger via the app credential lookup — Ledger validates that
-/// the app has an active client assertion matching the `kid` before issuing
-/// a vault token. The cryptographic binding is:
-///
-/// 1. Control decodes the JWT to extract the app identity (`iss` claim).
-/// 2. Ledger verifies the app exists, is enabled, and has client assertion credentials enabled when
-///    `create_vault_token` is called.
-/// 3. The vault token is scoped to the app and vault from the request.
-fn decode_assertion_claims(
-    jwt: &str,
-) -> std::result::Result<(jsonwebtoken::Header, AssertionClaims), CoreError> {
-    let header = jsonwebtoken::decode_header(jwt).map_err(|e| {
-        CoreError::validation(format!("invalid JWT header in client_assertion: {e}"))
-    })?;
-
-    if header.alg != jsonwebtoken::Algorithm::EdDSA {
-        return Err(CoreError::validation(format!(
-            "unsupported JWT algorithm '{:?}': expected EdDSA",
-            header.alg
-        )));
-    }
-
-    // Decode payload without verification. The JWT has three base64url-encoded
-    // segments: header.payload.signature. We parse the payload directly.
-    let parts: Vec<&str> = jwt.splitn(3, '.').collect();
-    if parts.len() < 2 {
-        return Err(CoreError::validation("malformed JWT: expected header.payload.signature"));
-    }
-
-    let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(parts[1])
-        .map_err(|e| CoreError::validation(format!("invalid JWT payload encoding: {e}")))?;
-
-    let claims: AssertionClaims = serde_json::from_slice(&payload_bytes)
-        .map_err(|e| CoreError::validation(format!("invalid JWT claims: {e}")))?;
-
-    Ok((header, claims))
-}
-
-/// Parses the `iss` claim as an app slug (u64).
-fn parse_app_slug_from_issuer(iss: &str) -> std::result::Result<u64, CoreError> {
-    iss.parse::<u64>().map_err(|_| {
-        CoreError::validation(format!("JWT 'iss' claim must be a numeric app slug, got '{iss}'"))
-    })
-}
-
-/// Validates basic JWT claim constraints.
-fn validate_assertion_claims(claims: &AssertionClaims) -> std::result::Result<(), CoreError> {
-    if claims.iss.is_empty() {
-        return Err(CoreError::validation("JWT 'iss' claim must not be empty"));
-    }
-
-    if claims.sub != claims.iss {
-        return Err(CoreError::validation(
-            "JWT 'sub' claim must match 'iss' for client credential assertions",
-        ));
-    }
-
-    Ok(())
-}
-
 /// Builds the effective scopes list, incorporating `requested_role` if present.
 fn build_scopes(req: &ClientAssertionRequest) -> Vec<String> {
     let mut scopes = req.scopes.clone();
@@ -242,7 +151,7 @@ fn build_scopes(req: &ClientAssertionRequest) -> Vec<String> {
 /// POST /control/v1/organizations/{org}/vaults/{vault}/tokens
 pub async fn generate_vault_token(
     State(state): State<AppState>,
-    Extension(_claims): Extension<UserClaims>,
+    Extension(claims): Extension<UserClaims>,
     Path((org, vault)): Path<(u64, u64)>,
     Json(req): Json<GenerateVaultTokenRequest>,
 ) -> Result<(StatusCode, Json<TokenPairResponse>)> {
@@ -251,9 +160,18 @@ pub async fn generate_vault_token(
     let vault_slug = VaultSlug::new(vault);
     let app_slug = AppSlug::new(req.app);
 
-    let pair =
-        service::vault::create_vault_token(ledger, organization, app_slug, vault_slug, &req.scopes)
-            .await?;
+    // Verify caller has access to the app in this organization.
+    let start = Instant::now();
+    ledger
+        .get_app(organization, claims.user_slug, app_slug)
+        .await
+        .map_sdk_err_instrumented("get_app", start)?;
+
+    let start = Instant::now();
+    let pair = ledger
+        .create_vault_token(organization, app_slug, vault_slug, &req.scopes)
+        .await
+        .map_sdk_err_instrumented("create_vault_token", start)?;
 
     Ok((StatusCode::CREATED, Json(token_pair_to_response(pair))))
 }
@@ -269,7 +187,11 @@ pub async fn refresh_vault_token(
 ) -> Result<Json<TokenPairResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let pair = service::session::refresh_token(ledger, &req.refresh_token).await?;
+    let start = Instant::now();
+    let pair = ledger
+        .refresh_token(&req.refresh_token)
+        .await
+        .map_sdk_err_instrumented("refresh_token", start)?;
 
     Ok(Json(token_pair_to_response(pair)))
 }
@@ -280,14 +202,9 @@ pub async fn refresh_vault_token(
 ///
 /// Public endpoint for machine-to-machine authentication. Accepts a signed JWT
 /// assertion that identifies an app, validates the assertion structure, and
-/// issues a vault access token via Ledger.
-///
-/// Flow:
-/// 1. Validate grant type and assertion type fields.
-/// 2. Decode the JWT header (must be EdDSA) and payload claims.
-/// 3. Extract the app slug from the `iss` claim.
-/// 4. Call Ledger to create a vault token scoped to the app/vault/org. Ledger enforces that the app
-///    exists, is enabled, and has the correct vault connections and credential configuration.
+/// delegates full JWT signature verification to Ledger, which validates the
+/// assertion against the app's registered public keys before issuing a scoped
+/// vault token.
 pub async fn client_assertion_authenticate(
     State(state): State<AppState>,
     Json(req): Json<ClientAssertionRequest>,
@@ -295,13 +212,6 @@ pub async fn client_assertion_authenticate(
     validate_assertion_request(&req)?;
 
     let ledger = require_ledger(&state)?;
-
-    let (_header, claims) = decode_assertion_claims(&req.client_assertion)?;
-
-    validate_assertion_claims(&claims)?;
-
-    let app_id = parse_app_slug_from_issuer(&claims.iss)?;
-    let app_slug = AppSlug::new(app_id);
     let organization = OrganizationSlug::new(req.organization);
 
     let vault_id: u64 = req.vault.parse().map_err(|_| {
@@ -311,9 +221,11 @@ pub async fn client_assertion_authenticate(
 
     let scopes = build_scopes(&req);
 
-    let pair =
-        service::vault::create_vault_token(ledger, organization, app_slug, vault_slug, &scopes)
-            .await?;
+    let start = Instant::now();
+    let pair = ledger
+        .authenticate_client_assertion(organization, vault_slug, &req.client_assertion, &scopes)
+        .await
+        .map_sdk_err_instrumented("authenticate_client_assertion", start)?;
 
     Ok((StatusCode::CREATED, Json(token_pair_to_response(pair))))
 }
@@ -323,14 +235,26 @@ pub async fn client_assertion_authenticate(
 /// DELETE /control/v1/organizations/{org}/vaults/{vault}/tokens
 pub async fn revoke_vault_tokens(
     State(state): State<AppState>,
-    Extension(_claims): Extension<UserClaims>,
-    Path((_org, _vault)): Path<(u64, u64)>,
+    Extension(claims): Extension<UserClaims>,
+    Path((org, _vault)): Path<(u64, u64)>,
     Json(req): Json<RevokeVaultTokensRequest>,
 ) -> Result<Json<RevokeTokensResponse>> {
     let ledger = require_ledger(&state)?;
+    let organization = OrganizationSlug::new(org);
     let app_slug = AppSlug::new(req.app);
 
-    let revoked_count = service::vault::revoke_all_app_sessions(ledger, app_slug).await?;
+    // Verify caller has access to the app in this organization before revoking.
+    let start = Instant::now();
+    ledger
+        .get_app(organization, claims.user_slug, app_slug)
+        .await
+        .map_sdk_err_instrumented("get_app", start)?;
+
+    let start = Instant::now();
+    let revoked_count = ledger
+        .revoke_all_app_sessions(app_slug)
+        .await
+        .map_sdk_err_instrumented("revoke_all_app_sessions", start)?;
 
     Ok(Json(RevokeTokensResponse { revoked_count }))
 }

@@ -2,6 +2,7 @@ pub mod audit_logs;
 pub mod auth;
 pub mod auth_v2;
 pub mod clients;
+pub mod common;
 pub mod email_auth;
 pub mod emails;
 pub mod health;

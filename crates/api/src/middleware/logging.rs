@@ -7,6 +7,8 @@ use axum::{
 };
 use inferadb_control_core::metrics;
 
+use super::request_id::RequestId;
+
 /// Logging and metrics middleware for HTTP requests
 ///
 /// Logs all incoming HTTP requests with structured fields and records Prometheus metrics:
@@ -59,6 +61,9 @@ pub async fn logging_middleware(req: Request, next: Next) -> Response {
     let user_agent =
         req.headers().get("user-agent").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
 
+    // Extract request ID (set by request_id middleware)
+    let request_id = req.extensions().get::<RequestId>().map(|r| r.0.clone());
+
     // Process request
     let response = next.run(req).await;
 
@@ -68,6 +73,7 @@ pub async fn logging_middleware(req: Request, next: Next) -> Response {
 
     // Log the request with structured fields
     tracing::info!(
+        request_id = request_id.as_deref(),
         method = %method,
         path = %path,
         matched_path = matched_path.as_deref(),
