@@ -10,17 +10,16 @@ use axum::{
     extract::{Path, Query, State},
 };
 use inferadb_control_core::SdkResultExt;
-use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::{TeamMemberRole, TeamSlug};
 use inferadb_ledger_types::{OrganizationSlug, UserSlug};
 use serde::{Deserialize, Serialize};
 
 use super::common::{
     CursorPaginationQuery, MessageResponse, encode_page_token, require_ledger,
-    system_time_to_rfc3339,
+    system_time_to_rfc3339, validate_name,
 };
 use crate::{
-    handlers::auth::{AppState, Result},
+    handlers::state::{AppState, Result},
     middleware::UserClaims,
 };
 
@@ -45,22 +44,36 @@ pub struct DeleteTeamRequest {
     pub move_members_to: Option<u64>,
 }
 
+/// Team member role (deserialized from request bodies).
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TeamRoleInput {
+    Manager,
+    #[default]
+    Member,
+}
+
+impl TeamRoleInput {
+    fn to_sdk_role(&self) -> TeamMemberRole {
+        match self {
+            Self::Manager => TeamMemberRole::Manager,
+            Self::Member => TeamMemberRole::Member,
+        }
+    }
+}
+
 /// Request body for adding a team member.
 #[derive(Debug, Deserialize)]
 pub struct AddTeamMemberRequest {
     pub user: u64,
-    #[serde(default = "default_member_role")]
-    pub role: String,
-}
-
-fn default_member_role() -> String {
-    "member".to_string()
+    #[serde(default)]
+    pub role: TeamRoleInput,
 }
 
 /// Request body for updating a team member's role.
 #[derive(Debug, Deserialize)]
 pub struct UpdateTeamMemberRequest {
-    pub role: String,
+    pub role: TeamRoleInput,
 }
 
 // ── Response Types ────────────────────────────────────────────────────
@@ -109,16 +122,6 @@ pub struct ListTeamMembersResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-fn parse_team_member_role(s: &str) -> std::result::Result<TeamMemberRole, CoreError> {
-    match s.to_lowercase().as_str() {
-        "manager" => Ok(TeamMemberRole::Manager),
-        "member" => Ok(TeamMemberRole::Member),
-        _ => {
-            Err(CoreError::validation(format!("Invalid role '{s}'. Must be 'manager' or 'member'")))
-        },
-    }
-}
-
 fn team_member_to_response(info: &inferadb_ledger_sdk::TeamMemberInfo) -> TeamMemberResponse {
     TeamMemberResponse {
         user: info.user.value(),
@@ -149,6 +152,7 @@ pub async fn create_team(
     Path(org): Path<u64>,
     Json(payload): Json<CreateTeamRequest>,
 ) -> Result<Json<SingleTeamResponse>> {
+    validate_name(&payload.name)?;
     let ledger = require_ledger(&state)?;
 
     let start = Instant::now();
@@ -216,6 +220,9 @@ pub async fn update_team(
     Path((_org, team)): Path<(u64, u64)>,
     Json(payload): Json<UpdateTeamRequest>,
 ) -> Result<Json<SingleTeamResponse>> {
+    if let Some(ref name) = payload.name {
+        validate_name(name)?;
+    }
     let ledger = require_ledger(&state)?;
 
     let start = Instant::now();
@@ -263,7 +270,7 @@ pub async fn add_team_member(
 ) -> Result<Json<SingleTeamResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let role = parse_team_member_role(&payload.role)?;
+    let role = payload.role.to_sdk_role();
 
     let start = Instant::now();
     let info = ledger
@@ -306,7 +313,7 @@ pub async fn update_team_member(
 ) -> Result<Json<SingleTeamResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let role = parse_team_member_role(&payload.role)?;
+    let role = payload.role.to_sdk_role();
 
     let start = Instant::now();
     let info = ledger

@@ -1,7 +1,11 @@
 use axum::{
-    Router, middleware,
+    Router,
+    extract::DefaultBodyLimit,
+    middleware,
     routing::{delete, get, patch, post},
 };
+use tower::limit::ConcurrencyLimitLayer;
+use tower_http::cors::CorsLayer;
 
 use crate::{
     handlers::{
@@ -10,6 +14,7 @@ use crate::{
     },
     middleware::{
         logging_middleware, ratelimit, request_id_middleware, require_jwt, require_jwt_local,
+        security_headers_middleware,
     },
 };
 
@@ -164,10 +169,10 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
             "/control/v1/organizations/{org}/vaults/{vault}/tokens",
             delete(tokens::revoke_vault_tokens),
         )
-        // Schema management (write)
+        // Schema management (write) — higher body limit for schema definitions
         .route(
             "/control/v1/organizations/{org}/vaults/{vault}/schemas",
-            post(schemas::deploy_schema),
+            post(schemas::deploy_schema).route_layer(DefaultBodyLimit::max(1024 * 1024)),
         )
         .route(
             "/control/v1/organizations/{org}/vaults/{vault}/schemas/rollback",
@@ -223,11 +228,41 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
                 ratelimit::registration_rate_limit,
             )),
         )
-        .with_state(state)
+        .with_state(state.clone())
         .merge(jwt_read_routes)
         .merge(jwt_write_routes)
+        // Default body size limit (256 KiB) — prevents memory exhaustion
+        .layer(DefaultBodyLimit::max(256 * 1024))
+        // Concurrency limit — prevents resource exhaustion under load
+        .layer(ConcurrencyLimitLayer::new(10_000))
+        // CORS — must be inside security headers so preflight responses get headers too
+        .layer(build_cors_layer(&state.config.frontend_url))
+        // Security response headers (nosniff, DENY, no-store, HSTS) — outermost service layer
+        .layer(middleware::from_fn(security_headers_middleware))
         // Add logging middleware to log all requests
         .layer(middleware::from_fn(logging_middleware))
         // Add request ID middleware (outermost — runs first)
         .layer(middleware::from_fn(request_id_middleware))
+}
+
+/// Builds a CORS layer configured for the given frontend origin.
+fn build_cors_layer(frontend_url: &str) -> CorsLayer {
+    use axum::http::{HeaderName, Method};
+
+    // Config.validate() already checks frontend_url format, so this should not fail.
+    // Panic on invalid value to surface misconfiguration immediately at startup.
+    #[allow(clippy::expect_used)]
+    let origin = frontend_url
+        .parse::<axum::http::HeaderValue>()
+        .expect("frontend_url must be a valid HTTP header value (checked by Config::validate)");
+
+    CorsLayer::new()
+        .allow_origin(origin)
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
+        .allow_headers([
+            HeaderName::from_static("content-type"),
+            HeaderName::from_static("authorization"),
+        ])
+        .allow_credentials(true)
+        .max_age(std::time::Duration::from_secs(3600))
 }

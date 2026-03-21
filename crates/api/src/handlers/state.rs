@@ -1,9 +1,8 @@
-//! Application state, API error handling, and shared auth infrastructure.
+//! Application state and API error handling.
 //!
-//! Auth handlers have been moved to:
-//! - `auth_v2.rs` — token refresh, logout, revoke-all
-//! - `email_auth.rs` — email code auth flow (initiate, verify, complete)
-//! - `mfa_auth.rs` — TOTP verify, recovery code, passkey auth
+//! [`AppState`] holds shared services (Ledger client, email, WebAuthn, rate
+//! limiter) and is cloned into every axum handler via `State<AppState>`.
+//! [`ApiError`] maps core domain errors to HTTP status codes and JSON responses.
 
 use std::sync::Arc;
 
@@ -41,6 +40,9 @@ pub struct AppState {
     /// JWKS cache for local JWT validation on read routes.
     #[builder(default)]
     pub jwks_cache: crate::middleware::JwksCache,
+    /// Cached health check state (5-second TTL, lock-free).
+    #[builder(default)]
+    pub health_cache: Arc<super::health::HealthCache>,
 }
 
 impl AppState {

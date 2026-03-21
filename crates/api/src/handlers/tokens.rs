@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use super::common::require_ledger;
 use crate::{
-    handlers::auth::{AppState, Result},
+    handlers::state::{AppState, Result},
     middleware::UserClaims,
 };
 

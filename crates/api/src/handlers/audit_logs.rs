@@ -15,9 +15,9 @@ use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::{EventFilter, EventOutcome, OrganizationSlug};
 use serde::{Deserialize, Serialize};
 
-use super::common::require_ledger;
+use super::common::{require_ledger, verify_org_membership_from_claims};
 use crate::{
-    handlers::auth::{AppState, Result},
+    handlers::state::{AppState, Result},
     middleware::UserClaims,
 };
 
@@ -128,12 +128,7 @@ pub async fn list_audit_logs(
     let ledger = require_ledger(&state)?;
     let organization = OrganizationSlug::new(org);
 
-    // Verify the caller is a member of this organization.
-    let start = Instant::now();
-    ledger
-        .get_organization(organization, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(ledger, org, &claims).await?;
 
     let page = if let Some(ref page_token) = query.page_token {
         let start = Instant::now();

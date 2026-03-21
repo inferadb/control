@@ -105,8 +105,11 @@ pub async fn serve(
     // Log ready status
     startup::log_ready("Control");
 
-    // Serve with graceful shutdown
-    axum::serve(listener, router)
+    // Serve with graceful shutdown.
+    // `into_make_service_with_connect_info` injects `ConnectInfo<SocketAddr>` into
+    // every request, required for IP-based rate limiting in direct-connection mode.
+    let service = router.into_make_service_with_connect_info::<std::net::SocketAddr>();
+    axum::serve(listener, service)
         .with_graceful_shutdown(shutdown_signal())
         .await
         .map_err(|e| anyhow::anyhow!("Server error: {e}"))?;

@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use webauthn_rs::prelude::*;
 
-use super::{auth::ApiError, auth_v2::set_token_cookies, common::require_ledger};
+use super::{auth_v2::set_token_cookies, common::require_ledger, state::ApiError};
 use crate::{handlers::AppState, middleware::UserClaims};
 
 // ── Request Types ───────────────────────────────────────────────────────
@@ -291,7 +291,7 @@ pub async fn passkey_begin(
     // Store the challenge state for the finish step.
     let challenge_id = state
         .challenge_store
-        .insert(ChallengeState::Authentication { user_slug: body.user_slug, state: auth_state });
+        .insert(ChallengeState::Authentication { user_slug: body.user_slug, state: auth_state })?;
 
     Ok(Json(PasskeyBeginResponse { challenge_id, challenge }))
 }
@@ -448,7 +448,7 @@ pub async fn passkey_register_begin(
     // Store the challenge state for the finish step.
     let challenge_id = state
         .challenge_store
-        .insert(ChallengeState::Registration { user_slug: user.value(), state: reg_state });
+        .insert(ChallengeState::Registration { user_slug: user.value(), state: reg_state })?;
 
     Ok(Json(PasskeyRegisterBeginResponse { challenge_id, challenge }))
 }
@@ -501,7 +501,7 @@ pub async fn passkey_register_finish(
     let transports: Vec<String> = cred
         .transports
         .as_ref()
-        .map(|ts| ts.iter().map(|t| format!("{t:?}").to_lowercase()).collect())
+        .map(|ts| ts.iter().map(|t| format!("{t:?}").to_lowercase()).collect::<Vec<_>>())
         .unwrap_or_default();
 
     let attestation_format = match cred.attestation_format {
@@ -527,8 +527,7 @@ pub async fn passkey_register_finish(
         .await
         .map_sdk_err_instrumented("create_user_credential", start)?;
 
-    Ok(Json(PasskeyRegisterFinishResponse {
-        slug: u64::try_from(created.id.value()).unwrap_or(0),
-        name: created.name,
-    }))
+    let slug = super::common::safe_id_cast(created.id.value())?;
+
+    Ok(Json(PasskeyRegisterFinishResponse { slug, name: created.name }))
 }

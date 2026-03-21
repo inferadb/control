@@ -19,7 +19,7 @@ use inferadb_control_core::SdkResultExt;
 use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_types::UserSlug;
 
-use crate::handlers::auth::{ApiError, AppState};
+use crate::handlers::state::{ApiError, AppState};
 
 /// Claims extracted from a validated JWT access token.
 ///

@@ -30,7 +30,6 @@ ed25519-dalek = { workspace = true }
 jsonwebtoken = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 moka = { workspace = true }
-pem = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

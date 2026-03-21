@@ -1,34 +1,51 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, num::NonZeroU8};
 
 use axum::extract::{ConnectInfo, Request};
 
 /// Extract the client IP address from a request.
 ///
-/// Checks proxy headers first, then falls back to the TCP peer address:
-/// 1. `X-Forwarded-For` — first IP in the comma-separated list
-/// 2. `X-Real-IP` — single IP set by the reverse proxy
-/// 3. `ConnectInfo<SocketAddr>` — TCP peer address (direct connection)
-pub fn extract_client_ip(req: &Request) -> Option<String> {
+/// Behavior depends on `trusted_proxy_depth`:
+///
+/// - `Some(n)`: Takes the client IP from `X-Forwarded-For` by skipping the `n` rightmost entries
+///   (which were appended by trusted proxy infrastructure). Returns `None` if the header has fewer
+///   entries than required. Falls back to `ConnectInfo` only when the header is absent.
+///
+/// - `None` (direct connection mode): Uses only `ConnectInfo` (TCP peer address). This is the safe
+///   default when not behind a reverse proxy.
+pub fn extract_client_ip(req: &Request, trusted_proxy_depth: Option<NonZeroU8>) -> Option<String> {
+    match trusted_proxy_depth {
+        Some(depth) => extract_with_proxy_depth(req, depth),
+        None => extract_direct(req),
+    }
+}
+
+/// Extract IP using rightmost-nth selection from `X-Forwarded-For`.
+///
+/// With `depth=1` (one trusted proxy), the proxy appended the rightmost entry,
+/// so the client IP is at position `len - 2` (just before the proxy entry).
+/// With `depth=2` (two proxies), it's at `len - 3`, etc.
+fn extract_with_proxy_depth(req: &Request, depth: NonZeroU8) -> Option<String> {
     let headers = req.headers();
 
-    headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            headers
-                .get("x-real-ip")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })
-        .or_else(|| {
-            req.extensions()
-                .get::<ConnectInfo<SocketAddr>>()
-                .map(|ConnectInfo(addr)| addr.ip().to_string())
-        })
+    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+        let ips: Vec<&str> = xff.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+
+        // The real client IP is at position len - depth - 1 (just before proxy entries).
+        let index = ips.len().checked_sub(depth.get() as usize + 1)?;
+        let ip = ips.get(index)?;
+        return Some((*ip).to_string());
+    }
+
+    // Fall back to ConnectInfo if X-Forwarded-For is absent
+    req.extensions().get::<ConnectInfo<SocketAddr>>().map(|ConnectInfo(addr)| addr.ip().to_string())
+}
+
+/// Extract IP in direct connection mode (no trusted proxies).
+///
+/// Uses only `ConnectInfo` (TCP peer address). Proxy headers are ignored
+/// because without trusted proxy configuration they are freely spoofable.
+fn extract_direct(req: &Request) -> Option<String> {
+    req.extensions().get::<ConnectInfo<SocketAddr>>().map(|ConnectInfo(addr)| addr.ip().to_string())
 }
 
 #[cfg(test)]
@@ -54,78 +71,94 @@ mod tests {
         req
     }
 
+    // ── Direct mode (trusted_proxy_depth = None) ──────────────────
+
     #[test]
-    fn returns_x_forwarded_for_first_ip() {
-        let req = request_with_headers(&[(
-            "x-forwarded-for",
-            "203.0.113.50, 70.41.3.18, 150.172.238.178",
-        )]);
-        assert_eq!(extract_client_ip(&req).as_deref(), Some("203.0.113.50"));
+    fn direct_mode_prefers_connect_info() {
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 12345);
+        let mut req = request_with_headers(&[("x-forwarded-for", "203.0.113.50")]);
+        req.extensions_mut().insert(ConnectInfo(addr));
+        assert_eq!(extract_client_ip(&req, None).as_deref(), Some("10.0.0.1"));
     }
 
     #[test]
-    fn returns_x_forwarded_for_single_ip() {
-        let req = request_with_headers(&[("x-forwarded-for", "203.0.113.50")]);
-        assert_eq!(extract_client_ip(&req).as_deref(), Some("203.0.113.50"));
-    }
-
-    #[test]
-    fn returns_x_real_ip_when_no_forwarded_for() {
-        let req = request_with_headers(&[("x-real-ip", "198.51.100.42")]);
-        assert_eq!(extract_client_ip(&req).as_deref(), Some("198.51.100.42"));
-    }
-
-    #[test]
-    fn prefers_x_forwarded_for_over_x_real_ip() {
+    fn direct_mode_ignores_proxy_headers() {
         let req = request_with_headers(&[
             ("x-forwarded-for", "203.0.113.50"),
             ("x-real-ip", "198.51.100.42"),
         ]);
-        assert_eq!(extract_client_ip(&req).as_deref(), Some("203.0.113.50"));
+        // Without ConnectInfo, direct mode returns None — proxy headers are untrusted
+        assert_eq!(extract_client_ip(&req, None), None);
     }
 
     #[test]
-    fn falls_back_to_connect_info() {
+    fn direct_mode_returns_none_without_any_source() {
+        let req = request_with_headers(&[]);
+        assert_eq!(extract_client_ip(&req, None), None);
+    }
+
+    // ── Proxy mode (trusted_proxy_depth = Some(n)) ────────────────
+
+    fn depth(n: u8) -> Option<NonZeroU8> {
+        Some(NonZeroU8::new(n).unwrap())
+    }
+
+    #[test]
+    fn proxy_depth_1_takes_client_ip() {
+        let req =
+            request_with_headers(&[("x-forwarded-for", "spoofed.ip, 203.0.113.50, 10.0.0.1")]);
+        // depth=1: one trusted proxy appended 10.0.0.1, client is 203.0.113.50
+        assert_eq!(extract_client_ip(&req, depth(1)).as_deref(), Some("203.0.113.50"));
+    }
+
+    #[test]
+    fn proxy_depth_2_takes_second_from_right() {
+        let req = request_with_headers(&[(
+            "x-forwarded-for",
+            "spoofed.ip, 203.0.113.50, 10.0.0.1, 10.0.0.2",
+        )]);
+        // depth=2: two proxies appended 10.0.0.1 and 10.0.0.2
+        assert_eq!(extract_client_ip(&req, depth(2)).as_deref(), Some("203.0.113.50"));
+    }
+
+    #[test]
+    fn proxy_depth_with_single_ip_falls_back() {
+        let req = request_with_headers(&[("x-forwarded-for", "203.0.113.50")]);
+        // depth=1 with single IP: the proxy appended this IP, so there's no client
+        // IP before it. Falls back to None (no ConnectInfo set).
+        assert_eq!(extract_client_ip(&req, depth(1)), None);
+    }
+
+    #[test]
+    fn proxy_depth_with_two_ips() {
+        let req = request_with_headers(&[("x-forwarded-for", "203.0.113.50, 10.0.0.1")]);
+        // depth=1: proxy added 10.0.0.1, client is 203.0.113.50
+        assert_eq!(extract_client_ip(&req, depth(1)).as_deref(), Some("203.0.113.50"));
+    }
+
+    #[test]
+    fn proxy_depth_exceeds_ip_count_returns_none() {
+        let req = request_with_headers(&[("x-forwarded-for", "203.0.113.50")]);
+        // depth=3 but only 1 IP — can't extract
+        assert_eq!(extract_client_ip(&req, depth(3)), None);
+    }
+
+    #[test]
+    fn proxy_mode_falls_back_to_connect_info_without_xff() {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12345);
         let req = request_with_connect_info(addr);
-        assert_eq!(extract_client_ip(&req).as_deref(), Some("127.0.0.1"));
+        assert_eq!(extract_client_ip(&req, depth(1)).as_deref(), Some("127.0.0.1"));
     }
 
     #[test]
-    fn returns_none_without_any_source() {
-        let req = request_with_headers(&[]);
-        assert_eq!(extract_client_ip(&req), None);
+    fn proxy_mode_trims_whitespace() {
+        let req = request_with_headers(&[("x-forwarded-for", "  203.0.113.50  ,  10.0.0.1  ")]);
+        assert_eq!(extract_client_ip(&req, depth(1)).as_deref(), Some("203.0.113.50"));
     }
 
     #[test]
-    fn skips_empty_forwarded_for() {
+    fn proxy_mode_skips_empty_xff() {
         let req = request_with_headers(&[("x-forwarded-for", "")]);
-        assert_eq!(extract_client_ip(&req), None);
-    }
-
-    #[test]
-    fn skips_empty_real_ip() {
-        let req = request_with_headers(&[("x-real-ip", "  ")]);
-        assert_eq!(extract_client_ip(&req), None);
-    }
-
-    #[test]
-    fn trims_whitespace_from_forwarded_for() {
-        let req = request_with_headers(&[("x-forwarded-for", "  203.0.113.50  , 70.41.3.18")]);
-        assert_eq!(extract_client_ip(&req).as_deref(), Some("203.0.113.50"));
-    }
-
-    #[test]
-    fn trims_whitespace_from_real_ip() {
-        let req = request_with_headers(&[("x-real-ip", "  198.51.100.42  ")]);
-        assert_eq!(extract_client_ip(&req).as_deref(), Some("198.51.100.42"));
-    }
-
-    #[test]
-    fn prefers_headers_over_connect_info() {
-        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 12345);
-        let mut req = request_with_headers(&[("x-forwarded-for", "203.0.113.50")]);
-        req.extensions_mut().insert(ConnectInfo(addr));
-        assert_eq!(extract_client_ip(&req).as_deref(), Some("203.0.113.50"));
+        assert_eq!(extract_client_ip(&req, depth(1)), None);
     }
 }

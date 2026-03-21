@@ -15,7 +15,6 @@ bon = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
-parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 terminal_size = { workspace = true }

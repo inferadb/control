@@ -14,7 +14,7 @@ use inferadb_control_types::Error as CoreError;
 use serde::{Deserialize, Serialize};
 use time;
 
-use super::auth::{ApiError, AppState};
+use super::state::{ApiError, AppState};
 use crate::middleware::UserClaims;
 
 // ── Request/Response Types ──────────────────────────────────────────────

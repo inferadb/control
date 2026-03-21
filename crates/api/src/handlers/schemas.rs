@@ -14,9 +14,9 @@ use inferadb_control_core::SdkResultExt;
 use inferadb_ledger_sdk::{OrganizationSlug, VaultSlug};
 use serde::{Deserialize, Serialize};
 
-use super::common::require_ledger;
+use super::common::{require_ledger, verify_org_membership_from_claims};
 use crate::{
-    handlers::auth::{AppState, Result},
+    handlers::state::{AppState, Result},
     middleware::UserClaims,
 };
 
@@ -99,11 +99,7 @@ pub async fn deploy_schema(
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
-    let start = Instant::now();
-    ledger
-        .get_organization(org_slug, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(ledger, org, &claims).await?;
 
     let start = Instant::now();
     let result = ledger
@@ -128,11 +124,7 @@ pub async fn list_schemas(
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
-    let start = Instant::now();
-    ledger
-        .get_organization(org_slug, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(ledger, org, &claims).await?;
 
     let start = Instant::now();
     let versions = ledger
@@ -163,11 +155,7 @@ pub async fn get_schema(
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
-    let start = Instant::now();
-    ledger
-        .get_organization(org_slug, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(ledger, org, &claims).await?;
 
     let start = Instant::now();
     let schema = ledger
@@ -193,11 +181,7 @@ pub async fn get_current_schema(
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
-    let start = Instant::now();
-    ledger
-        .get_organization(org_slug, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(ledger, org, &claims).await?;
 
     let start = Instant::now();
     let schema = ledger
@@ -223,11 +207,7 @@ pub async fn activate_schema(
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
-    let start = Instant::now();
-    ledger
-        .get_organization(org_slug, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(ledger, org, &claims).await?;
 
     let start = Instant::now();
     let activated_version = ledger
@@ -249,11 +229,7 @@ pub async fn rollback_schema(
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
-    let start = Instant::now();
-    ledger
-        .get_organization(org_slug, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(ledger, org, &claims).await?;
 
     let start = Instant::now();
     let restored_version = ledger
@@ -276,11 +252,7 @@ pub async fn diff_schemas(
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
-    let start = Instant::now();
-    ledger
-        .get_organization(org_slug, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(ledger, org, &claims).await?;
 
     let start = Instant::now();
     let changes = ledger

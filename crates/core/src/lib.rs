@@ -8,7 +8,6 @@
 //! mapping. The remaining modules handle local concerns: email delivery,
 //! ID generation, logging, and rate limiting.
 
-pub mod auth;
 pub mod clock;
 pub mod crypto;
 pub mod email;

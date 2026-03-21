@@ -33,14 +33,10 @@ bon = "3"
 anyhow = "1"
 snafu = "0.8"
 
-# System
-num_cpus = "1"
-
 # Serialization
 bytes = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yaml = "0.9"
 
 # Tracing and observability
 metrics = "0.24"
@@ -67,9 +63,6 @@ tower-http = { version = "0.6", features = [
 # Configuration
 clap = { version = "4", features = ["derive", "env"] }
 config = "0.15"
-
-# Concurrency
-parking_lot = "0.12"
 
 # Random number generation
 rand = "0.10"
