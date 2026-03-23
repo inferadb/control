@@ -16,6 +16,7 @@ use std::{
 };
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use inferadb_control_const::duration::HEALTH_CACHE_TTL_SECONDS;
 use serde::{Deserialize, Serialize};
 
 use crate::handlers::AppState;
@@ -52,9 +53,6 @@ pub struct HealthCache {
     last_result: AtomicBool,
 }
 
-/// Health cache TTL in seconds.
-const HEALTH_CACHE_TTL_SECS: u64 = 5;
-
 impl Default for HealthCache {
     fn default() -> Self {
         Self { last_check_epoch_secs: AtomicU64::new(0), last_result: AtomicBool::new(false) }
@@ -81,7 +79,7 @@ async fn check_ledger_health(state: &AppState) -> bool {
         SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
 
     let last_check = state.health_cache.last_check_epoch_secs.load(Ordering::Acquire);
-    if now.saturating_sub(last_check) < HEALTH_CACHE_TTL_SECS {
+    if now.saturating_sub(last_check) < HEALTH_CACHE_TTL_SECONDS {
         return state.health_cache.last_result.load(Ordering::Acquire);
     }
 

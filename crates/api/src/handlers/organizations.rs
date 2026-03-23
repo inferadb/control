@@ -8,7 +8,9 @@ use std::time::Instant;
 use axum::{
     Extension, Json,
     extract::{Path, Query, State},
+    http::StatusCode,
 };
+use inferadb_control_const::duration::{INVITATION_EXPIRY_DAYS, INVITATION_EXPIRY_HOURS};
 use inferadb_control_core::SdkResultExt;
 use inferadb_ledger_sdk::{
     InvitationStatus, InviteSlug, OrganizationMemberRole, OrganizationSlug, OrganizationTier,
@@ -231,7 +233,7 @@ pub async fn create_organization(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
     Json(payload): Json<CreateOrganizationRequest>,
-) -> Result<Json<SingleOrganizationResponse>> {
+) -> Result<(StatusCode, Json<SingleOrganizationResponse>)> {
     validate_name(&payload.name)?;
     let ledger = require_ledger(&state)?;
 
@@ -246,7 +248,10 @@ pub async fn create_organization(
         .await
         .map_sdk_err_instrumented("create_organization", start)?;
 
-    Ok(Json(SingleOrganizationResponse { organization: org_info_to_response(&info) }))
+    Ok((
+        StatusCode::CREATED,
+        Json(SingleOrganizationResponse { organization: org_info_to_response(&info) }),
+    ))
 }
 
 /// GET /v1/organizations
@@ -417,6 +422,9 @@ pub async fn remove_member(
         .await
         .map_sdk_err_instrumented("remove_member", start)?;
 
+    // Invalidate cached membership so vault/schema access is revoked immediately.
+    state.org_membership_cache.invalidate(member, org).await;
+
     Ok(Json(MessageResponse { message: "Member removed successfully".to_string() }))
 }
 
@@ -437,13 +445,13 @@ pub async fn leave_organization(
         .await
         .map_sdk_err_instrumented("remove_member", start)?;
 
+    // Invalidate cached membership so vault/schema access is revoked immediately.
+    state.org_membership_cache.invalidate(claims.user_slug.value(), org).await;
+
     Ok(Json(MessageResponse { message: "You have left the organization".to_string() }))
 }
 
 // ── Invitation Handlers ───────────────────────────────────────────────
-
-/// Default invitation TTL in hours (7 days).
-const DEFAULT_INVITE_TTL_HOURS: u32 = 168;
 
 /// POST /v1/organizations/:org/invitations
 ///
@@ -455,7 +463,7 @@ pub async fn create_invitation(
     Extension(claims): Extension<UserClaims>,
     Path(org): Path<u64>,
     Json(payload): Json<CreateInvitationRequest>,
-) -> Result<Json<InvitationResponse>> {
+) -> Result<(StatusCode, Json<InvitationResponse>)> {
     validate_email(&payload.email)?;
     let ledger = require_ledger(&state)?;
 
@@ -472,7 +480,7 @@ pub async fn create_invitation(
             claims.user_slug,
             &payload.email,
             role,
-            DEFAULT_INVITE_TTL_HOURS,
+            INVITATION_EXPIRY_HOURS,
             None,
         )
         .await
@@ -480,19 +488,16 @@ pub async fn create_invitation(
 
     // Attempt to send invitation email if the email service is configured.
     if let Some(email_svc) = &state.email_service {
-        // Fetch org name for the email template.
+        // Fetch org name and inviter name concurrently for the email template.
         let start = Instant::now();
-        let org_info = ledger
-            .get_organization(OrganizationSlug::new(org), claims.user_slug)
-            .await
-            .map_sdk_err_instrumented("get_organization", start);
+        let (org_result, inviter_result) = tokio::join!(
+            ledger.get_organization(OrganizationSlug::new(org), claims.user_slug),
+            ledger.get_user(claims.user_slug),
+        );
+        let org_info = org_result.map_sdk_err_instrumented("get_organization", start);
+        let inviter_info = inviter_result.map_sdk_err_instrumented("get_user", start);
 
         let org_name = org_info.as_ref().map(|o| o.name.as_str()).unwrap_or("the organization");
-
-        // Fetch inviter name for the email template.
-        let start = Instant::now();
-        let inviter_info =
-            ledger.get_user(claims.user_slug).await.map_sdk_err_instrumented("get_user", start);
 
         let inviter_name =
             inviter_info.as_ref().map(|u| u.name.as_str()).unwrap_or("A team member");
@@ -507,7 +512,7 @@ pub async fn create_invitation(
             role: role.to_string(),
             invitation_link: invite_link,
             invitation_token: created.token.clone(),
-            expires_in: format!("{} days", DEFAULT_INVITE_TTL_HOURS / 24),
+            expires_in: format!("{INVITATION_EXPIRY_DAYS} days"),
         };
 
         use inferadb_control_core::EmailTemplate;
@@ -521,17 +526,20 @@ pub async fn create_invitation(
             .await;
     }
 
-    Ok(Json(InvitationResponse {
-        slug: created.slug.value(),
-        organization: org,
-        inviter: claims.user_slug.value(),
-        invitee_email: payload.email,
-        role: role.to_string(),
-        status: created.status.to_string(),
-        created_at: system_time_to_rfc3339(&created.created_at),
-        expires_at: system_time_to_rfc3339(&created.expires_at),
-        token: None,
-    }))
+    Ok((
+        StatusCode::CREATED,
+        Json(InvitationResponse {
+            slug: created.slug.value(),
+            organization: org,
+            inviter: claims.user_slug.value(),
+            invitee_email: payload.email,
+            role: role.to_string(),
+            status: created.status.to_string(),
+            created_at: system_time_to_rfc3339(&created.created_at),
+            expires_at: system_time_to_rfc3339(&created.expires_at),
+            token: None,
+        }),
+    ))
 }
 
 /// GET /v1/organizations/:org/invitations
@@ -574,7 +582,7 @@ pub async fn delete_invitation(
 ) -> Result<Json<MessageResponse>> {
     let ledger = require_ledger(&state)?;
 
-    verify_org_membership_from_claims(ledger, org, &claims).await?;
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let start = Instant::now();
     ledger

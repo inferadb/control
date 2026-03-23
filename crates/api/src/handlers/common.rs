@@ -11,6 +11,36 @@ use serde::{Deserialize, Serialize};
 use super::state::AppState;
 use crate::middleware::UserClaims;
 
+// ── Org Membership Cache ────────────────────────────────────────────
+
+/// Cached org membership verification. Avoids a Ledger round-trip on every
+/// vault/schema/audit-log request by caching successful `get_organization`
+/// results for 30 seconds keyed on `(user_slug, org_slug)`.
+#[derive(Clone)]
+pub struct OrgMembershipCache {
+    inner: moka::future::Cache<(u64, u64), ()>,
+}
+
+impl OrgMembershipCache {
+    /// Evicts a user's cached membership for an organization.
+    ///
+    /// Called after member removal or leave to prevent stale access.
+    pub async fn invalidate(&self, user: u64, org: u64) {
+        self.inner.invalidate(&(user, org)).await;
+    }
+}
+
+impl Default for OrgMembershipCache {
+    fn default() -> Self {
+        Self {
+            inner: moka::future::Cache::builder()
+                .time_to_live(std::time::Duration::from_secs(30))
+                .max_capacity(4096)
+                .build(),
+        }
+    }
+}
+
 // ── Shared Request Types ────────────────────────────────────────────
 
 /// Cursor-based pagination query parameters.
@@ -77,13 +107,21 @@ pub fn system_time_to_rfc3339(t: &Option<std::time::SystemTime>) -> Option<Strin
 ///
 /// This is the sole authorization gate for vault/schema operations —
 /// Ledger does NOT enforce org membership on those endpoints.
+/// Results are cached for 30 seconds to avoid redundant gRPC round-trips.
 pub async fn verify_org_membership(
     ledger: &LedgerClient,
     org: OrganizationSlug,
     user: UserSlug,
+    cache: &OrgMembershipCache,
 ) -> std::result::Result<(), CoreError> {
+    let key = (user.value(), org.value());
+    if cache.inner.get(&key).await.is_some() {
+        return Ok(());
+    }
+
     let start = Instant::now();
     ledger.get_organization(org, user).await.map_sdk_err_instrumented("get_organization", start)?;
+    cache.inner.insert(key, ()).await;
     Ok(())
 }
 
@@ -91,27 +129,35 @@ pub async fn verify_org_membership(
 ///
 /// Convenience wrapper that extracts the org slug and user from common handler params.
 pub async fn verify_org_membership_from_claims(
+    state: &AppState,
     ledger: &LedgerClient,
     org: u64,
     claims: &UserClaims,
 ) -> std::result::Result<(), CoreError> {
-    verify_org_membership(ledger, OrganizationSlug::new(org), claims.user_slug).await
+    verify_org_membership(
+        ledger,
+        OrganizationSlug::new(org),
+        claims.user_slug,
+        &state.org_membership_cache,
+    )
+    .await
 }
 
 // ── Input Validation ──────────────────────────────────────────────────
 
 /// Validates a name field (organization, team, client, etc.).
 ///
-/// Rules: 1-128 characters, alphanumeric, hyphens, spaces, underscores.
-/// Must contain at least one non-whitespace character.
+/// Rules: 1-128 non-whitespace characters after trimming. Allowed characters:
+/// alphanumeric (including Unicode), hyphens, underscores, spaces, periods,
+/// and apostrophes.
 pub fn validate_name(name: &str) -> std::result::Result<(), CoreError> {
     let trimmed = name.trim();
-    if trimmed.is_empty() || name.chars().count() > 128 {
+    if trimmed.is_empty() || trimmed.chars().count() > 128 {
         return Err(CoreError::validation("name must be between 1 and 128 characters"));
     }
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ' ') {
+    if !name.chars().all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | ' ' | '.' | '\'')) {
         return Err(CoreError::validation(
-            "name may only contain alphanumeric characters, hyphens, underscores, and spaces",
+            "name may only contain alphanumeric characters, hyphens, underscores, spaces, periods, and apostrophes",
         ));
     }
     Ok(())

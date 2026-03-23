@@ -49,6 +49,16 @@ pub enum ChallengeState {
 ///
 /// On `take()`, the token is decoded, decrypted, the timestamp is validated
 /// against the TTL, and the `ChallengeState` is deserialized.
+///
+/// # Replay Prevention
+///
+/// The stateless design means tokens can be replayed within the 60-second TTL
+/// window. This is an accepted trade-off for horizontal scalability:
+///
+/// - **Authentication:** webauthn-rs validates the authenticator's cryptographic challenge
+///   response, preventing replay of the actual credential assertion.
+/// - **Registration:** Ledger handles idempotency for credential creation.
+/// - The TTL is deliberately short (60 seconds) to minimize the replay window.
 #[derive(Clone)]
 pub struct ChallengeStore {
     cipher: Aes256Gcm,

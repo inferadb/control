@@ -29,6 +29,12 @@ pub const SESSION_COOKIE_MAX_AGE: i64 = 24 * 60 * 60;
 /// HttpOnly, Secure, SameSite=Lax.
 pub const ACCESS_TOKEN_COOKIE_NAME: &str = "inferadb_access";
 
+/// Sentinel user slug for system-level Ledger RPCs (JWKS fetch, rate limiter).
+///
+/// System calls have no authenticated user context. Ledger treats this value
+/// as an infrastructure caller for audit purposes.
+pub const SYSTEM_CALLER_SLUG: u64 = 0;
+
 /// Cookie name for the opaque refresh token (long-lived).
 ///
 /// Stored in a separate HttpOnly cookie. Used to obtain new token pairs

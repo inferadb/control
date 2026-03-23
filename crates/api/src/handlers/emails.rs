@@ -137,7 +137,7 @@ pub async fn list_emails(
 
     let start = Instant::now();
     let emails = ledger
-        .search_user_email(Some(claims.user_slug), None)
+        .search_user_email(claims.user_slug, Some(claims.user_slug), None)
         .await
         .map_sdk_err_instrumented("list_user_emails", start)?;
 

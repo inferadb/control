@@ -1,7 +1,7 @@
 //! Local JWT validation middleware using cached JWKS public keys.
 //!
 //! Validates access tokens locally using Ed25519 public keys fetched from
-//! the Ledger SDK. Keys are cached with a 60-second TTL via [`moka`].
+//! the Ledger SDK. Keys are cached with a 5-minute TTL via [`moka`].
 //! This avoids a network round-trip to Ledger for read-only operations.
 
 use std::sync::Arc;
@@ -21,7 +21,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use super::jwt::{UserClaims, extract_access_token};
 use crate::handlers::state::{ApiError, AppState};
 
-/// Cached JWKS keys keyed by `kid`, with a 60-second TTL.
+/// Cached JWKS keys keyed by `kid`, with a 5-minute TTL.
 ///
 /// Wraps a [`moka::future::Cache`] that maps key IDs to [`DecodingKey`]s.
 /// Keys are refreshed from the Ledger SDK on cache miss using `try_get_with()`
@@ -44,12 +44,15 @@ impl std::fmt::Debug for JwksCache {
 }
 
 impl JwksCache {
-    /// Creates a new JWKS cache with a 60-second TTL.
+    /// Creates a new JWKS cache with a 5-minute TTL.
+    ///
+    /// Key rotation is infrequent (monthly/quarterly), so a 5-minute TTL
+    /// balances freshness with reduced Ledger round-trips.
     #[must_use]
     pub fn new() -> Self {
         Self {
             inner: moka::future::Cache::builder()
-                .time_to_live(std::time::Duration::from_secs(60))
+                .time_to_live(std::time::Duration::from_secs(300))
                 .max_capacity(64)
                 .build(),
         }
@@ -80,7 +83,8 @@ impl JwksCache {
 
 /// Fetches a specific key by kid from Ledger's public key set.
 async fn fetch_key(ledger: &LedgerClient, target_kid: &str) -> Result<Arc<DecodingKey>, CoreError> {
-    let keys = ledger.get_public_keys(None).await.map_err(|e| {
+    let system_caller = UserSlug::new(inferadb_control_const::auth::SYSTEM_CALLER_SLUG);
+    let keys = ledger.get_public_keys(system_caller, None).await.map_err(|e| {
         CoreError::internal(format!("failed to fetch public keys from Ledger: {e}"))
     })?;
 

@@ -3,93 +3,54 @@
 
 //! Test fixtures and utilities for InferaDB Control API integration tests.
 //!
-//! This crate provides shared test helpers to eliminate duplication across integration tests.
-//! All functions are designed to work with the Axum-based API and MemoryBackend storage.
+//! This crate provides shared test helpers for testing the Control API **without
+//! a running Ledger backend**. When `AppState.ledger` is `None` (test mode),
+//! Ledger-dependent endpoints return `500 "an internal error occurred"`. The
+//! helpers here are therefore most useful for:
+//!
+//! - Testing unauthenticated routes (health, metrics)
+//! - Testing that authentication rejection works correctly
+//! - Testing request validation and error responses
+//! - Testing rate limiting behavior
+//!
+//! Full end-to-end integration tests that exercise auth flows and CRUD
+//! operations require a running Ledger backend and are not covered by these
+//! fixtures.
 //!
 //! # Usage
 //!
 //! ```rust,no_run
-//! use inferadb_control_test_fixtures::{create_test_state, create_test_app, register_user};
-//! use inferadb_control_core::IdGenerator;
+//! use inferadb_control_test_fixtures::{create_test_state, create_test_app, get};
 //!
 //! #[tokio::test]
-//! async fn my_test() {
-//!     let _ = IdGenerator::init(1);
+//! async fn health_check() {
 //!     let state = create_test_state();
 //!     let app = create_test_app(state);
 //!
-//!     let session = register_user(&app, "Test User", "test@example.com", "password123").await;
-//!     // Use session cookie for authenticated requests...
+//!     let response = get(&app, "/healthz").await;
+//!     assert_eq!(response.status(), axum::http::StatusCode::OK);
 //! }
-//! ```
-//!
-//! # Entity Builders
-//!
-//! When constructing entities directly in tests (e.g., for repository tests), use the
-//! `bon` builder pattern. All entity types support builders via `Type::builder()`:
-//!
-//! ```ignore
-//! use inferadb_control_types::{User, Organization, Vault, Client};
-//!
-//! // User with builder (fallible - returns Result)
-//! let user = User::builder()
-//!     .name("Alice")
-//!     .build()
-//!     .unwrap();
-//!
-//! // Organization with builder
-//! let org = Organization::builder()
-//!     .name("Acme Corp")
-//!     .owner_id(user.id)
-//!     .build()
-//!     .unwrap();
-//!
-//! // Vault with builder
-//! let vault = Vault::builder()
-//!     .name("production")
-//!     .organization(org.id)
-//!     .build()
-//!     .unwrap();
-//!
-//! // Client with builder
-//! let client = Client::builder()
-//!     .name("api-client")
-//!     .vault(vault.id)
-//!     .build()
-//!     .unwrap();
-//! ```
-//!
-//! For optional fields, use `.maybe_field()` to pass `Option<T>` values directly,
-//! or omit the call entirely for `None`:
-//!
-//! ```ignore
-//! use inferadb_control_types::AuditLog;
-//!
-//! let log = AuditLog::builder()
-//!     .user_id(user_id)
-//!     .action("login")
-//!     .resource_type("session")
-//!     .maybe_ip_address(request_ip)  // Pass Option<String> directly
-//!     .maybe_user_agent(user_agent)  // Optional field
-//!     .build();
 //! ```
 
 #![deny(unsafe_code)]
 
-use axum::{body::Body, http::Request};
-use inferadb_control_api::{AppState, create_router_with_state};
-use serde_json::{Value, json};
+use axum::{
+    Router,
+    body::Body,
+    http::{Request, StatusCode},
+};
+// Re-export for convenience in test code.
+pub use inferadb_control_api::{AppState, create_router_with_state};
+pub use inferadb_control_const::auth::{ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME};
+use serde_json::Value;
 use tower::ServiceExt;
 
-/// Creates a test AppState with in-memory storage backend.
+/// Creates a test `AppState` with in-memory storage backend and no Ledger
+/// connection.
 ///
-/// This function initializes a new AppState configured for testing with:
-/// - MemoryBackend for data persistence
-/// - Test-specific configuration (no external services)
-///
-/// # Returns
-///
-/// A fully configured AppState ready for use in integration tests.
+/// The returned state has `ledger: None`, so any handler that calls into the
+/// Ledger SDK will return a 500 error. This is intentional — these fixtures
+/// target tests that do not require a live Ledger.
 ///
 /// # Example
 ///
@@ -97,7 +58,6 @@ use tower::ServiceExt;
 /// use inferadb_control_test_fixtures::create_test_state;
 ///
 /// let state = create_test_state();
-/// // Use state to create test app or access repositories directly
 /// ```
 pub fn create_test_state() -> AppState {
     AppState::new_test()
@@ -105,19 +65,8 @@ pub fn create_test_state() -> AppState {
 
 /// Creates a fully configured Axum router with all middleware and routes.
 ///
-/// This function sets up the complete application router including:
-/// - Authentication middleware
-/// - Session management
-/// - Rate limiting
-/// - All API routes
-///
-/// # Arguments
-///
-/// * `state` - The AppState to use for the router (typically from `create_test_state`)
-///
-/// # Returns
-///
-/// An Axum Router ready to handle test requests via `tower::ServiceExt::oneshot`.
+/// Includes authentication middleware, rate limiting, security headers, and all
+/// API routes. Requests can be dispatched via `tower::ServiceExt::oneshot`.
 ///
 /// # Example
 ///
@@ -126,110 +75,39 @@ pub fn create_test_state() -> AppState {
 ///
 /// let state = create_test_state();
 /// let app = create_test_app(state);
-/// // Use app with tower::ServiceExt::oneshot for test requests
 /// ```
-pub fn create_test_app(state: AppState) -> axum::Router {
+pub fn create_test_app(state: AppState) -> Router {
     create_router_with_state(state)
 }
 
-/// Extracts the session cookie value from HTTP response headers.
+/// Extracts the access token cookie value from HTTP response headers.
 ///
-/// Parses the `Set-Cookie` header to extract the `infera_session` cookie value.
-/// This is used to obtain session tokens for authenticated test requests.
-///
-/// # Arguments
-///
-/// * `headers` - The HTTP response headers to parse
+/// Parses `Set-Cookie` headers looking for the `inferadb_access` cookie.
 ///
 /// # Returns
 ///
-/// * `Some(String)` - The session cookie value if found
-/// * `None` - If no session cookie is present in the headers
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use inferadb_control_test_fixtures::extract_session_cookie;
-///
-/// // Given response headers from an HTTP response:
-/// # let headers = axum::http::HeaderMap::new();
-/// if let Some(session) = extract_session_cookie(&headers) {
-///     println!("Session cookie: {}", session);
-/// }
-/// ```
-pub fn extract_session_cookie(headers: &axum::http::HeaderMap) -> Option<String> {
-    headers
-        .get("set-cookie")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(';').next().and_then(|cookie| cookie.strip_prefix("infera_session=")))
-        .map(|s| s.to_string())
+/// `Some(String)` with the cookie value, or `None` if not present.
+pub fn extract_access_token(headers: &axum::http::HeaderMap) -> Option<String> {
+    extract_cookie(headers, ACCESS_TOKEN_COOKIE_NAME)
 }
 
-/// Registers a new user and returns their session cookie.
+/// Extracts the refresh token cookie value from HTTP response headers.
 ///
-/// This helper performs a complete user registration flow:
-/// 1. Sends POST request to `/v1/auth/register`
-/// 2. Asserts registration succeeds (HTTP 200)
-/// 3. Extracts and returns the session cookie
-///
-/// # Arguments
-///
-/// * `app` - The test application router
-/// * `name` - Full name of the user to register
-/// * `email` - Email address (must be unique)
-/// * `password` - Password for the account (must meet security requirements)
+/// Parses `Set-Cookie` headers looking for the `inferadb_refresh` cookie.
 ///
 /// # Returns
 ///
-/// The session cookie value that can be used for authenticated requests.
-///
-/// # Panics
-///
-/// Panics if:
-/// - The registration request fails
-/// - Response status is not HTTP 200 OK
-/// - Session cookie is not set in the response
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use inferadb_control_test_fixtures::{create_test_state, create_test_app, register_user};
-///
-/// # async fn example() {
-/// let state = create_test_state();
-/// let app = create_test_app(state);
-///
-/// let session = register_user(&app, "Alice Smith", "alice@example.com", "securepass123").await;
-///
-/// // Use session cookie for authenticated requests
-/// // format!("infera_session={}", session)
-/// # }
-/// ```
-pub async fn register_user(app: &axum::Router, name: &str, email: &str, password: &str) -> String {
-    use axum::http::StatusCode;
+/// `Some(String)` with the cookie value, or `None` if not present.
+pub fn extract_refresh_token(headers: &axum::http::HeaderMap) -> Option<String> {
+    extract_cookie(headers, REFRESH_TOKEN_COOKIE_NAME)
+}
 
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/control/v1/auth/register")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "name": name,
-                        "email": email,
-                        "password": password
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK, "Registration should succeed");
-    extract_session_cookie(response.headers()).expect("Session cookie should be set")
+/// Extracts a named cookie value from HTTP response `Set-Cookie` headers.
+fn extract_cookie(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
+    let prefix = format!("{name}=");
+    headers.get_all("set-cookie").iter().filter_map(|v| v.to_str().ok()).find_map(|s| {
+        s.split(';').next().and_then(|cookie| cookie.strip_prefix(&prefix)).map(|v| v.to_string())
+    })
 }
 
 /// Parses an HTTP response body as JSON.
@@ -242,270 +120,61 @@ pub async fn body_json(response: axum::http::Response<Body>) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
-/// Logs in a user and returns their session cookie.
+/// Builds an HTTP request with a JSON content-type header but no auth
+/// credentials.
+///
+/// In test mode without Ledger, JWT validation middleware rejects all requests
+/// to protected routes. This helper is useful for testing unauthenticated
+/// routes (health, metrics) or verifying that auth rejection works correctly.
+pub fn json_request(method: &str, uri: &str) -> Request<Body> {
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json")
+        .body(Body::empty())
+        .unwrap()
+}
+
+/// Sends a JSON POST request and returns the response.
 ///
 /// # Panics
 ///
-/// Panics if login fails or no session cookie is returned.
-pub async fn login_user(app: &axum::Router, email: &str, password: &str) -> String {
-    use axum::http::StatusCode;
-
-    let response = app
-        .clone()
+/// Panics if the request cannot be dispatched.
+pub async fn post_json(app: &Router, uri: &str, body: Value) -> axum::http::Response<Body> {
+    app.clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/control/v1/auth/login/password")
+                .uri(uri)
                 .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "email": email,
-                        "password": password
-                    })
-                    .to_string(),
-                ))
+                .body(Body::from(body.to_string()))
                 .unwrap(),
         )
         .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK, "Login should succeed");
-    extract_session_cookie(response.headers()).expect("Session cookie should be set")
+        .unwrap()
 }
 
-/// Gets the organization from the first organization in the user's list.
+/// Sends a GET request and returns the response.
 ///
 /// # Panics
 ///
-/// Panics if the organizations list is empty or the request fails.
-pub async fn get_organization(app: &axum::Router, session: &str) -> u64 {
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri("/control/v1/organizations")
-                .header("cookie", format!("infera_session={session}"))
-                .body(Body::empty())
-                .unwrap(),
-        )
+/// Panics if the request cannot be dispatched.
+pub async fn get(app: &Router, uri: &str) -> axum::http::Response<Body> {
+    app.clone()
+        .oneshot(Request::builder().method("GET").uri(uri).body(Body::empty()).unwrap())
         .await
-        .unwrap();
+        .unwrap()
+}
 
+/// Asserts the response has the expected status code and returns the JSON
+/// body.
+///
+/// # Panics
+///
+/// Panics if the status code does not match or if the body is not valid JSON.
+pub async fn assert_status(response: axum::http::Response<Body>, expected: StatusCode) -> Value {
+    let actual = response.status();
     let json = body_json(response).await;
-    json["organizations"][0]["id"].as_u64().expect("Should have org ID")
-}
-
-/// Creates an organization and returns its ID and the full JSON response.
-///
-/// # Panics
-///
-/// Panics if creation fails.
-pub async fn create_organization(app: &axum::Router, session: &str, name: &str) -> (u64, Value) {
-    use axum::http::StatusCode;
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/control/v1/organizations")
-                .header("cookie", format!("infera_session={session}"))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "name": name
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK, "Organization creation should succeed");
-    let json = body_json(response).await;
-    let organization = json["organization"]["id"].as_u64().expect("Should have org ID");
-    (organization, json)
-}
-
-/// Creates a vault in an organization and returns its ID and the full JSON response.
-///
-/// # Panics
-///
-/// Panics if creation fails.
-pub async fn create_vault(
-    app: &axum::Router,
-    session: &str,
-    organization: u64,
-    name: &str,
-) -> (u64, Value) {
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/control/v1/organizations/{organization}/vaults"))
-                .header("cookie", format!("infera_session={session}"))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "name": name,
-                        "description": "Test vault"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let status = response.status();
-    assert!(status.is_success(), "Vault creation should succeed, got {status}");
-    let json = body_json(response).await;
-    let vault = json["vault"]["id"].as_u64().expect("Should have vault ID");
-    (vault, json)
-}
-
-/// Creates a client in an organization and returns its ID and the full JSON response.
-///
-/// # Panics
-///
-/// Panics if creation fails.
-pub async fn create_client(
-    app: &axum::Router,
-    session: &str,
-    organization: u64,
-    name: &str,
-) -> (u64, Value) {
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/control/v1/organizations/{organization}/clients"))
-                .header("cookie", format!("infera_session={session}"))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "name": name,
-                        "description": "Test client"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let status = response.status();
-    assert!(status.is_success(), "Client creation should succeed, got {status}");
-    let json = body_json(response).await;
-    let client_id = json["client"]["id"].as_u64().expect("Should have client ID");
-    (client_id, json)
-}
-
-/// Creates a client with a certificate and returns both IDs and the certificate JSON response.
-///
-/// # Panics
-///
-/// Panics if client or certificate creation fails.
-pub async fn create_client_with_cert(
-    app: &axum::Router,
-    session: &str,
-    organization: u64,
-) -> (u64, u64, Value) {
-    let (client_id, _) = create_client(app, session, organization, "test-client").await;
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!(
-                    "/control/v1/organizations/{organization}/clients/{client_id}/certificates"
-                ))
-                .header("cookie", format!("infera_session={session}"))
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"name": "test-cert"}).to_string()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let status = response.status();
-    let json = body_json(response).await;
-
-    if !status.is_success() {
-        panic!("Failed to create certificate. Status: {status}, Body: {json}");
-    }
-
-    let cert_id = json["certificate"]["id"].as_u64().expect("Should have cert ID");
-    (client_id, cert_id, json)
-}
-
-/// Verifies a user's email directly via the repository (bypasses HTTP).
-///
-/// This is a no-op stub. The storage backend has been removed from AppState.
-/// Email verification in tests should use the Ledger SDK once test infrastructure
-/// is rebuilt (see task #19).
-pub async fn verify_user_email(_state: &AppState, _username: &str) {
-    // No-op: storage backend removed from AppState.
-    // Tests relying on this function will need to be updated to use the Ledger SDK.
-}
-
-/// Invites a member to an organization and accepts the invitation.
-///
-/// # Panics
-///
-/// Panics if the invitation or acceptance fails.
-pub async fn invite_and_accept_member(
-    app: &axum::Router,
-    owner_session: &str,
-    member_session: &str,
-    member_email: &str,
-    organization: u64,
-) {
-    use axum::http::StatusCode;
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/control/v1/organizations/{organization}/invitations"))
-                .header("cookie", format!("infera_session={owner_session}"))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "email": member_email,
-                        "role": "MEMBER"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK, "Invitation should succeed");
-
-    let json = body_json(response).await;
-    let token = json["invitation"]["token"].as_str().unwrap().to_string();
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/control/v1/organizations/invitations/accept")
-                .header("cookie", format!("infera_session={member_session}"))
-                .header("content-type", "application/json")
-                .body(Body::from(json!({ "token": token }).to_string()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK, "Accepting invitation should succeed");
+    assert_eq!(actual, expected, "expected status {expected}, got {actual}; body: {json}");
+    json
 }

@@ -17,6 +17,7 @@ path = "src/main.rs"
 # Workspace crates
 inferadb-control-api = { path = "../api" }
 inferadb-control-config = { path = "../config" }
+inferadb-control-const = { path = "../const" }
 inferadb-control-core = { path = "../core" }
 inferadb-control-types = { path = "../types" }
 

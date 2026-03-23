@@ -1,5 +1,5 @@
 pub mod audit_logs;
-pub mod auth_v2;
+pub mod auth;
 pub mod clients;
 pub mod common;
 pub mod email_auth;

@@ -90,11 +90,13 @@ pub async fn create_vault(
     let ledger = require_ledger(&state)?;
     let organization = OrganizationSlug::new(org);
 
-    verify_org_membership_from_claims(ledger, org, &claims).await?;
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let start = Instant::now();
-    let info =
-        ledger.create_vault(organization).await.map_sdk_err_instrumented("create_vault", start)?;
+    let info = ledger
+        .create_vault(claims.user_slug, organization)
+        .await
+        .map_sdk_err_instrumented("create_vault", start)?;
 
     Ok((StatusCode::CREATED, Json(SingleVaultResponse { vault: vault_info_to_response(info) })))
 }
@@ -113,11 +115,12 @@ pub async fn list_vaults(
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
 
-    verify_org_membership_from_claims(ledger, org, &claims).await?;
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let start = Instant::now();
     let (vaults, next_token) = ledger
         .list_vaults(
+            claims.user_slug,
             pagination.validated_page_size(),
             pagination.decoded_page_token(),
             Some(org_slug),
@@ -143,11 +146,11 @@ pub async fn get_vault(
     let organization = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
 
-    verify_org_membership_from_claims(ledger, org, &claims).await?;
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let start = Instant::now();
     let info = ledger
-        .get_vault(organization, vault_slug)
+        .get_vault(claims.user_slug, organization, vault_slug)
         .await
         .map_sdk_err_instrumented("get_vault", start)?;
 
@@ -173,11 +176,11 @@ pub async fn update_vault(
     let organization = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
 
-    verify_org_membership_from_claims(ledger, org, &claims).await?;
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let start = Instant::now();
     ledger
-        .update_vault(organization, vault_slug, None)
+        .update_vault(claims.user_slug, organization, vault_slug, None)
         .await
         .map_sdk_err_instrumented("update_vault", start)?;
 
@@ -196,11 +199,11 @@ pub async fn delete_vault(
     let organization = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
 
-    verify_org_membership_from_claims(ledger, org, &claims).await?;
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let start = Instant::now();
     ledger
-        .delete_vault(organization, vault_slug)
+        .delete_vault(claims.user_slug, organization, vault_slug)
         .await
         .map_sdk_err_instrumented("delete_vault", start)?;
 

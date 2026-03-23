@@ -7,6 +7,7 @@
 //! - `Strict-Transport-Security` — enforces HTTPS (browsers ignore this over plain HTTP per RFC
 //!   6797)
 //! - `Referrer-Policy: no-referrer` — prevents leaking URLs in referer headers
+//! - `Content-Security-Policy: default-src 'none'` — disallows all resource loading (JSON API)
 
 use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 
@@ -28,6 +29,7 @@ pub async fn security_headers_middleware(request: Request, next: Next) -> Respon
         HeaderValue::from_static("max-age=31536000; includeSubDomains"),
     );
     headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    headers.insert("content-security-policy", HeaderValue::from_static("default-src 'none'"));
 
     response
 }
@@ -72,6 +74,10 @@ mod tests {
         assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
         assert!(response.headers().get("strict-transport-security").is_some());
         assert_eq!(response.headers().get("referrer-policy").unwrap(), "no-referrer");
+        assert_eq!(
+            response.headers().get("content-security-policy").unwrap(),
+            "default-src 'none'"
+        );
     }
 
     #[tokio::test]

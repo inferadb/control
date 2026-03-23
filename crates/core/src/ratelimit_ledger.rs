@@ -16,7 +16,7 @@ use inferadb_common_storage::{
     types::KeyValue,
 };
 use inferadb_ledger_sdk::{LedgerClient, SdkError, SetCondition};
-use inferadb_ledger_types::OrganizationSlug;
+use inferadb_ledger_types::{OrganizationSlug, UserSlug};
 use tonic::Code;
 
 /// Storage backend that delegates to Ledger's entity store.
@@ -37,6 +37,8 @@ use tonic::Code;
 ///   acceptable.
 pub struct LedgerStorageBackend {
     client: Arc<LedgerClient>,
+    /// Caller identity for Ledger RPCs.
+    caller: UserSlug,
     organization: OrganizationSlug,
 }
 
@@ -46,9 +48,14 @@ impl LedgerStorageBackend {
     /// # Arguments
     ///
     /// * `client` - Shared Ledger client instance.
+    /// * `caller` - Caller identity for Ledger RPCs.
     /// * `organization` - Organization slug used as the namespace for all rate limit keys.
-    pub fn new(client: Arc<LedgerClient>, organization: OrganizationSlug) -> Self {
-        Self { client, organization }
+    pub fn new(
+        client: Arc<LedgerClient>,
+        caller: UserSlug,
+        organization: OrganizationSlug,
+    ) -> Self {
+        Self { client, caller, organization }
     }
 
     /// Converts a byte key to a UTF-8 string for use as a Ledger entity key.
@@ -99,7 +106,7 @@ impl LedgerStorageBackend {
 impl inferadb_common_storage::StorageBackend for LedgerStorageBackend {
     async fn get(&self, key: &[u8]) -> StorageResult<Option<Bytes>> {
         let key_str = Self::key_to_string(key);
-        match self.client.read(self.organization, None, key_str, None, None).await {
+        match self.client.read(self.caller, self.organization, None, key_str, None, None).await {
             Ok(Some(value)) => Ok(Some(Bytes::from(value))),
             Ok(None) => Ok(None),
             Err(SdkError::Rpc { code: Code::NotFound, .. }) => Ok(None),
@@ -110,7 +117,7 @@ impl inferadb_common_storage::StorageBackend for LedgerStorageBackend {
     async fn set(&self, key: Vec<u8>, value: Vec<u8>) -> StorageResult<()> {
         let key_str = Self::key_to_string(&key);
         self.client
-            .set_entity(self.organization, None, key_str, value, None, None, None)
+            .set_entity(self.caller, self.organization, None, key_str, value, None, None, None)
             .await
             .map(|_| ())
             .map_err(Self::map_sdk_error)
@@ -128,7 +135,16 @@ impl inferadb_common_storage::StorageBackend for LedgerStorageBackend {
             Some(expected_bytes) => Some(SetCondition::ValueEquals(expected_bytes.to_vec())),
         };
         self.client
-            .set_entity(self.organization, None, key_str, new_value, None, condition, None)
+            .set_entity(
+                self.caller,
+                self.organization,
+                None,
+                key_str,
+                new_value,
+                None,
+                condition,
+                None,
+            )
             .await
             .map(|_| ())
             .map_err(Self::map_sdk_error)
@@ -136,7 +152,7 @@ impl inferadb_common_storage::StorageBackend for LedgerStorageBackend {
 
     async fn delete(&self, key: &[u8]) -> StorageResult<()> {
         let key_str = Self::key_to_string(key);
-        match self.client.delete_entity(self.organization, None, key_str, None).await {
+        match self.client.delete_entity(self.caller, self.organization, None, key_str, None).await {
             Ok(_) => Ok(()),
             // Deleting a non-existent key is a no-op.
             Err(SdkError::Rpc { code: Code::NotFound, .. }) => Ok(()),
@@ -158,7 +174,16 @@ impl inferadb_common_storage::StorageBackend for LedgerStorageBackend {
         let key_str = Self::key_to_string(&key);
         let expires_at = Self::ttl_to_expires_at(ttl);
         self.client
-            .set_entity(self.organization, None, key_str, value, expires_at, None, None)
+            .set_entity(
+                self.caller,
+                self.organization,
+                None,
+                key_str,
+                value,
+                expires_at,
+                None,
+                None,
+            )
             .await
             .map(|_| ())
             .map_err(Self::map_sdk_error)
@@ -178,7 +203,16 @@ impl inferadb_common_storage::StorageBackend for LedgerStorageBackend {
             Some(expected_bytes) => Some(SetCondition::ValueEquals(expected_bytes.to_vec())),
         };
         self.client
-            .set_entity(self.organization, None, key_str, new_value, expires_at, condition, None)
+            .set_entity(
+                self.caller,
+                self.organization,
+                None,
+                key_str,
+                new_value,
+                expires_at,
+                condition,
+                None,
+            )
             .await
             .map(|_| ())
             .map_err(Self::map_sdk_error)
@@ -191,7 +225,8 @@ impl inferadb_common_storage::StorageBackend for LedgerStorageBackend {
     async fn health_check(&self, _probe: HealthProbe) -> StorageResult<HealthStatus> {
         let start = std::time::Instant::now();
         // Probe Ledger connectivity by reading a key that almost certainly does not exist.
-        match self.client.read(self.organization, None, "__health__", None, None).await {
+        match self.client.read(self.caller, self.organization, None, "__health__", None, None).await
+        {
             Ok(_) | Err(SdkError::Rpc { code: Code::NotFound, .. }) => {
                 let metadata = HealthMetadata::new(start.elapsed(), "ledger");
                 Ok(HealthStatus::healthy(metadata))

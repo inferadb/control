@@ -35,14 +35,19 @@ pub struct AppState {
     #[builder(default)]
     pub challenge_store: inferadb_control_core::webauthn::ChallengeStore,
     /// Application-level rate limiter for auth endpoints.
-    #[builder(default = Arc::new(inferadb_control_core::in_memory_rate_limiter()))]
-    pub rate_limiter: Arc<inferadb_control_core::InMemoryRateLimiter>,
+    #[builder(default = Arc::new(inferadb_control_core::AnyRateLimiter::default()))]
+    pub rate_limiter: Arc<inferadb_control_core::AnyRateLimiter>,
     /// JWKS cache for local JWT validation on read routes.
     #[builder(default)]
     pub jwks_cache: crate::middleware::JwksCache,
     /// Cached health check state (5-second TTL, lock-free).
     #[builder(default)]
     pub health_cache: Arc<super::health::HealthCache>,
+    /// Org membership cache — avoids redundant `get_organization` gRPC calls
+    /// on vault/schema/audit-log endpoints where Ledger does not enforce membership.
+    /// Keyed on `(user_slug, org_slug)` with a 30-second TTL.
+    #[builder(default)]
+    pub org_membership_cache: super::common::OrgMembershipCache,
 }
 
 impl AppState {
@@ -80,17 +85,25 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status =
             StatusCode::from_u16(self.0.status_code()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let error_message = self.0.to_string();
-
-        if status.is_server_error() {
-            tracing::error!(status = %status, error = %error_message, "API error");
-        } else if status.is_client_error() && status != StatusCode::NOT_FOUND {
-            tracing::warn!(status = %status, error = %error_message, "Client error");
-        }
-
+        let internal_message = self.0.to_string();
         let error_code = self.0.error_code().to_string();
 
-        (status, Json(ErrorResponse { error: error_message, code: error_code, details: None }))
+        if status.is_server_error() {
+            tracing::error!(status = %status, error = %internal_message, "API error");
+        } else if status.is_client_error() && status != StatusCode::NOT_FOUND {
+            tracing::warn!(status = %status, error = %internal_message, "Client error");
+        }
+
+        // Scrub internal details from server error responses. The full message
+        // is already logged above; clients receive only a generic message to
+        // prevent leaking Ledger internals, config details, or stack context.
+        let client_message = if status.is_server_error() {
+            "an internal error occurred".to_string()
+        } else {
+            internal_message
+        };
+
+        (status, Json(ErrorResponse { error: client_message, code: error_code, details: None }))
             .into_response()
     }
 }

@@ -90,9 +90,9 @@ fn parse_outcome_filter(outcome: &str) -> std::result::Result<EventFilter, CoreE
         "success" => Ok(filter.outcome_success()),
         "failed" => Ok(filter.outcome_failed()),
         "denied" => Ok(filter.outcome_denied()),
-        _ => Err(CoreError::validation(format!(
-            "invalid outcome filter '{outcome}': expected 'success', 'failed', or 'denied'"
-        ))),
+        _ => Err(CoreError::validation(
+            "invalid outcome filter: expected 'success', 'failed', or 'denied'",
+        )),
     }
 }
 
@@ -128,12 +128,12 @@ pub async fn list_audit_logs(
     let ledger = require_ledger(&state)?;
     let organization = OrganizationSlug::new(org);
 
-    verify_org_membership_from_claims(ledger, org, &claims).await?;
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let page = if let Some(ref page_token) = query.page_token {
         let start = Instant::now();
         ledger
-            .list_events_next(organization, page_token)
+            .list_events_next(claims.user_slug, organization, page_token)
             .await
             .map_sdk_err_instrumented("list_events_next", start)?
     } else {
@@ -141,7 +141,7 @@ pub async fn list_audit_logs(
         let limit = query.page_size.unwrap_or(50).clamp(1, 100);
         let start = Instant::now();
         ledger
-            .list_events(organization, filter, limit)
+            .list_events(claims.user_slug, organization, filter, limit)
             .await
             .map_sdk_err_instrumented("list_events", start)?
     };

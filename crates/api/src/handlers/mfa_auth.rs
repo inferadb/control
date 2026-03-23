@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use webauthn_rs::prelude::*;
 
-use super::{auth_v2::set_token_cookies, common::require_ledger, state::ApiError};
+use super::{auth::set_token_cookies, common::require_ledger, state::ApiError};
 use crate::{handlers::AppState, middleware::UserClaims};
 
 // ── Request Types ───────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ pub async fn verify_totp(
 
     let start = Instant::now();
     let token_pair = ledger
-        .verify_totp(user, &body.totp_code, nonce)
+        .verify_totp(user, user, &body.totp_code, nonce)
         .await
         .map_sdk_err_instrumented("verify_totp", start)?;
 
@@ -219,7 +219,7 @@ pub async fn consume_recovery(
 
     let start = Instant::now();
     let result = ledger
-        .consume_recovery_code(user, &body.code, nonce)
+        .consume_recovery_code(user, user, &body.code, nonce)
         .await
         .map_sdk_err_instrumented("consume_recovery_code", start)?;
 
@@ -251,7 +251,7 @@ pub async fn passkey_begin(
     // Fetch the user's passkey credentials from Ledger.
     let start = Instant::now();
     let credentials = ledger
-        .list_user_credentials(user, Some(CredentialType::Passkey))
+        .list_user_credentials(user, user, Some(CredentialType::Passkey))
         .await
         .map_sdk_err_instrumented("list_user_credentials", start)?;
 
@@ -332,15 +332,19 @@ pub async fn passkey_finish(
         .finish_passkey_authentication(&body.credential, &auth_state)
         .map_err(|e| CoreError::auth(format!("passkey authentication failed: {e}")))?;
 
-    // Update the sign count for the credential that was used.
-    // Find the matching credential by comparing credential IDs.
+    // Fetch passkey and TOTP credentials concurrently — these are independent reads.
     let used_cred_id: &[u8] = auth_result.cred_id().as_ref();
-    let start = Instant::now();
-    let credentials = ledger
-        .list_user_credentials(user, Some(CredentialType::Passkey))
-        .await
-        .map_sdk_err_instrumented("list_user_credentials", start)?;
+    let start_creds = Instant::now();
+    let (passkey_result, totp_result) = tokio::join!(
+        ledger.list_user_credentials(user, user, Some(CredentialType::Passkey)),
+        ledger.list_user_credentials(user, user, Some(CredentialType::Totp)),
+    );
+    let credentials =
+        passkey_result.map_sdk_err_instrumented("list_user_credentials", start_creds)?;
+    let totp_credentials =
+        totp_result.map_sdk_err_instrumented("list_user_credentials", start_creds)?;
 
+    // Update the sign count for the credential that was used.
     for cred in &credentials {
         if let Some(passkey_info) = cred.data.as_ref().and_then(extract_passkey_info)
             && passkey_info.credential_id == used_cred_id
@@ -358,19 +362,12 @@ pub async fn passkey_finish(
             };
             let start = Instant::now();
             let _ = ledger
-                .update_user_credential(user, cred.id, None, None, Some(updated_info))
+                .update_user_credential(user, user, cred.id, None, None, Some(updated_info))
                 .await
                 .map_sdk_err_instrumented("update_user_credential", start)?;
             break;
         }
     }
-
-    // Check if the user has TOTP enabled.
-    let start = Instant::now();
-    let totp_credentials = ledger
-        .list_user_credentials(user, Some(CredentialType::Totp))
-        .await
-        .map_sdk_err_instrumented("list_user_credentials", start)?;
 
     if totp_credentials.is_empty() {
         // No TOTP — create a session directly.
@@ -392,7 +389,7 @@ pub async fn passkey_finish(
         // TOTP is enabled — create a TOTP challenge.
         let start = Instant::now();
         let nonce = ledger
-            .create_totp_challenge(user, "passkey")
+            .create_totp_challenge(user, user, "passkey")
             .await
             .map_sdk_err_instrumented("create_totp_challenge", start)?;
         let nonce_b64 = base64::engine::general_purpose::STANDARD.encode(&nonce);
@@ -415,11 +412,12 @@ pub async fn passkey_register_begin(
     let user = claims.user_slug;
 
     let name = body.name.unwrap_or_else(|| "Passkey".to_string());
+    super::common::validate_name(&name)?;
 
     // Fetch existing passkey credentials to use as exclude list.
     let start = Instant::now();
     let existing = ledger
-        .list_user_credentials(user, Some(CredentialType::Passkey))
+        .list_user_credentials(user, user, Some(CredentialType::Passkey))
         .await
         .map_sdk_err_instrumented("list_user_credentials", start)?;
 
@@ -462,6 +460,7 @@ pub async fn passkey_register_finish(
     Extension(claims): Extension<UserClaims>,
     Json(body): Json<PasskeyRegisterFinishRequest>,
 ) -> Result<Json<PasskeyRegisterFinishResponse>, ApiError> {
+    super::common::validate_name(&body.name)?;
     let ledger = require_ledger(&state)?;
     let webauthn = require_webauthn(&state)?;
     let user = claims.user_slug;
@@ -523,7 +522,7 @@ pub async fn passkey_register_finish(
     // Store the credential in Ledger.
     let start = Instant::now();
     let created = ledger
-        .create_user_credential(user, &body.name, cred_data)
+        .create_user_credential(user, user, &body.name, cred_data)
         .await
         .map_sdk_err_instrumented("create_user_credential", start)?;
 

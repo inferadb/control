@@ -9,7 +9,7 @@ use tower_http::cors::CorsLayer;
 
 use crate::{
     handlers::{
-        AppState, audit_logs, auth_v2, clients, email_auth, emails, health,
+        AppState, audit_logs, auth, clients, email_auth, emails, health,
         metrics as metrics_handler, mfa_auth, organizations, schemas, teams, tokens, users, vaults,
     },
     middleware::{
@@ -83,7 +83,7 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
     // Write routes: Ledger-validated JWT (full round-trip)
     let jwt_write_routes = Router::new()
         // Auth write operations
-        .route("/control/v1/auth/revoke-all", post(auth_v2::revoke_all))
+        .route("/control/v1/auth/revoke-all", post(auth::revoke_all))
         // User profile (write)
         .route("/control/v1/users/me", patch(users::update_profile))
         .route("/control/v1/users/me", delete(users::delete_user))
@@ -201,25 +201,23 @@ pub fn create_router_with_state(state: AppState) -> axum::Router {
         .route("/readyz", get(health::readyz_handler))
         .route("/startupz", get(health::startupz_handler))
         .route("/healthz", get(health::healthz_handler))
-        // Metrics endpoint (JWT-protected via local validation)
-        .route(
-            "/metrics",
-            get(metrics_handler::metrics_handler)
-                .route_layer(middleware::from_fn_with_state(state.clone(), require_jwt_local)),
-        )
-        // Auth endpoints (rate-limited: 100/hour per IP)
-        .route("/control/v1/auth/refresh", post(auth_v2::refresh))
-        .route("/control/v1/auth/logout", post(auth_v2::logout))
+        // Metrics endpoint (network-policy protected, no application-level auth)
+        .route("/metrics", get(metrics_handler::metrics_handler))
+        // Auth endpoints (rate-limited: 100/hour per IP for brute-force protection).
+        // Includes token-based endpoints that accept secrets in the request body.
         .route("/control/v1/auth/email/initiate", post(email_auth::initiate))
         .route("/control/v1/auth/email/verify", post(email_auth::verify))
         .route("/control/v1/auth/totp/verify", post(mfa_auth::verify_totp))
         .route("/control/v1/auth/recovery", post(mfa_auth::consume_recovery))
         .route("/control/v1/auth/passkey/begin", post(mfa_auth::passkey_begin))
         .route("/control/v1/auth/passkey/finish", post(mfa_auth::passkey_finish))
-        .route("/control/v1/auth/verify-email", post(emails::verify_email))
-        .route("/control/v1/tokens/refresh", post(tokens::refresh_vault_token))
         .route("/control/v1/token", post(tokens::client_assertion_authenticate))
+        .route("/control/v1/auth/refresh", post(auth::refresh))
+        .route("/control/v1/auth/verify-email", post(emails::verify_email))
         .route_layer(middleware::from_fn_with_state(state.clone(), ratelimit::login_rate_limit))
+        // Session endpoints (best-effort, no brute-force risk)
+        .route("/control/v1/auth/logout", post(auth::logout))
+        .route("/control/v1/tokens/refresh", post(tokens::refresh_vault_token))
         // Registration endpoint (rate-limited: 5/day per IP)
         .route(
             "/control/v1/auth/email/complete",

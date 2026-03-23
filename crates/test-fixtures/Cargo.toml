@@ -12,15 +12,11 @@ version.workspace = true
 [dependencies]
 # Workspace crates
 inferadb-control-api = { path = "../api" }
-inferadb-control-core = { path = "../core" }
-inferadb-control-types = { path = "../types" }
+inferadb-control-const = { path = "../const" }
 
 # External dependencies
-anyhow = { workspace = true }
-bon = { workspace = true }
 axum = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
 tower = { workspace = true }
 
 [lints]

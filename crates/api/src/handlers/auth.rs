@@ -1,20 +1,25 @@
-//! Ledger-backed authentication handlers (v2).
+//! Authentication session handlers.
 //!
 //! Token refresh, logout, and revoke-all endpoints that delegate to
-//! Ledger's token service. These coexist with the old auth handlers
-//! during migration.
+//! Ledger's token service.
 
 use std::time::Instant;
 
 use axum::{Json, extract::State};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use inferadb_control_const::auth::{ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME};
+use inferadb_control_const::{
+    auth::{ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME},
+    duration::{ACCESS_COOKIE_MAX_AGE_SECONDS, REFRESH_COOKIE_MAX_AGE_SECONDS},
+};
 use inferadb_control_core::SdkResultExt;
 use inferadb_control_types::Error as CoreError;
 use serde::{Deserialize, Serialize};
 use time;
 
-use super::state::{ApiError, AppState};
+use super::{
+    common::require_ledger,
+    state::{ApiError, AppState},
+};
 use crate::middleware::UserClaims;
 
 // ── Request/Response Types ──────────────────────────────────────────────
@@ -48,12 +53,6 @@ pub struct RevokeAllResponse {
 
 // ── Cookie Helpers ──────────────────────────────────────────────────────
 
-/// Maximum age for access token cookie (15 minutes).
-const ACCESS_COOKIE_MAX_AGE_SECS: i64 = 15 * 60;
-
-/// Maximum age for refresh token cookie (30 days).
-const REFRESH_COOKIE_MAX_AGE_SECS: i64 = 30 * 24 * 60 * 60;
-
 /// Sets access and refresh token cookies on the response.
 pub fn set_token_cookies(
     jar: CookieJar,
@@ -66,7 +65,7 @@ pub fn set_token_cookies(
         .and_then(|expires_at| {
             expires_at.duration_since(std::time::SystemTime::now()).ok().map(|d| d.as_secs() as i64)
         })
-        .unwrap_or(ACCESS_COOKIE_MAX_AGE_SECS);
+        .unwrap_or(ACCESS_COOKIE_MAX_AGE_SECONDS);
 
     let access_cookie = Cookie::build((ACCESS_TOKEN_COOKIE_NAME, token_pair.access_token.clone()))
         .path("/")
@@ -82,7 +81,7 @@ pub fn set_token_cookies(
             .http_only(true)
             .secure(true)
             .same_site(SameSite::Lax)
-            .max_age(time::Duration::seconds(REFRESH_COOKIE_MAX_AGE_SECS))
+            .max_age(time::Duration::seconds(REFRESH_COOKIE_MAX_AGE_SECONDS))
             .build();
 
     jar.add(access_cookie).add(refresh_cookie)
@@ -105,10 +104,7 @@ pub async fn refresh(
     jar: CookieJar,
     Json(body): Json<RefreshTokenRequest>,
 ) -> Result<(CookieJar, Json<TokenPairResponse>), ApiError> {
-    let ledger = state
-        .ledger
-        .as_deref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
     // Extract refresh token from body or cookie
     let refresh_token = body
@@ -139,10 +135,7 @@ pub async fn logout(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Json<LogoutResponse>), ApiError> {
-    let ledger = state
-        .ledger
-        .as_deref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
     // Try to revoke the refresh token if present
     if let Some(cookie) = jar.get(REFRESH_TOKEN_COOKIE_NAME) {
@@ -172,10 +165,7 @@ pub async fn revoke_all(
     axum::Extension(claims): axum::Extension<UserClaims>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Json<RevokeAllResponse>), ApiError> {
-    let ledger = state
-        .ledger
-        .as_deref()
-        .ok_or_else(|| CoreError::internal("Ledger client not configured"))?;
+    let ledger = require_ledger(&state)?;
 
     let start = Instant::now();
     let revoked_count = ledger

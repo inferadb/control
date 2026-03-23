@@ -6,12 +6,11 @@
 use std::time::Instant;
 
 use axum::{Extension, Json, extract::State};
-use chrono::{DateTime, Utc};
 use inferadb_control_core::SdkResultExt;
 use inferadb_control_types::Error as CoreError;
 use serde::{Deserialize, Serialize};
 
-use super::common::require_ledger;
+use super::common::{require_ledger, system_time_to_rfc3339, validate_name};
 use crate::{
     handlers::state::{AppState, Result},
     middleware::UserClaims,
@@ -68,7 +67,7 @@ pub async fn get_profile(
             name: user.name,
             status: user.status.to_string(),
             role: user.role.to_string(),
-            created_at: user.created_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
+            created_at: system_time_to_rfc3339(&user.created_at),
         },
     }))
 }
@@ -85,6 +84,7 @@ pub async fn update_profile(
 
     let name =
         payload.name.ok_or_else(|| CoreError::validation("at least one field must be provided"))?;
+    validate_name(&name)?;
 
     let start = Instant::now();
     let user = ledger
@@ -98,7 +98,7 @@ pub async fn update_profile(
             name: user.name,
             status: user.status.to_string(),
             role: user.role.to_string(),
-            created_at: user.created_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
+            created_at: system_time_to_rfc3339(&user.created_at),
         },
     }))
 }
@@ -113,10 +113,9 @@ pub async fn delete_user(
 ) -> Result<Json<DeleteUserResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let slug_str = claims.user_slug.value().to_string();
     let start = Instant::now();
     ledger
-        .delete_user(claims.user_slug, &slug_str)
+        .delete_user(claims.user_slug, claims.user_slug)
         .await
         .map_sdk_err_instrumented("delete_user", start)?;
 

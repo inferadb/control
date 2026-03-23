@@ -78,6 +78,8 @@ pub struct ServicesConfig {
     pub ledger: Option<Arc<inferadb_ledger_sdk::LedgerClient>>,
     pub blinding_key: Option<Arc<inferadb_ledger_types::EmailBlindingKey>>,
     pub webauthn: Option<Arc<webauthn_rs::Webauthn>>,
+    /// Rate limiter backend. Defaults to in-memory when `None`.
+    pub rate_limiter: Option<Arc<inferadb_control_core::AnyRateLimiter>>,
 }
 
 /// Start the Control API HTTP server
@@ -94,6 +96,7 @@ pub async fn serve(
         .maybe_ledger(services.ledger)
         .maybe_blinding_key(services.blinding_key)
         .maybe_webauthn(services.webauthn)
+        .maybe_rate_limiter(services.rate_limiter)
         .build();
 
     // Create router

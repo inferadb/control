@@ -1930,6 +1930,7 @@ dependencies = [
  "clap",
  "inferadb-control-api",
  "inferadb-control-config",
+ "inferadb-control-const",
  "inferadb-control-core",
  "inferadb-control-types",
  "inferadb-ledger-sdk",
@@ -2037,14 +2038,10 @@ dependencies = [
 name = "inferadb-control-test-fixtures"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "axum",
- "bon",
  "inferadb-control-api",
- "inferadb-control-core",
- "inferadb-control-types",
+ "inferadb-control-const",
  "serde_json",
- "tokio",
  "tower",
 ]
 

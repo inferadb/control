@@ -14,7 +14,11 @@ use inferadb_ledger_sdk::EmailVerificationResult;
 use inferadb_ledger_types::Region;
 use serde::{Deserialize, Serialize};
 
-use super::{auth_v2::set_token_cookies, common::require_ledger, state::ApiError};
+use super::{
+    auth::set_token_cookies,
+    common::{require_ledger, validate_email, validate_name},
+    state::ApiError,
+};
 use crate::handlers::AppState;
 
 // ── Request Types ───────────────────────────────────────────────────────
@@ -101,6 +105,7 @@ pub async fn initiate(
     State(state): State<AppState>,
     Json(body): Json<InitiateRequest>,
 ) -> Result<Json<InitiateResponse>, ApiError> {
+    validate_email(&body.email)?;
     let ledger = require_ledger(&state)?;
 
     let region = body.region.unwrap_or_else(default_region);
@@ -190,6 +195,9 @@ pub async fn complete(
     jar: CookieJar,
     Json(body): Json<CompleteRegistrationRequest>,
 ) -> Result<(CookieJar, Json<CompleteRegistrationResponse>), ApiError> {
+    validate_email(&body.email)?;
+    validate_name(&body.name)?;
+    validate_name(&body.organization_name)?;
     let ledger = require_ledger(&state)?;
 
     let region = body.region.unwrap_or_else(default_region);

@@ -8,6 +8,7 @@ use std::time::Instant;
 use axum::{
     Extension, Json,
     extract::{Path, Query, State},
+    http::StatusCode,
 };
 use inferadb_control_core::SdkResultExt;
 use inferadb_ledger_sdk::{TeamMemberRole, TeamSlug};
@@ -151,7 +152,7 @@ pub async fn create_team(
     Extension(claims): Extension<UserClaims>,
     Path(org): Path<u64>,
     Json(payload): Json<CreateTeamRequest>,
-) -> Result<Json<SingleTeamResponse>> {
+) -> Result<(StatusCode, Json<SingleTeamResponse>)> {
     validate_name(&payload.name)?;
     let ledger = require_ledger(&state)?;
 
@@ -161,7 +162,7 @@ pub async fn create_team(
         .await
         .map_sdk_err_instrumented("create_team", start)?;
 
-    Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
+    Ok((StatusCode::CREATED, Json(SingleTeamResponse { team: team_info_to_response(&info) })))
 }
 
 /// GET /v1/organizations/:org/teams
