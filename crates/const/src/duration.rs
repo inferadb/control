@@ -21,8 +21,28 @@ pub const CLIENT_REFRESH_TOKEN_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
 /// Organization invitation expiry in days.
 pub const INVITATION_EXPIRY_DAYS: i64 = 7;
 
+/// Organization invitation TTL in hours, for Ledger SDK calls.
+pub const INVITATION_EXPIRY_HOURS: u32 = (INVITATION_EXPIRY_DAYS * 24) as u32;
+
 /// Email verification token expiry in hours.
 pub const EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS: i64 = 24;
 
 /// Password reset token expiry in hours.
 pub const PASSWORD_RESET_TOKEN_EXPIRY_HOURS: i64 = 1;
+
+/// Maximum age for access token cookie in seconds (15 minutes).
+///
+/// Short-lived access tokens limit the window of exposure if a token leaks.
+/// Clients use the refresh token to obtain new access tokens transparently.
+pub const ACCESS_COOKIE_MAX_AGE_SECONDS: i64 = 15 * 60;
+
+/// Maximum age for refresh token cookie in seconds (30 days).
+///
+/// Long-lived refresh tokens reduce re-authentication friction for web users.
+/// Stored in a scoped HttpOnly cookie restricted to the auth path.
+pub const REFRESH_COOKIE_MAX_AGE_SECONDS: i64 = 30 * 24 * 60 * 60;
+
+/// Health check cache TTL in seconds.
+///
+/// Prevents health probe bursts from cascading to the Ledger backend.
+pub const HEALTH_CACHE_TTL_SECONDS: u64 = 5;

@@ -25,7 +25,7 @@
 
 #![deny(unsafe_code)]
 
-use std::{net::SocketAddr, path::PathBuf};
+use std::{net::SocketAddr, num::NonZeroU8, path::PathBuf};
 
 use bon::Builder;
 use clap::Parser;
@@ -101,7 +101,7 @@ pub enum CliCommand {}
 ///
 /// Sensitive fields (`pem`, `email_password`) use `hide_env_values` to
 /// prevent leaking secrets in `--help` output.
-#[derive(Debug, Clone, Builder, Parser)]
+#[derive(Clone, Builder, Parser)]
 #[command(name = "inferadb-control")]
 #[command(version)]
 #[builder(on(String, into))]
@@ -242,12 +242,50 @@ pub struct Config {
     #[builder(default = "http://localhost:3000".to_string())]
     pub webauthn_origin: String,
 
+    // ── Proxy ─────────────────────────────────────────────────────────
+    /// Number of trusted reverse proxies between the client and this server.
+    /// When set, the client IP is extracted as the Nth-from-right entry in
+    /// `X-Forwarded-For` (rightmost entries are added by trusted infrastructure).
+    /// When unset, `ConnectInfo` (direct TCP peer) is preferred over proxy headers.
+    #[arg(long = "trusted-proxy-depth", env = "INFERADB__CONTROL__TRUSTED_PROXY_DEPTH")]
+    pub trusted_proxy_depth: Option<NonZeroU8>,
+
     // ── Mode Flags ───────────────────────────────────────────────────
     /// Force development mode: uses in-memory storage regardless of --storage.
     /// No environment variable — this must be an explicit CLI choice.
     #[arg(long = "dev-mode")]
     #[builder(default)]
     pub dev_mode: bool,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("listen", &self.listen)
+            .field("log_level", &self.log_level)
+            .field("log_format", &self.log_format)
+            .field("pem", &self.pem.as_ref().map(|_| "[REDACTED]"))
+            .field("key_file", &self.key_file)
+            .field("storage", &self.storage)
+            .field("ledger_endpoint", &self.ledger_endpoint)
+            .field("ledger_client_id", &self.ledger_client_id)
+            .field("ledger_organization", &self.ledger_organization)
+            .field("ledger_vault", &self.ledger_vault)
+            .field("email_blinding_key", &self.email_blinding_key.as_ref().map(|_| "[REDACTED]"))
+            .field("email_host", &self.email_host)
+            .field("email_port", &self.email_port)
+            .field("email_username", &self.email_username)
+            .field("email_password", &self.email_password.as_ref().map(|_| "[REDACTED]"))
+            .field("email_from_address", &self.email_from_address)
+            .field("email_from_name", &self.email_from_name)
+            .field("email_insecure", &self.email_insecure)
+            .field("frontend_url", &self.frontend_url)
+            .field("webauthn_rp_id", &self.webauthn_rp_id)
+            .field("webauthn_origin", &self.webauthn_origin)
+            .field("trusted_proxy_depth", &self.trusted_proxy_depth)
+            .field("dev_mode", &self.dev_mode)
+            .finish()
+    }
 }
 
 fn default_listen() -> SocketAddr {
@@ -278,6 +316,19 @@ impl Config {
                     "--ledger-endpoint must start with http:// or https://, got: {endpoint}"
                 )));
             }
+        }
+
+        // Warn about insecure email with non-localhost host
+        if self.email_insecure
+            && !self.email_host.is_empty()
+            && self.email_host != "localhost"
+            && self.email_host != "127.0.0.1"
+            && self.email_host != "::1"
+        {
+            tracing::warn!(
+                "email_insecure=true with non-localhost host '{}'; TLS verification disabled",
+                self.email_host
+            );
         }
 
         // Validate frontend URL format

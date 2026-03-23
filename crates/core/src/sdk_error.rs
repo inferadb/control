@@ -56,11 +56,11 @@ pub fn sdk_error_to_control(err: SdkError) -> Error {
         },
 
         SdkError::OrganizationMigrating { .. } => {
-            Error::storage("organization is migrating, try again later")
+            Error::unavailable("organization is temporarily unavailable, please retry")
         },
 
         SdkError::UserMigrating { .. } => {
-            Error::storage("user is migrating between regions, try again later")
+            Error::unavailable("account is temporarily unavailable, please retry")
         },
 
         SdkError::Config { message } => Error::internal(format!("SDK config error: {message}")),
@@ -115,7 +115,7 @@ fn rpc_code_to_error(code: Code, message: &str) -> Error {
         },
         Code::Aborted => {
             tracing::error!(error = %message, "Ledger RPC aborted");
-            Error::storage(format!("operation aborted: {message}"))
+            Error::unavailable("operation could not be completed, please retry")
         },
         Code::Internal => {
             tracing::error!(error = %message, "Ledger internal error");

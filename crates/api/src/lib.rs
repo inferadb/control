@@ -78,6 +78,8 @@ pub struct ServicesConfig {
     pub ledger: Option<Arc<inferadb_ledger_sdk::LedgerClient>>,
     pub blinding_key: Option<Arc<inferadb_ledger_types::EmailBlindingKey>>,
     pub webauthn: Option<Arc<webauthn_rs::Webauthn>>,
+    /// Rate limiter backend. Defaults to in-memory when `None`.
+    pub rate_limiter: Option<Arc<inferadb_control_core::AnyRateLimiter>>,
 }
 
 /// Start the Control API HTTP server
@@ -94,6 +96,7 @@ pub async fn serve(
         .maybe_ledger(services.ledger)
         .maybe_blinding_key(services.blinding_key)
         .maybe_webauthn(services.webauthn)
+        .maybe_rate_limiter(services.rate_limiter)
         .build();
 
     // Create router
@@ -105,8 +108,11 @@ pub async fn serve(
     // Log ready status
     startup::log_ready("Control");
 
-    // Serve with graceful shutdown
-    axum::serve(listener, router)
+    // Serve with graceful shutdown.
+    // `into_make_service_with_connect_info` injects `ConnectInfo<SocketAddr>` into
+    // every request, required for IP-based rate limiting in direct-connection mode.
+    let service = router.into_make_service_with_connect_info::<std::net::SocketAddr>();
+    axum::serve(listener, service)
         .with_graceful_shutdown(shutdown_signal())
         .await
         .map_err(|e| anyhow::anyhow!("Server error: {e}"))?;

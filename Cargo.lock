@@ -1930,6 +1930,7 @@ dependencies = [
  "clap",
  "inferadb-control-api",
  "inferadb-control-config",
+ "inferadb-control-const",
  "inferadb-control-core",
  "inferadb-control-types",
  "inferadb-ledger-sdk",
@@ -1962,7 +1963,6 @@ dependencies = [
  "jsonwebtoken",
  "metrics-exporter-prometheus",
  "moka",
- "pem",
  "proptest",
  "rand 0.10.0",
  "serde",
@@ -2016,7 +2016,6 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "parking_lot",
  "proptest",
  "rand 0.10.0",
  "rsntp",
@@ -2039,14 +2038,10 @@ dependencies = [
 name = "inferadb-control-test-fixtures"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "axum",
- "bon",
  "inferadb-control-api",
- "inferadb-control-core",
- "inferadb-control-types",
+ "inferadb-control-const",
  "serde_json",
- "tokio",
  "tower",
 ]
 

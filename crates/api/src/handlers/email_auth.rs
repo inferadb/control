@@ -14,7 +14,11 @@ use inferadb_ledger_sdk::EmailVerificationResult;
 use inferadb_ledger_types::Region;
 use serde::{Deserialize, Serialize};
 
-use super::{auth::ApiError, auth_v2::set_token_cookies, common::require_ledger};
+use super::{
+    auth::set_token_cookies,
+    common::{require_ledger, validate_email, validate_name},
+    state::ApiError,
+};
 use crate::handlers::AppState;
 
 // ── Request Types ───────────────────────────────────────────────────────
@@ -101,6 +105,7 @@ pub async fn initiate(
     State(state): State<AppState>,
     Json(body): Json<InitiateRequest>,
 ) -> Result<Json<InitiateResponse>, ApiError> {
+    validate_email(&body.email)?;
     let ledger = require_ledger(&state)?;
 
     let region = body.region.unwrap_or_else(default_region);
@@ -125,11 +130,13 @@ pub async fn initiate(
             let body_text =
                 format!("Your verification code is: {code}\n\nThis code expires in 10 minutes.");
             if let Err(e) = svc.send_email(&email, subject, &body_html, &body_text).await {
-                tracing::warn!(error = %e, email = %email, "Failed to send verification email");
+                tracing::warn!(error = %e, "Failed to send verification email");
             }
         });
     } else {
-        tracing::warn!(email = %body.email, "Email service not configured — verification code generated but cannot be delivered");
+        tracing::warn!(
+            "Email service not configured — verification code generated but cannot be delivered"
+        );
     }
 
     Ok(Json(InitiateResponse { message: "verification code sent" }))
@@ -188,6 +195,9 @@ pub async fn complete(
     jar: CookieJar,
     Json(body): Json<CompleteRegistrationRequest>,
 ) -> Result<(CookieJar, Json<CompleteRegistrationResponse>), ApiError> {
+    validate_email(&body.email)?;
+    validate_name(&body.name)?;
+    validate_name(&body.organization_name)?;
     let ledger = require_ledger(&state)?;
 
     let region = body.region.unwrap_or_else(default_region);

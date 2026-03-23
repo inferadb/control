@@ -1,7 +1,7 @@
 //! Token management handlers.
 //!
 //! Delegates vault token operations to the Ledger SDK.
-//! User session tokens are managed in `auth_v2.rs` and `session.rs`.
+//! User session tokens are managed in `auth.rs` and `session.rs`.
 
 use std::time::Instant;
 
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use super::common::require_ledger;
 use crate::{
-    handlers::auth::{AppState, Result},
+    handlers::state::{AppState, Result},
     middleware::UserClaims,
 };
 
@@ -114,15 +114,13 @@ fn token_pair_to_response(pair: inferadb_ledger_sdk::token::TokenPair) -> TokenP
 fn validate_assertion_request(req: &ClientAssertionRequest) -> std::result::Result<(), CoreError> {
     if req.grant_type != EXPECTED_GRANT_TYPE {
         return Err(CoreError::validation(format!(
-            "unsupported grant_type '{}': expected '{EXPECTED_GRANT_TYPE}'",
-            req.grant_type
+            "unsupported grant_type: expected '{EXPECTED_GRANT_TYPE}'"
         )));
     }
 
     if req.client_assertion_type != EXPECTED_ASSERTION_TYPE {
         return Err(CoreError::validation(format!(
-            "unsupported client_assertion_type '{}': expected '{EXPECTED_ASSERTION_TYPE}'",
-            req.client_assertion_type
+            "unsupported client_assertion_type: expected '{EXPECTED_ASSERTION_TYPE}'"
         )));
     }
 
@@ -214,9 +212,8 @@ pub async fn client_assertion_authenticate(
     let ledger = require_ledger(&state)?;
     let organization = OrganizationSlug::new(req.organization);
 
-    let vault_id: u64 = req.vault.parse().map_err(|_| {
-        CoreError::validation(format!("vault must be a numeric slug, got '{}'", req.vault))
-    })?;
+    let vault_id: u64 =
+        req.vault.parse().map_err(|_| CoreError::validation("vault must be a numeric slug"))?;
     let vault_slug = VaultSlug::new(vault_id);
 
     let scopes = build_scopes(&req);

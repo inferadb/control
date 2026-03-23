@@ -8,7 +8,6 @@
 //! mapping. The remaining modules handle local concerns: email delivery,
 //! ID generation, logging, and rate limiting.
 
-pub mod auth;
 pub mod clock;
 pub mod crypto;
 pub mod email;
@@ -33,8 +32,8 @@ pub use email::{
 pub use email_hmac::{EmailBlindingKey, compute_email_hmac, normalize_email, parse_blinding_key};
 pub use id::IdGenerator;
 pub use ratelimit::{
-    InMemoryRateLimiter, LedgerRateLimiter, RateLimit, RateLimitResponse, RateLimitResult,
-    RateLimiter, categories, in_memory_rate_limiter, limits,
+    AnyRateLimiter, InMemoryRateLimiter, LedgerRateLimiter, RateLimit, RateLimitResponse,
+    RateLimitResult, RateLimiter, categories, in_memory_rate_limiter, ledger_rate_limiter, limits,
 };
 pub use ratelimit_ledger::LedgerStorageBackend;
 pub use sdk_error::{SdkResultExt, sdk_error_to_control};

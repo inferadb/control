@@ -4,7 +4,8 @@ use anyhow::Result;
 use clap::Parser;
 use inferadb_control_config::{Cli, LogFormat, StorageBackend};
 use inferadb_control_core::{
-    EmailService, IdGenerator, SmtpEmailService, logging, parse_blinding_key, startup,
+    AnyRateLimiter, EmailService, IdGenerator, SmtpEmailService, ledger_rate_limiter, logging,
+    parse_blinding_key, startup,
 };
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -137,6 +138,22 @@ async fn main() -> Result<()> {
         None
     };
 
+    // Initialize rate limiter — Ledger-backed when a Ledger client is available,
+    // in-memory otherwise (dev-mode / memory storage).
+    let rate_limiter = if let Some(ref ledger_client) = ledger {
+        #[allow(clippy::expect_used)]
+        let org_id = config.ledger_organization.expect("validated");
+        let caller =
+            inferadb_ledger_sdk::UserSlug::new(inferadb_control_const::auth::SYSTEM_CALLER_SLUG);
+        let organization = inferadb_ledger_sdk::OrganizationSlug::new(org_id);
+        let limiter = ledger_rate_limiter(Arc::clone(ledger_client), caller, organization);
+        startup::log_initialized("Rate limiter (Ledger-backed)");
+        Arc::new(AnyRateLimiter::Ledger(limiter))
+    } else {
+        startup::log_initialized("Rate limiter (in-memory)");
+        Arc::new(AnyRateLimiter::InMemory(inferadb_control_core::in_memory_rate_limiter()))
+    };
+
     // Initialize WebAuthn
     let webauthn = inferadb_control_core::webauthn::build_webauthn(
         &config.webauthn_rp_id,
@@ -159,6 +176,7 @@ async fn main() -> Result<()> {
             ledger,
             blinding_key,
             webauthn: Some(webauthn),
+            rate_limiter: Some(rate_limiter),
         },
     )
     .await?;

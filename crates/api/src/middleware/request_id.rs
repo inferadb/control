@@ -33,6 +33,9 @@ pub async fn request_id_middleware(mut req: Request, next: Next) -> Response {
         .headers()
         .get(&X_REQUEST_ID)
         .and_then(|v| v.to_str().ok())
+        .filter(|s| {
+            s.len() <= 64 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        })
         .map(|s| s.to_string())
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 

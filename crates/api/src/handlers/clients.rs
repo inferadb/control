@@ -17,9 +17,12 @@ use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::{AppSlug, ClientAssertionId, OrganizationSlug};
 use serde::{Deserialize, Serialize};
 
-use super::common::{MessageResponse, require_ledger};
+use super::common::{
+    MessageResponse, require_ledger, safe_id_cast, system_time_to_rfc3339, validate_description,
+    validate_name,
+};
 use crate::{
-    handlers::auth::{AppState, Result},
+    handlers::state::{AppState, Result},
     middleware::UserClaims,
 };
 
@@ -119,10 +122,6 @@ pub struct RotateSecretResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-fn system_time_to_rfc3339(t: &Option<std::time::SystemTime>) -> Option<String> {
-    t.map(|st| DateTime::<Utc>::from(st).to_rfc3339())
-}
-
 fn app_info_to_response(info: &inferadb_ledger_sdk::AppInfo) -> ClientResponse {
     ClientResponse {
         slug: info.slug.value(),
@@ -142,14 +141,14 @@ fn app_info_to_response(info: &inferadb_ledger_sdk::AppInfo) -> ClientResponse {
 
 fn assertion_to_response(
     info: &inferadb_ledger_sdk::AppClientAssertionInfo,
-) -> CertificateResponse {
-    CertificateResponse {
-        slug: u64::try_from(info.id.value()).unwrap_or(0),
+) -> std::result::Result<CertificateResponse, CoreError> {
+    Ok(CertificateResponse {
+        slug: safe_id_cast(info.id.value())?,
         name: info.name.clone(),
         enabled: info.enabled,
         expires_at: system_time_to_rfc3339(&info.expires_at),
         created_at: system_time_to_rfc3339(&info.created_at),
-    }
+    })
 }
 
 // ── Client Handlers ──────────────────────────────────────────────────
@@ -163,6 +162,8 @@ pub async fn create_client(
     Path(org): Path<u64>,
     Json(payload): Json<CreateClientRequest>,
 ) -> Result<(StatusCode, Json<SingleClientResponse>)> {
+    validate_name(&payload.name)?;
+    validate_description(&payload.description)?;
     let ledger = require_ledger(&state)?;
 
     let start = Instant::now();
@@ -226,6 +227,10 @@ pub async fn update_client(
     Path((org, client)): Path<(u64, u64)>,
     Json(payload): Json<UpdateClientRequest>,
 ) -> Result<Json<SingleClientResponse>> {
+    if let Some(ref name) = payload.name {
+        validate_name(name)?;
+    }
+    validate_description(&payload.description)?;
     let ledger = require_ledger(&state)?;
 
     let start = Instant::now();
@@ -297,7 +302,7 @@ pub async fn create_certificate(
     Ok((
         StatusCode::CREATED,
         Json(CreateCertificateResponse {
-            certificate: assertion_to_response(&result.assertion),
+            certificate: assertion_to_response(&result.assertion)?,
             private_key_pem: result.private_key_pem,
         }),
     ))
@@ -324,7 +329,10 @@ pub async fn list_certificates(
         .map_sdk_err_instrumented("list_app_client_assertions", start)?;
 
     Ok(Json(ListCertificatesResponse {
-        certificates: assertions.iter().map(assertion_to_response).collect(),
+        certificates: assertions
+            .iter()
+            .map(assertion_to_response)
+            .collect::<std::result::Result<Vec<_>, _>>()?,
     }))
 }
 
@@ -350,10 +358,10 @@ pub async fn get_certificate(
 
     let assertion = assertions
         .iter()
-        .find(|a| u64::try_from(a.id.value()).unwrap_or(0) == cert_id)
+        .find(|a| safe_id_cast(a.id.value()).ok() == Some(cert_id))
         .ok_or_else(|| CoreError::not_found("Certificate not found"))?;
 
-    Ok(Json(assertion_to_response(assertion)))
+    Ok(Json(assertion_to_response(assertion)?))
 }
 
 /// DELETE /v1/organizations/:org/clients/:client/certificates/:cert
@@ -372,7 +380,10 @@ pub async fn revoke_certificate(
             OrganizationSlug::new(org),
             claims.user_slug,
             AppSlug::new(client),
-            ClientAssertionId::new(i64::try_from(cert_id).unwrap_or(0)),
+            ClientAssertionId::new(
+                i64::try_from(cert_id)
+                    .map_err(|_| CoreError::not_found("Certificate not found"))?,
+            ),
         )
         .await
         .map_sdk_err_instrumented("delete_app_client_assertion", start)?;

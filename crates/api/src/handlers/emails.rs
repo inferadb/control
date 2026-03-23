@@ -16,9 +16,9 @@ use inferadb_ledger_sdk::UserEmailInfo;
 use inferadb_ledger_types::UserEmailId;
 use serde::{Deserialize, Serialize};
 
-use super::common::require_ledger;
+use super::common::{require_ledger, safe_id_cast};
 use crate::{
-    handlers::auth::{AppState, Result},
+    handlers::state::{AppState, Result},
     middleware::UserClaims,
 };
 
@@ -74,14 +74,16 @@ pub struct VerifyEmailResponse {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-fn map_email_info(info: &UserEmailInfo) -> EmailInfoResponse {
-    EmailInfoResponse {
-        slug: u64::try_from(info.id.value()).unwrap_or(0),
+fn map_email_info(
+    info: &UserEmailInfo,
+) -> std::result::Result<EmailInfoResponse, inferadb_control_types::Error> {
+    Ok(EmailInfoResponse {
+        slug: safe_id_cast(info.id.value())?,
         email: info.email.clone(),
         verified: info.verified,
         created_at: info.created_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
         verified_at: info.verified_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
-    }
+    })
 }
 
 fn require_blinding_key(
@@ -119,7 +121,7 @@ pub async fn add_email(
         .map_sdk_err_instrumented("create_user_email", start)?;
 
     Ok(Json(AddEmailResponse {
-        email: map_email_info(&info),
+        email: map_email_info(&info)?,
         message: "Email added. Please check your inbox for a verification link.".to_string(),
     }))
 }
@@ -135,11 +137,13 @@ pub async fn list_emails(
 
     let start = Instant::now();
     let emails = ledger
-        .search_user_email(Some(claims.user_slug), None)
+        .search_user_email(claims.user_slug, Some(claims.user_slug), None)
         .await
         .map_sdk_err_instrumented("list_user_emails", start)?;
 
-    Ok(Json(ListEmailsResponse { emails: emails.iter().map(map_email_info).collect() }))
+    Ok(Json(ListEmailsResponse {
+        emails: emails.iter().map(map_email_info).collect::<std::result::Result<Vec<_>, _>>()?,
+    }))
 }
 
 /// Delete an email address.

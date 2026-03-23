@@ -1,7 +1,7 @@
 //! Local JWT validation middleware using cached JWKS public keys.
 //!
 //! Validates access tokens locally using Ed25519 public keys fetched from
-//! the Ledger SDK. Keys are cached with a 60-second TTL via [`moka`].
+//! the Ledger SDK. Keys are cached with a 5-minute TTL via [`moka`].
 //! This avoids a network round-trip to Ledger for read-only operations.
 
 use std::sync::Arc;
@@ -19,12 +19,13 @@ use inferadb_ledger_types::UserSlug;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 
 use super::jwt::{UserClaims, extract_access_token};
-use crate::handlers::auth::{ApiError, AppState};
+use crate::handlers::state::{ApiError, AppState};
 
-/// Cached JWKS keys keyed by `kid`, with a 60-second TTL.
+/// Cached JWKS keys keyed by `kid`, with a 5-minute TTL.
 ///
 /// Wraps a [`moka::future::Cache`] that maps key IDs to [`DecodingKey`]s.
-/// Keys are refreshed from the Ledger SDK on cache miss.
+/// Keys are refreshed from the Ledger SDK on cache miss using `try_get_with()`
+/// for built-in deduplication (only one concurrent caller fetches from Ledger).
 #[derive(Clone)]
 pub struct JwksCache {
     inner: moka::future::Cache<String, Arc<DecodingKey>>,
@@ -43,43 +44,57 @@ impl std::fmt::Debug for JwksCache {
 }
 
 impl JwksCache {
-    /// Creates a new JWKS cache with a 60-second TTL.
+    /// Creates a new JWKS cache with a 5-minute TTL.
+    ///
+    /// Key rotation is infrequent (monthly/quarterly), so a 5-minute TTL
+    /// balances freshness with reduced Ledger round-trips.
     #[must_use]
     pub fn new() -> Self {
         Self {
             inner: moka::future::Cache::builder()
-                .time_to_live(std::time::Duration::from_secs(60))
+                .time_to_live(std::time::Duration::from_secs(300))
                 .max_capacity(64)
                 .build(),
         }
     }
 
-    /// Looks up a decoding key by kid.
-    async fn get(&self, kid: &str) -> Option<Arc<DecodingKey>> {
-        self.inner.get(kid).await
-    }
+    /// Looks up a decoding key by kid, fetching from Ledger on cache miss.
+    ///
+    /// Uses `try_get_with()` for built-in deduplication: when multiple requests
+    /// hit a cache miss for the same `kid`, only one fetches from Ledger while
+    /// the others await the result. This prevents thundering herd on key rotation.
+    async fn get_or_fetch(
+        &self,
+        kid: &str,
+        ledger: &LedgerClient,
+    ) -> Result<Arc<DecodingKey>, CoreError> {
+        let ledger_clone = ledger.clone();
+        let kid_owned = kid.to_string();
 
-    /// Inserts a decoding key for a given kid.
-    async fn insert(&self, kid: String, key: Arc<DecodingKey>) {
-        self.inner.insert(kid, key).await;
+        self.inner
+            .try_get_with(
+                kid_owned.clone(),
+                async move { fetch_key(&ledger_clone, &kid_owned).await },
+            )
+            .await
+            .map_err(|e| CoreError::auth(format!("failed to fetch signing key: {e}")))
     }
 }
 
-/// Fetches active public keys from Ledger and populates the cache.
-async fn refresh_keys(ledger: &LedgerClient, cache: &JwksCache) -> Result<(), CoreError> {
-    let keys = ledger.get_public_keys(None).await.map_err(|e| {
+/// Fetches a specific key by kid from Ledger's public key set.
+async fn fetch_key(ledger: &LedgerClient, target_kid: &str) -> Result<Arc<DecodingKey>, CoreError> {
+    let system_caller = UserSlug::new(inferadb_control_const::auth::SYSTEM_CALLER_SLUG);
+    let keys = ledger.get_public_keys(system_caller, None).await.map_err(|e| {
         CoreError::internal(format!("failed to fetch public keys from Ledger: {e}"))
     })?;
 
     for key_info in keys {
-        if key_info.status != "active" {
-            continue;
+        if key_info.status == "active" && key_info.kid == target_kid {
+            return Ok(Arc::new(DecodingKey::from_ed_der(&key_info.public_key)));
         }
-        let decoding_key = DecodingKey::from_ed_der(&key_info.public_key);
-        cache.insert(key_info.kid, Arc::new(decoding_key)).await;
     }
 
-    Ok(())
+    Err(CoreError::auth("signing key not found"))
 }
 
 /// JWT claims structure matching the Ledger's `UserSessionClaims`.
@@ -134,8 +149,8 @@ fn extract_kid_from_header(token: &str) -> Result<String, CoreError> {
 
 /// Validates a JWT locally using cached public keys.
 ///
-/// On cache miss for the given `kid`, refreshes the cache from Ledger
-/// and retries the lookup once.
+/// Uses `try_get_with()` for deduplication on cache miss — only one concurrent
+/// caller fetches from Ledger while others await the result.
 async fn validate_jwt_locally(
     token: &str,
     cache: &JwksCache,
@@ -143,15 +158,7 @@ async fn validate_jwt_locally(
 ) -> Result<UserClaims, CoreError> {
     let kid = extract_kid_from_header(token)?;
 
-    // First try: look up key in cache.
-    let decoding_key = match cache.get(&kid).await {
-        Some(key) => key,
-        None => {
-            // Cache miss: refresh keys from Ledger and retry.
-            refresh_keys(ledger, cache).await?;
-            cache.get(&kid).await.ok_or_else(|| CoreError::auth("signing key not found"))?
-        },
-    };
+    let decoding_key = cache.get_or_fetch(&kid, ledger).await?;
 
     let mut validation = Validation::new(Algorithm::EdDSA);
     validation.set_audience(&[REQUIRED_AUDIENCE]);

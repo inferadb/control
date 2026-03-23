@@ -8,10 +8,15 @@
 //!
 //! Health checks probe the Ledger SDK client when configured, falling back
 //! to a simple "alive" check when running without a Ledger connection.
+//! Results are cached for 5 seconds to protect Ledger from probe bursts.
 
-use std::time::SystemTime;
+use std::{
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+    time::SystemTime,
+};
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use inferadb_control_const::duration::HEALTH_CACHE_TTL_SECONDS;
 use serde::{Deserialize, Serialize};
 
 use crate::handlers::AppState;
@@ -38,13 +43,51 @@ pub struct HealthResponse {
     pub details: Option<String>,
 }
 
-/// Checks Ledger SDK health, returning true if healthy or if no Ledger is configured.
+/// Cached health check state. Prevents probe bursts from cascading to Ledger.
+///
+/// Stored in `AppState` for test isolation. Uses lock-free atomics so concurrent
+/// probes don't block each other. The cache is best-effort: concurrent callers
+/// may occasionally duplicate a health check, which is acceptable for probes.
+pub struct HealthCache {
+    last_check_epoch_secs: AtomicU64,
+    last_result: AtomicBool,
+}
+
+impl Default for HealthCache {
+    fn default() -> Self {
+        Self { last_check_epoch_secs: AtomicU64::new(0), last_result: AtomicBool::new(false) }
+    }
+}
+
+impl std::fmt::Debug for HealthCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HealthCache")
+            .field("last_check_epoch_secs", &self.last_check_epoch_secs.load(Ordering::Relaxed))
+            .field("last_result", &self.last_result.load(Ordering::Relaxed))
+            .finish()
+    }
+}
+
+/// Checks Ledger SDK health with 5-second caching.
 async fn check_ledger_health(state: &AppState) -> bool {
     let Some(ref ledger) = state.ledger else {
         // No Ledger configured (dev-mode) — consider healthy
         return true;
     };
-    ledger.health_check().await.unwrap_or(false)
+
+    let now =
+        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
+
+    let last_check = state.health_cache.last_check_epoch_secs.load(Ordering::Acquire);
+    if now.saturating_sub(last_check) < HEALTH_CACHE_TTL_SECONDS {
+        return state.health_cache.last_result.load(Ordering::Acquire);
+    }
+
+    let result = ledger.health_check().await.unwrap_or(false);
+    // Store result before epoch so readers that see the new epoch also see the new result.
+    state.health_cache.last_result.store(result, Ordering::Release);
+    state.health_cache.last_check_epoch_secs.store(now, Ordering::Release);
+    result
 }
 
 /// Liveness probe handler (`/livez`).

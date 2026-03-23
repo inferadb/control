@@ -8,9 +8,10 @@ use std::time::Instant;
 use axum::{
     Extension, Json,
     extract::{Path, Query, State},
+    http::StatusCode,
 };
+use inferadb_control_const::duration::{INVITATION_EXPIRY_DAYS, INVITATION_EXPIRY_HOURS};
 use inferadb_control_core::SdkResultExt;
-use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::{
     InvitationStatus, InviteSlug, OrganizationMemberRole, OrganizationSlug, OrganizationTier,
     Region, UserSlug,
@@ -19,10 +20,10 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     CursorPaginationQuery, MessageResponse, encode_page_token, require_ledger,
-    system_time_to_rfc3339,
+    system_time_to_rfc3339, validate_email, validate_name, verify_org_membership_from_claims,
 };
 use crate::{
-    handlers::auth::{AppState, Result},
+    handlers::state::{AppState, Result},
     middleware::UserClaims,
 };
 
@@ -40,17 +41,34 @@ pub struct UpdateOrganizationRequest {
     pub name: Option<String>,
 }
 
+/// Organization member role (deserialized from request bodies).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OrganizationRoleInput {
+    Admin,
+    Member,
+}
+
+impl OrganizationRoleInput {
+    fn to_sdk_role(&self) -> OrganizationMemberRole {
+        match self {
+            Self::Admin => OrganizationMemberRole::Admin,
+            Self::Member => OrganizationMemberRole::Member,
+        }
+    }
+}
+
 /// Request body for updating a member's role.
 #[derive(Debug, Deserialize)]
 pub struct UpdateMemberRoleRequest {
-    pub role: String,
+    pub role: OrganizationRoleInput,
 }
 
 /// Request body for creating an invitation.
 #[derive(Debug, Deserialize)]
 pub struct CreateInvitationRequest {
     pub email: String,
-    pub role: Option<String>,
+    pub role: Option<OrganizationRoleInput>,
 }
 
 // ── Response Types ────────────────────────────────────────────────────
@@ -159,14 +177,6 @@ pub struct ListReceivedInvitationsResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-fn parse_member_role(s: &str) -> std::result::Result<OrganizationMemberRole, CoreError> {
-    match s.to_lowercase().as_str() {
-        "admin" => Ok(OrganizationMemberRole::Admin),
-        "member" => Ok(OrganizationMemberRole::Member),
-        _ => Err(CoreError::validation(format!("Invalid role '{s}'. Must be 'admin' or 'member'"))),
-    }
-}
-
 fn org_info_to_response(info: &inferadb_ledger_sdk::OrganizationInfo) -> OrganizationResponse {
     OrganizationResponse {
         slug: info.slug.value(),
@@ -223,7 +233,8 @@ pub async fn create_organization(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
     Json(payload): Json<CreateOrganizationRequest>,
-) -> Result<Json<SingleOrganizationResponse>> {
+) -> Result<(StatusCode, Json<SingleOrganizationResponse>)> {
+    validate_name(&payload.name)?;
     let ledger = require_ledger(&state)?;
 
     let start = Instant::now();
@@ -237,7 +248,10 @@ pub async fn create_organization(
         .await
         .map_sdk_err_instrumented("create_organization", start)?;
 
-    Ok(Json(SingleOrganizationResponse { organization: org_info_to_response(&info) }))
+    Ok((
+        StatusCode::CREATED,
+        Json(SingleOrganizationResponse { organization: org_info_to_response(&info) }),
+    ))
 }
 
 /// GET /v1/organizations
@@ -294,6 +308,9 @@ pub async fn update_organization(
     Path(org): Path<u64>,
     Json(payload): Json<UpdateOrganizationRequest>,
 ) -> Result<Json<SingleOrganizationResponse>> {
+    if let Some(ref name) = payload.name {
+        validate_name(name)?;
+    }
     let ledger = require_ledger(&state)?;
 
     let start = Instant::now();
@@ -369,7 +386,7 @@ pub async fn update_member_role(
 ) -> Result<Json<UpdateMemberRoleResponse>> {
     let ledger = require_ledger(&state)?;
 
-    let role = parse_member_role(&payload.role)?;
+    let role = payload.role.to_sdk_role();
 
     let start = Instant::now();
     let updated = ledger
@@ -405,6 +422,9 @@ pub async fn remove_member(
         .await
         .map_sdk_err_instrumented("remove_member", start)?;
 
+    // Invalidate cached membership so vault/schema access is revoked immediately.
+    state.org_membership_cache.invalidate(member, org).await;
+
     Ok(Json(MessageResponse { message: "Member removed successfully".to_string() }))
 }
 
@@ -425,13 +445,13 @@ pub async fn leave_organization(
         .await
         .map_sdk_err_instrumented("remove_member", start)?;
 
+    // Invalidate cached membership so vault/schema access is revoked immediately.
+    state.org_membership_cache.invalidate(claims.user_slug.value(), org).await;
+
     Ok(Json(MessageResponse { message: "You have left the organization".to_string() }))
 }
 
 // ── Invitation Handlers ───────────────────────────────────────────────
-
-/// Default invitation TTL in hours (7 days).
-const DEFAULT_INVITE_TTL_HOURS: u32 = 168;
 
 /// POST /v1/organizations/:org/invitations
 ///
@@ -443,13 +463,15 @@ pub async fn create_invitation(
     Extension(claims): Extension<UserClaims>,
     Path(org): Path<u64>,
     Json(payload): Json<CreateInvitationRequest>,
-) -> Result<Json<InvitationResponse>> {
+) -> Result<(StatusCode, Json<InvitationResponse>)> {
+    validate_email(&payload.email)?;
     let ledger = require_ledger(&state)?;
 
-    let role = match payload.role.as_deref() {
-        Some(r) => parse_member_role(r)?,
-        None => OrganizationMemberRole::Member,
-    };
+    let role = payload
+        .role
+        .as_ref()
+        .map(OrganizationRoleInput::to_sdk_role)
+        .unwrap_or(OrganizationMemberRole::Member);
 
     let start = Instant::now();
     let created = ledger
@@ -458,7 +480,7 @@ pub async fn create_invitation(
             claims.user_slug,
             &payload.email,
             role,
-            DEFAULT_INVITE_TTL_HOURS,
+            INVITATION_EXPIRY_HOURS,
             None,
         )
         .await
@@ -466,19 +488,16 @@ pub async fn create_invitation(
 
     // Attempt to send invitation email if the email service is configured.
     if let Some(email_svc) = &state.email_service {
-        // Fetch org name for the email template.
+        // Fetch org name and inviter name concurrently for the email template.
         let start = Instant::now();
-        let org_info = ledger
-            .get_organization(OrganizationSlug::new(org), claims.user_slug)
-            .await
-            .map_sdk_err_instrumented("get_organization", start);
+        let (org_result, inviter_result) = tokio::join!(
+            ledger.get_organization(OrganizationSlug::new(org), claims.user_slug),
+            ledger.get_user(claims.user_slug),
+        );
+        let org_info = org_result.map_sdk_err_instrumented("get_organization", start);
+        let inviter_info = inviter_result.map_sdk_err_instrumented("get_user", start);
 
         let org_name = org_info.as_ref().map(|o| o.name.as_str()).unwrap_or("the organization");
-
-        // Fetch inviter name for the email template.
-        let start = Instant::now();
-        let inviter_info =
-            ledger.get_user(claims.user_slug).await.map_sdk_err_instrumented("get_user", start);
 
         let inviter_name =
             inviter_info.as_ref().map(|u| u.name.as_str()).unwrap_or("A team member");
@@ -493,7 +512,7 @@ pub async fn create_invitation(
             role: role.to_string(),
             invitation_link: invite_link,
             invitation_token: created.token.clone(),
-            expires_in: format!("{} days", DEFAULT_INVITE_TTL_HOURS / 24),
+            expires_in: format!("{INVITATION_EXPIRY_DAYS} days"),
         };
 
         use inferadb_control_core::EmailTemplate;
@@ -507,17 +526,20 @@ pub async fn create_invitation(
             .await;
     }
 
-    Ok(Json(InvitationResponse {
-        slug: created.slug.value(),
-        organization: org,
-        inviter: claims.user_slug.value(),
-        invitee_email: payload.email,
-        role: role.to_string(),
-        status: created.status.to_string(),
-        created_at: system_time_to_rfc3339(&created.created_at),
-        expires_at: system_time_to_rfc3339(&created.expires_at),
-        token: None,
-    }))
+    Ok((
+        StatusCode::CREATED,
+        Json(InvitationResponse {
+            slug: created.slug.value(),
+            organization: org,
+            inviter: claims.user_slug.value(),
+            invitee_email: payload.email,
+            role: role.to_string(),
+            status: created.status.to_string(),
+            created_at: system_time_to_rfc3339(&created.created_at),
+            expires_at: system_time_to_rfc3339(&created.expires_at),
+            token: None,
+        }),
+    ))
 }
 
 /// GET /v1/organizations/:org/invitations
@@ -551,13 +573,16 @@ pub async fn list_invitations(
 
 /// DELETE /v1/organizations/:org/invitations/:invite
 ///
-/// Revokes a pending invitation. Ledger enforces admin/owner permission.
+/// Revokes a pending invitation. Verifies org membership before revoking
+/// to ensure the invitation belongs to the specified organization.
 pub async fn delete_invitation(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
-    Path((_org, invite)): Path<(u64, u64)>,
+    Path((org, invite)): Path<(u64, u64)>,
 ) -> Result<Json<MessageResponse>> {
     let ledger = require_ledger(&state)?;
+
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let start = Instant::now();
     ledger

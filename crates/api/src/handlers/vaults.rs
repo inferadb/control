@@ -12,15 +12,28 @@ use axum::{
     http::StatusCode,
 };
 use inferadb_control_core::SdkResultExt;
-use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::{OrganizationSlug, VaultSlug};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use super::common::{CursorPaginationQuery, MessageResponse, require_ledger};
+use super::common::{
+    CursorPaginationQuery, MessageResponse, encode_page_token, require_ledger,
+    verify_org_membership_from_claims,
+};
 use crate::{
-    handlers::auth::{AppState, Result},
+    handlers::state::{AppState, Result},
     middleware::UserClaims,
 };
+
+// ── Request Types ────────────────────────────────────────────────────
+
+/// Request body for updating a vault.
+///
+/// `retention_policy` is accepted but not yet wired to the Ledger proto type.
+/// Providing it returns a validation error until the mapping is implemented.
+#[derive(Debug, Deserialize)]
+pub struct UpdateVaultRequest {
+    pub retention_policy: Option<String>,
+}
 
 // ── Response Types ────────────────────────────────────────────────────
 
@@ -77,16 +90,13 @@ pub async fn create_vault(
     let ledger = require_ledger(&state)?;
     let organization = OrganizationSlug::new(org);
 
-    // Verify the caller is a member of this organization.
-    let start = Instant::now();
-    ledger
-        .get_organization(organization, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let start = Instant::now();
-    let info =
-        ledger.create_vault(organization).await.map_sdk_err_instrumented("create_vault", start)?;
+    let info = ledger
+        .create_vault(claims.user_slug, organization)
+        .await
+        .map_sdk_err_instrumented("create_vault", start)?;
 
     Ok((StatusCode::CREATED, Json(SingleVaultResponse { vault: vault_info_to_response(info) })))
 }
@@ -105,16 +115,12 @@ pub async fn list_vaults(
     let ledger = require_ledger(&state)?;
     let org_slug = OrganizationSlug::new(org);
 
-    // Verify the caller is a member of this organization.
-    let start = Instant::now();
-    ledger
-        .get_organization(org_slug, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let start = Instant::now();
     let (vaults, next_token) = ledger
         .list_vaults(
+            claims.user_slug,
             pagination.validated_page_size(),
             pagination.decoded_page_token(),
             Some(org_slug),
@@ -122,14 +128,9 @@ pub async fn list_vaults(
         .await
         .map_sdk_err_instrumented("list_vaults", start)?;
 
-    let next_page_token = next_token.map(|t| {
-        use base64::Engine;
-        base64::engine::general_purpose::STANDARD.encode(t)
-    });
-
     Ok(Json(ListVaultsResponse {
         vaults: vaults.into_iter().map(vault_info_to_response).collect(),
-        next_page_token,
+        next_page_token: encode_page_token(&next_token),
     }))
 }
 
@@ -145,16 +146,11 @@ pub async fn get_vault(
     let organization = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
 
-    // Verify the caller is a member of this organization.
-    let start = Instant::now();
-    ledger
-        .get_organization(organization, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let start = Instant::now();
     let info = ledger
-        .get_vault(organization, vault_slug)
+        .get_vault(claims.user_slug, organization, vault_slug)
         .await
         .map_sdk_err_instrumented("get_vault", start)?;
 
@@ -168,21 +164,23 @@ pub async fn update_vault(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
     Path((org, vault)): Path<(u64, u64)>,
+    Json(body): Json<UpdateVaultRequest>,
 ) -> Result<Json<MessageResponse>> {
+    if body.retention_policy.is_some() {
+        return Err(inferadb_control_types::Error::validation(
+            "retention_policy updates are not yet supported",
+        )
+        .into());
+    }
     let ledger = require_ledger(&state)?;
     let organization = OrganizationSlug::new(org);
     let vault_slug = VaultSlug::new(vault);
 
-    // Verify the caller is a member of this organization.
-    let start = Instant::now();
-    ledger
-        .get_organization(organization, claims.user_slug)
-        .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
     let start = Instant::now();
     ledger
-        .update_vault(organization, vault_slug, None)
+        .update_vault(claims.user_slug, organization, vault_slug, None)
         .await
         .map_sdk_err_instrumented("update_vault", start)?;
 
@@ -192,22 +190,22 @@ pub async fn update_vault(
 /// Delete a vault.
 ///
 /// DELETE /control/v1/organizations/{org}/vaults/{vault}
-///
-/// Vault deletion is not yet supported by the Ledger SDK.
 pub async fn delete_vault(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
-    Path((org, _vault)): Path<(u64, u64)>,
+    Path((org, vault)): Path<(u64, u64)>,
 ) -> Result<Json<MessageResponse>> {
     let ledger = require_ledger(&state)?;
     let organization = OrganizationSlug::new(org);
+    let vault_slug = VaultSlug::new(vault);
 
-    // Verify the caller is a member of this organization.
+    verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
+
     let start = Instant::now();
     ledger
-        .get_organization(organization, claims.user_slug)
+        .delete_vault(claims.user_slug, organization, vault_slug)
         .await
-        .map_sdk_err_instrumented("get_organization", start)?;
+        .map_sdk_err_instrumented("delete_vault", start)?;
 
-    Err(CoreError::internal("vault deletion is not yet supported by the Ledger SDK").into())
+    Ok(Json(MessageResponse { message: "Vault deleted".to_string() }))
 }

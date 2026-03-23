@@ -4,18 +4,15 @@
 //! application-level rate limiter from [`AppState`]. Returns HTTP 429
 //! with a `Retry-After` header when the limit is exceeded.
 
-use std::net::SocketAddr;
-
 use axum::{
-    extract::{ConnectInfo, Request, State},
+    extract::{Request, State},
     http::{HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use inferadb_control_core::{RateLimit, RateLimitResult};
-use uuid::Uuid;
 
-use crate::handlers::AppState;
+use crate::{extract::extract_client_ip, handlers::AppState};
 
 /// Configurable rate limits for the application.
 #[derive(Debug, Clone)]
@@ -33,32 +30,19 @@ impl Default for RateLimitConfig {
     }
 }
 
-/// Extracts the client IP from `ConnectInfo` or the `X-Forwarded-For` header.
-fn extract_client_ip(req: &Request) -> String {
-    // Try ConnectInfo first (direct connection)
-    if let Some(ConnectInfo(addr)) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
-        return addr.ip().to_string();
-    }
-
-    // Fall back to X-Forwarded-For header (behind proxy/load balancer)
-    if let Some(forwarded) = req.headers().get("x-forwarded-for")
-        && let Ok(value) = forwarded.to_str()
-    {
-        // Take the first (leftmost) IP — the original client
-        if let Some(ip) = value.split(',').next() {
-            return ip.trim().to_string();
-        }
-    }
-
-    tracing::warn!("Could not determine client IP for rate limiting");
-    Uuid::new_v4().to_string()
-}
+/// Fixed sentinel key for clients whose IP cannot be determined.
+///
+/// All unidentifiable clients share a single rate limit bucket. This prevents
+/// bypass by omitting proxy headers — unknown clients are collectively throttled
+/// rather than each getting their own unlimited bucket.
+const UNKNOWN_CLIENT_KEY: &str = "unknown";
 
 /// Login/auth rate limit middleware (100/hour per IP).
 ///
 /// Applied to all public authentication endpoints to prevent brute force attacks.
 pub async fn login_rate_limit(State(state): State<AppState>, req: Request, next: Next) -> Response {
-    let ip = extract_client_ip(&req);
+    let ip = extract_client_ip(&req, state.config.trusted_proxy_depth)
+        .unwrap_or_else(|| UNKNOWN_CLIENT_KEY.to_string());
     match state.rate_limiter.check("login_ip", &ip, &state.rate_limits.login).await {
         Ok(RateLimitResult::Limited { retry_after_secs }) => rate_limit_response(retry_after_secs),
         Ok(_) => next.run(req).await,
@@ -77,7 +61,8 @@ pub async fn registration_rate_limit(
     req: Request,
     next: Next,
 ) -> Response {
-    let ip = extract_client_ip(&req);
+    let ip = extract_client_ip(&req, state.config.trusted_proxy_depth)
+        .unwrap_or_else(|| UNKNOWN_CLIENT_KEY.to_string());
     match state.rate_limiter.check("registration_ip", &ip, &state.rate_limits.registration).await {
         Ok(RateLimitResult::Limited { retry_after_secs }) => rate_limit_response(retry_after_secs),
         Ok(_) => next.run(req).await,
