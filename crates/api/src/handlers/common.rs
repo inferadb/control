@@ -119,14 +119,36 @@ pub async fn verify_org_membership(
     cache: &OrgMembershipCache,
 ) -> std::result::Result<(), CoreError> {
     let key = (user.value(), org.value());
-    if cache.inner.get(&key).await.is_some() {
-        return Ok(());
-    }
 
-    let start = Instant::now();
-    ledger.get_organization(org, user).await.map_sdk_err_instrumented("get_organization", start)?;
-    cache.inner.insert(key, ()).await;
-    Ok(())
+    // try_get_with deduplicates concurrent requests for the same (user, org)
+    // into a single Ledger call. Only successful results are cached; errors
+    // are not persisted (each failure retries on the next request).
+    cache
+        .inner
+        .try_get_with(key, async move {
+            let start = Instant::now();
+            ledger
+                .get_organization(org, user)
+                .await
+                .map_sdk_err_instrumented("get_organization", start)?;
+            Ok::<(), CoreError>(())
+        })
+        .await
+        .map_err(|arc_err| {
+            // try_get_with wraps the error in Arc. Reconstruct using status code
+            // to preserve the correct HTTP mapping.
+            let status = arc_err.status_code();
+            let msg = arc_err.to_string();
+            match status {
+                400 => CoreError::validation(msg),
+                401 => CoreError::auth(msg),
+                403 => CoreError::authz(msg),
+                404 => CoreError::not_found(msg),
+                429 => CoreError::rate_limit(msg),
+                503 => CoreError::unavailable(msg),
+                _ => CoreError::internal("failed to verify organization membership"),
+            }
+        })
 }
 
 /// Convenience wrapper around [`verify_org_membership`] for common handler parameters.
@@ -166,14 +188,28 @@ pub fn validate_name(name: &str) -> std::result::Result<(), CoreError> {
     Ok(())
 }
 
+/// Returns `true` for characters disallowed in descriptions:
+/// control characters (except common whitespace) and Unicode bidi overrides.
+fn is_disallowed_char(c: char) -> bool {
+    // Control characters (Cc) except newline, carriage return, and tab
+    (c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+    // Unicode bidirectional overrides/embeddings/isolates (Cf subset)
+    || matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
 /// Validates an optional description field.
 ///
-/// Allows up to 1024 characters when present.
+/// Allows up to 1024 characters when present, including newlines and tabs.
+/// Rejects control characters and Unicode bidirectional overrides to prevent
+/// log injection and display spoofing.
 pub fn validate_description(desc: &Option<String>) -> std::result::Result<(), CoreError> {
-    if let Some(d) = desc
-        && d.chars().count() > 1024
-    {
-        return Err(CoreError::validation("description must be 1024 characters or fewer"));
+    if let Some(d) = desc {
+        if d.chars().count() > 1024 {
+            return Err(CoreError::validation("description must be 1024 characters or fewer"));
+        }
+        if d.chars().any(is_disallowed_char) {
+            return Err(CoreError::validation("description contains disallowed characters"));
+        }
     }
     Ok(())
 }

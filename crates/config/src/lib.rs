@@ -258,6 +258,19 @@ pub struct Config {
     #[arg(long = "trusted-proxy-depth", env = "INFERADB__CONTROL__TRUSTED_PROXY_DEPTH")]
     pub trusted_proxy_depth: Option<NonZeroU8>,
 
+    // ── Instance Identity ────────────────────────────────────────────
+    /// Unique worker ID for Snowflake ID generation (0-1023).
+    ///
+    /// In multi-instance deployments, each instance MUST have a unique worker ID
+    /// to guarantee ID uniqueness. Set via the Kubernetes pod ordinal or a
+    /// deterministic assignment mechanism. Defaults to a random value if unset.
+    #[arg(
+        long = "worker-id",
+        env = "INFERADB__CONTROL__WORKER_ID",
+        value_parser = clap::value_parser!(u16).range(0..=1023)
+    )]
+    pub worker_id: Option<u16>,
+
     // ── Mode Flags ───────────────────────────────────────────────────
     /// Force development mode: uses in-memory storage regardless of `--storage`. Defaults to
     /// `false`.
@@ -294,6 +307,7 @@ impl std::fmt::Debug for Config {
             .field("webauthn_rp_id", &self.webauthn_rp_id)
             .field("webauthn_origin", &self.webauthn_origin)
             .field("trusted_proxy_depth", &self.trusted_proxy_depth)
+            .field("worker_id", &self.worker_id)
             .field("dev_mode", &self.dev_mode)
             .finish()
     }

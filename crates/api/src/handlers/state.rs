@@ -100,16 +100,16 @@ impl IntoResponse for ApiError {
             tracing::warn!(status = %status, error = %internal_message, "Client error");
         }
 
-        // Scrub internal details from server error responses. The full message
-        // is already logged above; clients receive only a generic message to
-        // prevent leaking Ledger internals, config details, or stack context.
-        let client_message = if status.is_server_error() {
-            "an internal error occurred".to_string()
+        // Scrub internal details from server error responses. Both the message
+        // and the error code are normalized to prevent leaking whether the failure
+        // was storage, configuration, or internal — the full details are logged above.
+        let (client_message, client_code) = if status.is_server_error() {
+            ("an internal error occurred".to_string(), "INTERNAL_ERROR".to_string())
         } else {
-            internal_message
+            (internal_message, error_code)
         };
 
-        (status, Json(ErrorResponse { error: client_message, code: error_code, details: None }))
+        (status, Json(ErrorResponse { error: client_message, code: client_code, details: None }))
             .into_response()
     }
 }

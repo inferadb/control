@@ -73,7 +73,16 @@ async fn main() -> Result<()> {
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "Starting InferaDB Control");
     }
 
-    let worker_id: u16 = rand::random::<u16>() % 1024;
+    let worker_id: u16 = config.worker_id.unwrap_or_else(|| {
+        let id = rand::random::<u16>() % 1024;
+        tracing::warn!(
+            worker_id = id,
+            "No --worker-id or INFERADB__CONTROL__WORKER_ID set; using random value. \
+             In multi-instance deployments, set a unique worker ID per instance to \
+             guarantee Snowflake ID uniqueness."
+        );
+        id
+    });
 
     IdGenerator::init(worker_id)
         .map_err(|e| anyhow::anyhow!("Failed to initialize ID generator: {e}"))?;

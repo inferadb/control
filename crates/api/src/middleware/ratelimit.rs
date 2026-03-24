@@ -10,6 +10,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use inferadb_control_const::ratelimit as categories;
 use inferadb_control_core::{RateLimit, RateLimitResult};
 
 use crate::{extract::extract_client_ip, handlers::AppState};
@@ -42,7 +43,7 @@ const UNKNOWN_CLIENT_KEY: &str = "unknown";
 pub async fn login_rate_limit(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let ip = extract_client_ip(&req, state.config.trusted_proxy_depth)
         .unwrap_or_else(|| UNKNOWN_CLIENT_KEY.to_string());
-    match state.rate_limiter.check("login_ip", &ip, &state.rate_limits.login).await {
+    match state.rate_limiter.check(categories::LOGIN_IP, &ip, &state.rate_limits.login).await {
         Ok(RateLimitResult::Limited { retry_after_secs }) => rate_limit_response(retry_after_secs),
         Ok(_) => next.run(req).await,
         Err(e) => {
@@ -62,7 +63,11 @@ pub async fn registration_rate_limit(
 ) -> Response {
     let ip = extract_client_ip(&req, state.config.trusted_proxy_depth)
         .unwrap_or_else(|| UNKNOWN_CLIENT_KEY.to_string());
-    match state.rate_limiter.check("registration_ip", &ip, &state.rate_limits.registration).await {
+    match state
+        .rate_limiter
+        .check(categories::REGISTRATION_IP, &ip, &state.rate_limits.registration)
+        .await
+    {
         Ok(RateLimitResult::Limited { retry_after_secs }) => rate_limit_response(retry_after_secs),
         Ok(_) => next.run(req).await,
         Err(e) => {
@@ -72,9 +77,15 @@ pub async fn registration_rate_limit(
     }
 }
 
-/// Builds a 429 Too Many Requests response with a `Retry-After` header.
+/// Builds a 429 Too Many Requests response with a `Retry-After` header
+/// and a structured JSON body matching the standard `ErrorResponse` format.
 fn rate_limit_response(retry_after_secs: u64) -> Response {
-    let mut response = StatusCode::TOO_MANY_REQUESTS.into_response();
+    let body = inferadb_control_types::dto::ErrorResponse {
+        error: "rate limit exceeded".to_string(),
+        code: "RATE_LIMIT_EXCEEDED".to_string(),
+        details: None,
+    };
+    let mut response = (StatusCode::TOO_MANY_REQUESTS, axum::Json(body)).into_response();
     if let Ok(value) = HeaderValue::from_str(&retry_after_secs.to_string()) {
         response.headers_mut().insert(header::RETRY_AFTER, value);
     }

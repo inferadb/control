@@ -492,7 +492,9 @@ pub async fn passkey_register_finish(
         .map_err(|e| CoreError::validation(format!("passkey registration failed: {e}")))?;
 
     // Convert webauthn-rs Passkey to SDK CredentialData for Ledger storage.
-    // Serialize the entire Passkey as JSON into public_key for lossless round-tripping.
+    // Uses the SDK's CredentialData type directly (not the core conversion function)
+    // because the handler's SDK dependency resolves to a different crate version
+    // than core's path-patched types during test compilation.
     let cred: Credential = passkey.clone().into();
     let passkey_json = serde_json::to_vec(&passkey)
         .map_err(|e| CoreError::internal(format!("failed to serialize passkey: {e}")))?;

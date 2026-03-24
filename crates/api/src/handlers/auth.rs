@@ -32,9 +32,9 @@ pub struct RefreshTokenRequest {
     pub refresh_token: Option<String>,
 }
 
-/// Response containing an access/refresh token pair.
+/// Response containing a session token pair (access + refresh).
 #[derive(Debug, Serialize)]
-pub struct TokenPairResponse {
+pub struct SessionTokenResponse {
     pub access_token: String,
     pub refresh_token: String,
     pub token_type: &'static str,
@@ -104,7 +104,7 @@ pub async fn refresh(
     State(state): State<AppState>,
     jar: CookieJar,
     Json(body): Json<RefreshTokenRequest>,
-) -> Result<(CookieJar, Json<TokenPairResponse>), ApiError> {
+) -> Result<(CookieJar, Json<SessionTokenResponse>), ApiError> {
     let ledger = require_ledger(&state)?;
 
     let refresh_token = body
@@ -118,7 +118,7 @@ pub async fn refresh(
         .await
         .map_sdk_err_instrumented("refresh_token", start)?;
 
-    let response = TokenPairResponse {
+    let response = SessionTokenResponse {
         access_token: token_pair.access_token.clone(),
         refresh_token: token_pair.refresh_token.clone(),
         token_type: "Bearer",

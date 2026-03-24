@@ -14,7 +14,7 @@ use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::{EventFilter, EventOutcome, OrganizationSlug};
 use serde::{Deserialize, Serialize};
 
-use super::common::{require_ledger, verify_org_membership_from_claims};
+use super::common::{CursorPaginationQuery, require_ledger, verify_org_membership_from_claims};
 use crate::{
     handlers::state::{AppState, Result},
     middleware::UserClaims,
@@ -23,12 +23,13 @@ use crate::{
 // ── Request / Response Types ────────────────────────────────────────
 
 /// Query parameters for listing audit logs.
+///
+/// Embeds standard cursor pagination and adds audit-specific filters.
 #[derive(Debug, Deserialize)]
 pub struct ListAuditLogsQuery {
-    /// Number of items per page (default 50, max 100).
-    pub page_size: Option<u32>,
-    /// Opaque cursor for the next page.
-    pub page_token: Option<String>,
+    /// Standard cursor-based pagination fields.
+    #[serde(flatten)]
+    pub pagination: CursorPaginationQuery,
     /// Filter by event type prefix (e.g., `"ledger.vault"`).
     pub event_type: Option<String>,
     /// Filter by principal (who performed the action).
@@ -133,7 +134,7 @@ pub async fn list_audit_logs(
 
     verify_org_membership_from_claims(&state, ledger, org, &claims).await?;
 
-    let page = if let Some(ref page_token) = query.page_token {
+    let page = if let Some(ref page_token) = query.pagination.page_token {
         let start = Instant::now();
         ledger
             .list_events_next(claims.user_slug, organization, page_token)
@@ -141,7 +142,7 @@ pub async fn list_audit_logs(
             .map_sdk_err_instrumented("list_events_next", start)?
     } else {
         let filter = build_event_filter(&query)?;
-        let limit = query.page_size.unwrap_or(50).clamp(1, 100);
+        let limit = query.pagination.validated_page_size();
         let start = Instant::now();
         ledger
             .list_events(claims.user_slug, organization, filter, limit)

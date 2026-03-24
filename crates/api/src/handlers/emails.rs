@@ -9,14 +9,13 @@ use axum::{
     Extension, Json,
     extract::{Path, State},
 };
-use chrono::{DateTime, Utc};
 use inferadb_control_core::SdkResultExt;
 use inferadb_control_types::Error as CoreError;
 use inferadb_ledger_sdk::UserEmailInfo;
 use inferadb_ledger_types::UserEmailId;
 use serde::{Deserialize, Serialize};
 
-use super::common::{require_ledger, safe_id_cast};
+use super::common::{require_ledger, safe_id_cast, system_time_to_rfc3339};
 use crate::{
     handlers::state::{AppState, Result},
     middleware::UserClaims,
@@ -82,8 +81,8 @@ fn map_email_info(
         slug: safe_id_cast(info.id.value())?,
         email: info.email.clone(),
         verified: info.verified,
-        created_at: info.created_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
-        verified_at: info.verified_at.map(|t| DateTime::<Utc>::from(t).to_rfc3339()),
+        created_at: system_time_to_rfc3339(&info.created_at),
+        verified_at: system_time_to_rfc3339(&info.verified_at),
     })
 }
 
@@ -152,13 +151,15 @@ pub async fn list_emails(
 pub async fn delete_email(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
-    Path(email_id): Path<i64>,
+    Path(email_id): Path<u64>,
 ) -> Result<Json<EmailOperationResponse>> {
     let ledger = require_ledger(&state)?;
 
+    let id = i64::try_from(email_id)
+        .map_err(|_| CoreError::validation("invalid email address identifier"))?;
     let start = Instant::now();
     ledger
-        .delete_user_email(claims.user_slug, UserEmailId::new(email_id))
+        .delete_user_email(claims.user_slug, UserEmailId::new(id))
         .await
         .map_sdk_err_instrumented("delete_user_email", start)?;
 
