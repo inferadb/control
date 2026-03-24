@@ -1,3 +1,9 @@
+//! Cryptographic primitives for the control plane.
+//!
+//! Provides [`MasterKey`] for at-rest encryption key management,
+//! [`PrivateKeyEncryptor`] for AES-256-GCM encryption of Ed25519 private keys,
+//! and [`keypair`] for Ed25519 key pair generation.
+
 use std::{fs, path::Path};
 
 use aes_gcm::{
@@ -11,16 +17,16 @@ use base64::{
 use inferadb_control_types::error::{Error, Result};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-/// Master encryption key (256-bit / 32 bytes)
+/// Master encryption key (256-bit / 32 bytes).
 ///
 /// This key is used to encrypt client certificate private keys at rest.
 /// It is loaded from a file or auto-generated on first startup.
 ///
-/// Uses `ZeroizeOnDrop` to guarantee key material is securely erased from memory
+/// Uses [`ZeroizeOnDrop`] to guarantee key material is securely erased from memory
 /// when dropped, preventing dead-store elimination by the optimizer.
 ///
-/// `MasterKey` intentionally does not implement [`Clone`] to prevent accidental
-/// copies of cryptographic key material in memory.
+/// Intentionally does not implement [`Clone`] to prevent accidental copies of
+/// cryptographic key material in memory.
 ///
 /// ```compile_fail
 /// fn requires_clone<T: Clone>() {}
@@ -30,16 +36,11 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 pub struct MasterKey([u8; 32]);
 
 impl MasterKey {
-    /// Load the master key from a file, or generate a new one if it doesn't exist.
+    /// Loads the master key from a file, or generates a new one if the file does not exist.
     ///
-    /// # Arguments
-    /// * `key_file` - Path to the key file.
-    ///
-    /// # Behavior
-    /// - If file exists: load and validate the 32-byte key
-    /// - If file doesn't exist: generate a new key and save it
-    /// - Creates parent directories if needed
-    /// - Sets file permissions to 0600 (owner read/write only) on Unix
+    /// If the file exists, loads and validates the 32-byte key. Otherwise, generates
+    /// a new key, creates parent directories as needed, saves the key, and sets file
+    /// permissions to 0600 (owner read/write only) on Unix.
     pub fn load_or_generate(key_file: &Path) -> Result<Self> {
         if key_file.exists() {
             Self::load_from_file(key_file)
@@ -51,7 +52,7 @@ impl MasterKey {
         }
     }
 
-    /// Generate a new random 256-bit master key
+    /// Generates a new random 256-bit master key.
     fn generate() -> Result<Self> {
         use rand::RngExt;
         let mut rng = rand::rng();
@@ -59,7 +60,7 @@ impl MasterKey {
         Ok(Self(key))
     }
 
-    /// Load the master key from a file
+    /// Loads the master key from a file.
     fn load_from_file(path: &Path) -> Result<Self> {
         let bytes = fs::read(path).map_err(|e| {
             Error::config(format!("Failed to read master key file '{}': {}", path.display(), e))
@@ -80,7 +81,7 @@ impl MasterKey {
         Ok(Self(key))
     }
 
-    /// Save the master key to a file
+    /// Saves the master key to a file.
     fn save_to_file(&self, path: &Path) -> Result<()> {
         // Create parent directories if needed
         if let Some(parent) = path.parent()
@@ -91,12 +92,10 @@ impl MasterKey {
             })?;
         }
 
-        // Write the key file
         fs::write(path, self.0).map_err(|e| {
             Error::config(format!("Failed to write master key file '{}': {}", path.display(), e))
         })?;
 
-        // Set restrictive permissions on Unix
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -110,25 +109,25 @@ impl MasterKey {
         Ok(())
     }
 
-    /// Get the key bytes for use with PrivateKeyEncryptor
+    /// Returns the key bytes for use with [`PrivateKeyEncryptor`].
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 }
 
-/// Private key encryption service using AES-256-GCM
+/// Private key encryption using AES-256-GCM.
 ///
-/// This service encrypts Ed25519 private keys for secure storage in the database.
+/// Encrypts Ed25519 private keys for secure at-rest storage.
 /// Uses a 256-bit master key directly (no key derivation needed).
 pub struct PrivateKeyEncryptor {
     cipher: Aes256Gcm,
 }
 
 impl PrivateKeyEncryptor {
-    /// Create a new encryptor from a master key
+    /// Creates a new encryptor from a master key.
     ///
-    /// The master key should be exactly 32 bytes (256 bits) of cryptographically
-    /// secure random data, typically loaded via `MasterKey::load_or_generate()`.
+    /// The master key must be exactly 32 bytes (256 bits) of cryptographically
+    /// secure random data, typically loaded via [`MasterKey::load_or_generate`].
     pub fn new(master_key: &[u8; 32]) -> Result<Self> {
         let cipher = Aes256Gcm::new_from_slice(master_key)
             .map_err(|e| Error::internal(format!("Failed to initialize cipher: {e}")))?;
@@ -136,42 +135,37 @@ impl PrivateKeyEncryptor {
         Ok(Self { cipher })
     }
 
-    /// Create a new encryptor from a MasterKey
+    /// Creates a new encryptor from a [`MasterKey`].
     pub fn from_master_key(master_key: &MasterKey) -> Result<Self> {
         Self::new(master_key.as_bytes())
     }
 
-    /// Encrypt a private key (32 bytes for Ed25519)
+    /// Encrypts a private key (32 bytes for Ed25519).
     ///
-    /// Returns base64-encoded ciphertext with nonce prepended (12 bytes nonce + ciphertext)
+    /// Returns base64-encoded ciphertext with nonce prepended (12 bytes nonce + ciphertext).
     pub fn encrypt(&self, private_key: &[u8]) -> Result<String> {
         if private_key.len() != 32 {
             return Err(Error::validation("Private key must be 32 bytes (Ed25519)".to_string()));
         }
 
-        // Generate a random 96-bit nonce (12 bytes)
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
-        // Encrypt the private key
         let ciphertext = self
             .cipher
             .encrypt(&nonce, private_key)
             .map_err(|e| Error::internal(format!("Failed to encrypt private key: {e}")))?;
 
-        // Combine nonce + ciphertext for storage
         let mut combined = nonce.to_vec();
         combined.extend_from_slice(&ciphertext);
 
-        // Encode to base64
         Ok(BASE64_STANDARD.encode(&combined))
     }
 
-    /// Decrypt a private key
+    /// Decrypts a private key.
     ///
-    /// Takes base64-encoded string with nonce prepended, returns the 32-byte private key
-    /// wrapped in `Zeroizing` to guarantee secure erasure on drop.
+    /// Takes a base64-encoded string with the nonce prepended and returns the 32-byte
+    /// private key wrapped in [`Zeroizing`] for secure erasure on drop.
     pub fn decrypt(&self, encrypted_base64: &str) -> Result<Zeroizing<Vec<u8>>> {
-        // Decode from base64
         let combined = BASE64_STANDARD
             .decode(encrypted_base64)
             .map_err(|e| Error::internal(format!("Failed to decode encrypted key: {e}")))?;
@@ -184,7 +178,6 @@ impl PrivateKeyEncryptor {
         let (nonce_bytes, ciphertext) = combined.split_at(12);
         let nonce = Nonce::from_slice(nonce_bytes);
 
-        // Decrypt the private key
         let plaintext = self
             .cipher
             .decrypt(nonce, ciphertext)
@@ -202,16 +195,16 @@ impl PrivateKeyEncryptor {
     }
 }
 
-/// Generate a new Ed25519 key pair
+/// Ed25519 key pair generation for client certificate signing.
 pub mod keypair {
     use ed25519_dalek::{SigningKey, VerifyingKey};
 
     use super::*;
 
-    /// Generate a new Ed25519 key pair
+    /// Generates a new Ed25519 key pair.
     ///
-    /// Returns (public_key_base64, private_key_bytes)
-    /// The private key bytes are wrapped in `Zeroizing` and should be encrypted before storage.
+    /// Returns `(public_key_base64, private_key_bytes)`. The private key bytes are
+    /// wrapped in [`Zeroizing`] and should be encrypted before storage.
     pub fn generate() -> (String, Zeroizing<Vec<u8>>) {
         let signing_key = SigningKey::generate(&mut OsRng);
         let verifying_key: VerifyingKey = signing_key.verifying_key();

@@ -84,7 +84,7 @@ pub struct PasskeyRegisterFinishRequest {
 
 // ── Response Types ──────────────────────────────────────────────────────
 
-/// Response for successful TOTP or recovery code verification.
+/// Response containing session tokens after TOTP verification.
 #[derive(Debug, Serialize)]
 pub struct MfaAuthResponse {
     pub access_token: String,
@@ -92,7 +92,7 @@ pub struct MfaAuthResponse {
     pub token_type: &'static str,
 }
 
-/// Response for recovery code consumption (includes remaining count).
+/// Response containing session tokens and the remaining recovery code count.
 #[derive(Debug, Serialize)]
 pub struct RecoveryCodeResponse {
     pub access_token: String,
@@ -101,14 +101,14 @@ pub struct RecoveryCodeResponse {
     pub remaining_codes: u32,
 }
 
-/// Response from passkey authentication begin.
+/// Response from the passkey authentication begin step.
 #[derive(Debug, Serialize)]
 pub struct PasskeyBeginResponse {
     pub challenge_id: String,
     pub challenge: RequestChallengeResponse,
 }
 
-/// Response from passkey authentication finish — either a session or TOTP challenge.
+/// Response from passkey authentication completion.
 #[derive(Debug, Serialize)]
 #[serde(tag = "status")]
 pub enum PasskeyFinishResponse {
@@ -120,14 +120,14 @@ pub enum PasskeyFinishResponse {
     TotpRequired { challenge_nonce: String },
 }
 
-/// Response from passkey registration begin.
+/// Response from the passkey registration begin step.
 #[derive(Debug, Serialize)]
 pub struct PasskeyRegisterBeginResponse {
     pub challenge_id: String,
     pub challenge: CreationChallengeResponse,
 }
 
-/// Response from passkey registration finish.
+/// Response from the passkey registration finish step.
 #[derive(Debug, Serialize)]
 pub struct PasskeyRegisterFinishResponse {
     pub slug: u64,
@@ -148,7 +148,7 @@ fn require_webauthn(state: &AppState) -> Result<&webauthn_rs::Webauthn, ApiError
     state.webauthn.as_deref().ok_or_else(|| CoreError::internal("WebAuthn not configured").into())
 }
 
-/// Extracts `PasskeyCredentialInfo` from a `CredentialData::Passkey` variant.
+/// Extracts [`PasskeyCredentialInfo`] from a [`CredentialData::Passkey`] variant.
 fn extract_passkey_info(data: &CredentialData) -> Option<&PasskeyCredentialInfo> {
     match data {
         CredentialData::Passkey(info) => Some(info),
@@ -158,7 +158,7 @@ fn extract_passkey_info(data: &CredentialData) -> Option<&PasskeyCredentialInfo>
 
 // ── Handlers ────────────────────────────────────────────────────────────
 
-/// POST /v1/auth/totp/verify
+/// POST /control/v1/auth/totp/verify
 ///
 /// Verifies a TOTP code against a pending challenge. On success, creates
 /// a session and returns a token pair. The challenge nonce is consumed
@@ -196,7 +196,7 @@ pub async fn verify_totp(
     ))
 }
 
-/// POST /v1/auth/recovery
+/// POST /control/v1/auth/recovery
 ///
 /// Consumes a recovery code to bypass TOTP verification. On success,
 /// creates a session. Returns the token pair and remaining unused code count.
@@ -235,7 +235,7 @@ pub async fn consume_recovery(
     ))
 }
 
-/// POST /v1/auth/passkey/begin
+/// POST /control/v1/auth/passkey/begin
 ///
 /// Begins a passkey authentication ceremony. Fetches the user's passkey
 /// credentials from Ledger, converts them to webauthn-rs `Passkey` types,
@@ -296,7 +296,7 @@ pub async fn passkey_begin(
     Ok(Json(PasskeyBeginResponse { challenge_id, challenge }))
 }
 
-/// POST /v1/auth/passkey/finish
+/// POST /control/v1/auth/passkey/finish
 ///
 /// Completes the passkey authentication ceremony. Validates the WebAuthn
 /// response, updates the sign count in Ledger, and either creates a session
@@ -397,7 +397,7 @@ pub async fn passkey_finish(
     }
 }
 
-/// POST /v1/users/me/credentials/passkeys/begin
+/// POST /control/v1/users/me/credentials/passkeys/begin
 ///
 /// Begins a passkey registration ceremony for the authenticated user.
 /// Fetches existing passkey credentials to use as exclude list (prevents
@@ -451,7 +451,7 @@ pub async fn passkey_register_begin(
     Ok(Json(PasskeyRegisterBeginResponse { challenge_id, challenge }))
 }
 
-/// POST /v1/users/me/credentials/passkeys/finish
+/// POST /control/v1/users/me/credentials/passkeys/finish
 ///
 /// Completes the passkey registration ceremony. Validates the WebAuthn
 /// response and stores the new passkey credential in Ledger.

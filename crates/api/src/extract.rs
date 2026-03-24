@@ -1,8 +1,13 @@
+//! Client IP extraction utilities.
+//!
+//! Provides proxy-aware and direct-connection IP extraction from HTTP
+//! requests, used by rate limiting and audit logging.
+
 use std::{net::SocketAddr, num::NonZeroU8};
 
 use axum::extract::{ConnectInfo, Request};
 
-/// Extract the client IP address from a request.
+/// Extracts the client IP address from a request.
 ///
 /// Behavior depends on `trusted_proxy_depth`:
 ///
@@ -19,7 +24,7 @@ pub fn extract_client_ip(req: &Request, trusted_proxy_depth: Option<NonZeroU8>) 
     }
 }
 
-/// Extract IP using rightmost-nth selection from `X-Forwarded-For`.
+/// Extracts IP using rightmost-nth selection from `X-Forwarded-For`.
 ///
 /// With `depth=1` (one trusted proxy), the proxy appended the rightmost entry,
 /// so the client IP is at position `len - 2` (just before the proxy entry).
@@ -40,7 +45,7 @@ fn extract_with_proxy_depth(req: &Request, depth: NonZeroU8) -> Option<String> {
     req.extensions().get::<ConnectInfo<SocketAddr>>().map(|ConnectInfo(addr)| addr.ip().to_string())
 }
 
-/// Extract IP in direct connection mode (no trusted proxies).
+/// Extracts IP in direct connection mode (no trusted proxies).
 ///
 /// Uses only `ConnectInfo` (TCP peer address). Proxy headers are ignored
 /// because without trusted proxy configuration they are freely spoofable.

@@ -2,7 +2,7 @@
 //!
 //! Re-exports from `inferadb-ledger-types` to ensure Control and Ledger
 //! use the exact same HMAC algorithm, normalization rules, and key format.
-//! See [`inferadb_ledger_types::email_hash`] for implementation details.
+//! See `inferadb_ledger_types::email_hash` for implementation details.
 
 use inferadb_control_types::error::{Error, Result};
 pub use inferadb_ledger_types::{

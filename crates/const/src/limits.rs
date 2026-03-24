@@ -1,4 +1,4 @@
-//! Business constraint constants.
+//! Business constraint constants (max sessions, passkeys, organizations).
 
 /// Maximum number of passkeys (WebAuthn credentials) per user.
 ///

@@ -13,9 +13,11 @@ use crate::middleware::UserClaims;
 
 // ── Org Membership Cache ────────────────────────────────────────────
 
-/// Cached org membership verification. Avoids a Ledger round-trip on every
-/// vault/schema/audit-log request by caching successful `get_organization`
-/// results for 30 seconds keyed on `(user_slug, org_slug)`.
+/// Cached organization membership verification.
+///
+/// Avoids a Ledger round-trip on every vault/schema/audit-log request by
+/// caching successful `get_organization` results for 30 seconds, keyed on
+/// `(user_slug, org_slug)`.
 #[derive(Clone)]
 pub struct OrgMembershipCache {
     inner: moka::future::Cache<(u64, u64), ()>,
@@ -55,15 +57,18 @@ pub struct CursorPaginationQuery {
     pub page_token: Option<String>,
 }
 
+/// Returns the default page size (50) for serde deserialization.
 fn default_page_size() -> u32 {
     50
 }
 
 impl CursorPaginationQuery {
+    /// Returns the page size clamped to the allowed range (1-100).
     pub fn validated_page_size(&self) -> u32 {
         self.page_size.clamp(1, 100)
     }
 
+    /// Decodes the base64-encoded page token into raw bytes.
     pub fn decoded_page_token(&self) -> Option<Vec<u8>> {
         use base64::Engine;
         self.page_token
@@ -74,7 +79,7 @@ impl CursorPaginationQuery {
 
 // ── Shared Response Types ───────────────────────────────────────────
 
-/// Simple message response used by multiple handlers.
+/// Generic message response used by mutation handlers.
 #[derive(Debug, Serialize)]
 pub struct MessageResponse {
     pub message: String,
@@ -84,8 +89,7 @@ pub struct MessageResponse {
 
 /// Extracts a reference to the Ledger client from app state.
 ///
-/// Returns `Error::internal` if the Ledger client is not configured
-/// (e.g., running in a mode where Ledger is unavailable).
+/// Returns `Error::internal` if the Ledger client is not configured.
 pub fn require_ledger(
     state: &AppState,
 ) -> std::result::Result<&inferadb_ledger_sdk::LedgerClient, CoreError> {
@@ -98,7 +102,7 @@ pub fn encode_page_token(token: &Option<Vec<u8>>) -> Option<String> {
     token.as_ref().map(|t| base64::engine::general_purpose::STANDARD.encode(t))
 }
 
-/// Converts an optional `SystemTime` to an RFC 3339 string.
+/// Converts an optional [`SystemTime`](std::time::SystemTime) to an RFC 3339 string.
 pub fn system_time_to_rfc3339(t: &Option<std::time::SystemTime>) -> Option<String> {
     t.map(|st| DateTime::<Utc>::from(st).to_rfc3339())
 }
@@ -125,9 +129,9 @@ pub async fn verify_org_membership(
     Ok(())
 }
 
-/// Verifies the caller is a member of the specified organization.
+/// Convenience wrapper around [`verify_org_membership`] for common handler parameters.
 ///
-/// Convenience wrapper that extracts the org slug and user from common handler params.
+/// Extracts the org slug and user from `AppState` and `UserClaims`.
 pub async fn verify_org_membership_from_claims(
     state: &AppState,
     ledger: &LedgerClient,
@@ -145,11 +149,10 @@ pub async fn verify_org_membership_from_claims(
 
 // ── Input Validation ──────────────────────────────────────────────────
 
-/// Validates a name field (organization, team, client, etc.).
+/// Validates a name field (organization, team, client, vault, etc.).
 ///
-/// Rules: 1-128 non-whitespace characters after trimming. Allowed characters:
-/// alphanumeric (including Unicode), hyphens, underscores, spaces, periods,
-/// and apostrophes.
+/// Allows 1-128 characters after trimming: alphanumeric (including Unicode),
+/// hyphens, underscores, spaces, periods, and apostrophes.
 pub fn validate_name(name: &str) -> std::result::Result<(), CoreError> {
     let trimmed = name.trim();
     if trimmed.is_empty() || trimmed.chars().count() > 128 {
@@ -165,7 +168,7 @@ pub fn validate_name(name: &str) -> std::result::Result<(), CoreError> {
 
 /// Validates an optional description field.
 ///
-/// Rules: 0-1024 characters when present.
+/// Allows up to 1024 characters when present.
 pub fn validate_description(desc: &Option<String>) -> std::result::Result<(), CoreError> {
     if let Some(d) = desc
         && d.chars().count() > 1024
@@ -177,7 +180,7 @@ pub fn validate_description(desc: &Option<String>) -> std::result::Result<(), Co
 
 /// Validates an email address.
 ///
-/// Basic structural check: must contain exactly one `@` with non-empty local and domain parts.
+/// Checks for exactly one `@` with non-empty local and domain parts.
 /// Rejects control characters to prevent log injection.
 pub fn validate_email(email: &str) -> std::result::Result<(), CoreError> {
     // RFC 5321 limits email addresses to 254 octets
@@ -196,10 +199,9 @@ pub fn validate_email(email: &str) -> std::result::Result<(), CoreError> {
     Ok(())
 }
 
-/// Safely casts an i64 entity ID to u64.
+/// Casts an `i64` entity ID to `u64`.
 ///
-/// Returns an internal error if the value is negative, rather than silently
-/// converting to 0 via `unwrap_or`.
+/// Returns an internal error if the value is negative.
 pub fn safe_id_cast(value: i64) -> std::result::Result<u64, CoreError> {
     u64::try_from(value).map_err(|_| CoreError::internal("invalid entity identifier"))
 }

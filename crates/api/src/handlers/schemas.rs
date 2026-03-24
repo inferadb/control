@@ -1,7 +1,7 @@
 //! Schema management handlers.
 //!
-//! Delegates all schema storage logic to the Ledger SDK's schema operations
-//! via the core service layer.
+//! All operations delegate to Ledger SDK. Schema state (versions,
+//! definitions, active status) is owned by Ledger.
 
 use std::time::Instant;
 
@@ -33,14 +33,14 @@ pub struct DeploySchemaRequest {
     pub description: Option<String>,
 }
 
-/// Response for deploy and activate operations.
+/// Response for schema deploy and activate operations.
 #[derive(Debug, Serialize)]
 pub struct SchemaStatusResponse {
     pub version: u32,
     pub status: String,
 }
 
-/// Summary of a single schema version in a listing.
+/// Summary of a schema version.
 #[derive(Debug, Serialize)]
 pub struct SchemaVersionSummary {
     pub version: u32,
@@ -48,13 +48,13 @@ pub struct SchemaVersionSummary {
     pub is_active: bool,
 }
 
-/// Response for listing schema versions.
+/// Response containing schema versions for a vault.
 #[derive(Debug, Serialize)]
 pub struct ListSchemasResponse {
     pub schemas: Vec<SchemaVersionSummary>,
 }
 
-/// Response for get schema (includes the definition).
+/// Schema version with its full definition.
 #[derive(Debug, Serialize)]
 pub struct SchemaDefinitionResponse {
     pub version: u32,
@@ -70,14 +70,14 @@ pub struct DiffQuery {
     pub to: u32,
 }
 
-/// A single field change in a schema diff.
+/// A field-level change between two schema versions.
 #[derive(Debug, Serialize)]
 pub struct FieldChange {
     pub field: String,
     pub change_type: String,
 }
 
-/// Response for schema diff.
+/// Diff between two schema versions.
 #[derive(Debug, Serialize)]
 pub struct DiffResponse {
     pub from: u32,
@@ -87,9 +87,9 @@ pub struct DiffResponse {
 
 // ── Schema Handlers ─────────────────────────────────────────────────
 
-/// Deploy a new schema version.
-///
 /// POST /control/v1/organizations/{org}/vaults/{vault}/schemas
+///
+/// Deploys a new schema version.
 pub async fn deploy_schema(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -120,9 +120,9 @@ pub async fn deploy_schema(
     ))
 }
 
-/// List all schema versions for a vault.
-///
 /// GET /control/v1/organizations/{org}/vaults/{vault}/schemas
+///
+/// Lists all schema versions for a vault.
 pub async fn list_schemas(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -151,9 +151,9 @@ pub async fn list_schemas(
     Ok(Json(ListSchemasResponse { schemas }))
 }
 
-/// Get a specific schema version.
-///
 /// GET /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}
+///
+/// Returns a specific schema version.
 pub async fn get_schema(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -177,9 +177,9 @@ pub async fn get_schema(
     }))
 }
 
-/// Get the currently active schema.
-///
 /// GET /control/v1/organizations/{org}/vaults/{vault}/schemas/current
+///
+/// Returns the currently active schema.
 pub async fn get_current_schema(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -203,9 +203,9 @@ pub async fn get_current_schema(
     }))
 }
 
-/// Activate a specific schema version.
-///
 /// POST /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate
+///
+/// Activates a specific schema version.
 pub async fn activate_schema(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -225,9 +225,9 @@ pub async fn activate_schema(
     Ok(Json(SchemaStatusResponse { version: activated_version, status: "active".to_string() }))
 }
 
-/// Rollback to a previous schema version.
-///
 /// POST /control/v1/organizations/{org}/vaults/{vault}/schemas/rollback
+///
+/// Rolls back to a previous schema version.
 pub async fn rollback_schema(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -247,9 +247,9 @@ pub async fn rollback_schema(
     Ok(Json(SchemaStatusResponse { version: restored_version, status: "active".to_string() }))
 }
 
-/// Compare two schema versions.
-///
 /// GET /control/v1/organizations/{org}/vaults/{vault}/schemas/diff?from=N&to=M
+///
+/// Compares two schema versions.
 pub async fn diff_schemas(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,

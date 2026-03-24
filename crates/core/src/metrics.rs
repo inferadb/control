@@ -1,3 +1,9 @@
+//! Prometheus metrics for the control plane.
+//!
+//! Registers and records counters, histograms, and gauges for HTTP requests,
+//! authentication attempts, database queries, gRPC calls, signing key operations,
+//! and system health indicators.
+
 use std::sync::Once;
 
 use inferadb_control_types::OrganizationSlug;
@@ -5,10 +11,10 @@ use metrics::{counter, describe_counter, describe_gauge, describe_histogram, gau
 
 static METRICS_INIT: Once = Once::new();
 
-/// Initialize Prometheus metrics descriptions
+/// Registers all Prometheus metric descriptions with the metrics registry.
 ///
-/// This should be called once during application startup.
-/// It registers all metric names and descriptions with the metrics registry.
+/// Call once during application startup. Safe to call multiple times
+/// (subsequent calls are no-ops).
 pub fn init() {
     METRICS_INIT.call_once(|| {
         // Counter metrics
@@ -57,7 +63,7 @@ pub fn init() {
     });
 }
 
-/// Record an HTTP request completion
+/// Records an HTTP request completion.
 ///
 /// # Arguments
 ///
@@ -72,7 +78,7 @@ pub fn record_http_request(method: &str, path: &str, status: u16, duration_secs:
         .record(duration_secs);
 }
 
-/// Record an authentication attempt
+/// Records an authentication attempt.
 ///
 /// # Arguments
 ///
@@ -83,12 +89,12 @@ pub fn record_auth_attempt(auth_type: &str, success: bool) {
         .increment(1);
 }
 
-/// Record a user registration
+/// Increments the `registrations_total` counter.
 pub fn record_registration() {
     counter!("registrations_total").increment(1);
 }
 
-/// Record a rate limit exceeded event
+/// Records a rate limit exceeded event.
 ///
 /// # Arguments
 ///
@@ -97,7 +103,7 @@ pub fn record_rate_limit_exceeded(category: &str) {
     counter!("rate_limits_exceeded_total", "category" => category.to_string()).increment(1);
 }
 
-/// Record a database query completion
+/// Records a database query completion.
 ///
 /// # Arguments
 ///
@@ -108,7 +114,7 @@ pub fn record_db_query(operation: &str, duration_secs: f64) {
         .record(duration_secs);
 }
 
-/// Record a gRPC request completion
+/// Records a gRPC request completion.
 ///
 /// # Arguments
 ///
@@ -121,42 +127,42 @@ pub fn record_grpc_request(service: &str, method: &str, status: &str, duration_s
         .record(duration_secs);
 }
 
-/// Set the number of active sessions
+/// Updates the `active_sessions` gauge.
 pub fn set_active_sessions(count: u64) {
     gauge!("active_sessions").set(count as f64);
 }
 
-/// Set the total number of organizations
+/// Updates the `organizations_total` gauge.
 pub fn set_organizations_total(count: u64) {
     gauge!("organizations_total").set(count as f64);
 }
 
-/// Set the total number of vaults
+/// Updates the `vaults_total` gauge.
 pub fn set_vaults_total(count: u64) {
     gauge!("vaults_total").set(count as f64);
 }
 
-/// Record a discovery cache hit
+/// Increments the `discovery_cache_hits_total` counter.
 pub fn record_discovery_cache_hit() {
     counter!("discovery_cache_hits_total").increment(1);
 }
 
-/// Record a discovery cache miss
+/// Increments the `discovery_cache_misses_total` counter.
 pub fn record_discovery_cache_miss() {
     counter!("discovery_cache_misses_total").increment(1);
 }
 
-/// Set the number of discovered endpoints
+/// Updates the `discovered_endpoints` gauge.
 pub fn set_discovered_endpoints(count: u64) {
     gauge!("discovered_endpoints").set(count as f64);
 }
 
-/// Set the measured clock skew against NTP in seconds
+/// Updates the `clock_skew_seconds` gauge with the measured NTP skew.
 pub fn set_clock_skew(skew_seconds: f64) {
     gauge!("clock_skew_seconds").set(skew_seconds);
 }
 
-/// Record a signing key registration in Ledger
+/// Records a signing key registration in Ledger.
 ///
 /// # Arguments
 ///
@@ -169,7 +175,7 @@ pub fn record_signing_key_registered(organization: OrganizationSlug, duration_se
         .record(duration_secs);
 }
 
-/// Record a signing key revocation in Ledger
+/// Records a signing key revocation in Ledger.
 ///
 /// # Arguments
 ///
@@ -187,7 +193,7 @@ pub fn record_signing_key_revoked(
         .record(duration_secs);
 }
 
-/// Record a signing key rotation
+/// Records a signing key rotation.
 ///
 /// # Arguments
 ///

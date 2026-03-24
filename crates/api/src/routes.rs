@@ -1,3 +1,8 @@
+//! Route definitions and middleware wiring for the Control API.
+//!
+//! Builds the [`axum::Router`] with all endpoint routes, authentication
+//! middleware layers, CORS, rate limiting, and security headers.
+
 use axum::{
     Router,
     extract::DefaultBodyLimit,
@@ -18,7 +23,7 @@ use crate::{
     },
 };
 
-/// Create router with state and middleware applied.
+/// Creates the application router with all routes and middleware applied.
 ///
 /// Read routes (GET) use local JWT validation (cached Ed25519 public keys).
 /// Write routes (POST/PATCH/DELETE) use Ledger-validated JWT validation.

@@ -24,12 +24,12 @@ pub type InMemoryRateLimiter = RateLimiter<MemoryBackend>;
 /// organization namespace within Ledger.
 pub type LedgerRateLimiter = RateLimiter<crate::ratelimit_ledger::LedgerStorageBackend>;
 
-/// Creates a new in-memory rate limiter.
+/// Creates an [`InMemoryRateLimiter`] backed by a fresh [`MemoryBackend`].
 pub fn in_memory_rate_limiter() -> InMemoryRateLimiter {
     RateLimiter::new(MemoryBackend::new())
 }
 
-/// Creates a Ledger-backed rate limiter for multi-node deployments.
+/// Creates a [`LedgerRateLimiter`] that stores counters in Ledger's entity store.
 pub fn ledger_rate_limiter(
     client: std::sync::Arc<inferadb_ledger_sdk::LedgerClient>,
     caller: inferadb_ledger_types::UserSlug,
@@ -42,10 +42,7 @@ pub fn ledger_rate_limiter(
     ))
 }
 
-/// Rate limiter that delegates to either an in-memory or Ledger-backed backend.
-///
-/// Single-node deployments use the in-memory backend (default).
-/// Multi-node deployments should use the Ledger backend for shared state.
+/// Dynamic dispatch over [`InMemoryRateLimiter`] and [`LedgerRateLimiter`].
 pub enum AnyRateLimiter {
     /// In-memory backend for single-node deployments.
     InMemory(InMemoryRateLimiter),
@@ -83,7 +80,7 @@ impl AnyRateLimiter {
     }
 }
 
-/// Common rate limit categories
+/// Category string constants (e.g., `"login_ip"`, `"registration_ip"`).
 ///
 /// Re-exported from `inferadb-control-const` for convenience.
 pub mod categories {

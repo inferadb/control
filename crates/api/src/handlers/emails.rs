@@ -24,13 +24,13 @@ use crate::{
 
 // ── Request/Response Types ─────────────────────────────────────────────
 
-/// Add email request.
+/// Request body for adding an email address.
 #[derive(Debug, Deserialize)]
 pub struct AddEmailRequest {
     pub email: String,
 }
 
-/// Email info response (mapped from Ledger SDK UserEmailInfo).
+/// Email information mapped from Ledger SDK [`UserEmailInfo`].
 #[derive(Debug, Serialize)]
 pub struct EmailInfoResponse {
     pub slug: u64,
@@ -40,32 +40,32 @@ pub struct EmailInfoResponse {
     pub verified_at: Option<String>,
 }
 
-/// Add email response.
+/// Response for a newly added email address.
 #[derive(Debug, Serialize)]
 pub struct AddEmailResponse {
     pub email: EmailInfoResponse,
     pub message: String,
 }
 
-/// List emails response.
+/// Response containing the user's email addresses.
 #[derive(Debug, Serialize)]
 pub struct ListEmailsResponse {
     pub emails: Vec<EmailInfoResponse>,
 }
 
-/// Email operation response.
+/// Response for email mutation operations.
 #[derive(Debug, Serialize)]
 pub struct EmailOperationResponse {
     pub message: String,
 }
 
-/// Verify email request.
+/// Request body for verifying an email address with a token.
 #[derive(Debug, Deserialize)]
 pub struct VerifyEmailRequest {
     pub token: String,
 }
 
-/// Verify email response.
+/// Response for email verification.
 #[derive(Debug, Serialize)]
 pub struct VerifyEmailResponse {
     pub message: String,
@@ -74,6 +74,7 @@ pub struct VerifyEmailResponse {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
+/// Converts a Ledger [`UserEmailInfo`] to an API response.
 fn map_email_info(
     info: &UserEmailInfo,
 ) -> std::result::Result<EmailInfoResponse, inferadb_control_types::Error> {
@@ -86,6 +87,7 @@ fn map_email_info(
     })
 }
 
+/// Extracts the required email blinding key from app state.
 fn require_blinding_key(
     state: &AppState,
 ) -> std::result::Result<&inferadb_ledger_types::EmailBlindingKey, CoreError> {
@@ -97,12 +99,10 @@ fn require_blinding_key(
 
 // ── Handlers ───────────────────────────────────────────────────────────
 
-/// Add a new email address.
-///
 /// POST /control/v1/users/emails
 ///
-/// Creates a new email address via Ledger SDK. The Ledger generates
-/// a verification token which should be sent via SMTP.
+/// Adds an email address to the authenticated user's account.
+/// Creates the email via Ledger SDK, which generates a verification token.
 pub async fn add_email(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -126,9 +126,9 @@ pub async fn add_email(
     }))
 }
 
-/// List all emails for the authenticated user.
-///
 /// GET /control/v1/users/emails
+///
+/// Lists all emails for the authenticated user.
 pub async fn list_emails(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -146,9 +146,9 @@ pub async fn list_emails(
     }))
 }
 
-/// Delete an email address.
-///
 /// DELETE /control/v1/users/emails/{id}
+///
+/// Deletes an email address.
 pub async fn delete_email(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -165,9 +165,9 @@ pub async fn delete_email(
     Ok(Json(EmailOperationResponse { message: "Email deleted successfully".to_string() }))
 }
 
-/// Verify an email address using a verification token.
-///
 /// POST /control/v1/auth/verify-email
+///
+/// Verifies an email address using a verification token.
 pub async fn verify_email(
     State(state): State<AppState>,
     Json(payload): Json<VerifyEmailRequest>,

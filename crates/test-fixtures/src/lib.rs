@@ -1,12 +1,8 @@
-// Test fixtures are allowed to use unwrap/expect for clear failure messages
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 //! Test fixtures and utilities for InferaDB Control API integration tests.
 //!
-//! This crate provides shared test helpers for testing the Control API **without
-//! a running Ledger backend**. When `AppState.ledger` is `None` (test mode),
-//! Ledger-dependent endpoints return `500 "an internal error occurred"`. The
-//! helpers here are therefore most useful for:
+//! Shared test helpers for testing the Control API **without a running Ledger
+//! backend**. When `AppState.ledger` is `None` (test mode), Ledger-dependent
+//! endpoints return `500 "an internal error occurred"`. These helpers target:
 //!
 //! - Testing unauthenticated routes (health, metrics)
 //! - Testing that authentication rejection works correctly
@@ -19,7 +15,7 @@
 //!
 //! # Usage
 //!
-//! ```rust,no_run
+//! ```no_run
 //! use inferadb_control_test_fixtures::{create_test_state, create_test_app, get};
 //!
 //! #[tokio::test]
@@ -32,6 +28,8 @@
 //! }
 //! ```
 
+// Test fixtures use unwrap/expect for clear failure messages in assertions.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![deny(unsafe_code)]
 
 use axum::{
@@ -39,8 +37,9 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-// Re-export for convenience in test code.
+/// Re-exports from [`inferadb_control_api`] for test convenience.
 pub use inferadb_control_api::{AppState, create_router_with_state};
+/// Re-exports from [`inferadb_control_const`] for authentication test convenience.
 pub use inferadb_control_const::auth::{ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME};
 use serde_json::Value;
 use tower::ServiceExt;
@@ -54,7 +53,7 @@ use tower::ServiceExt;
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```no_run
 /// use inferadb_control_test_fixtures::create_test_state;
 ///
 /// let state = create_test_state();
@@ -70,7 +69,7 @@ pub fn create_test_state() -> AppState {
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```no_run
 /// use inferadb_control_test_fixtures::{create_test_state, create_test_app};
 ///
 /// let state = create_test_state();
@@ -83,10 +82,6 @@ pub fn create_test_app(state: AppState) -> Router {
 /// Extracts the access token cookie value from HTTP response headers.
 ///
 /// Parses `Set-Cookie` headers looking for the `inferadb_access` cookie.
-///
-/// # Returns
-///
-/// `Some(String)` with the cookie value, or `None` if not present.
 pub fn extract_access_token(headers: &axum::http::HeaderMap) -> Option<String> {
     extract_cookie(headers, ACCESS_TOKEN_COOKIE_NAME)
 }
@@ -94,10 +89,6 @@ pub fn extract_access_token(headers: &axum::http::HeaderMap) -> Option<String> {
 /// Extracts the refresh token cookie value from HTTP response headers.
 ///
 /// Parses `Set-Cookie` headers looking for the `inferadb_refresh` cookie.
-///
-/// # Returns
-///
-/// `Some(String)` with the cookie value, or `None` if not present.
 pub fn extract_refresh_token(headers: &axum::http::HeaderMap) -> Option<String> {
     extract_cookie(headers, REFRESH_TOKEN_COOKIE_NAME)
 }
@@ -120,12 +111,11 @@ pub async fn body_json(response: axum::http::Response<Body>) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
-/// Builds an HTTP request with a JSON content-type header but no auth
-/// credentials.
+/// Builds an HTTP request with a JSON content-type header and no auth credentials.
 ///
-/// In test mode without Ledger, JWT validation middleware rejects all requests
-/// to protected routes. This helper is useful for testing unauthenticated
-/// routes (health, metrics) or verifying that auth rejection works correctly.
+/// Without a Ledger backend, JWT validation middleware rejects all requests to
+/// protected routes. Use this for testing unauthenticated routes (health,
+/// metrics) or verifying auth rejection.
 pub fn json_request(method: &str, uri: &str) -> Request<Body> {
     Request::builder()
         .method(method)

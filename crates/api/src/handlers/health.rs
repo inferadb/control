@@ -21,33 +21,44 @@ use serde::{Deserialize, Serialize};
 
 use crate::handlers::AppState;
 
-/// Health check status.
+/// Health check status indicator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HealthStatus {
+    /// All subsystems are operational.
     Healthy,
+    /// Some subsystems are impaired but the service is functional.
     Degraded,
+    /// Critical subsystems are unreachable.
     Unhealthy,
 }
 
-/// Detailed health status response.
+/// Detailed health status response for the `/healthz` endpoint.
 #[derive(Debug, Clone, Serialize)]
 pub struct HealthResponse {
+    /// Overall health status.
     pub status: HealthStatus,
+    /// Service name (e.g., `"inferadb-control"`).
     pub service: String,
+    /// Crate version from `Cargo.toml`.
     pub version: String,
+    /// Worker/instance identifier.
     pub instance_id: u16,
+    /// Seconds since server startup.
     pub uptime_seconds: u64,
+    /// Whether the Ledger SDK client is reachable.
     pub ledger_healthy: bool,
+    /// Optional human-readable diagnostic details.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
 }
 
-/// Cached health check state. Prevents probe bursts from cascading to Ledger.
+/// Cached health check state preventing probe bursts from cascading to Ledger.
 ///
-/// Stored in `AppState` for test isolation. Uses lock-free atomics so concurrent
-/// probes don't block each other. The cache is best-effort: concurrent callers
-/// may occasionally duplicate a health check, which is acceptable for probes.
+/// Stored in [`AppState`] for test isolation. Uses lock-free atomics so
+/// concurrent probes do not block each other. The cache is best-effort:
+/// concurrent callers may occasionally duplicate a health check, which is
+/// acceptable for probes.
 pub struct HealthCache {
     last_check_epoch_secs: AtomicU64,
     last_result: AtomicBool,
@@ -68,7 +79,7 @@ impl std::fmt::Debug for HealthCache {
     }
 }
 
-/// Checks Ledger SDK health with 5-second caching.
+/// Checks Ledger SDK health, caching the result for 5 seconds.
 async fn check_ledger_health(state: &AppState) -> bool {
     let Some(ref ledger) = state.ledger else {
         // No Ledger configured (dev-mode) — consider healthy
@@ -106,7 +117,7 @@ pub async fn readyz_handler(State(state): State<AppState>) -> impl IntoResponse 
 
 /// Startup probe handler (`/startupz`).
 ///
-/// Same as readiness — Ledger must be accessible.
+/// Delegates to the readiness probe; Ledger must be accessible.
 pub async fn startupz_handler(State(state): State<AppState>) -> impl IntoResponse {
     readyz_handler(State(state)).await
 }

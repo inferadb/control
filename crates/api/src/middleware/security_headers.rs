@@ -11,12 +11,11 @@
 
 use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 
-/// Middleware that adds security headers to all responses.
+/// Adds security headers to all responses.
 ///
-/// HSTS is always set regardless of host — per RFC 6797 §8.1, user agents
-/// MUST ignore `Strict-Transport-Security` received over insecure transport,
-/// so including it on localhost/HTTP is harmless and avoids relying on the
-/// client-supplied `Host` header for a security decision.
+/// HSTS is set unconditionally. Per RFC 6797 section 8.1, user agents ignore
+/// `Strict-Transport-Security` over insecure transport, so this is harmless
+/// on localhost and avoids relying on the `Host` header for a security decision.
 pub async fn security_headers_middleware(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     let headers = response.headers_mut();

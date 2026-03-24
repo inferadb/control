@@ -14,7 +14,7 @@ use inferadb_control_core::{RateLimit, RateLimitResult};
 
 use crate::{extract::extract_client_ip, handlers::AppState};
 
-/// Configurable rate limits for the application.
+/// Configurable rate limits for authentication endpoints.
 #[derive(Debug, Clone)]
 pub struct RateLimitConfig {
     /// Rate limit for login/auth attempts (default: 100/hour per IP).
@@ -30,11 +30,10 @@ impl Default for RateLimitConfig {
     }
 }
 
-/// Fixed sentinel key for clients whose IP cannot be determined.
+/// Sentinel key for clients whose IP cannot be determined.
 ///
-/// All unidentifiable clients share a single rate limit bucket. This prevents
-/// bypass by omitting proxy headers — unknown clients are collectively throttled
-/// rather than each getting their own unlimited bucket.
+/// All unidentifiable clients share one rate limit bucket, preventing bypass
+/// by omitting proxy headers.
 const UNKNOWN_CLIENT_KEY: &str = "unknown";
 
 /// Login/auth rate limit middleware (100/hour per IP).
@@ -73,7 +72,7 @@ pub async fn registration_rate_limit(
     }
 }
 
-/// Builds a 429 Too Many Requests response with Retry-After header.
+/// Builds a 429 Too Many Requests response with a `Retry-After` header.
 fn rate_limit_response(retry_after_secs: u64) -> Response {
     let mut response = StatusCode::TOO_MANY_REQUESTS.into_response();
     if let Ok(value) = HeaderValue::from_str(&retry_after_secs.to_string()) {

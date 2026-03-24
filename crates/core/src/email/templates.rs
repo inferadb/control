@@ -1,24 +1,34 @@
+//! HTML and plain text email templates.
+//!
+//! Each template struct implements [`EmailTemplate`] to produce a subject line,
+//! HTML body, and plain text fallback. HTML bodies are XSS-safe via
+//! [`html_escape`].
+
 use super::html_escape;
 
-/// Email template trait
+/// Produces email content as a subject, HTML body, and plain text fallback.
+///
+/// Implementors render user-facing emails. HTML bodies must escape all
+/// user-supplied fields via [`html_escape`] to prevent XSS. Plain text
+/// bodies are not escaped.
 pub trait EmailTemplate {
-    /// Get the email subject
+    /// Returns the email subject line.
     fn subject(&self) -> String;
 
-    /// Get the HTML body
+    /// Returns the HTML body with all user-supplied values escaped.
     fn html_body(&self) -> String;
 
-    /// Get the plain text body
+    /// Returns the plain text body (no HTML escaping).
     fn text_body(&self) -> String;
 }
 
-/// Email verification template
+/// Email verification template sent after user registration.
 pub struct VerificationEmailTemplate {
-    /// User's name
+    /// Display name of the user receiving the email.
     pub user_name: String,
-    /// Verification link
+    /// Full URL the user clicks to verify their email address.
     pub verification_link: String,
-    /// Verification code (for manual entry)
+    /// Short alphanumeric code for manual entry as an alternative to the link.
     pub verification_code: String,
 }
 
@@ -100,13 +110,13 @@ This is an automated message, please do not reply.
     }
 }
 
-/// Password reset email template
+/// Password reset email template with a 1-hour expiration window.
 pub struct PasswordResetEmailTemplate {
-    /// User's name
+    /// Display name of the user receiving the email.
     pub user_name: String,
-    /// Reset link
+    /// Full URL the user clicks to reset their password.
     pub reset_link: String,
-    /// Reset code (for manual entry)
+    /// Short alphanumeric code for manual entry as an alternative to the link.
     pub reset_code: String,
 }
 
@@ -188,21 +198,21 @@ This is an automated message, please do not reply.
     }
 }
 
-/// Organization invitation email template
+/// Organization invitation email sent to prospective members.
 pub struct InvitationEmailTemplate {
-    /// Invitee's email (since they might not have a name yet)
+    /// Email address of the invitee (used when the invitee has no account yet).
     pub invitee_email: String,
-    /// Organization name
+    /// Name of the organization the invitee is joining.
     pub organization_name: String,
-    /// Inviter's name
+    /// Display name of the person who sent the invitation.
     pub inviter_name: String,
-    /// Role being granted
+    /// Role being granted (e.g., "admin", "member").
     pub role: String,
-    /// Invitation acceptance link
+    /// Full URL the invitee clicks to accept the invitation.
     pub invitation_link: String,
-    /// Invitation token (for manual entry)
+    /// Short token for manual entry as an alternative to the link.
     pub invitation_token: String,
-    /// Expiration time (human-readable)
+    /// Human-readable expiration window (e.g., "7 days").
     pub expires_in: String,
 }
 
@@ -294,17 +304,17 @@ This is an automated message, please do not reply.
     }
 }
 
-/// Invitation accepted notification email template
+/// Notification sent to the organization owner when an invitation is accepted.
 pub struct InvitationAcceptedEmailTemplate {
-    /// Organization owner's name
+    /// Display name of the organization owner receiving the notification.
     pub owner_name: String,
-    /// New member's name
+    /// Display name of the member who accepted the invitation.
     pub member_name: String,
-    /// New member's email
+    /// Email address of the member who accepted the invitation.
     pub member_email: String,
-    /// Organization name
+    /// Name of the organization the member joined.
     pub organization_name: String,
-    /// Role granted
+    /// Role granted to the new member (e.g., "admin", "member").
     pub role: String,
 }
 
@@ -371,17 +381,17 @@ This is an automated message, please do not reply.
     }
 }
 
-/// Role change notification email template
+/// Notification sent to a member when their role within an organization changes.
 pub struct RoleChangeEmailTemplate {
-    /// Member's name
+    /// Display name of the member whose role changed.
     pub member_name: String,
-    /// Organization name
+    /// Name of the organization where the role change occurred.
     pub organization_name: String,
-    /// Previous role
+    /// Role the member held before the change.
     pub old_role: String,
-    /// New role
+    /// Role the member holds after the change.
     pub new_role: String,
-    /// Who made the change
+    /// Display name of the administrator who made the change.
     pub changed_by: String,
 }
 
@@ -450,15 +460,15 @@ This is an automated message, please do not reply.
     }
 }
 
-/// Organization deletion warning email template
+/// Warning sent to all members when an organization is scheduled for deletion.
 pub struct OrganizationDeletionWarningEmailTemplate {
-    /// Member's name
+    /// Display name of the member receiving the warning.
     pub member_name: String,
-    /// Organization name
+    /// Name of the organization scheduled for deletion.
     pub organization_name: String,
-    /// Who initiated deletion
+    /// Display name of the administrator who initiated deletion.
     pub deleted_by: String,
-    /// How many days until deletion
+    /// Number of days remaining before permanent deletion.
     pub days_until_deletion: u32,
 }
 

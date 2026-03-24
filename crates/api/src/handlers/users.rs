@@ -18,7 +18,7 @@ use crate::{
 
 // ── Response Types ──────────────────────────────────────────────────────
 
-/// User profile response (mapped from Ledger SDK UserInfo).
+/// User profile data mapped from Ledger SDK [`UserInfo`](inferadb_ledger_sdk::UserInfo).
 #[derive(Debug, Serialize)]
 pub struct UserProfileData {
     pub slug: u64,
@@ -28,19 +28,19 @@ pub struct UserProfileData {
     pub created_at: Option<String>,
 }
 
-/// Wrapped user profile response.
+/// Envelope response wrapping [`UserProfileData`].
 #[derive(Debug, Serialize)]
 pub struct UserProfileResponse {
     pub user: UserProfileData,
 }
 
-/// Update profile request.
+/// Request body for updating the user profile.
 #[derive(Debug, Deserialize)]
 pub struct UpdateProfileRequest {
     pub name: Option<String>,
 }
 
-/// Delete user response.
+/// Response confirming account deletion.
 #[derive(Debug, Serialize)]
 pub struct DeleteUserResponse {
     pub message: String,
@@ -48,7 +48,7 @@ pub struct DeleteUserResponse {
 
 // ── Handlers ────────────────────────────────────────────────────────────
 
-/// GET /v1/users/me
+/// GET /control/v1/users/me
 ///
 /// Returns the authenticated user's profile from Ledger.
 pub async fn get_profile(
@@ -72,7 +72,7 @@ pub async fn get_profile(
     }))
 }
 
-/// PATCH /v1/users/me
+/// PATCH /control/v1/users/me
 ///
 /// Updates the authenticated user's display name.
 pub async fn update_profile(
@@ -103,7 +103,7 @@ pub async fn update_profile(
     }))
 }
 
-/// DELETE /v1/users/me
+/// DELETE /control/v1/users/me
 ///
 /// Soft-deletes the authenticated user's account. Ledger handles all cascade
 /// deletion (sessions, memberships, emails, credentials, etc.).

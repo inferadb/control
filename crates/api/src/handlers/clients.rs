@@ -52,7 +52,7 @@ pub struct CreateCertificateRequest {
 
 // ── Response Types ────────────────────────────────────────────────────
 
-/// Client summary response.
+/// Client summary.
 #[derive(Debug, Serialize)]
 pub struct ClientResponse {
     pub slug: u64,
@@ -68,7 +68,7 @@ pub struct ClientResponse {
     pub updated_at: Option<String>,
 }
 
-/// Credential configuration response.
+/// Credential configuration for a client.
 #[derive(Debug, Serialize)]
 pub struct CredentialsResponse {
     pub client_secret_enabled: bool,
@@ -83,7 +83,7 @@ pub struct SingleClientResponse {
     pub client: ClientResponse,
 }
 
-/// List of clients.
+/// Response containing clients for an organization.
 #[derive(Debug, Serialize)]
 pub struct ListClientsResponse {
     pub clients: Vec<ClientResponse>,
@@ -101,20 +101,22 @@ pub struct CertificateResponse {
     pub created_at: Option<String>,
 }
 
-/// List of certificates.
+/// Response containing certificates for a client.
 #[derive(Debug, Serialize)]
 pub struct ListCertificatesResponse {
     pub certificates: Vec<CertificateResponse>,
 }
 
-/// Created certificate response (includes private key PEM).
+/// Response for a newly created certificate, including the private key PEM.
+///
+/// The private key is only available in this response and cannot be retrieved later.
 #[derive(Debug, Serialize)]
 pub struct CreateCertificateResponse {
     pub certificate: CertificateResponse,
     pub private_key_pem: String,
 }
 
-/// Rotate client secret response.
+/// Response containing the new client secret after rotation.
 #[derive(Debug, Serialize)]
 pub struct RotateSecretResponse {
     pub secret: String,
@@ -122,6 +124,7 @@ pub struct RotateSecretResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
+/// Converts a Ledger [`AppInfo`](inferadb_ledger_sdk::AppInfo) to an API response.
 fn app_info_to_response(info: &inferadb_ledger_sdk::AppInfo) -> ClientResponse {
     ClientResponse {
         slug: info.slug.value(),
@@ -139,6 +142,8 @@ fn app_info_to_response(info: &inferadb_ledger_sdk::AppInfo) -> ClientResponse {
     }
 }
 
+/// Converts a Ledger [`AppClientAssertionInfo`](inferadb_ledger_sdk::AppClientAssertionInfo) to an
+/// API response.
 fn assertion_to_response(
     info: &inferadb_ledger_sdk::AppClientAssertionInfo,
 ) -> std::result::Result<CertificateResponse, CoreError> {
@@ -153,7 +158,7 @@ fn assertion_to_response(
 
 // ── Client Handlers ──────────────────────────────────────────────────
 
-/// POST /v1/organizations/:org/clients
+/// POST /control/v1/organizations/{org}/clients
 ///
 /// Creates a new client (app) in the organization.
 pub async fn create_client(
@@ -180,7 +185,7 @@ pub async fn create_client(
     Ok((StatusCode::CREATED, Json(SingleClientResponse { client: app_info_to_response(&info) })))
 }
 
-/// GET /v1/organizations/:org/clients
+/// GET /control/v1/organizations/{org}/clients
 ///
 /// Lists all clients (apps) in the organization.
 pub async fn list_clients(
@@ -199,7 +204,7 @@ pub async fn list_clients(
     Ok(Json(ListClientsResponse { clients: apps.iter().map(app_info_to_response).collect() }))
 }
 
-/// GET /v1/organizations/:org/clients/:client
+/// GET /control/v1/organizations/{org}/clients/{client}
 ///
 /// Returns details of a specific client (app).
 pub async fn get_client(
@@ -218,7 +223,7 @@ pub async fn get_client(
     Ok(Json(SingleClientResponse { client: app_info_to_response(&info) }))
 }
 
-/// PATCH /v1/organizations/:org/clients/:client
+/// PATCH /control/v1/organizations/{org}/clients/{client}
 ///
 /// Updates a client (app). Ledger enforces role requirements.
 pub async fn update_client(
@@ -248,7 +253,7 @@ pub async fn update_client(
     Ok(Json(SingleClientResponse { client: app_info_to_response(&info) }))
 }
 
-/// DELETE /v1/organizations/:org/clients/:client
+/// DELETE /control/v1/organizations/{org}/clients/{client}
 ///
 /// Deletes a client (app). Ledger enforces role requirements.
 pub async fn delete_client(
@@ -269,10 +274,10 @@ pub async fn delete_client(
 
 // ── Certificate (Assertion) Handlers ─────────────────────────────────
 
-/// POST /v1/organizations/:org/clients/:client/certificates
+/// POST /control/v1/organizations/{org}/clients/{client}/certificates
 ///
 /// Creates a new certificate (client assertion) for a client. Returns the
-/// private key PEM — this is the only time it will be available.
+/// private key PEM. The private key is only available in this response.
 pub async fn create_certificate(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -308,7 +313,7 @@ pub async fn create_certificate(
     ))
 }
 
-/// GET /v1/organizations/:org/clients/:client/certificates
+/// GET /control/v1/organizations/{org}/clients/{client}/certificates
 ///
 /// Lists all certificates (client assertions) for a client.
 pub async fn list_certificates(
@@ -336,7 +341,7 @@ pub async fn list_certificates(
     }))
 }
 
-/// GET /v1/organizations/:org/clients/:client/certificates/:cert
+/// GET /control/v1/organizations/{org}/clients/{client}/certificates/{cert}
 ///
 /// Returns details of a specific certificate (client assertion).
 pub async fn get_certificate(
@@ -364,7 +369,7 @@ pub async fn get_certificate(
     Ok(Json(assertion_to_response(assertion)?))
 }
 
-/// DELETE /v1/organizations/:org/clients/:client/certificates/:cert
+/// DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}
 ///
 /// Revokes a certificate (deletes a client assertion).
 pub async fn revoke_certificate(
@@ -391,7 +396,7 @@ pub async fn revoke_certificate(
     Ok(Json(MessageResponse { message: "Certificate revoked successfully".to_string() }))
 }
 
-/// POST /v1/organizations/:org/clients/:client/certificates/rotate
+/// POST /control/v1/organizations/{org}/clients/{client}/secret/rotate
 ///
 /// Rotates the client secret for a client. Returns the new plaintext secret.
 pub async fn rotate_certificate(

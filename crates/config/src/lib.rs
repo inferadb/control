@@ -67,7 +67,7 @@ pub enum StorageBackend {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum, strum::Display)]
 #[strum(serialize_all = "lowercase")]
 pub enum LogFormat {
-    /// Automatically detect: JSON for non-TTY stdout, text otherwise.
+    /// Auto-detect based on stdout: JSON when non-TTY, text otherwise.
     #[default]
     Auto,
     /// JSON structured logging (recommended for production).
@@ -85,12 +85,12 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Option<CliCommand>,
 
-    /// Server configuration (flattened so flags appear at top level).
+    /// Server configuration.
     #[command(flatten)]
     pub config: Config,
 }
 
-/// CLI subcommands.
+/// CLI subcommands. Reserved for future use; the server starts when no subcommand is given.
 #[derive(Debug, clap::Subcommand)]
 pub enum CliCommand {}
 
@@ -99,25 +99,25 @@ pub enum CliCommand {}
 /// All fields are configurable via CLI flags or environment variables.
 /// Precedence: CLI arg > env var > default value.
 ///
-/// Sensitive fields (`pem`, `email_password`) use `hide_env_values` to
-/// prevent leaking secrets in `--help` output.
+/// Sensitive fields (`pem`, `email_password`) use `hide_env_values` to prevent
+/// leaking secrets in `--help` output.
 #[derive(Clone, Builder, Parser)]
 #[command(name = "inferadb-control")]
 #[command(version)]
 #[builder(on(String, into))]
 pub struct Config {
     // ── Server ───────────────────────────────────────────────────────
-    /// HTTP bind address.
+    /// HTTP bind address. Defaults to `127.0.0.1:9090`.
     #[arg(long = "listen", env = "INFERADB__CONTROL__LISTEN", default_value = DEFAULT_LISTEN)]
     #[builder(default = default_listen())]
     pub listen: SocketAddr,
 
-    /// Tracing-subscriber filter string (e.g., info, debug, trace).
+    /// Tracing-subscriber filter string (e.g., `info`, `debug`, `trace`). Defaults to `info`.
     #[arg(long = "log-level", env = "INFERADB__CONTROL__LOG_LEVEL", default_value = DEFAULT_LOG_LEVEL)]
     #[builder(default = DEFAULT_LOG_LEVEL.to_string())]
     pub log_level: String,
 
-    /// Log output format: auto, json, or text.
+    /// Log output format: `auto`, `json`, or `text`. Defaults to `auto`.
     #[arg(
         long = "log-format",
         env = "INFERADB__CONTROL__LOG_FORMAT",
@@ -129,17 +129,19 @@ pub struct Config {
 
     // ── Identity & Encryption ────────────────────────────────────────
     /// Ed25519 private key in PEM format for control identity.
+    ///
     /// If not provided, a new keypair is generated on each startup.
     #[arg(long = "pem", env = "INFERADB__CONTROL__PEM", hide_env_values = true)]
     pub pem: Option<String>,
 
     /// Path to the AES-256-GCM master key file for encrypting private keys at rest.
+    /// Defaults to `./data/master.key`.
     #[arg(long = "key-file", env = "INFERADB__CONTROL__KEY_FILE", default_value = DEFAULT_KEY_FILE)]
     #[builder(default = PathBuf::from(DEFAULT_KEY_FILE))]
     pub key_file: PathBuf,
 
     // ── Storage ──────────────────────────────────────────────────────
-    /// Storage backend: memory or ledger.
+    /// Storage backend: `memory` or `ledger`. Defaults to `ledger`.
     #[arg(
         long = "storage",
         env = "INFERADB__CONTROL__STORAGE",
@@ -149,24 +151,25 @@ pub struct Config {
     #[builder(default)]
     pub storage: StorageBackend,
 
-    /// Ledger gRPC endpoint URL. Required when storage=ledger.
+    /// Ledger gRPC endpoint URL. Required when `storage=ledger`.
     #[arg(long = "ledger-endpoint", env = "INFERADB__CONTROL__LEDGER_ENDPOINT")]
     pub ledger_endpoint: Option<String>,
 
-    /// Ledger client identifier for idempotency tracking. Required when storage=ledger.
+    /// Ledger client identifier for idempotency tracking. Required when `storage=ledger`.
     #[arg(long = "ledger-client-id", env = "INFERADB__CONTROL__LEDGER_CLIENT_ID")]
     pub ledger_client_id: Option<String>,
 
-    /// Ledger organization for data scoping. Required when storage=ledger.
+    /// Ledger organization for data scoping. Required when `storage=ledger`.
     #[arg(long = "ledger-organization", env = "INFERADB__CONTROL__LEDGER_ORGANIZATION")]
     pub ledger_organization: Option<u64>,
 
-    /// Optional ledger vault for finer-grained key scoping.
+    /// Ledger vault for finer-grained key scoping.
     #[arg(long = "ledger-vault", env = "INFERADB__CONTROL__LEDGER_VAULT")]
     pub ledger_vault: Option<u64>,
 
     // ── Email Blinding ────────────────────────────────────────────────
     /// Email blinding key for HMAC-SHA256 computation (64-char hex string, 32 bytes).
+    ///
     /// Must match the key configured on the Ledger cluster.
     /// Generate with: `openssl rand -hex 32`
     #[arg(
@@ -177,21 +180,21 @@ pub struct Config {
     pub email_blinding_key: Option<String>,
 
     // ── Email (SMTP) ─────────────────────────────────────────────────
-    /// SMTP host. Empty string disables email.
+    /// SMTP host for outgoing email. Defaults to empty string (email disabled).
     #[arg(long = "email-host", env = "INFERADB__CONTROL__EMAIL_HOST", default_value = "")]
     #[builder(default)]
     pub email_host: String,
 
-    /// SMTP port.
+    /// SMTP port for outgoing email. Defaults to `587` (STARTTLS).
     #[arg(long = "email-port", env = "INFERADB__CONTROL__EMAIL_PORT", default_value_t = DEFAULT_EMAIL_PORT)]
     #[builder(default = DEFAULT_EMAIL_PORT)]
     pub email_port: u16,
 
-    /// SMTP username.
+    /// SMTP authentication username. Required when email is enabled.
     #[arg(long = "email-username", env = "INFERADB__CONTROL__EMAIL_USERNAME")]
     pub email_username: Option<String>,
 
-    /// SMTP password.
+    /// SMTP authentication password. Required when email is enabled.
     #[arg(
         long = "email-password",
         env = "INFERADB__CONTROL__EMAIL_PASSWORD",
@@ -199,31 +202,34 @@ pub struct Config {
     )]
     pub email_password: Option<String>,
 
-    /// From email address for outgoing messages.
+    /// Sender address for outgoing email. Defaults to `noreply@inferadb.com`.
     #[arg(long = "email-from-address", env = "INFERADB__CONTROL__EMAIL_FROM_ADDRESS", default_value = DEFAULT_EMAIL_FROM_ADDRESS)]
     #[builder(default = DEFAULT_EMAIL_FROM_ADDRESS.to_string())]
     pub email_from_address: String,
 
-    /// From display name for outgoing messages.
+    /// Sender display name for outgoing email. Defaults to `InferaDB`.
     #[arg(long = "email-from-name", env = "INFERADB__CONTROL__EMAIL_FROM_NAME", default_value = DEFAULT_EMAIL_FROM_NAME)]
     #[builder(default = DEFAULT_EMAIL_FROM_NAME.to_string())]
     pub email_from_name: String,
 
-    /// Allow insecure (unencrypted) SMTP connections.
+    /// Skip TLS verification for SMTP connections. Defaults to `false`.
+    ///
     /// Only for local development with tools like Mailpit.
     #[arg(long = "email-insecure", env = "INFERADB__CONTROL__EMAIL_INSECURE")]
     #[builder(default)]
     pub email_insecure: bool,
 
     // ── Frontend ─────────────────────────────────────────────────────
-    /// Base URL for email links (verification, password reset).
+    /// Base URL for email links (verification, password reset). Defaults to `http://localhost:3000`.
     #[arg(long = "frontend-url", env = "INFERADB__CONTROL__FRONTEND_URL", default_value = DEFAULT_FRONTEND_URL)]
     #[builder(default = DEFAULT_FRONTEND_URL.to_string())]
     pub frontend_url: String,
 
     // ── WebAuthn ─────────────────────────────────────────────────────
-    /// WebAuthn Relying Party ID (domain). Must be an effective domain suffix
-    /// of the origin. Cannot be changed after credentials are registered.
+    /// WebAuthn Relying Party ID (domain). Defaults to `localhost`.
+    ///
+    /// Must be an effective domain suffix of the origin. Cannot be changed after
+    /// credentials are registered.
     #[arg(
         long = "webauthn-rp-id",
         env = "INFERADB__CONTROL__WEBAUTHN_RP_ID",
@@ -232,7 +238,9 @@ pub struct Config {
     #[builder(default = "localhost".to_string())]
     pub webauthn_rp_id: String,
 
-    /// WebAuthn Relying Party origin URL (e.g., https://app.inferadb.com).
+    /// WebAuthn Relying Party origin URL (e.g., `https://app.inferadb.com`).
+    /// Defaults to `http://localhost:3000`.
+    ///
     /// Must include scheme. The RP ID must be a suffix of this origin's domain.
     #[arg(
         long = "webauthn-origin",
@@ -244,20 +252,23 @@ pub struct Config {
 
     // ── Proxy ─────────────────────────────────────────────────────────
     /// Number of trusted reverse proxies between the client and this server.
+    ///
     /// When set, the client IP is extracted as the Nth-from-right entry in
     /// `X-Forwarded-For` (rightmost entries are added by trusted infrastructure).
-    /// When unset, `ConnectInfo` (direct TCP peer) is preferred over proxy headers.
     #[arg(long = "trusted-proxy-depth", env = "INFERADB__CONTROL__TRUSTED_PROXY_DEPTH")]
     pub trusted_proxy_depth: Option<NonZeroU8>,
 
     // ── Mode Flags ───────────────────────────────────────────────────
-    /// Force development mode: uses in-memory storage regardless of --storage.
-    /// No environment variable — this must be an explicit CLI choice.
+    /// Force development mode: uses in-memory storage regardless of `--storage`. Defaults to
+    /// `false`.
+    ///
+    /// No environment variable; this must be an explicit CLI choice.
     #[arg(long = "dev-mode")]
     #[builder(default)]
     pub dev_mode: bool,
 }
 
+/// Redacts sensitive fields (`pem`, `email_blinding_key`, `email_password`).
 impl std::fmt::Debug for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Config")
@@ -294,11 +305,15 @@ fn default_listen() -> SocketAddr {
 }
 
 impl Config {
-    /// Validate cross-field business rules.
+    /// Validates cross-field business rules.
     ///
-    /// Must be called after parsing and before using the config. Checks
-    /// ledger storage requirements, frontend URL format, and applies
-    /// dev-mode overrides.
+    /// Checks Ledger storage requirements and frontend URL format. Uses
+    /// [`effective_storage`](Self::effective_storage) to account for dev-mode.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::config` if required Ledger fields are missing when
+    /// storage is `Ledger`, or if `frontend_url` has an invalid format.
     pub fn validate(&self) -> Result<()> {
         // Validate ledger storage requirements
         if self.effective_storage() == StorageBackend::Ledger {

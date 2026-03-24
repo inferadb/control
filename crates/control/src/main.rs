@@ -1,3 +1,5 @@
+//! InferaDB control plane binary entrypoint.
+
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -9,8 +11,6 @@ use inferadb_control_core::{
 };
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Install the rustls crypto provider early, before any TLS operations.
-    // SAFETY: Crypto provider installation failure is unrecoverable at startup
     #[allow(clippy::expect_used)]
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -19,7 +19,6 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = cli.config;
 
-    // Clear terminal when running interactively with non-JSON output
     if config.log_format != LogFormat::Json && std::io::IsTerminal::is_terminal(&std::io::stdout())
     {
         print!("\x1B[2J\x1B[1;1H");
@@ -27,7 +26,6 @@ async fn main() -> Result<()> {
 
     config.validate()?;
 
-    // Initialize structured logging
     let log_config = logging::LogConfig {
         format: match config.log_format {
             LogFormat::Json => logging::LogFormat::Json,
@@ -55,7 +53,6 @@ async fn main() -> Result<()> {
 
     let effective_storage = config.effective_storage();
 
-    // Display startup banner and configuration summary
     if config.log_format != LogFormat::Json {
         startup::StartupDisplay::new(startup::ServiceInfo {
             name: "InferaDB",
@@ -76,16 +73,13 @@ async fn main() -> Result<()> {
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "Starting InferaDB Control");
     }
 
-    // Generate a random worker ID (0..1024) for the ID generator
     let worker_id: u16 = rand::random::<u16>() % 1024;
 
-    // Initialize the ID generator with the worker ID
     IdGenerator::init(worker_id)
         .map_err(|e| anyhow::anyhow!("Failed to initialize ID generator: {e}"))?;
 
     startup::log_initialized(&format!("Worker ID ({worker_id})"));
 
-    // Initialize email service (if configured)
     let email_service = if config.is_email_enabled() {
         match SmtpEmailService::new(
             &config.email_host,
@@ -115,13 +109,11 @@ async fn main() -> Result<()> {
         None
     };
 
-    // Parse email blinding key (if configured)
     let blinding_key = parse_blinding_key(config.email_blinding_key.as_deref())?.map(Arc::new);
     if blinding_key.is_some() {
         startup::log_initialized("Email blinding key");
     }
 
-    // Initialize Ledger SDK client (when not in dev-mode with memory storage)
     let ledger = if effective_storage == StorageBackend::Ledger {
         // config.validate() ensures these fields are present when storage == ledger
         #[allow(clippy::expect_used)]
@@ -154,7 +146,6 @@ async fn main() -> Result<()> {
         Arc::new(AnyRateLimiter::InMemory(inferadb_control_core::in_memory_rate_limiter()))
     };
 
-    // Initialize WebAuthn
     let webauthn = inferadb_control_core::webauthn::build_webauthn(
         &config.webauthn_rp_id,
         &config.webauthn_origin,
@@ -165,7 +156,6 @@ async fn main() -> Result<()> {
     ));
     let webauthn = Arc::new(webauthn);
 
-    // Wrap config in Arc for sharing across services
     let config = Arc::new(config);
 
     inferadb_control_api::serve(

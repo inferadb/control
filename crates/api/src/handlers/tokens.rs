@@ -1,7 +1,7 @@
 //! Token management handlers.
 //!
 //! Delegates vault token operations to the Ledger SDK.
-//! User session tokens are managed in `auth.rs` and `session.rs`.
+//! User session tokens are managed in [`auth`](super::auth).
 
 use std::time::Instant;
 
@@ -76,7 +76,7 @@ pub struct RevokeVaultTokensRequest {
 
 // ── Response Types ────────────────────────────────────────────────────
 
-/// Token pair response (access + refresh).
+/// Response containing an access/refresh token pair.
 #[derive(Debug, Serialize)]
 pub struct TokenPairResponse {
     pub access_token: String,
@@ -85,7 +85,7 @@ pub struct TokenPairResponse {
     pub expires_in: u64,
 }
 
-/// Revoke tokens response.
+/// Response containing the number of revoked tokens.
 #[derive(Debug, Serialize)]
 pub struct RevokeTokensResponse {
     pub revoked_count: u64,
@@ -93,6 +93,7 @@ pub struct RevokeTokensResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
+/// Converts a Ledger [`TokenPair`](inferadb_ledger_sdk::token::TokenPair) to an API response.
 fn token_pair_to_response(pair: inferadb_ledger_sdk::token::TokenPair) -> TokenPairResponse {
     use std::time::SystemTime;
 
@@ -144,9 +145,9 @@ fn build_scopes(req: &ClientAssertionRequest) -> Vec<String> {
 
 // ── Token Handlers ───────────────────────────────────────────────────
 
-/// Generate a vault access token for an app.
-///
 /// POST /control/v1/organizations/{org}/vaults/{vault}/tokens
+///
+/// Generates a vault access token for an app.
 pub async fn generate_vault_token(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -174,10 +175,9 @@ pub async fn generate_vault_token(
     Ok((StatusCode::CREATED, Json(token_pair_to_response(pair))))
 }
 
-/// Refresh a vault token using a refresh token.
-///
 /// POST /control/v1/tokens/refresh
 ///
+/// Refreshes a vault token using a refresh token.
 /// Public endpoint (refresh token provides authentication).
 pub async fn refresh_vault_token(
     State(state): State<AppState>,
@@ -194,13 +194,12 @@ pub async fn refresh_vault_token(
     Ok(Json(token_pair_to_response(pair)))
 }
 
-/// Client assertion authentication (OAuth 2.0 JWT Bearer, RFC 7523).
-///
 /// POST /control/v1/token
 ///
+/// Authenticates via client assertion (OAuth 2.0 JWT Bearer, RFC 7523).
 /// Public endpoint for machine-to-machine authentication. Accepts a signed JWT
 /// assertion that identifies an app, validates the assertion structure, and
-/// delegates full JWT signature verification to Ledger, which validates the
+/// delegates JWT signature verification to Ledger, which validates the
 /// assertion against the app's registered public keys before issuing a scoped
 /// vault token.
 pub async fn client_assertion_authenticate(
@@ -227,9 +226,9 @@ pub async fn client_assertion_authenticate(
     Ok((StatusCode::CREATED, Json(token_pair_to_response(pair))))
 }
 
-/// Revoke all vault tokens for an app.
-///
 /// DELETE /control/v1/organizations/{org}/vaults/{vault}/tokens
+///
+/// Revokes all vault tokens for an app.
 pub async fn revoke_vault_tokens(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,

@@ -28,8 +28,8 @@ use crate::{
 
 /// Request body for updating a vault.
 ///
-/// `retention_policy` is accepted but not yet wired to the Ledger proto type.
-/// Providing it returns a validation error until the mapping is implemented.
+/// `retention_policy` is not yet supported. Providing it returns a
+/// validation error.
 #[derive(Debug, Deserialize)]
 pub struct UpdateVaultRequest {
     pub retention_policy: Option<String>,
@@ -37,7 +37,7 @@ pub struct UpdateVaultRequest {
 
 // ── Response Types ────────────────────────────────────────────────────
 
-/// Vault summary response.
+/// Vault summary.
 #[derive(Debug, Serialize)]
 pub struct VaultResponse {
     pub organization: u64,
@@ -66,6 +66,7 @@ pub struct ListVaultsResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
+/// Converts a Ledger [`VaultInfo`](inferadb_ledger_sdk::VaultInfo) to an API response.
 fn vault_info_to_response(info: inferadb_ledger_sdk::VaultInfo) -> VaultResponse {
     VaultResponse {
         organization: info.organization.value(),
@@ -79,9 +80,9 @@ fn vault_info_to_response(info: inferadb_ledger_sdk::VaultInfo) -> VaultResponse
 
 // ── Vault CRUD Handlers ──────────────────────────────────────────────
 
-/// Create a new vault in an organization.
-///
 /// POST /control/v1/organizations/{org}/vaults
+///
+/// Creates a vault in an organization.
 pub async fn create_vault(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -101,11 +102,9 @@ pub async fn create_vault(
     Ok((StatusCode::CREATED, Json(SingleVaultResponse { vault: vault_info_to_response(info) })))
 }
 
-/// List vaults (paginated).
-///
 /// GET /control/v1/organizations/{org}/vaults
 ///
-/// Returns vaults belonging to the specified organization.
+/// Lists vaults in an organization with cursor-based pagination.
 pub async fn list_vaults(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -134,9 +133,9 @@ pub async fn list_vaults(
     }))
 }
 
-/// Get a vault by organization and vault slug.
-///
 /// GET /control/v1/organizations/{org}/vaults/{vault}
+///
+/// Returns a vault by organization and vault slug.
 pub async fn get_vault(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -157,9 +156,9 @@ pub async fn get_vault(
     Ok(Json(SingleVaultResponse { vault: vault_info_to_response(info) }))
 }
 
-/// Update a vault.
-///
 /// PATCH /control/v1/organizations/{org}/vaults/{vault}
+///
+/// Updates a vault.
 pub async fn update_vault(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -187,9 +186,9 @@ pub async fn update_vault(
     Ok(Json(MessageResponse { message: "Vault updated".to_string() }))
 }
 
-/// Delete a vault.
-///
 /// DELETE /control/v1/organizations/{org}/vaults/{vault}
+///
+/// Deletes a vault.
 pub async fn delete_vault(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,

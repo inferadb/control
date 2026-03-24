@@ -1,3 +1,9 @@
+//! Email delivery and templating.
+//!
+//! Provides [`EmailSender`] trait with SMTP and mock implementations,
+//! plus HTML email templates for verification, password reset, invitations,
+//! role changes, and organization deletion warnings.
+
 pub mod service;
 pub mod templates;
 
@@ -12,7 +18,7 @@ pub use templates::{
 ///
 /// Replaces `&`, `<`, `>`, `"`, and `'` with their HTML entity equivalents.
 ///
-/// ```no_run
+/// ```
 /// use inferadb_control_core::email::html_escape;
 /// assert_eq!(html_escape("<script>"), "&lt;script&gt;");
 /// ```

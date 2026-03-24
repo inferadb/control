@@ -1,8 +1,7 @@
-//! Request/Response DTOs.
+//! Shared request/response DTOs.
 //!
-//! Most handler-specific request/response types are now defined locally
-//! in their handler files. This module retains shared types used across
-//! the API layer.
+//! Handler-specific types live in their respective handler modules.
+//! This module contains types shared across multiple handlers.
 
 pub mod auth;
 

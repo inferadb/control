@@ -45,16 +45,19 @@ pub struct DeleteTeamRequest {
     pub move_members_to: Option<u64>,
 }
 
-/// Team member role (deserialized from request bodies).
+/// Team member role input.
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TeamRoleInput {
+    /// Team management access.
     Manager,
+    /// Standard team member.
     #[default]
     Member,
 }
 
 impl TeamRoleInput {
+    /// Converts to the Ledger SDK role type.
     fn to_sdk_role(&self) -> TeamMemberRole {
         match self {
             Self::Manager => TeamMemberRole::Manager,
@@ -79,7 +82,7 @@ pub struct UpdateTeamMemberRequest {
 
 // ── Response Types ────────────────────────────────────────────────────
 
-/// Team member response.
+/// Team member summary.
 #[derive(Debug, Serialize)]
 pub struct TeamMemberResponse {
     pub user: u64,
@@ -88,7 +91,7 @@ pub struct TeamMemberResponse {
     pub joined_at: Option<String>,
 }
 
-/// Team summary response.
+/// Team summary with members.
 #[derive(Debug, Serialize)]
 pub struct TeamResponse {
     pub slug: u64,
@@ -115,7 +118,7 @@ pub struct ListTeamsResponse {
     pub next_page_token: Option<String>,
 }
 
-/// List of team members.
+/// Response containing team members.
 #[derive(Debug, Serialize)]
 pub struct ListTeamMembersResponse {
     pub members: Vec<TeamMemberResponse>,
@@ -123,6 +126,7 @@ pub struct ListTeamMembersResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
+/// Converts a Ledger [`TeamMemberInfo`](inferadb_ledger_sdk::TeamMemberInfo) to an API response.
 fn team_member_to_response(info: &inferadb_ledger_sdk::TeamMemberInfo) -> TeamMemberResponse {
     TeamMemberResponse {
         user: info.user.value(),
@@ -131,6 +135,7 @@ fn team_member_to_response(info: &inferadb_ledger_sdk::TeamMemberInfo) -> TeamMe
     }
 }
 
+/// Converts a Ledger [`TeamInfo`](inferadb_ledger_sdk::TeamInfo) to an API response.
 fn team_info_to_response(info: &inferadb_ledger_sdk::TeamInfo) -> TeamResponse {
     TeamResponse {
         slug: info.slug.value(),
@@ -144,7 +149,7 @@ fn team_info_to_response(info: &inferadb_ledger_sdk::TeamInfo) -> TeamResponse {
 
 // ── Team Handlers ─────────────────────────────────────────────────────
 
-/// POST /v1/organizations/:org/teams
+/// POST /control/v1/organizations/{org}/teams
 ///
 /// Creates a new team within the organization.
 pub async fn create_team(
@@ -165,7 +170,7 @@ pub async fn create_team(
     Ok((StatusCode::CREATED, Json(SingleTeamResponse { team: team_info_to_response(&info) })))
 }
 
-/// GET /v1/organizations/:org/teams
+/// GET /control/v1/organizations/{org}/teams
 ///
 /// Lists teams in the organization with cursor-based pagination.
 pub async fn list_teams(
@@ -193,7 +198,7 @@ pub async fn list_teams(
     }))
 }
 
-/// GET /v1/organizations/:org/teams/:team
+/// GET /control/v1/organizations/{org}/teams/{team}
 ///
 /// Returns details of a specific team. Caller must have visibility.
 pub async fn get_team(
@@ -212,7 +217,7 @@ pub async fn get_team(
     Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
 
-/// PATCH /v1/organizations/:org/teams/:team
+/// PATCH /control/v1/organizations/{org}/teams/{team}
 ///
 /// Updates team details. Ledger enforces role requirements.
 pub async fn update_team(
@@ -235,9 +240,10 @@ pub async fn update_team(
     Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
 
-/// DELETE /v1/organizations/:org/teams/:team
+/// DELETE /control/v1/organizations/{org}/teams/{team}
 ///
-/// Deletes a team. Optionally moves members to another team.
+/// Deletes a team. If a request body with `move_members_to` is provided,
+/// members are transferred to that team before deletion.
 /// Ledger enforces permission checks.
 pub async fn delete_team(
     State(state): State<AppState>,
@@ -260,7 +266,7 @@ pub async fn delete_team(
 
 // ── Team Member Handlers ──────────────────────────────────────────────
 
-/// POST /v1/organizations/:org/teams/:team/members
+/// POST /control/v1/organizations/{org}/teams/{team}/members
 ///
 /// Adds a member to the team. Ledger enforces permission checks.
 pub async fn add_team_member(
@@ -282,7 +288,7 @@ pub async fn add_team_member(
     Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
 
-/// GET /v1/organizations/:org/teams/:team/members
+/// GET /control/v1/organizations/{org}/teams/{team}/members
 ///
 /// Lists members of a team by fetching team info and extracting members.
 pub async fn list_team_members(
@@ -303,7 +309,7 @@ pub async fn list_team_members(
     }))
 }
 
-/// PATCH /v1/organizations/:org/teams/:team/members/:member
+/// PATCH /control/v1/organizations/{org}/teams/{team}/members/{member}
 ///
 /// Updates a team member's role atomically via a single Ledger RPC.
 pub async fn update_team_member(
@@ -325,7 +331,7 @@ pub async fn update_team_member(
     Ok(Json(SingleTeamResponse { team: team_info_to_response(&info) }))
 }
 
-/// DELETE /v1/organizations/:org/teams/:team/members/:member
+/// DELETE /control/v1/organizations/{org}/teams/{team}/members/{member}
 ///
 /// Removes a member from the team. Ledger enforces permission checks.
 pub async fn remove_team_member(

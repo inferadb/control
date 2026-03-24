@@ -8,20 +8,20 @@ pub const AUTHORIZATION_CODE_TTL_SECONDS: i64 = 10 * 60;
 
 /// User session refresh token TTL in seconds (1 hour).
 ///
-/// For human users authenticating via browser sessions, refresh tokens
-/// have a shorter lifetime for security.
+/// Browser session refresh tokens use a shorter TTL than client refresh tokens
+/// to limit exposure from compromised browser sessions.
 pub const USER_SESSION_REFRESH_TOKEN_TTL_SECONDS: i64 = 3600;
 
 /// Client (service) refresh token TTL in seconds (7 days).
 ///
-/// For machine clients using Ed25519 certificate authentication,
-/// refresh tokens have a longer lifetime to reduce re-authentication overhead.
+/// Machine clients using Ed25519 certificate authentication receive a longer TTL
+/// than browser sessions to reduce re-authentication overhead.
 pub const CLIENT_REFRESH_TOKEN_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
 
-/// Organization invitation expiry in days.
+/// Organization invitation TTL in days.
 pub const INVITATION_EXPIRY_DAYS: i64 = 7;
 
-/// Organization invitation TTL in hours, for Ledger SDK calls.
+/// Organization invitation TTL in hours, derived from [`INVITATION_EXPIRY_DAYS`].
 pub const INVITATION_EXPIRY_HOURS: u32 = (INVITATION_EXPIRY_DAYS * 24) as u32;
 
 /// Email verification token expiry in hours.

@@ -1,8 +1,6 @@
 //! JWT-based authentication middleware.
 //!
 //! Validates access tokens via the Ledger SDK's `validate_token` endpoint.
-//! Replaces the session-cookie middleware for handlers that have been migrated
-//! to the Ledger-backed auth system.
 //!
 //! Access tokens are extracted from:
 //! 1. `Authorization: Bearer <token>` header (API clients, CLI)
@@ -23,8 +21,8 @@ use crate::handlers::state::{ApiError, AppState};
 
 /// Claims extracted from a validated JWT access token.
 ///
-/// Injected into request extensions by [`require_jwt`] middleware.
-/// Handlers extract this via `Extension<UserClaims>`.
+/// Injected into request extensions by [`require_jwt`]. Handlers access
+/// this via `Extension<UserClaims>`.
 #[derive(Debug, Clone)]
 pub struct UserClaims {
     /// The authenticated user's slug identifier (Snowflake ID).
@@ -33,14 +31,13 @@ pub struct UserClaims {
     pub role: String,
 }
 
-/// JWT validation middleware.
+/// Ledger-validated JWT authentication middleware.
 ///
-/// Extracts and validates a JWT access token, then injects [`UserClaims`]
-/// into the request extensions. Returns 401 if:
-/// - No token is found in header or cookie
-/// - The Ledger SDK client is not configured
-/// - Token validation fails (expired, invalid signature, wrong audience)
-/// - Token is not a user session token (e.g., vault access token)
+/// Extracts and validates a JWT access token via Ledger's `validate_token`
+/// endpoint, then injects [`UserClaims`] into request extensions.
+///
+/// Returns 401 if no token is found, the Ledger client is unavailable,
+/// validation fails, or the token is not a user session token.
 pub async fn require_jwt(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -78,7 +75,6 @@ pub async fn require_jwt(
 /// Checks the `Authorization: Bearer <token>` header first, then falls back
 /// to the `inferadb_access` cookie.
 pub(crate) fn extract_access_token(jar: &CookieJar, request: &Request) -> Result<String, ApiError> {
-    // Try Authorization header first
     if let Some(auth_header) = request.headers().get("authorization") {
         let auth_str = auth_header
             .to_str()
@@ -94,7 +90,6 @@ pub(crate) fn extract_access_token(jar: &CookieJar, request: &Request) -> Result
         return Err(CoreError::auth("authorization header must use Bearer scheme").into());
     }
 
-    // Fall back to cookie
     if let Some(cookie) = jar.get(ACCESS_TOKEN_COOKIE_NAME) {
         let value = cookie.value().trim();
         if value.is_empty() {

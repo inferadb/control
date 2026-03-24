@@ -1,3 +1,9 @@
+//! Middleware layers for the Control API.
+//!
+//! Provides cross-cutting concerns applied to routes: JWT authentication
+//! (both Ledger-validated and local), rate limiting, request ID propagation,
+//! structured logging, and security response headers.
+
 pub mod jwt;
 pub mod jwt_local;
 pub mod logging;

@@ -14,20 +14,15 @@ use uuid::Uuid;
 
 static X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
-/// A unique identifier for the current request.
+/// Unique identifier for an HTTP request.
 #[derive(Debug, Clone)]
 pub struct RequestId(pub String);
 
-/// Middleware that assigns a request ID to every request.
+/// Assigns a request ID to every request.
 ///
-/// If the caller sends an `X-Request-ID` header, that value is used
-/// (enabling end-to-end correlation across services). Otherwise a
-/// new UUID v4 is generated.
-///
-/// The ID is inserted into:
-/// - Request extensions (accessible by downstream handlers/middleware)
-/// - A tracing span field
-/// - The `X-Request-ID` response header
+/// Propagates an incoming `X-Request-ID` header for end-to-end correlation,
+/// or generates a UUID v4. The ID is inserted into request extensions, a
+/// tracing span, and the `X-Request-ID` response header.
 pub async fn request_id_middleware(mut req: Request, next: Next) -> Response {
     let id = req
         .headers()

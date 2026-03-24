@@ -1,13 +1,16 @@
+//! Error types and [`Result`] alias for the Control API.
+
 use inferadb_common_storage::StorageError;
 use snafu::{Backtrace, Snafu};
 
-/// Result type alias for management operations
+/// Alias for `std::result::Result<T, Error>` used throughout the Control plane crates.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Error types for the Control API
+/// Unified error enum for all Control API operations.
 ///
-/// Use the constructor methods (e.g., `Error::validation("message")`) to create errors.
-/// These methods automatically capture backtraces when `RUST_BACKTRACE=1` is set.
+/// Each variant maps to a specific HTTP status code and machine-readable error code.
+/// Use the factory methods (e.g., [`Error::validation`]) to create errors;
+/// they automatically capture backtraces when `RUST_BACKTRACE` or `RUST_LIB_BACKTRACE` is set.
 ///
 /// # Examples
 ///
@@ -26,134 +29,126 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
 pub enum Error {
-    /// Configuration errors
+    /// Invalid or missing configuration. Status: 500.
     #[snafu(display("Configuration error: {message}"))]
     Config { message: String, backtrace: Backtrace },
 
-    /// Storage errors
+    /// Storage backend failure. Status: 500.
     #[snafu(display("Storage error: {message}"))]
     Storage { message: String, backtrace: Backtrace },
 
-    /// Authentication errors
+    /// Caller identity could not be verified. Status: 401.
     #[snafu(display("Authentication error: {message}"))]
     Auth { message: String, backtrace: Backtrace },
 
-    /// Authorization errors
+    /// Caller lacks permission for the requested action. Status: 403.
     #[snafu(display("Authorization error: {message}"))]
     Authz { message: String, backtrace: Backtrace },
 
-    /// Validation errors
+    /// Request payload failed validation. Status: 400.
     #[snafu(display("Validation error: {message}"))]
     Validation { message: String, backtrace: Backtrace },
 
-    /// Resource not found
+    /// Requested resource does not exist. Status: 404.
     #[snafu(display("Resource not found: {message}"))]
     NotFound { message: String, backtrace: Backtrace },
 
-    /// Resource already exists
+    /// Resource conflicts with an existing one. Status: 409.
     #[snafu(display("Resource already exists: {message}"))]
     AlreadyExists { message: String, backtrace: Backtrace },
 
-    /// Rate limit exceeded
+    /// Request rate exceeded the allowed limit. Status: 429.
     #[snafu(display("Rate limit exceeded: {message}"))]
     RateLimit { message: String, backtrace: Backtrace },
 
-    /// Tier limit exceeded
+    /// Subscription tier limit reached. Status: 402.
     #[snafu(display("Tier limit exceeded: {message}"))]
     TierLimit { message: String, backtrace: Backtrace },
 
-    /// Too many passkeys
+    /// User has registered the maximum number of passkeys. Status: 400.
     #[snafu(display("Too many passkeys registered (max: {max})"))]
     TooManyPasskeys { max: usize, backtrace: Backtrace },
 
-    /// Upstream service temporarily unavailable
+    /// Upstream service is temporarily unavailable. Status: 503.
     #[snafu(display("Service unavailable: {message}"))]
     Unavailable { message: String, backtrace: Backtrace },
 
-    /// External service errors
+    /// External dependency returned an error. Status: 502.
     #[snafu(display("External service error: {message}"))]
     External { message: String, backtrace: Backtrace },
 
-    /// Internal system errors
+    /// Unexpected internal failure. Status: 500.
     #[snafu(display("Internal error: {message}"))]
     Internal { message: String, backtrace: Backtrace },
 }
 
 impl Error {
-    // =========================================================================
-    // Constructors - maintain API compatibility while using snafu selectors
-    // =========================================================================
-
-    /// Create a configuration error
+    /// Creates a [`Config`](Error::Config) error.
     pub fn config(message: impl Into<String>) -> Self {
         ConfigSnafu { message: message.into() }.build()
     }
 
-    /// Create a storage error
+    /// Creates a [`Storage`](Error::Storage) error.
     pub fn storage(message: impl Into<String>) -> Self {
         StorageSnafu { message: message.into() }.build()
     }
 
-    /// Create an authentication error
+    /// Creates an [`Auth`](Error::Auth) error.
     pub fn auth(message: impl Into<String>) -> Self {
         AuthSnafu { message: message.into() }.build()
     }
 
-    /// Create an authorization error
+    /// Creates an [`Authz`](Error::Authz) error.
     pub fn authz(message: impl Into<String>) -> Self {
         AuthzSnafu { message: message.into() }.build()
     }
 
-    /// Create a validation error
+    /// Creates a [`Validation`](Error::Validation) error.
     pub fn validation(message: impl Into<String>) -> Self {
         ValidationSnafu { message: message.into() }.build()
     }
 
-    /// Create a not found error
+    /// Creates a [`NotFound`](Error::NotFound) error.
     pub fn not_found(message: impl Into<String>) -> Self {
         NotFoundSnafu { message: message.into() }.build()
     }
 
-    /// Create an already exists error
+    /// Creates an [`AlreadyExists`](Error::AlreadyExists) error.
     pub fn already_exists(message: impl Into<String>) -> Self {
         AlreadyExistsSnafu { message: message.into() }.build()
     }
 
-    /// Create a rate limit error
+    /// Creates a [`RateLimit`](Error::RateLimit) error.
     pub fn rate_limit(message: impl Into<String>) -> Self {
         RateLimitSnafu { message: message.into() }.build()
     }
 
-    /// Create a tier limit error
+    /// Creates a [`TierLimit`](Error::TierLimit) error.
     pub fn tier_limit(message: impl Into<String>) -> Self {
         TierLimitSnafu { message: message.into() }.build()
     }
 
-    /// Create a too many passkeys error
+    /// Creates a [`TooManyPasskeys`](Error::TooManyPasskeys) error.
     pub fn too_many_passkeys(max: usize) -> Self {
         TooManyPasskeysSnafu { max }.build()
     }
 
-    /// Create an unavailable error (upstream service temporarily unavailable)
+    /// Creates an [`Unavailable`](Error::Unavailable) error.
     pub fn unavailable(message: impl Into<String>) -> Self {
         UnavailableSnafu { message: message.into() }.build()
     }
 
-    /// Create an external service error
+    /// Creates an [`External`](Error::External) error.
     pub fn external(message: impl Into<String>) -> Self {
         ExternalSnafu { message: message.into() }.build()
     }
 
-    /// Create an internal error
+    /// Creates an [`Internal`](Error::Internal) error.
     pub fn internal(message: impl Into<String>) -> Self {
         InternalSnafu { message: message.into() }.build()
     }
 
-    // =========================================================================
-    // Metadata accessors
-    // =========================================================================
-
-    /// Get HTTP status code for this error
+    /// Returns the HTTP status code for this error variant.
     pub fn status_code(&self) -> u16 {
         match self {
             Error::Config { .. } => 500,
@@ -172,7 +167,7 @@ impl Error {
         }
     }
 
-    /// Get error code for client consumption
+    /// Returns the machine-readable error code string for API responses.
     pub fn error_code(&self) -> &str {
         match self {
             Error::Config { .. } => "CONFIGURATION_ERROR",

@@ -24,14 +24,15 @@ use crate::middleware::UserClaims;
 
 // ── Request/Response Types ──────────────────────────────────────────────
 
-/// Request body for token refresh (API clients).
-/// Web clients send the refresh token via cookie instead.
+/// Request body for token refresh.
+///
+/// API clients send the refresh token in the body; web clients use cookies.
 #[derive(Debug, Deserialize)]
 pub struct RefreshTokenRequest {
     pub refresh_token: Option<String>,
 }
 
-/// Response containing a new token pair.
+/// Response containing an access/refresh token pair.
 #[derive(Debug, Serialize)]
 pub struct TokenPairResponse {
     pub access_token: String,
@@ -39,13 +40,13 @@ pub struct TokenPairResponse {
     pub token_type: &'static str,
 }
 
-/// Response for logout.
+/// Response confirming logout.
 #[derive(Debug, Serialize)]
 pub struct LogoutResponse {
     pub message: &'static str,
 }
 
-/// Response for revoke-all.
+/// Response for the revoke-all-sessions operation.
 #[derive(Debug, Serialize)]
 pub struct RevokeAllResponse {
     pub revoked_count: u64,
@@ -95,7 +96,7 @@ pub fn clear_token_cookies(jar: CookieJar) -> CookieJar {
 
 // ── Handlers ────────────────────────────────────────────────────────────
 
-/// POST /v1/auth/refresh
+/// POST /control/v1/auth/refresh
 ///
 /// Refreshes a token pair using a refresh token from the cookie or request body.
 /// Returns a new token pair (rotate-on-use: old refresh token is invalidated).
@@ -106,7 +107,6 @@ pub async fn refresh(
 ) -> Result<(CookieJar, Json<TokenPairResponse>), ApiError> {
     let ledger = require_ledger(&state)?;
 
-    // Extract refresh token from body or cookie
     let refresh_token = body
         .refresh_token
         .or_else(|| jar.get(REFRESH_TOKEN_COOKIE_NAME).map(|c| c.value().to_string()))
@@ -128,7 +128,7 @@ pub async fn refresh(
     Ok((jar, Json(response)))
 }
 
-/// POST /v1/auth/logout
+/// POST /control/v1/auth/logout
 ///
 /// Revokes the current session's refresh token and clears cookies.
 pub async fn logout(
@@ -137,7 +137,6 @@ pub async fn logout(
 ) -> Result<(CookieJar, Json<LogoutResponse>), ApiError> {
     let ledger = require_ledger(&state)?;
 
-    // Try to revoke the refresh token if present
     if let Some(cookie) = jar.get(REFRESH_TOKEN_COOKIE_NAME) {
         let refresh_token = cookie.value();
         if !refresh_token.is_empty() {
@@ -157,7 +156,7 @@ pub async fn logout(
     Ok((jar, Json(LogoutResponse { message: "logged out" })))
 }
 
-/// POST /v1/auth/revoke-all
+/// POST /control/v1/auth/revoke-all
 ///
 /// Revokes all sessions for the authenticated user. Requires JWT auth.
 pub async fn revoke_all(

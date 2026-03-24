@@ -1,20 +1,24 @@
+//! Snowflake ID generation.
+//!
+//! Provides a globally initialized [`IdGenerator`] that produces unique,
+//! time-ordered 64-bit IDs using a custom epoch (2024-01-01) and configurable
+//! worker ID for multi-instance deployments.
+
 use std::sync::OnceLock;
 
 use idgenerator::IdGeneratorOptions;
 use inferadb_control_types::error::{Error, Result};
 
-/// Custom epoch for Snowflake IDs: 2024-01-01T00:00:00Z (in milliseconds)
+/// Custom epoch for Snowflake IDs: 2024-01-01T00:00:00Z (in milliseconds).
 const CUSTOM_EPOCH: i64 = 1704067200000;
 
-/// Stores the worker ID after initialization. Using OnceLock ensures thread-safe
-/// one-time initialization without requiring unsafe code.
 static WORKER_ID: OnceLock<u16> = OnceLock::new();
 
-/// Snowflake ID generator with custom epoch and worker ID management
+/// Snowflake ID generator with custom epoch and worker ID management.
 pub struct IdGenerator;
 
 impl IdGenerator {
-    /// Initialize the global ID generator with the specified worker ID
+    /// Initializes the global ID generator with the specified worker ID.
     ///
     /// This must be called once at application startup before generating any IDs.
     ///
@@ -47,20 +51,16 @@ impl IdGenerator {
         Ok(())
     }
 
-    /// Generate a new unique ID
-    ///
-    /// # Returns
-    ///
-    /// A unique 64-bit Snowflake ID
+    /// Generates a new unique 64-bit Snowflake ID.
     ///
     /// # Panics
     ///
-    /// Panics if `init()` has not been called first
+    /// Panics if `init()` has not been called first.
     pub fn next_id() -> u64 {
         idgenerator::IdInstance::next_id() as u64
     }
 
-    /// Get the worker ID for this generator
+    /// Returns the worker ID for this generator.
     ///
     /// Returns 0 if the generator has not been initialized.
     pub fn worker_id() -> u16 {
@@ -101,8 +101,8 @@ mod tests {
         // Invalid worker ID (out of range)
         assert!(IdGenerator::init(1024).is_err());
 
-        // Valid worker IDs - but may already be initialized by other tests
-        // so we just verify it doesn't panic
+        // Valid worker IDs - may already be initialized by other tests,
+        // so we verify it doesn't panic
         let _ = IdGenerator::init(1023);
     }
 

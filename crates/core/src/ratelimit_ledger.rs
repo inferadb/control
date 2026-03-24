@@ -1,4 +1,4 @@
-//! [`StorageBackend`] implementation backed by Ledger's entity store.
+//! `StorageBackend` implementation backed by Ledger's entity store.
 //!
 //! Delegates key-value operations to a [`LedgerClient`], enabling distributed
 //! rate limiting across multiple Control instances. All keys are stored as
@@ -27,18 +27,19 @@ use tonic::Code;
 ///
 /// # Limitations
 ///
-/// - **Range queries**: Not supported. [`get_range`](StorageBackend::get_range) returns an empty
-///   vec and [`clear_range`](StorageBackend::clear_range) is a no-op. The rate limiter does not use
-///   range queries.
-/// - **Transactions**: Not supported. [`transaction`](StorageBackend::transaction) returns
-///   [`StorageError::Internal`]. The rate limiter does not use transactions.
+/// - **Range queries**: Not supported. `get_range` returns an empty vec and `clear_range` is a
+///   no-op. The rate limiter does not use range queries.
+/// - **Transactions**: Not supported. `transaction` returns [`StorageError::Internal`]. The rate
+///   limiter does not use transactions.
 /// - **Compare-and-set**: Uses a read-then-write pattern rather than true atomic CAS. Ledger's CAS
 ///   is version-based, not value-based. For ephemeral rate limit counters, this approximation is
 ///   acceptable.
 pub struct LedgerStorageBackend {
+    /// Shared Ledger client instance.
     client: Arc<LedgerClient>,
     /// Caller identity for Ledger RPCs.
     caller: UserSlug,
+    /// Organization namespace for all rate limit keys.
     organization: OrganizationSlug,
 }
 

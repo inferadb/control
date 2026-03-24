@@ -6,8 +6,6 @@
 //! scaling.
 //!
 //! Credential storage is delegated to Ledger.
-//!
-//! See PRD Decision 5: Control handles WebAuthn ceremony; Ledger stores credentials.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -19,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 use webauthn_rs::prelude::*;
 
-/// Challenge TTL — challenges expire after 60 seconds per WebAuthn spec.
+/// Challenge TTL — challenges expire after 60 seconds.
 const CHALLENGE_TTL: Duration = Duration::from_secs(60);
 
 /// AES-256-GCM nonce length in bytes.
@@ -34,10 +32,20 @@ const TIMESTAMP_LEN: usize = 8;
 /// passes back during the finish step.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ChallengeState {
-    /// Passkey registration in progress.
-    Registration { user_slug: u64, state: PasskeyRegistration },
-    /// Passkey authentication in progress.
-    Authentication { user_slug: u64, state: PasskeyAuthentication },
+    /// Begin-registration state awaiting the authenticator's attestation response.
+    Registration {
+        /// Ledger user slug that initiated registration.
+        user_slug: u64,
+        /// Webauthn-rs registration ceremony state.
+        state: PasskeyRegistration,
+    },
+    /// Begin-authentication state awaiting the authenticator's assertion response.
+    Authentication {
+        /// Ledger user slug attempting authentication.
+        user_slug: u64,
+        /// Webauthn-rs authentication ceremony state.
+        state: PasskeyAuthentication,
+    },
 }
 
 /// Stateless challenge store backed by AES-256-GCM encrypted tokens.
@@ -68,7 +76,7 @@ impl ChallengeStore {
     /// Creates a new stateless challenge store with the given 32-byte AES key.
     ///
     /// In production, derive this key from the master key. For dev/test mode,
-    /// use `Default` which generates a random key.
+    /// use [`Default`](Self::default) which generates a random key.
     pub fn new(key: &[u8; 32]) -> Self {
         let cipher = Aes256Gcm::new(key.into());
         Self { cipher }
@@ -92,7 +100,6 @@ impl ChallengeStore {
         plaintext.extend_from_slice(&timestamp_bytes);
         plaintext.extend_from_slice(&json);
 
-        // Encrypt in place
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
         self.cipher
             .encrypt_in_place(&nonce, b"", &mut plaintext)
@@ -109,9 +116,6 @@ impl ChallengeStore {
     /// Retrieves a challenge state by decrypting and validating the token.
     ///
     /// Returns `None` if the token is invalid, expired, or tampered with.
-    /// Each token is cryptographically unique, but the stateless design means
-    /// replay prevention relies on the WebAuthn library's own challenge
-    /// validation (which rejects reused challenges).
     pub fn take(&self, token: &str) -> Option<ChallengeState> {
         self.take_inner(token).ok()
     }
@@ -185,11 +189,11 @@ pub fn build_webauthn(rp_id: &str, origin: &str) -> Result<webauthn_rs::Webauthn
 
 // ── Type Conversions ────────────────────────────────────────────────────
 
-/// Converts a webauthn-rs `Passkey` into Ledger SDK `CredentialData::Passkey`.
+/// Converts a webauthn-rs [`Passkey`] into Ledger SDK [`CredentialData::Passkey`].
 ///
-/// Serializes the entire `Passkey` as JSON into the `public_key` field.
-/// This avoids depending on webauthn-rs internal struct layouts and
-/// guarantees lossless round-tripping via `credential_info_to_passkey`.
+/// Serializes the entire [`Passkey`] as JSON into the `public_key` field,
+/// avoiding dependency on webauthn-rs internal struct layouts and guaranteeing
+/// lossless round-tripping via [`credential_info_to_passkey`].
 pub fn passkey_to_credential_data(passkey: &Passkey) -> Result<CredentialData> {
     let cred: Credential = passkey.clone().into();
 
@@ -219,10 +223,10 @@ pub fn passkey_to_credential_data(passkey: &Passkey) -> Result<CredentialData> {
     }))
 }
 
-/// Converts Ledger SDK `PasskeyCredential` back to a webauthn-rs `Passkey`.
+/// Converts Ledger SDK [`PasskeyCredential`] back to a webauthn-rs [`Passkey`].
 ///
-/// Deserializes the `Passkey` from the JSON stored in `public_key`.
-/// This is the inverse of `passkey_to_credential_data`.
+/// Deserializes the [`Passkey`] from the JSON stored in `public_key`.
+/// Inverse of [`passkey_to_credential_data`].
 pub fn credential_info_to_passkey(info: &PasskeyCredential) -> Result<Passkey> {
     serde_json::from_slice(&info.public_key)
         .map_err(|e| Error::internal(format!("failed to deserialize passkey: {e}")))

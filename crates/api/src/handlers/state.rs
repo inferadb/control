@@ -14,15 +14,20 @@ use axum::{
 use bon::Builder;
 use inferadb_control_types::{Error as CoreError, dto::ErrorResponse};
 
-/// Application state shared across handlers
+/// Shared application state cloned into every axum handler.
 #[derive(Clone, Builder)]
 #[builder(on(Arc<_>, into))]
 pub struct AppState {
+    /// Server configuration.
     pub config: Arc<inferadb_control_config::Config>,
+    /// Unique worker/instance identifier.
     pub worker_id: u16,
+    /// Server start time for uptime calculation.
     #[builder(default = std::time::SystemTime::now())]
     pub start_time: std::time::SystemTime,
+    /// SMTP email service for verification codes and invitations.
     pub email_service: Option<Arc<inferadb_control_core::EmailService>>,
+    /// Configured rate limits for auth endpoints.
     #[builder(default)]
     pub rate_limits: crate::middleware::RateLimitConfig,
     /// Ledger SDK client for direct service calls.
@@ -43,15 +48,16 @@ pub struct AppState {
     /// Cached health check state (5-second TTL, lock-free).
     #[builder(default)]
     pub health_cache: Arc<super::health::HealthCache>,
-    /// Org membership cache — avoids redundant `get_organization` gRPC calls
-    /// on vault/schema/audit-log endpoints where Ledger does not enforce membership.
-    /// Keyed on `(user_slug, org_slug)` with a 30-second TTL.
+    /// Organization membership cache (30-second TTL).
+    ///
+    /// Avoids redundant `get_organization` gRPC calls on vault/schema/audit-log
+    /// endpoints where Ledger does not enforce membership.
     #[builder(default)]
     pub org_membership_cache: super::common::OrgMembershipCache,
 }
 
 impl AppState {
-    /// Create AppState for testing with default configuration.
+    /// Creates an [`AppState`] for testing with in-memory defaults and no Ledger client.
     pub fn new_test() -> Self {
         use inferadb_control_config::{Config, StorageBackend};
 
@@ -71,7 +77,7 @@ impl AppState {
     }
 }
 
-/// API error type that wraps core errors
+/// Maps core domain errors to HTTP status codes and JSON responses.
 #[derive(Debug)]
 pub struct ApiError(pub CoreError);
 
@@ -108,4 +114,5 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// Result alias for handler return types.
 pub type Result<T> = std::result::Result<T, ApiError>;

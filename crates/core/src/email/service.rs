@@ -1,3 +1,5 @@
+//! Email sending service with SMTP and mock backends.
+
 use async_trait::async_trait;
 use inferadb_control_types::error::{Error, Result};
 use lettre::{
@@ -6,10 +8,10 @@ use lettre::{
     transport::smtp::authentication::Credentials,
 };
 
-/// Email sender abstraction
+/// Trait for sending emails with HTML and plain text bodies.
 #[async_trait]
 pub trait EmailSender: Send + Sync {
-    /// Send an email
+    /// Sends an email.
     ///
     /// # Arguments
     ///
@@ -17,10 +19,6 @@ pub trait EmailSender: Send + Sync {
     /// * `subject` - Email subject line
     /// * `body_html` - HTML body content
     /// * `body_text` - Plain text body content (fallback)
-    ///
-    /// # Returns
-    ///
-    /// Ok(()) if email was sent successfully, or an error
     async fn send_email(
         &self,
         to: &str,
@@ -30,7 +28,7 @@ pub trait EmailSender: Send + Sync {
     ) -> Result<()>;
 }
 
-/// SMTP-based email service implementation
+/// [`EmailSender`] implementation that delivers mail via SMTP/STARTTLS.
 pub struct SmtpEmailService {
     from_address: String,
     from_name: String,
@@ -38,7 +36,7 @@ pub struct SmtpEmailService {
 }
 
 impl SmtpEmailService {
-    /// Create a new SMTP email service from individual configuration fields.
+    /// Creates a new SMTP email service from individual configuration fields.
     ///
     /// # Arguments
     ///
@@ -91,6 +89,7 @@ impl SmtpEmailService {
         Ok(Self { from_address, from_name, transport })
     }
 
+    /// Builds the sender `Mailbox` from the configured name and address.
     fn get_from_mailbox(&self) -> Result<Mailbox> {
         format!("{} <{}>", self.from_name, self.from_address)
             .parse()
@@ -131,18 +130,18 @@ impl EmailSender for SmtpEmailService {
     }
 }
 
-/// Email service facade
+/// Owned container for a dynamically dispatched [`EmailSender`].
 pub struct EmailService {
     sender: Box<dyn EmailSender>,
 }
 
 impl EmailService {
-    /// Create a new email service
+    /// Creates an email service wrapping the given sender implementation.
     pub fn new(sender: Box<dyn EmailSender>) -> Self {
         Self { sender }
     }
 
-    /// Send an email
+    /// Delegates to the underlying [`EmailSender`] implementation.
     pub async fn send_email(
         &self,
         to: &str,
@@ -154,21 +153,21 @@ impl EmailService {
     }
 }
 
-/// Mock email sender for testing
+/// Mock email sender for testing.
 ///
-/// This sender logs emails to tracing but doesn't actually send them.
-/// Optionally can be configured to fail for testing error handling.
+/// Logs emails to tracing without sending them. Can be configured to
+/// simulate failures for error handling tests.
 pub struct MockEmailSender {
     should_fail: bool,
 }
 
 impl MockEmailSender {
-    /// Create a new mock email sender that always succeeds
+    /// Creates a new mock email sender that always succeeds.
     pub fn new() -> Self {
         Self { should_fail: false }
     }
 
-    /// Create a new mock email sender that always fails
+    /// Creates a new mock email sender that always fails.
     pub fn new_failing() -> Self {
         Self { should_fail: true }
     }

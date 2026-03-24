@@ -1,32 +1,38 @@
+//! Clock skew validation against NTP.
+//!
+//! Provides [`ClockValidator`] which queries NTP servers to detect clock drift,
+//! classifying the result as [`SkewSeverity::Normal`], [`SkewSeverity::Warning`],
+//! or [`SkewSeverity::Critical`].
+
 use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, TimeDelta, Utc};
 use inferadb_control_types::error::{Error, Result};
 
-/// Warning threshold in milliseconds (100ms)
+/// Warning threshold in milliseconds (100ms).
 const WARNING_SKEW_MS: i64 = 100;
 
-/// Default critical threshold in milliseconds (1 second)
+/// Default critical threshold in milliseconds (1 second).
 const DEFAULT_MAX_SKEW_MS: i64 = 1000;
 
-/// Timeout for NTP queries
+/// Timeout for NTP queries.
 const NTP_TIMEOUT: StdDuration = StdDuration::from_secs(5);
 
-/// Default NTP servers to query
+/// Default NTP servers to query.
 const DEFAULT_NTP_SERVERS: &[&str] = &["pool.ntp.org", "time.google.com"];
 
-/// Clock skew severity classification
+/// Severity level for measured clock skew.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkewSeverity {
-    /// Skew < 100ms
+    /// Skew < 100ms.
     Normal,
-    /// Skew between 100ms and the configured threshold
+    /// Skew between 100ms and the configured threshold.
     Warning,
-    /// Skew exceeds the configured threshold
+    /// Skew exceeds the configured threshold.
     Critical,
 }
 
-/// Clock skew validator for multi-instance coordination
+/// Clock skew validator for multi-instance coordination.
 ///
 /// Distributed systems require synchronized clocks for:
 /// - Snowflake ID ordering across instances
@@ -44,7 +50,7 @@ pub struct ClockValidator {
 }
 
 impl ClockValidator {
-    /// Create a clock validator with default settings (1s threshold)
+    /// Creates a clock validator with default settings (1s threshold).
     pub fn new() -> Self {
         Self {
             max_skew_ms: DEFAULT_MAX_SKEW_MS,
@@ -53,7 +59,7 @@ impl ClockValidator {
         }
     }
 
-    /// Create a clock validator with a custom skew threshold in seconds
+    /// Creates a clock validator with a custom skew threshold in seconds.
     pub fn with_max_skew(max_skew_seconds: i64) -> Self {
         Self {
             max_skew_ms: max_skew_seconds * 1000,
@@ -62,7 +68,7 @@ impl ClockValidator {
         }
     }
 
-    /// Validate system clock against NTP
+    /// Validates the system clock against NTP.
     ///
     /// Queries NTP time via:
     /// 1. Direct SNTP query using `rsntp`
@@ -89,9 +95,10 @@ impl ClockValidator {
         }
     }
 
-    /// Evaluate the skew between system time and NTP time
+    /// Evaluates the skew between system time and NTP time.
     ///
-    /// Pure function containing the testable core of clock validation.
+    /// Contains the testable core of clock validation: classifies the skew,
+    /// records it as a metric, and returns an error if critical.
     fn evaluate_skew(
         &self,
         system_time: DateTime<Utc>,
@@ -139,7 +146,7 @@ impl ClockValidator {
         })
     }
 
-    /// Query NTP time from available sources (async, non-blocking)
+    /// Queries NTP time from available sources (async, non-blocking).
     ///
     /// Accepts the system time captured at the start of validation to ensure
     /// consistent offset calculations even if NTP queries take time.
@@ -168,7 +175,7 @@ impl ClockValidator {
         ))
     }
 
-    /// Query NTP time via rsntp async client
+    /// Queries NTP time via rsntp async client.
     async fn query_rsntp(&self) -> Option<DateTime<Utc>> {
         let client = rsntp::AsyncSntpClient::new();
 
@@ -192,7 +199,7 @@ impl ClockValidator {
         None
     }
 
-    /// Query clock offset via `chronyc tracking` (non-blocking, with timeout)
+    /// Queries clock offset via `chronyc tracking` (non-blocking, with timeout).
     async fn query_chronyc(&self) -> Option<f64> {
         let output = tokio::time::timeout(
             NTP_TIMEOUT,
@@ -210,7 +217,7 @@ impl ClockValidator {
         parse_chrony_offset(&stdout)
     }
 
-    /// Query clock offset via `ntpdate -q` (non-blocking, with timeout)
+    /// Queries clock offset via `ntpdate -q` (non-blocking, with timeout).
     async fn query_ntpdate(&self) -> Option<f64> {
         let server = self.ntp_servers.first().map(String::as_str).unwrap_or("pool.ntp.org");
 
@@ -237,7 +244,7 @@ impl Default for ClockValidator {
     }
 }
 
-/// Classify skew magnitude into severity levels
+/// Classifies skew magnitude into severity levels.
 fn classify_skew(skew_ms: i64, max_skew_ms: i64) -> SkewSeverity {
     if skew_ms >= max_skew_ms {
         SkewSeverity::Critical
@@ -248,7 +255,7 @@ fn classify_skew(skew_ms: i64, max_skew_ms: i64) -> SkewSeverity {
     }
 }
 
-/// Parse the clock offset from `chronyc tracking` output
+/// Parses the clock offset from `chronyc tracking` output.
 ///
 /// Extracts the offset from the "System time" line:
 /// ```text
@@ -273,7 +280,7 @@ fn parse_chrony_offset(output: &str) -> Option<f64> {
     None
 }
 
-/// Parse the clock offset from `ntpdate -q` output
+/// Parses the clock offset from `ntpdate -q` output.
 ///
 /// Extracts the offset from lines like:
 /// ```text
@@ -292,18 +299,18 @@ fn parse_ntpdate_offset(output: &str) -> Option<f64> {
     None
 }
 
-/// Clock validation status
+/// Result of a clock validation check.
 #[derive(Debug, Clone)]
 pub struct ClockStatus {
-    /// System time when validation was performed
+    /// System time when validation was performed.
     pub system_time: DateTime<Utc>,
-    /// NTP time if available
+    /// NTP time if available.
     pub ntp_time: Option<DateTime<Utc>>,
-    /// Absolute clock skew in milliseconds
+    /// Absolute clock skew in milliseconds.
     pub skew_ms: i64,
-    /// Severity classification of the measured skew
+    /// Severity classification of the measured skew.
     pub severity: SkewSeverity,
-    /// Whether skew is within the configured threshold
+    /// Whether skew is within the configured threshold.
     pub within_threshold: bool,
 }
 

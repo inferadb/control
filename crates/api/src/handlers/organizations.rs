@@ -41,15 +41,18 @@ pub struct UpdateOrganizationRequest {
     pub name: Option<String>,
 }
 
-/// Organization member role (deserialized from request bodies).
+/// Organization member role input.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OrganizationRoleInput {
+    /// Full management access to the organization.
     Admin,
+    /// Standard member with limited privileges.
     Member,
 }
 
 impl OrganizationRoleInput {
+    /// Converts to the Ledger SDK role type.
     fn to_sdk_role(&self) -> OrganizationMemberRole {
         match self {
             Self::Admin => OrganizationMemberRole::Admin,
@@ -73,7 +76,7 @@ pub struct CreateInvitationRequest {
 
 // ── Response Types ────────────────────────────────────────────────────
 
-/// Organization summary response.
+/// Organization summary.
 #[derive(Debug, Serialize)]
 pub struct OrganizationResponse {
     pub slug: u64,
@@ -97,7 +100,7 @@ pub struct ListOrganizationsResponse {
     pub next_page_token: Option<String>,
 }
 
-/// Delete organization response.
+/// Response confirming organization deletion.
 #[derive(Debug, Serialize)]
 pub struct DeleteOrganizationResponse {
     pub message: String,
@@ -105,7 +108,7 @@ pub struct DeleteOrganizationResponse {
     pub retention_days: Option<u32>,
 }
 
-/// Organization member response.
+/// Organization member summary.
 #[derive(Debug, Serialize)]
 pub struct MemberResponse {
     pub user: u64,
@@ -122,7 +125,7 @@ pub struct ListMembersResponse {
     pub next_page_token: Option<String>,
 }
 
-/// Updated member response wrapper.
+/// Response containing an updated organization member.
 #[derive(Debug, Serialize)]
 pub struct UpdateMemberRoleResponse {
     pub member: MemberResponse,
@@ -177,6 +180,8 @@ pub struct ListReceivedInvitationsResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
+/// Converts a Ledger [`OrganizationInfo`](inferadb_ledger_sdk::OrganizationInfo) to an API
+/// response.
 fn org_info_to_response(info: &inferadb_ledger_sdk::OrganizationInfo) -> OrganizationResponse {
     OrganizationResponse {
         slug: info.slug.value(),
@@ -187,6 +192,8 @@ fn org_info_to_response(info: &inferadb_ledger_sdk::OrganizationInfo) -> Organiz
     }
 }
 
+/// Converts a Ledger [`OrganizationMemberInfo`](inferadb_ledger_sdk::OrganizationMemberInfo) to an
+/// API response.
 fn member_info_to_response(info: &inferadb_ledger_sdk::OrganizationMemberInfo) -> MemberResponse {
     MemberResponse {
         user: info.user.value(),
@@ -195,6 +202,7 @@ fn member_info_to_response(info: &inferadb_ledger_sdk::OrganizationMemberInfo) -
     }
 }
 
+/// Converts a Ledger [`InvitationInfo`](inferadb_ledger_sdk::InvitationInfo) to an API response.
 fn invitation_info_to_response(info: &inferadb_ledger_sdk::InvitationInfo) -> InvitationResponse {
     InvitationResponse {
         slug: info.slug.value(),
@@ -209,6 +217,8 @@ fn invitation_info_to_response(info: &inferadb_ledger_sdk::InvitationInfo) -> In
     }
 }
 
+/// Converts a Ledger [`ReceivedInvitationInfo`](inferadb_ledger_sdk::ReceivedInvitationInfo) to an
+/// API response.
 fn received_info_to_response(
     info: &inferadb_ledger_sdk::ReceivedInvitationInfo,
 ) -> ReceivedInvitationResponse {
@@ -225,7 +235,7 @@ fn received_info_to_response(
 
 // ── Organization Handlers ─────────────────────────────────────────────
 
-/// POST /v1/organizations
+/// POST /control/v1/organizations
 ///
 /// Creates a new organization with the authenticated user as admin.
 /// Uses default region (US_EAST_VA) and tier (Free).
@@ -254,7 +264,7 @@ pub async fn create_organization(
     ))
 }
 
-/// GET /v1/organizations
+/// GET /control/v1/organizations
 ///
 /// Lists organizations the authenticated user belongs to, with cursor-based pagination.
 pub async fn list_organizations(
@@ -280,7 +290,7 @@ pub async fn list_organizations(
     }))
 }
 
-/// GET /v1/organizations/:org
+/// GET /control/v1/organizations/{org}
 ///
 /// Returns details of a specific organization. Caller must be a member.
 pub async fn get_organization(
@@ -299,7 +309,7 @@ pub async fn get_organization(
     Ok(Json(SingleOrganizationResponse { organization: org_info_to_response(&info) }))
 }
 
-/// PATCH /v1/organizations/:org
+/// PATCH /control/v1/organizations/{org}
 ///
 /// Updates organization details. Ledger enforces role requirements.
 pub async fn update_organization(
@@ -322,7 +332,7 @@ pub async fn update_organization(
     Ok(Json(SingleOrganizationResponse { organization: org_info_to_response(&info) }))
 }
 
-/// DELETE /v1/organizations/:org
+/// DELETE /control/v1/organizations/{org}
 ///
 /// Soft-deletes an organization. Ledger handles cascade deletion and
 /// enforces that no active vaults remain.
@@ -347,7 +357,7 @@ pub async fn delete_organization(
 
 // ── Membership Handlers ───────────────────────────────────────────────
 
-/// GET /v1/organizations/:org/members
+/// GET /control/v1/organizations/{org}/members
 ///
 /// Lists members of an organization with cursor-based pagination.
 pub async fn list_members(
@@ -375,7 +385,7 @@ pub async fn list_members(
     }))
 }
 
-/// PATCH /v1/organizations/:org/members/:member
+/// PATCH /control/v1/organizations/{org}/members/{member}
 ///
 /// Updates a member's role. Ledger enforces permission checks (admin/owner required).
 pub async fn update_member_role(
@@ -402,7 +412,7 @@ pub async fn update_member_role(
     Ok(Json(UpdateMemberRoleResponse { member: member_info_to_response(&updated) }))
 }
 
-/// DELETE /v1/organizations/:org/members/:member
+/// DELETE /control/v1/organizations/{org}/members/{member}
 ///
 /// Removes a member from the organization. Ledger enforces permission checks.
 pub async fn remove_member(
@@ -428,7 +438,7 @@ pub async fn remove_member(
     Ok(Json(MessageResponse { message: "Member removed successfully".to_string() }))
 }
 
-/// DELETE /v1/organizations/:org/members/self
+/// DELETE /control/v1/organizations/{org}/members/me
 ///
 /// Removes the authenticated user from the organization (leave).
 /// Ledger enforces last-owner protection.
@@ -453,7 +463,7 @@ pub async fn leave_organization(
 
 // ── Invitation Handlers ───────────────────────────────────────────────
 
-/// POST /v1/organizations/:org/invitations
+/// POST /control/v1/organizations/{org}/invitations
 ///
 /// Creates an invitation to join the organization. Ledger enforces role
 /// and member-limit checks. If the email service is configured, sends an
@@ -542,7 +552,7 @@ pub async fn create_invitation(
     ))
 }
 
-/// GET /v1/organizations/:org/invitations
+/// GET /control/v1/organizations/{org}/invitations
 ///
 /// Lists invitations for an organization (admin view) with cursor-based pagination.
 pub async fn list_invitations(
@@ -571,7 +581,7 @@ pub async fn list_invitations(
     }))
 }
 
-/// DELETE /v1/organizations/:org/invitations/:invite
+/// DELETE /control/v1/organizations/{org}/invitations/{invitation}
 ///
 /// Revokes a pending invitation. Verifies org membership before revoking
 /// to ensure the invitation belongs to the specified organization.
@@ -593,7 +603,7 @@ pub async fn delete_invitation(
     Ok(Json(MessageResponse { message: "Invitation revoked successfully".to_string() }))
 }
 
-/// POST /v1/users/me/invitations/{invitation}/accept
+/// POST /control/v1/users/me/invitations/{invitation}/accept
 ///
 /// Accepts a pending invitation, adding the user to the organization.
 pub async fn accept_invitation(
@@ -612,7 +622,7 @@ pub async fn accept_invitation(
     Ok(Json(received_info_to_response(&info)))
 }
 
-/// GET /v1/invitations/received
+/// GET /control/v1/users/me/invitations
 ///
 /// Lists invitations received by the authenticated user.
 pub async fn list_received_invitations(
@@ -639,7 +649,7 @@ pub async fn list_received_invitations(
     }))
 }
 
-/// POST /v1/invitations/:invite/decline
+/// POST /control/v1/users/me/invitations/{invitation}/decline
 ///
 /// Declines a pending invitation.
 pub async fn decline_invitation(

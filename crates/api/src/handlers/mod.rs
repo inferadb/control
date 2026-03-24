@@ -1,3 +1,10 @@
+//! HTTP handler modules for the Control API.
+//!
+//! Each submodule corresponds to a resource domain (organizations, vaults,
+//! schemas, etc.) and contains request/response types plus handler functions.
+//! Shared helpers live in [`common`]. Application state and error mapping
+//! live in [`state`].
+
 pub mod audit_logs;
 pub mod auth;
 pub mod clients;

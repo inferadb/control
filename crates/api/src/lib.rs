@@ -1,23 +1,21 @@
 //! # InferaDB Control API
 //!
 //! Stateless REST API gateway for the InferaDB Control Plane.
-//! All domain operations delegate to Ledger via the SDK.
+//! Domain operations delegate to Ledger via the SDK.
 //!
 //! ## AppState Builder
 //!
 //! The [`AppState`] struct uses a builder for server initialization:
 //!
-//! ```ignore
+//! ```no_run
 //! use std::sync::Arc;
 //! use inferadb_control_api::AppState;
+//! use inferadb_control_config::Config;
 //!
 //! async fn example(config: Arc<Config>) {
 //!     let state = AppState::builder()
 //!         .config(config)
 //!         .worker_id(1)
-//!         .maybe_email_service(None)
-//!         .maybe_ledger(None)
-//!         .maybe_blinding_key(None)
 //!         .build();
 //! }
 //! ```
@@ -39,7 +37,7 @@ pub use handlers::AppState;
 pub use middleware::{RateLimitConfig, UserClaims, require_jwt};
 pub use routes::create_router_with_state;
 
-/// Graceful shutdown signal handler
+/// Awaits SIGTERM or Ctrl+C, then returns to trigger graceful shutdown.
 async fn shutdown_signal() {
     use tokio::signal;
 
@@ -72,23 +70,26 @@ async fn shutdown_signal() {
     }
 }
 
-/// Configuration for optional services in the Control API
+/// Service dependencies for the Control API.
 pub struct ServicesConfig {
+    /// SMTP email service for sending verification codes and invitations.
     pub email_service: Option<Arc<inferadb_control_core::EmailService>>,
+    /// Ledger SDK client for storage operations.
     pub ledger: Option<Arc<inferadb_ledger_sdk::LedgerClient>>,
+    /// Email blinding key for HMAC computation.
     pub blinding_key: Option<Arc<inferadb_ledger_types::EmailBlindingKey>>,
+    /// WebAuthn instance for passkey ceremony validation.
     pub webauthn: Option<Arc<webauthn_rs::Webauthn>>,
-    /// Rate limiter backend. Defaults to in-memory when `None`.
+    /// Rate limiter backend; defaults to in-memory when `None`.
     pub rate_limiter: Option<Arc<inferadb_control_core::AnyRateLimiter>>,
 }
 
-/// Start the Control API HTTP server
+/// Starts the Control API HTTP server with graceful shutdown.
 pub async fn serve(
     config: Arc<Config>,
     worker_id: u16,
     services: ServicesConfig,
 ) -> anyhow::Result<()> {
-    // Create AppState with services using the builder pattern
     let state = AppState::builder()
         .config(config.clone())
         .worker_id(worker_id)
@@ -99,16 +100,10 @@ pub async fn serve(
         .maybe_rate_limiter(services.rate_limiter)
         .build();
 
-    // Create router
     let router = routes::create_router_with_state(state.clone());
-
-    // Bind listener (address is already validated in config)
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
-
-    // Log ready status
     startup::log_ready("Control");
 
-    // Serve with graceful shutdown.
     // `into_make_service_with_connect_info` injects `ConnectInfo<SocketAddr>` into
     // every request, required for IP-based rate limiting in direct-connection mode.
     let service = router.into_make_service_with_connect_info::<std::net::SocketAddr>();

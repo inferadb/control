@@ -1,14 +1,14 @@
-//! Startup display utilities for InferaDB services
+//! Startup display utilities for InferaDB services.
 //!
 //! Provides consistent, structured startup output across all InferaDB binaries.
-//! Includes TRON-style ASCII art banner and configuration summary formatting.
+//! Includes ASCII art banner and configuration summary formatting.
 
 use std::io::IsTerminal;
 
 use terminal_size::{Width, terminal_size};
 use unicode_width::UnicodeWidthStr;
 
-/// ANSI color codes for TRON aesthetic
+/// ANSI color codes for banner and table styling.
 mod colors {
     pub const RESET: &str = "\x1b[0m";
     pub const BOLD: &str = "\x1b[1m";
@@ -19,7 +19,7 @@ mod colors {
     pub const YELLOW: &str = "\x1b[33m";
 }
 
-/// ASCII art for "INFERADB" in FIGlet-style block letters
+/// ASCII art for "INFERADB" in FIGlet-style block letters.
 const ASCII_ART: &[&str] = &[
     "██╗███╗   ██╗███████╗███████╗██████╗  █████╗ ██████╗ ██████╗ ",
     "██║████╗  ██║██╔════╝██╔════╝██╔══██╗██╔══██╗██╔══██╗██╔══██╗",
@@ -29,59 +29,60 @@ const ASCII_ART: &[&str] = &[
     "╚═╝╚═╝  ╚═══╝╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚═════╝ ",
 ];
 
-/// Width of the full ASCII art (in characters)
+/// Width of the full ASCII art (in characters).
 const ASCII_ART_WIDTH: usize = 61;
 
-/// Minimum terminal width for full ASCII art display
+/// Minimum terminal width for full ASCII art display.
 const MIN_WIDTH_FOR_FULL_ART: usize = 80;
 
-/// Minimum terminal width for table display
+/// Minimum terminal width for table display.
 const MIN_WIDTH_FOR_TABLE: usize = 50;
 
-/// Service information for the startup banner
+/// Metadata displayed in the startup banner.
 #[derive(Debug, Clone)]
 pub struct ServiceInfo {
-    /// Service name (e.g., "InferaDB")
+    /// Display name shown in the banner header (e.g., "InferaDB").
     pub name: &'static str,
-    /// Service subtext (e.g., "Management API Service")
+    /// Descriptive tagline below the banner (e.g., "Management API Service").
     pub subtext: &'static str,
-    /// Version string
+    /// Semantic version rendered below the tagline.
     pub version: &'static str,
-    /// Environment (development, staging, production)
+    /// Deployment environment label (e.g., "development", "staging", "production").
     pub environment: String,
 }
 
-/// Style variant for configuration entry display
+/// Style variant for configuration entry display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConfigEntryStyle {
-    /// Normal green display (default)
+    /// Normal green display (default).
     #[default]
     Normal,
-    /// Warning/unassigned yellow display
+    /// Warning/unassigned yellow display.
     Warning,
-    /// Sensitive value (masked)
+    /// Sensitive value (masked).
     Sensitive,
-    /// Separator line (renders as horizontal divider in table)
+    /// Separator line (renders as horizontal divider in table).
     Separator,
 }
 
-/// A single configuration entry for display
+/// A key-value pair rendered in the startup configuration summary.
 #[derive(Debug, Clone)]
 pub struct ConfigEntry {
-    /// Category/group name (e.g., "General", "Server")
+    /// Grouping header under which this entry appears (e.g., "General", "Server").
     pub category: &'static str,
-    /// Human-friendly display name (e.g., "Environment")
+    /// Label shown in the left column (e.g., "Listen Address").
     pub display_name: String,
-    /// Configuration value (already formatted as string)
+    /// Pre-formatted value shown in the right column.
     pub value: String,
-    /// Whether this is a sensitive value that should be masked
+    /// Whether the value should be masked. When true, `style` is also set to
+    /// [`ConfigEntryStyle::Sensitive`].
     pub sensitive: bool,
-    /// Display style for this entry
+    /// Visual treatment applied when rendering this entry.
     pub style: ConfigEntryStyle,
 }
 
 impl ConfigEntry {
-    /// Create a new configuration entry with a display name
+    /// Creates a new configuration entry with a display name.
     pub fn new(
         category: &'static str,
         display_name: impl Into<String>,
@@ -96,7 +97,7 @@ impl ConfigEntry {
         }
     }
 
-    /// Create a sensitive configuration entry (value will be masked)
+    /// Creates a sensitive configuration entry (value will be masked).
     pub fn sensitive(
         category: &'static str,
         display_name: impl Into<String>,
@@ -111,7 +112,7 @@ impl ConfigEntry {
         }
     }
 
-    /// Create a warning-styled configuration entry (displayed in yellow)
+    /// Creates a warning-styled configuration entry (displayed in yellow).
     pub fn warning(
         category: &'static str,
         display_name: impl Into<String>,
@@ -126,20 +127,20 @@ impl ConfigEntry {
         }
     }
 
-    /// Mark an entry as sensitive
+    /// Marks an entry as sensitive.
     pub fn as_sensitive(mut self) -> Self {
         self.sensitive = true;
         self.style = ConfigEntryStyle::Sensitive;
         self
     }
 
-    /// Mark an entry as warning style
+    /// Marks an entry as warning style.
     pub fn as_warning(mut self) -> Self {
         self.style = ConfigEntryStyle::Warning;
         self
     }
 
-    /// Create a separator entry (renders as horizontal divider in table)
+    /// Creates a separator entry (renders as horizontal divider in table).
     ///
     /// Separators visually divide groups of entries within a single category.
     pub fn separator(category: &'static str) -> Self {
@@ -153,7 +154,7 @@ impl ConfigEntry {
     }
 }
 
-/// Builder for creating a structured startup display
+/// Renders a TRON-style ASCII banner and a tabular configuration summary.
 pub struct StartupDisplay {
     service: ServiceInfo,
     entries: Vec<ConfigEntry>,
@@ -161,36 +162,36 @@ pub struct StartupDisplay {
 }
 
 impl StartupDisplay {
-    /// Create a new startup display builder
+    /// Creates a display builder with ANSI auto-detection based on TTY.
     pub fn new(service: ServiceInfo) -> Self {
         Self { service, entries: Vec::new(), use_ansi: std::io::stdout().is_terminal() }
     }
 
-    /// Set whether to use ANSI colors
+    /// Sets whether to use ANSI colors.
     pub fn with_ansi(mut self, use_ansi: bool) -> Self {
         self.use_ansi = use_ansi;
         self
     }
 
-    /// Add a configuration entry
+    /// Adds a configuration entry.
     pub fn entry(mut self, entry: ConfigEntry) -> Self {
         self.entries.push(entry);
         self
     }
 
-    /// Add multiple configuration entries
+    /// Adds multiple configuration entries.
     pub fn entries(mut self, entries: impl IntoIterator<Item = ConfigEntry>) -> Self {
         self.entries.extend(entries);
         self
     }
 
-    /// Display the startup banner and configuration summary
+    /// Prints the ASCII banner followed by the configuration summary to stdout.
     pub fn display(&self) {
         self.print_banner();
         self.print_config_summary();
     }
 
-    /// Get terminal width, defaulting to 80 if detection fails
+    /// Returns the terminal width, defaulting to 80 if detection fails.
     pub fn get_terminal_width() -> usize {
         terminal_size().map(|(Width(w), _)| w as usize).unwrap_or(80)
     }
@@ -441,31 +442,29 @@ impl StartupDisplay {
     }
 }
 
-/// Log a startup phase header
-///
-/// Use this to clearly delineate initialization phases in the logs.
+/// Logs a startup phase header to separate initialization stages.
 pub fn log_phase(phase: &str) {
     tracing::info!("━━━ {} ━━━", phase);
 }
 
-/// Log a successful initialization step
+/// Logs a successful component initialization.
 pub fn log_initialized(component: &str) {
     tracing::info!("✓ {} initialized", component);
 }
 
-/// Log a skipped initialization step
+/// Logs a skipped component initialization with a reason.
 pub fn log_skipped(component: &str, reason: &str) {
     tracing::info!("○ {} skipped: {}", component, reason);
 }
 
-/// Log that the service is ready to accept connections
+/// Logs that the service is ready to accept connections.
 pub fn log_ready(service_name: &str) {
     tracing::info!("✓ {} started successfully", service_name);
 }
 
-/// Extract a hint from a PEM-encoded private key for display purposes.
+/// Extracts a display hint from a PEM-encoded private key.
 ///
-/// Returns a truncated version like "✓ MC4C...aYc/" showing the key is configured.
+/// Returns a truncated version like "✓ MC4C...aYc/" to confirm the key is loaded.
 pub fn private_key_hint(pem: &str) -> String {
     // Extract the base64 content from the PEM
     let lines: Vec<&str> = pem.lines().collect();
@@ -483,10 +482,9 @@ pub fn private_key_hint(pem: &str) -> String {
     }
 }
 
-/// Display a generated keypair in a formatted box
+/// Prints a generated keypair in a warning-styled box.
 ///
-/// Displays the PEM in a warning-styled box and provides instructions
-/// for persisting the key.
+/// Renders the PEM and logs instructions for persisting the key.
 pub fn print_generated_keypair(pem: &str, config_key: &str) {
     use std::io::IsTerminal;
 

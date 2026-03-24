@@ -1,3 +1,8 @@
+//! Prometheus metrics exporter and handler.
+//!
+//! Initializes the Prometheus metrics recorder at startup and serves
+//! collected metrics in text exposition format on `GET /metrics`.
+
 use std::sync::OnceLock;
 
 use axum::{
@@ -8,10 +13,10 @@ use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
 static METRICS_HANDLE: OnceLock<PrometheusHandle> = OnceLock::new();
 
-/// Initialize Prometheus metrics exporter
+/// Initializes the Prometheus metrics exporter.
 ///
-/// This should be called once during application startup.
-/// It sets up the Prometheus exporter that will collect and expose metrics.
+/// Must be called once during application startup. Sets up the recorder
+/// that collects and exposes metrics via the `/metrics` endpoint.
 pub fn init_exporter() {
     METRICS_HANDLE.get_or_init(|| {
         // Metrics recorder installation failure is unrecoverable at startup
@@ -20,27 +25,22 @@ pub fn init_exporter() {
             .install_recorder()
             .expect("Failed to install Prometheus recorder");
 
-        // Initialize metric descriptions
         inferadb_control_core::metrics::init();
 
         handle
     });
 }
 
-/// Prometheus metrics endpoint
+/// Handles the Prometheus metrics endpoint (`GET /metrics`).
 ///
 /// Returns metrics in Prometheus text exposition format.
-///
-/// GET /metrics
 pub async fn metrics_handler() -> Response {
-    // Get the Prometheus handle to render metrics
     match METRICS_HANDLE.get() {
         Some(handle) => {
             let metrics = handle.render();
             (StatusCode::OK, metrics).into_response()
         },
         None => {
-            // If exporter wasn't initialized, return error
             (StatusCode::INTERNAL_SERVER_ERROR, "Metrics exporter not initialized").into_response()
         },
     }

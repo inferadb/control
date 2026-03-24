@@ -1,8 +1,7 @@
 //! Audit log handlers.
 //!
-//! Audit logs are managed by Ledger's event system. The `list_audit_logs`
-//! handler serves paginated events for an organization. Event ingestion
-//! is handled directly by Ledger.
+//! Serves paginated audit events for an organization. Event ingestion
+//! is handled by Ledger's event system.
 
 use std::{collections::HashMap, time::Instant};
 
@@ -38,7 +37,7 @@ pub struct ListAuditLogsQuery {
     pub outcome: Option<String>,
 }
 
-/// A single audit log entry in the API response.
+/// A single audit log entry.
 #[derive(Debug, Serialize)]
 pub struct AuditLogEntry {
     pub event_id: String,
@@ -51,7 +50,7 @@ pub struct AuditLogEntry {
     pub details: HashMap<String, String>,
 }
 
-/// Paginated audit log listing response.
+/// Paginated audit log response.
 #[derive(Debug, Serialize)]
 pub struct ListAuditLogsResponse {
     pub entries: Vec<AuditLogEntry>,
@@ -63,6 +62,7 @@ pub struct ListAuditLogsResponse {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+/// Formats an [`EventOutcome`](inferadb_ledger_sdk::EventOutcome) as a string.
 fn format_outcome(outcome: &inferadb_ledger_sdk::EventOutcome) -> String {
     match outcome {
         EventOutcome::Success => "success".to_string(),
@@ -71,6 +71,7 @@ fn format_outcome(outcome: &inferadb_ledger_sdk::EventOutcome) -> String {
     }
 }
 
+/// Converts a Ledger [`SdkEventEntry`](inferadb_ledger_sdk::SdkEventEntry) to an API response.
 fn sdk_entry_to_response(entry: inferadb_ledger_sdk::SdkEventEntry) -> AuditLogEntry {
     AuditLogEntry {
         event_id: entry.event_id_string(),
@@ -84,6 +85,7 @@ fn sdk_entry_to_response(entry: inferadb_ledger_sdk::SdkEventEntry) -> AuditLogE
     }
 }
 
+/// Parses an outcome string into an [`EventFilter`].
 fn parse_outcome_filter(outcome: &str) -> std::result::Result<EventFilter, CoreError> {
     let filter = EventFilter::new();
     match outcome {
@@ -96,6 +98,7 @@ fn parse_outcome_filter(outcome: &str) -> std::result::Result<EventFilter, CoreE
     }
 }
 
+/// Builds an [`EventFilter`] from audit log query parameters.
 fn build_event_filter(query: &ListAuditLogsQuery) -> std::result::Result<EventFilter, CoreError> {
     let mut filter = if let Some(ref outcome) = query.outcome {
         parse_outcome_filter(outcome)?
@@ -116,9 +119,9 @@ fn build_event_filter(query: &ListAuditLogsQuery) -> std::result::Result<EventFi
 
 // ── Handlers ────────────────────────────────────────────────────────
 
-/// List audit logs for an organization.
-///
 /// GET /control/v1/organizations/{org}/audit-logs
+///
+/// Lists audit logs for an organization.
 pub async fn list_audit_logs(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,

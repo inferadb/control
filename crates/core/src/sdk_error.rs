@@ -15,8 +15,8 @@ use tonic::Code;
 ///
 /// Mapping strategy:
 /// - gRPC status codes map to the semantically closest Control error variant
-/// - Transient errors (connection, timeout, unavailable) become storage errors
-/// - The original SDK error message is preserved for debugging
+/// - Transient errors (connection, timeout, unavailable) become unavailable errors
+/// - The original SDK error context is preserved for debugging
 pub fn sdk_error_to_control(err: SdkError) -> Error {
     match &err {
         SdkError::Rpc { code, message, .. } => rpc_code_to_error(*code, message),
@@ -135,18 +135,18 @@ fn rpc_code_to_error(code: Code, message: &str) -> Error {
 
 /// Extension trait for converting `Result<T, SdkError>` to `Result<T, Error>`.
 ///
-/// Provides `.map_sdk_err()` for basic error conversion, and
-/// `.map_sdk_err_instrumented()` which additionally records gRPC metrics
-/// and logs failures with the method name.
+/// Provides [`map_sdk_err`](Self::map_sdk_err) for error conversion, and
+/// [`map_sdk_err_instrumented`](Self::map_sdk_err_instrumented) which additionally
+/// records gRPC request metrics (duration and status code) and logs results.
 pub trait SdkResultExt<T> {
     /// Maps the error variant from [`SdkError`] to [`Error`].
     fn map_sdk_err(self) -> inferadb_control_types::error::Result<T>;
 
-    /// Maps the error and records gRPC request metrics (duration + status).
+    /// Maps the error and records gRPC request metrics (duration and status).
     ///
-    /// Call this instead of `map_sdk_err()` in service functions to get
-    /// automatic `grpc_request_duration_seconds` and error logging with
-    /// the Ledger method name.
+    /// Records `grpc_request_duration_seconds` and logs failures with the
+    /// Ledger method name. Prefer this over [`map_sdk_err`](Self::map_sdk_err)
+    /// in handler functions.
     fn map_sdk_err_instrumented(
         self,
         method: &str,

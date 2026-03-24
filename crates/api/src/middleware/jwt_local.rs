@@ -21,11 +21,11 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use super::jwt::{UserClaims, extract_access_token};
 use crate::handlers::state::{ApiError, AppState};
 
-/// Cached JWKS keys keyed by `kid`, with a 5-minute TTL.
+/// JWKS key cache keyed by `kid` with a 5-minute TTL.
 ///
-/// Wraps a [`moka::future::Cache`] that maps key IDs to [`DecodingKey`]s.
+/// Wraps a [`moka::future::Cache`] mapping key IDs to [`DecodingKey`]s.
 /// Keys are refreshed from the Ledger SDK on cache miss using `try_get_with()`
-/// for built-in deduplication (only one concurrent caller fetches from Ledger).
+/// for built-in deduplication (one concurrent caller fetches from Ledger).
 #[derive(Clone)]
 pub struct JwksCache {
     inner: moka::future::Cache<String, Arc<DecodingKey>>,
@@ -97,10 +97,10 @@ async fn fetch_key(ledger: &LedgerClient, target_kid: &str) -> Result<Arc<Decodi
     Err(CoreError::auth("signing key not found"))
 }
 
-/// JWT claims structure matching the Ledger's `UserSessionClaims`.
+/// JWT claims matching Ledger's `UserSessionClaims`.
 ///
-/// Used for local JWT decoding. Only the fields needed for constructing
-/// [`UserClaims`] are extracted; the rest are validated by `jsonwebtoken`.
+/// Used for local JWT decoding. Only fields needed to construct
+/// [`UserClaims`] are extracted; `jsonwebtoken` validates the rest.
 #[derive(Debug, serde::Deserialize)]
 struct LocalJwtClaims {
     /// Token type discriminator (must be "user_session").
@@ -114,9 +114,7 @@ struct LocalJwtClaims {
 
 /// Extracts the `kid` from a JWT header without cryptographic verification.
 ///
-/// Performs defense-in-depth checks:
-/// 1. Rejects any `alg` value that is not exactly `"EdDSA"`.
-/// 2. Validates `kid` is present.
+/// Rejects tokens with an `alg` other than `"EdDSA"` or a missing `kid`.
 fn extract_kid_from_header(token: &str) -> Result<String, CoreError> {
     use base64::Engine;
 
@@ -147,10 +145,7 @@ fn extract_kid_from_header(token: &str) -> Result<String, CoreError> {
     Ok(kid.to_string())
 }
 
-/// Validates a JWT locally using cached public keys.
-///
-/// Uses `try_get_with()` for deduplication on cache miss — only one concurrent
-/// caller fetches from Ledger while others await the result.
+/// Validates a JWT locally using cached Ed25519 public keys.
 async fn validate_jwt_locally(
     token: &str,
     cache: &JwksCache,

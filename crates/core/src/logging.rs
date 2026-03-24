@@ -1,7 +1,7 @@
-//! Structured logging utilities for InferaDB Control
+//! Structured logging initialization for InferaDB Control.
 //!
-//! Provides enhanced logging with contextual fields and formatting options,
-//! matching the server's logging architecture for consistent developer experience.
+//! Configures tracing-subscriber with format options (full, pretty, compact,
+//! JSON) and optional OpenTelemetry export.
 
 use std::io::IsTerminal;
 
@@ -9,17 +9,17 @@ use tracing_subscriber::{
     EnvFilter, Layer, fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-/// Log output format options
+/// Log output format options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogFormat {
-    /// Standard single-line format (matches server default)
-    /// Output: `2025-01-15T10:30:45.123456Z  INFO target: message key=value`
+    /// Standard single-line format (matches server default).
+    /// Output: `<timestamp>  INFO target: message key=value`
     Full,
-    /// Human-readable multi-line format with colors (for development debugging)
+    /// Human-readable multi-line format with colors (for development debugging).
     Pretty,
-    /// Compact single-line format without timestamp details
+    /// Compact single-line format without timestamp details.
     Compact,
-    /// JSON format (for production log aggregation)
+    /// JSON format (for production log aggregation).
     Json,
 }
 
@@ -39,22 +39,22 @@ impl Default for LogFormat {
     }
 }
 
-/// Configuration for logging behavior
+/// Configuration for logging behavior.
 #[derive(Debug, Clone)]
 pub struct LogConfig {
-    /// Output format
+    /// Output format.
     pub format: LogFormat,
-    /// Whether to include file/line numbers
+    /// Whether to include file/line numbers.
     pub include_location: bool,
-    /// Whether to include target module
+    /// Whether to include target module.
     pub include_target: bool,
-    /// Whether to include thread IDs
+    /// Whether to include thread IDs.
     pub include_thread_id: bool,
-    /// Whether to log span events (enter/exit/close)
+    /// Whether to log span events (enter/exit/close).
     pub log_spans: bool,
-    /// Whether to use ANSI colors (None = auto-detect based on TTY)
+    /// Whether to use ANSI colors (None = auto-detect based on TTY).
     pub ansi: Option<bool>,
-    /// Environment filter (e.g., "info,inferadb_control=debug")
+    /// Environment filter (e.g., "info,inferadb_control=debug").
     pub filter: Option<String>,
 }
 
@@ -72,10 +72,10 @@ impl Default for LogConfig {
     }
 }
 
-/// Initialize structured logging with configuration
+/// Initializes structured logging from a [`LogConfig`].
 ///
-/// This is the primary logging initialization function that provides full control
-/// over log format and behavior, matching the server's logging API.
+/// Configures tracing-subscriber with the specified format, filters, and
+/// output options.
 ///
 /// # Arguments
 ///
@@ -172,11 +172,10 @@ pub fn init_logging(config: LogConfig) -> Result<(), Box<dyn std::error::Error +
     Ok(())
 }
 
-/// Initialize structured logging with a log level string
+/// Initializes structured logging with a log level string.
 ///
-/// Sets up tracing-subscriber with either JSON or compact formatting based on environment.
-/// In production (when `json` is true), logs are emitted as JSON for structured ingestion.
-/// In development, logs use compact single-line formatting (matching server output style).
+/// Uses JSON formatting when `json` is true, or the standard
+/// single-line format when false.
 ///
 /// # Arguments
 ///
@@ -210,10 +209,10 @@ pub fn init(log_level: &str, json: bool) {
     }
 }
 
-/// Initialize logging with OpenTelemetry support
+/// Initializes structured logging with optional OpenTelemetry tracing.
 ///
-/// This sets up both structured logging and OpenTelemetry tracing.
-/// Traces are exported to the configured OTLP endpoint.
+/// Configures tracing-subscriber for log output and, when `otlp_endpoint` is
+/// provided, exports traces to the OTLP collector at 10% sampling.
 ///
 /// # Arguments
 ///
@@ -222,9 +221,9 @@ pub fn init(log_level: &str, json: bool) {
 /// * `json` - Whether to use JSON formatting
 /// * `service_name` - Name of the service for tracing
 ///
-/// # Returns
+/// # Errors
 ///
-/// Returns `Ok(())` if initialization succeeds, or an error if OTLP setup fails.
+/// Returns an error if the OTLP exporter or tracer provider fails to initialize.
 #[cfg(feature = "opentelemetry")]
 pub fn init_with_tracing(
     log_level: &str,

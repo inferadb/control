@@ -1,14 +1,17 @@
-/// Simple wrapper around the ID generator for type-level usage
+//! Snowflake-style unique ID generation.
+
+/// Generates unique snowflake-style IDs using the `idgenerator` crate.
 ///
-/// Note: This is just a re-export of the idgenerator functionality.
-/// The actual initialization and worker ID management happens in
-/// inferadb-control-core::id module.
+/// The underlying generator must be initialized by the core crate
+/// before calling [`IdGenerator::next_id`].
 pub struct IdGenerator;
 
 impl IdGenerator {
-    /// Generate a new unique ID
+    /// Generates a new unique snowflake ID.
     ///
-    /// This assumes the ID generator has been initialized by the core crate.
+    /// # Panics
+    ///
+    /// Panics if the ID generator has not been initialized.
     pub fn next_id() -> u64 {
         idgenerator::IdInstance::next_id() as u64
     }
