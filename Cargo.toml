@@ -80,7 +80,7 @@ jsonwebtoken = { version = "10", default-features = false, features = [
 ] }
 pem = "3"
 sha2 = "0.10"
-uuid = { version = "1.0", features = ["serde", "v4"] }
+uuid = { version = "1.23", features = ["serde", "v4"] }
 zeroize = { version = "1", features = ["derive"] }
 
 # WebAuthn/Passkey support
