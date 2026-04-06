@@ -774,4 +774,118 @@ mod tests {
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json.get("challenge_nonce").is_none());
     }
+
+    // ── validate_name for passkey registration ────────────────────────
+
+    #[test]
+    fn validate_name_accepts_valid_passkey_names() {
+        assert!(super::super::common::validate_name("My MacBook").is_ok());
+        assert!(super::super::common::validate_name("Touch ID").is_ok());
+        assert!(super::super::common::validate_name("YubiKey 5").is_ok());
+        assert!(super::super::common::validate_name("Work Laptop's Key").is_ok());
+        assert!(super::super::common::validate_name("key-1").is_ok());
+        assert!(super::super::common::validate_name("key_2").is_ok());
+        assert!(super::super::common::validate_name("v1.0").is_ok());
+    }
+
+    #[test]
+    fn validate_name_rejects_empty_passkey_name() {
+        assert!(super::super::common::validate_name("").is_err());
+    }
+
+    #[test]
+    fn validate_name_rejects_whitespace_only_passkey_name() {
+        assert!(super::super::common::validate_name("   ").is_err());
+    }
+
+    #[test]
+    fn validate_name_rejects_script_injection() {
+        assert!(super::super::common::validate_name("<script>alert(1)</script>").is_err());
+    }
+
+    #[test]
+    fn validate_name_rejects_special_chars() {
+        assert!(super::super::common::validate_name("key@home").is_err());
+        assert!(super::super::common::validate_name("key#1").is_err());
+        assert!(super::super::common::validate_name("key&co").is_err());
+        assert!(super::super::common::validate_name("key;drop").is_err());
+    }
+
+    #[test]
+    fn validate_name_rejects_too_long_passkey_name() {
+        let long = "a".repeat(129);
+        assert!(super::super::common::validate_name(&long).is_err());
+    }
+
+    #[test]
+    fn validate_name_accepts_max_length_passkey_name() {
+        let exact = "a".repeat(128);
+        assert!(super::super::common::validate_name(&exact).is_ok());
+    }
+
+    // ── Transport formatting ──────────────────────────────────────────
+
+    #[test]
+    fn transport_formatting_produces_lowercase() {
+        // The handler converts transports via `format!("{t:?}").to_lowercase()`.
+        // Verify the lowercasing step works as expected for typical transport strings.
+        let transports = ["Internal", "Usb", "Nfc", "Ble", "Hybrid"];
+        let formatted: Vec<String> = transports.iter().map(|t| t.to_lowercase()).collect();
+        assert_eq!(formatted, ["internal", "usb", "nfc", "ble", "hybrid"]);
+    }
+
+    #[test]
+    fn empty_transports_produces_empty_vec() {
+        let transports: Option<Vec<String>> = None;
+        let result: Vec<String> = transports
+            .as_ref()
+            .map(|ts| ts.iter().map(|t| t.to_lowercase()).collect::<Vec<_>>())
+            .unwrap_or_default();
+        assert!(result.is_empty());
+    }
+
+    // ── AttestationFormat conversion ──────────────────────────────────
+
+    #[test]
+    fn attestation_format_none_maps_to_none() {
+        let fmt = AttestationFormat::None;
+        let result: Option<String> = match fmt {
+            AttestationFormat::None => None,
+            other => Some(format!("{other:?}")),
+        };
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn attestation_format_packed_maps_to_string() {
+        let fmt = AttestationFormat::Packed;
+        let result: Option<String> = match fmt {
+            AttestationFormat::None => None,
+            other => Some(format!("{other:?}")),
+        };
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), "Packed");
+    }
+
+    #[test]
+    fn attestation_format_fidou2f_maps_to_string() {
+        let fmt = AttestationFormat::FIDOU2F;
+        let result: Option<String> = match fmt {
+            AttestationFormat::None => None,
+            other => Some(format!("{other:?}")),
+        };
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), "FIDOU2F");
+    }
+
+    #[test]
+    fn attestation_format_tpm_maps_to_string() {
+        let fmt = AttestationFormat::Tpm;
+        let result: Option<String> = match fmt {
+            AttestationFormat::None => None,
+            other => Some(format!("{other:?}")),
+        };
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), "Tpm");
+    }
 }

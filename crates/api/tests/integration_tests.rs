@@ -125,7 +125,7 @@ mod email_auth {
     }
 
     #[tokio::test]
-    async fn verify_with_valid_code_returns_result() {
+    async fn verify_with_valid_code_returns_registration_required() {
         let h = TestHarness::start().await;
         let resp = h
             .post(
@@ -133,9 +133,23 @@ mod email_auth {
                 json!({"email": "user@example.com", "code": "123456"}),
             )
             .await;
-        // Mock returns tokens for existing user
+        // Mock always returns new-user path (registration_required)
         let json = TestHarness::assert_status(resp, StatusCode::OK).await;
-        assert!(json["status"].is_string());
+        assert_eq!(json["status"], "registration_required");
+        assert_eq!(json["onboarding_token"], "ilobt_mock_token");
+    }
+
+    #[tokio::test]
+    async fn verify_with_region_returns_registration_required() {
+        let h = TestHarness::start().await;
+        let resp = h
+            .post(
+                "/control/v1/auth/email/verify",
+                json!({"email": "user@example.com", "code": "ABC123", "region": "ie-east-dublin"}),
+            )
+            .await;
+        let json = TestHarness::assert_status(resp, StatusCode::OK).await;
+        assert_eq!(json["status"], "registration_required");
     }
 
     #[tokio::test]
@@ -959,29 +973,104 @@ mod mfa_auth {
     use super::*;
 
     #[tokio::test]
-    async fn verify_totp_does_not_panic() {
+    async fn verify_totp_returns_token_pair() {
         let h = TestHarness::start().await;
         let resp = h
             .post(
                 "/control/v1/auth/totp/verify",
-                json!({"challenge_nonce": "dGVzdA==", "code": "123456"}),
+                json!({"user_slug": 42, "totp_code": "123456", "challenge_nonce": "dGVzdA=="}),
             )
             .await;
-        let status = resp.status();
-        assert_ne!(status, StatusCode::INTERNAL_SERVER_ERROR, "should not return 500");
+        let json = TestHarness::assert_status(resp, StatusCode::OK).await;
+        assert_eq!(json["token_type"], "Bearer");
+        assert_eq!(json["access_token"], "mock-totp-access");
+        assert_eq!(json["refresh_token"], "mock-totp-refresh");
     }
 
     #[tokio::test]
-    async fn consume_recovery_does_not_panic() {
+    async fn verify_totp_sets_cookies() {
+        let h = TestHarness::start().await;
+        let resp = h
+            .post(
+                "/control/v1/auth/totp/verify",
+                json!({"user_slug": 42, "totp_code": "123456", "challenge_nonce": "dGVzdA=="}),
+            )
+            .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let access = TestHarness::extract_cookie(resp.headers(), "inferadb_access");
+        let refresh = TestHarness::extract_cookie(resp.headers(), "inferadb_refresh");
+        assert!(access.is_some(), "should set access cookie");
+        assert!(refresh.is_some(), "should set refresh cookie");
+    }
+
+    #[tokio::test]
+    async fn verify_totp_rejects_invalid_nonce() {
+        let h = TestHarness::start().await;
+        let resp = h
+            .post(
+                "/control/v1/auth/totp/verify",
+                json!({"user_slug": 42, "totp_code": "123456", "challenge_nonce": "!!!invalid!!!"}),
+            )
+            .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn verify_totp_rejects_missing_fields() {
+        let h = TestHarness::start().await;
+        let resp = h
+            .post(
+                "/control/v1/auth/totp/verify",
+                json!({"challenge_nonce": "dGVzdA==", "totp_code": "123456"}),
+            )
+            .await;
+        // Missing user_slug should fail deserialization (422)
+        assert_ne!(resp.status(), StatusCode::OK);
+        assert_ne!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn consume_recovery_returns_token_pair_and_remaining_codes() {
         let h = TestHarness::start().await;
         let resp = h
             .post(
                 "/control/v1/auth/recovery",
-                json!({"challenge_nonce": "dGVzdA==", "code": "ABCD-1234-EFGH"}),
+                json!({"user_slug": 42, "code": "ABCD-1234", "challenge_nonce": "dGVzdA=="}),
             )
             .await;
-        let status = resp.status();
-        assert_ne!(status, StatusCode::INTERNAL_SERVER_ERROR, "should not return 500");
+        let json = TestHarness::assert_status(resp, StatusCode::OK).await;
+        assert_eq!(json["token_type"], "Bearer");
+        assert_eq!(json["access_token"], "mock-recovery-access");
+        assert_eq!(json["refresh_token"], "mock-recovery-refresh");
+        assert_eq!(json["remaining_codes"], 7);
+    }
+
+    #[tokio::test]
+    async fn consume_recovery_sets_cookies() {
+        let h = TestHarness::start().await;
+        let resp = h
+            .post(
+                "/control/v1/auth/recovery",
+                json!({"user_slug": 42, "code": "ABCD-1234", "challenge_nonce": "dGVzdA=="}),
+            )
+            .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let access = TestHarness::extract_cookie(resp.headers(), "inferadb_access");
+        let refresh = TestHarness::extract_cookie(resp.headers(), "inferadb_refresh");
+        assert!(access.is_some(), "should set access cookie");
+        assert!(refresh.is_some(), "should set refresh cookie");
+    }
+
+    #[tokio::test]
+    async fn consume_recovery_rejects_invalid_nonce() {
+        let h = TestHarness::start().await;
+        let resp = h
+            .post(
+                "/control/v1/auth/recovery",
+                json!({"user_slug": 42, "code": "ABCD-1234", "challenge_nonce": "!!!bad!!!"}),
+            )
+            .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
