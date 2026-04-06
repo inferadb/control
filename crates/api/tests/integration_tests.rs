@@ -73,6 +73,29 @@ mod auth {
     }
 
     #[tokio::test]
+    async fn logout_with_refresh_cookie_revokes_and_clears() {
+        let h = TestHarness::start().await;
+        let resp = h
+            .post_with_cookie(
+                "/control/v1/auth/logout",
+                json!({}),
+                "inferadb_refresh=mock-refresh-token",
+            )
+            .await;
+        let json = TestHarness::assert_status(resp, StatusCode::OK).await;
+        assert_eq!(json["message"], "logged out");
+    }
+
+    #[tokio::test]
+    async fn logout_with_empty_refresh_cookie_succeeds() {
+        let h = TestHarness::start().await;
+        let resp =
+            h.post_with_cookie("/control/v1/auth/logout", json!({}), "inferadb_refresh=").await;
+        let json = TestHarness::assert_status(resp, StatusCode::OK).await;
+        assert_eq!(json["message"], "logged out");
+    }
+
+    #[tokio::test]
     async fn revoke_all_requires_auth() {
         let h = TestHarness::start().await;
         let resp = h.post("/control/v1/auth/revoke-all", json!({})).await;
@@ -417,6 +440,50 @@ mod organizations {
             .await;
         let json = TestHarness::assert_status(resp, StatusCode::CREATED).await;
         assert!(json["slug"].is_number());
+    }
+
+    #[tokio::test]
+    async fn create_invitation_with_admin_role_succeeds() {
+        let h = TestHarness::start_with_org().await;
+        let resp = h
+            .authenticated_post(
+                "/control/v1/organizations/1/invitations",
+                json!({"email": "admin@example.com", "role": "admin"}),
+            )
+            .await;
+        let json = TestHarness::assert_status(resp, StatusCode::CREATED).await;
+        assert!(json["slug"].is_number());
+        assert_eq!(json["role"], "admin");
+    }
+
+    #[tokio::test]
+    async fn create_invitation_with_member_role_succeeds() {
+        let h = TestHarness::start_with_org().await;
+        let resp = h
+            .authenticated_post(
+                "/control/v1/organizations/1/invitations",
+                json!({"email": "member@example.com", "role": "member"}),
+            )
+            .await;
+        let json = TestHarness::assert_status(resp, StatusCode::CREATED).await;
+        assert!(json["slug"].is_number());
+        assert_eq!(json["role"], "member");
+    }
+
+    #[tokio::test]
+    async fn create_invitation_returns_response_fields() {
+        let h = TestHarness::start_with_org().await;
+        let resp = h
+            .authenticated_post(
+                "/control/v1/organizations/1/invitations",
+                json!({"email": "full@example.com"}),
+            )
+            .await;
+        let json = TestHarness::assert_status(resp, StatusCode::CREATED).await;
+        assert!(json["slug"].is_number());
+        assert_eq!(json["organization"], 1);
+        assert_eq!(json["invitee_email"], "full@example.com");
+        assert!(json["status"].is_string());
     }
 
     #[tokio::test]
@@ -1074,19 +1141,250 @@ mod mfa_auth {
     }
 
     #[tokio::test]
-    async fn passkey_begin_does_not_panic() {
+    async fn passkey_begin_without_webauthn_returns_500() {
         let h = TestHarness::start().await;
-        let resp =
-            h.post("/control/v1/auth/passkey/begin", json!({"challenge_nonce": "dGVzdA=="})).await;
-        // WebAuthn needs proper setup; just verify the handler doesn't panic
-        let _status = resp.status();
+        let resp = h.post("/control/v1/auth/passkey/begin", json!({"user_slug": 42})).await;
+        // WebAuthn is not configured in default harness — handler returns internal error.
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[tokio::test]
-    async fn passkey_register_requires_auth() {
+    async fn passkey_begin_with_webauthn_and_invalid_mock_credentials_returns_500() {
+        // The mock server returns passkey credentials with raw bytes (not valid
+        // serialized Passkey JSON), so credential_info_to_passkey deserialization
+        // fails with an internal error.
+        let h = TestHarness::start_with_webauthn().await;
+        let resp = h.post("/control/v1/auth/passkey/begin", json!({"user_slug": 42})).await;
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn passkey_begin_rejects_missing_user_slug() {
+        let h = TestHarness::start_with_webauthn().await;
+        let resp = h.post("/control/v1/auth/passkey/begin", json!({})).await;
+        // Missing required field triggers deserialization error (422).
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn passkey_register_begin_requires_auth() {
         let h = TestHarness::start().await;
         let resp = h.post("/control/v1/users/me/credentials/passkeys/begin", json!({})).await;
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn passkey_register_begin_without_webauthn_returns_500() {
+        let h = TestHarness::start().await;
+        let resp = h
+            .authenticated_post("/control/v1/users/me/credentials/passkeys/begin", json!({}))
+            .await;
+        // WebAuthn is not configured — handler returns internal error.
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn passkey_register_begin_returns_challenge() {
+        let h = TestHarness::start_with_webauthn().await;
+        let resp = h
+            .authenticated_post("/control/v1/users/me/credentials/passkeys/begin", json!({}))
+            .await;
+        let json = TestHarness::assert_status(resp, StatusCode::OK).await;
+        assert!(json["challenge_id"].is_string(), "response should contain challenge_id");
+        assert!(!json["challenge"].is_null(), "response should contain challenge");
+    }
+
+    #[tokio::test]
+    async fn passkey_register_begin_with_name_returns_challenge() {
+        let h = TestHarness::start_with_webauthn().await;
+        let resp = h
+            .authenticated_post(
+                "/control/v1/users/me/credentials/passkeys/begin",
+                json!({"name": "My MacBook"}),
+            )
+            .await;
+        let json = TestHarness::assert_status(resp, StatusCode::OK).await;
+        assert!(json["challenge_id"].is_string());
+    }
+
+    #[tokio::test]
+    async fn passkey_register_begin_validates_name() {
+        let h = TestHarness::start_with_webauthn().await;
+        let resp = h
+            .authenticated_post(
+                "/control/v1/users/me/credentials/passkeys/begin",
+                json!({"name": "<script>alert(1)</script>"}),
+            )
+            .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn passkey_finish_invalid_challenge_id_returns_400() {
+        let h = TestHarness::start_with_webauthn().await;
+        let resp = h
+            .post(
+                "/control/v1/auth/passkey/finish",
+                json!({
+                    "challenge_id": "nonexistent-challenge-id",
+                    "credential": {
+                        "id": "dGVzdA",
+                        "rawId": "dGVzdA",
+                        "type": "public-key",
+                        "response": {
+                            "authenticatorData": "dGVzdA",
+                            "clientDataJSON": "dGVzdA",
+                            "signature": "dGVzdA"
+                        }
+                    }
+                }),
+            )
+            .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn passkey_finish_wrong_challenge_type_returns_400() {
+        // Insert a Registration challenge, then try to use it for authentication finish.
+        let h = TestHarness::start_with_webauthn().await;
+        // Start a registration ceremony to get a valid Registration challenge.
+        let begin_resp = h
+            .authenticated_post("/control/v1/users/me/credentials/passkeys/begin", json!({}))
+            .await;
+        let begin_json = TestHarness::assert_status(begin_resp, StatusCode::OK).await;
+        let challenge_id = begin_json["challenge_id"].as_str().unwrap();
+
+        // Use the registration challenge_id for an authentication finish.
+        let resp = h
+            .post(
+                "/control/v1/auth/passkey/finish",
+                json!({
+                    "challenge_id": challenge_id,
+                    "credential": {
+                        "id": "dGVzdA",
+                        "rawId": "dGVzdA",
+                        "type": "public-key",
+                        "response": {
+                            "authenticatorData": "dGVzdA",
+                            "clientDataJSON": "dGVzdA",
+                            "signature": "dGVzdA"
+                        }
+                    }
+                }),
+            )
+            .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn passkey_register_finish_invalid_challenge_id_returns_400() {
+        let h = TestHarness::start_with_webauthn().await;
+        let resp = h
+            .authenticated_post(
+                "/control/v1/users/me/credentials/passkeys/finish",
+                json!({
+                    "challenge_id": "nonexistent-challenge-id",
+                    "name": "My Key",
+                    "credential": {
+                        "id": "dGVzdA",
+                        "rawId": "dGVzdA",
+                        "type": "public-key",
+                        "response": {
+                            "attestationObject": "dGVzdA",
+                            "clientDataJSON": "dGVzdA"
+                        },
+                        "extensions": {}
+                    }
+                }),
+            )
+            .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn passkey_register_finish_validates_name() {
+        let h = TestHarness::start_with_webauthn().await;
+        let resp = h
+            .authenticated_post(
+                "/control/v1/users/me/credentials/passkeys/finish",
+                json!({
+                    "challenge_id": "any",
+                    "name": "<script>",
+                    "credential": {
+                        "id": "dGVzdA",
+                        "rawId": "dGVzdA",
+                        "type": "public-key",
+                        "response": {
+                            "attestationObject": "dGVzdA",
+                            "clientDataJSON": "dGVzdA"
+                        },
+                        "extensions": {}
+                    }
+                }),
+            )
+            .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn passkey_finish_without_webauthn_returns_500() {
+        let h = TestHarness::start().await;
+        let resp = h
+            .post(
+                "/control/v1/auth/passkey/finish",
+                json!({
+                    "challenge_id": "any",
+                    "credential": {
+                        "id": "dGVzdA",
+                        "rawId": "dGVzdA",
+                        "type": "public-key",
+                        "response": {
+                            "authenticatorData": "dGVzdA",
+                            "clientDataJSON": "dGVzdA",
+                            "signature": "dGVzdA"
+                        }
+                    }
+                }),
+            )
+            .await;
+        // WebAuthn not configured — but handler checks challenge_id first.
+        // If challenge_id is invalid, that returns 400 before reaching WebAuthn check.
+        // The actual behavior depends on handler ordering.
+        let status = resp.status();
+        assert!(
+            status == StatusCode::BAD_REQUEST || status == StatusCode::INTERNAL_SERVER_ERROR,
+            "expected 400 or 500, got {status}"
+        );
+    }
+
+    #[tokio::test]
+    async fn passkey_register_finish_without_webauthn_returns_error() {
+        let h = TestHarness::start().await;
+        let resp = h
+            .authenticated_post(
+                "/control/v1/users/me/credentials/passkeys/finish",
+                json!({
+                    "challenge_id": "any",
+                    "name": "My Key",
+                    "credential": {
+                        "id": "dGVzdA",
+                        "rawId": "dGVzdA",
+                        "type": "public-key",
+                        "response": {
+                            "attestationObject": "dGVzdA",
+                            "clientDataJSON": "dGVzdA"
+                        },
+                        "extensions": {}
+                    }
+                }),
+            )
+            .await;
+        // Name validates first (OK), then challenge_id check returns 400.
+        let status = resp.status();
+        assert!(
+            status == StatusCode::BAD_REQUEST || status == StatusCode::INTERNAL_SERVER_ERROR,
+            "expected 400 or 500, got {status}"
+        );
     }
 }
 

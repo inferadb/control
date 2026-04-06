@@ -665,6 +665,36 @@ mod tests {
         assert_eq!(cli.config.key_file, PathBuf::from("/data/master.key"));
     }
 
+    // ── Validation: Email Insecure ────────────────────────────────────
+
+    #[test]
+    fn validate_passes_with_email_insecure_and_non_localhost_host() {
+        let config = Config::builder()
+            .storage(StorageBackend::Memory)
+            .email_host("smtp.example.com")
+            .email_insecure(true)
+            .build();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_passes_with_production_frontend_url() {
+        let config = Config::builder()
+            .storage(StorageBackend::Memory)
+            .frontend_url("https://app.inferadb.com")
+            .build();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_passes_with_http_frontend_url() {
+        let config = Config::builder()
+            .storage(StorageBackend::Memory)
+            .frontend_url("http://staging.inferadb.com")
+            .build();
+        assert!(config.validate().is_ok());
+    }
+
     // ── Enum Display ─────────────────────────────────────────────────
 
     #[test]

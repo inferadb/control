@@ -362,6 +362,52 @@ mod tests {
     }
 
     #[test]
+    fn challenge_store_take_token_exactly_nonce_len_returns_none() {
+        let store = ChallengeStore::default();
+        let token = URL_SAFE_NO_PAD.encode([0u8; NONCE_LEN]);
+        assert!(store.take(&token).is_none());
+    }
+
+    #[test]
+    fn challenge_store_take_token_nonce_plus_partial_timestamp_returns_none() {
+        let store = ChallengeStore::default();
+        let data = [0u8; NONCE_LEN + TIMESTAMP_LEN - 1];
+        let token = URL_SAFE_NO_PAD.encode(data);
+        assert!(store.take(&token).is_none());
+    }
+
+    #[test]
+    fn challenge_store_take_corrupted_ciphertext_returns_none() {
+        let store = ChallengeStore::default();
+        // Valid length but random bytes: nonce + enough for timestamp + some payload
+        let data = [0xAB_u8; NONCE_LEN + TIMESTAMP_LEN + 32];
+        let token = URL_SAFE_NO_PAD.encode(data);
+        assert!(store.take(&token).is_none());
+    }
+
+    #[test]
+    fn credential_info_to_passkey_invalid_json_returns_error() {
+        let info = PasskeyCredential {
+            credential_id: vec![1, 2, 3],
+            public_key: b"not-valid-json".to_vec(),
+            sign_count: 0,
+            transports: vec![],
+            backup_eligible: false,
+            backup_state: false,
+            attestation_format: None,
+            aaguid: None,
+        };
+        let result = credential_info_to_passkey(&info);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_webauthn_https_origin() {
+        let result = build_webauthn("example.com", "https://example.com");
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn build_webauthn_valid_config() {
         let result = build_webauthn("localhost", "http://localhost:3000");
         assert!(result.is_ok());

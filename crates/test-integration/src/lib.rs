@@ -209,6 +209,50 @@ impl TestHarness {
         Self { server, client, app, state, jwt_token }
     }
 
+    /// Starts a harness with WebAuthn configured.
+    ///
+    /// Identical to [`start`] but also configures a [`webauthn_rs::Webauthn`]
+    /// instance in [`AppState`], enabling passkey ceremony handlers.
+    pub async fn start_with_webauthn() -> Self {
+        let server = MockLedgerServer::start().await.expect("mock server should start");
+
+        let config = ClientConfig::builder()
+            .servers(ServerSource::from_static([server.endpoint().to_string()]))
+            .client_id("test-control")
+            .build()
+            .expect("client config should be valid");
+
+        let client = LedgerClient::new(config).await.expect("client should connect");
+
+        let app_config = Config::builder()
+            .storage(StorageBackend::Memory)
+            .key_file(std::path::PathBuf::from("/tmp/test-master.key"))
+            .build();
+
+        let email_sender = Box::new(inferadb_control_core::MockEmailSender::new());
+        let email_service = inferadb_control_core::EmailService::new(email_sender);
+
+        let (jwt_token, decoding_key) = generate_test_jwt(MOCK_USER_SLUG, "user");
+
+        let webauthn =
+            inferadb_control_core::webauthn::build_webauthn("localhost", "http://localhost:3000")
+                .expect("WebAuthn should build");
+
+        let state = AppState::builder()
+            .config(Arc::new(app_config))
+            .worker_id(0)
+            .email_service(Arc::new(email_service))
+            .ledger(Arc::new(client.clone()))
+            .webauthn(Arc::new(webauthn))
+            .build();
+
+        state.jwks_cache.insert_key(TEST_KID.to_string(), Arc::new(decoding_key)).await;
+
+        let app = create_router_with_state(state.clone());
+
+        Self { server, client, app, state, jwt_token }
+    }
+
     /// Starts a harness with a pre-seeded organization.
     ///
     /// Adds an organization (slug=1, name="Test Org") with the mock user

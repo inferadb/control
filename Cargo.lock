@@ -2080,6 +2080,7 @@ dependencies = [
  "inferadb-control-api",
  "inferadb-control-const",
  "serde_json",
+ "tokio",
  "tower",
 ]
 
@@ -2101,6 +2102,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tower",
+ "webauthn-rs",
 ]
 
 [[package]]

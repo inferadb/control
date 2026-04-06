@@ -660,6 +660,161 @@ mod tests {
     }
 
     #[test]
+    fn test_invitation_accepted_subject_and_bodies() {
+        let template = InvitationAcceptedEmailTemplate {
+            owner_name: "Alice Owner".to_string(),
+            member_name: "Bob Member".to_string(),
+            member_email: "bob@example.com".to_string(),
+            organization_name: "Acme Corp".to_string(),
+            role: "admin".to_string(),
+        };
+
+        let subject = template.subject();
+        assert!(subject.contains("Bob Member"));
+        assert!(subject.contains("Acme Corp"));
+        assert!(subject.contains("accepted"));
+
+        let html = template.html_body();
+        assert!(html.contains("Alice Owner"));
+        assert!(html.contains("Bob Member"));
+        assert!(html.contains("bob@example.com"));
+        assert!(html.contains("Acme Corp"));
+        assert!(html.contains("admin"));
+        assert!(html.contains("Invitation Accepted"));
+        assert!(html.contains("<!DOCTYPE html>"));
+
+        let text = template.text_body();
+        assert!(text.contains("Alice Owner"));
+        assert!(text.contains("Bob Member"));
+        assert!(text.contains("bob@example.com"));
+        assert!(text.contains("Acme Corp"));
+        assert!(text.contains("admin"));
+        assert!(text.contains("collaborate"));
+    }
+
+    #[test]
+    fn test_invitation_accepted_xss_in_all_fields() {
+        let xss = "<script>alert('xss')</script>".to_string();
+        let template = InvitationAcceptedEmailTemplate {
+            owner_name: xss.clone(),
+            member_name: xss.clone(),
+            member_email: xss.clone(),
+            organization_name: xss.clone(),
+            role: xss.clone(),
+        };
+
+        let html = template.html_body();
+        assert!(!html.contains("<script>alert('xss')</script>"));
+        assert!(html.contains("&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"));
+
+        let text = template.text_body();
+        assert!(text.contains("<script>alert('xss')</script>"));
+    }
+
+    #[test]
+    fn test_role_change_subject_and_bodies() {
+        let template = RoleChangeEmailTemplate {
+            member_name: "Carol".to_string(),
+            organization_name: "DevOrg".to_string(),
+            old_role: "member".to_string(),
+            new_role: "admin".to_string(),
+            changed_by: "Dave Admin".to_string(),
+        };
+
+        let subject = template.subject();
+        assert!(subject.contains("DevOrg"));
+        assert!(subject.contains("updated"));
+
+        let html = template.html_body();
+        assert!(html.contains("Carol"));
+        assert!(html.contains("DevOrg"));
+        assert!(html.contains("member"));
+        assert!(html.contains("admin"));
+        assert!(html.contains("Dave Admin"));
+        assert!(html.contains("Role Updated"));
+        assert!(html.contains("Previous role:"));
+        assert!(html.contains("New role:"));
+        assert!(html.contains("<!DOCTYPE html>"));
+
+        let text = template.text_body();
+        assert!(text.contains("Carol"));
+        assert!(text.contains("DevOrg"));
+        assert!(text.contains("member"));
+        assert!(text.contains("admin"));
+        assert!(text.contains("Dave Admin"));
+        assert!(text.contains("Previous role:"));
+        assert!(text.contains("New role:"));
+    }
+
+    #[test]
+    fn test_role_change_xss_in_all_fields() {
+        let xss = "<script>alert('xss')</script>".to_string();
+        let template = RoleChangeEmailTemplate {
+            member_name: xss.clone(),
+            organization_name: xss.clone(),
+            old_role: xss.clone(),
+            new_role: xss.clone(),
+            changed_by: xss.clone(),
+        };
+
+        let html = template.html_body();
+        assert!(!html.contains("<script>alert('xss')</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+
+        let text = template.text_body();
+        assert!(text.contains("<script>alert('xss')</script>"));
+    }
+
+    #[test]
+    fn test_org_deletion_warning_subject_and_bodies() {
+        let template = OrganizationDeletionWarningEmailTemplate {
+            member_name: "Eve".to_string(),
+            organization_name: "OldOrg".to_string(),
+            deleted_by: "Frank Admin".to_string(),
+            days_until_deletion: 14,
+        };
+
+        let subject = template.subject();
+        assert!(subject.contains("OldOrg"));
+        assert!(subject.contains("14"));
+        assert!(subject.contains("deleted"));
+
+        let html = template.html_body();
+        assert!(html.contains("Eve"));
+        assert!(html.contains("OldOrg"));
+        assert!(html.contains("Frank Admin"));
+        assert!(html.contains("14 days"));
+        assert!(html.contains("permanently deleted"));
+        assert!(html.contains("Organization Deletion Warning"));
+        assert!(html.contains("<!DOCTYPE html>"));
+
+        let text = template.text_body();
+        assert!(text.contains("Eve"));
+        assert!(text.contains("OldOrg"));
+        assert!(text.contains("Frank Admin"));
+        assert!(text.contains("14 days"));
+        assert!(text.contains("permanently deleted"));
+    }
+
+    #[test]
+    fn test_org_deletion_warning_xss_in_all_fields() {
+        let xss = "<script>alert('xss')</script>".to_string();
+        let template = OrganizationDeletionWarningEmailTemplate {
+            member_name: xss.clone(),
+            organization_name: xss.clone(),
+            deleted_by: xss.clone(),
+            days_until_deletion: 7,
+        };
+
+        let html = template.html_body();
+        assert!(!html.contains("<script>alert('xss')</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+
+        let text = template.text_body();
+        assert!(text.contains("<script>alert('xss')</script>"));
+    }
+
+    #[test]
     fn test_text_body_not_escaped() {
         let template = InvitationEmailTemplate {
             invitee_email: "test@example.com".to_string(),

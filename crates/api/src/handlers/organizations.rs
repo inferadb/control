@@ -667,3 +667,240 @@ pub async fn decline_invitation(
 
     Ok(Json(received_info_to_response(&info)))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use std::time::SystemTime;
+
+    use inferadb_ledger_sdk::{
+        InvitationStatus, InviteSlug, OrganizationMemberRole, OrganizationSlug, OrganizationStatus,
+        OrganizationTier, Region, UserSlug,
+    };
+
+    use super::*;
+
+    fn sample_org_info() -> inferadb_ledger_sdk::OrganizationInfo {
+        inferadb_ledger_sdk::OrganizationInfo {
+            slug: OrganizationSlug::new(100),
+            name: "Acme Corp".to_string(),
+            region: Region::US_EAST_VA,
+            member_nodes: vec![],
+            config_version: 1,
+            status: OrganizationStatus::Active,
+            tier: OrganizationTier::Free,
+            members: vec![],
+        }
+    }
+
+    fn sample_member_info() -> inferadb_ledger_sdk::OrganizationMemberInfo {
+        inferadb_ledger_sdk::OrganizationMemberInfo {
+            user: UserSlug::new(42),
+            role: OrganizationMemberRole::Admin,
+            joined_at: Some(SystemTime::now()),
+        }
+    }
+
+    fn sample_invitation_info() -> inferadb_ledger_sdk::InvitationInfo {
+        inferadb_ledger_sdk::InvitationInfo {
+            slug: InviteSlug::new(200),
+            organization: OrganizationSlug::new(100),
+            inviter: UserSlug::new(42),
+            invitee_email: "guest@example.com".to_string(),
+            role: OrganizationMemberRole::Member,
+            team: None,
+            status: InvitationStatus::Pending,
+            created_at: Some(SystemTime::now()),
+            expires_at: Some(SystemTime::now()),
+            resolved_at: None,
+        }
+    }
+
+    fn sample_received_info() -> inferadb_ledger_sdk::ReceivedInvitationInfo {
+        inferadb_ledger_sdk::ReceivedInvitationInfo {
+            slug: InviteSlug::new(300),
+            organization: OrganizationSlug::new(100),
+            organization_name: "Acme Corp".to_string(),
+            role: OrganizationMemberRole::Member,
+            team: None,
+            status: InvitationStatus::Pending,
+            created_at: Some(SystemTime::now()),
+            expires_at: Some(SystemTime::now()),
+        }
+    }
+
+    // ── org_info_to_response ─────────────────────────────────────────
+
+    #[test]
+    fn org_info_to_response_maps_fields() {
+        let info = sample_org_info();
+        let resp = org_info_to_response(&info);
+        assert_eq!(resp.slug, 100);
+        assert_eq!(resp.name, "Acme Corp");
+        assert_eq!(resp.region, "us-east-va");
+        assert_eq!(resp.status, "active");
+        assert_eq!(resp.tier, "free");
+    }
+
+    #[test]
+    fn org_info_to_response_serializes() {
+        let resp = org_info_to_response(&sample_org_info());
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["slug"], 100);
+        assert_eq!(json["name"], "Acme Corp");
+    }
+
+    // ── member_info_to_response ──────────────────────────────────────
+
+    #[test]
+    fn member_info_to_response_maps_fields() {
+        let info = sample_member_info();
+        let resp = member_info_to_response(&info);
+        assert_eq!(resp.user, 42);
+        assert_eq!(resp.role, "admin");
+        assert!(resp.joined_at.is_some());
+    }
+
+    #[test]
+    fn member_info_to_response_without_joined_at() {
+        let mut info = sample_member_info();
+        info.joined_at = None;
+        let resp = member_info_to_response(&info);
+        assert!(resp.joined_at.is_none());
+    }
+
+    // ── invitation_info_to_response ──────────────────────────────────
+
+    #[test]
+    fn invitation_info_to_response_maps_fields() {
+        let info = sample_invitation_info();
+        let resp = invitation_info_to_response(&info);
+        assert_eq!(resp.slug, 200);
+        assert_eq!(resp.organization, 100);
+        assert_eq!(resp.inviter, 42);
+        assert_eq!(resp.invitee_email, "guest@example.com");
+        assert_eq!(resp.role, "member");
+        assert_eq!(resp.status, "pending");
+        assert!(resp.created_at.is_some());
+        assert!(resp.expires_at.is_some());
+        assert!(resp.token.is_none());
+    }
+
+    // ── received_info_to_response ────────────────────────────────────
+
+    #[test]
+    fn received_info_to_response_maps_fields() {
+        let info = sample_received_info();
+        let resp = received_info_to_response(&info);
+        assert_eq!(resp.slug, 300);
+        assert_eq!(resp.organization, 100);
+        assert_eq!(resp.organization_name, "Acme Corp");
+        assert_eq!(resp.role, "member");
+        assert_eq!(resp.status, "pending");
+        assert!(resp.created_at.is_some());
+        assert!(resp.expires_at.is_some());
+    }
+
+    #[test]
+    fn received_info_to_response_without_timestamps() {
+        let mut info = sample_received_info();
+        info.created_at = None;
+        info.expires_at = None;
+        let resp = received_info_to_response(&info);
+        assert!(resp.created_at.is_none());
+        assert!(resp.expires_at.is_none());
+    }
+
+    // ── OrganizationRoleInput::to_sdk_role ───────────────────────────
+
+    #[test]
+    fn role_input_admin_maps_to_sdk_admin() {
+        let input = OrganizationRoleInput::Admin;
+        assert!(matches!(input.to_sdk_role(), OrganizationMemberRole::Admin));
+    }
+
+    #[test]
+    fn role_input_member_maps_to_sdk_member() {
+        let input = OrganizationRoleInput::Member;
+        assert!(matches!(input.to_sdk_role(), OrganizationMemberRole::Member));
+    }
+
+    // ── Request/Response serialization ───────────────────────────────
+
+    #[test]
+    fn create_invitation_request_deserializes_with_role() {
+        let json = r#"{"email": "user@example.com", "role": "admin"}"#;
+        let req: CreateInvitationRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.email, "user@example.com");
+        assert!(req.role.is_some());
+    }
+
+    #[test]
+    fn create_invitation_request_deserializes_without_role() {
+        let json = r#"{"email": "user@example.com"}"#;
+        let req: CreateInvitationRequest = serde_json::from_str(json).unwrap();
+        assert!(req.role.is_none());
+    }
+
+    #[test]
+    fn delete_organization_response_serializes() {
+        let resp = DeleteOrganizationResponse {
+            message: "Organization deleted successfully".to_string(),
+            retention_days: Some(30),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["message"], "Organization deleted successfully");
+        assert_eq!(json["retention_days"], 30);
+    }
+
+    #[test]
+    fn delete_organization_response_omits_null_retention() {
+        let resp =
+            DeleteOrganizationResponse { message: "deleted".to_string(), retention_days: None };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("retention_days").is_none());
+    }
+
+    #[test]
+    fn list_organizations_response_omits_null_page_token() {
+        let resp = ListOrganizationsResponse { organizations: vec![], next_page_token: None };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("next_page_token").is_none());
+    }
+
+    #[test]
+    fn invitation_response_omits_null_optional_fields() {
+        let resp = InvitationResponse {
+            slug: 1,
+            organization: 2,
+            inviter: 3,
+            invitee_email: "a@b.com".to_string(),
+            role: "member".to_string(),
+            status: "pending".to_string(),
+            created_at: None,
+            expires_at: None,
+            token: None,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("created_at").is_none());
+        assert!(json.get("expires_at").is_none());
+        assert!(json.get("token").is_none());
+    }
+
+    #[test]
+    fn received_invitation_response_serializes() {
+        let resp = ReceivedInvitationResponse {
+            slug: 10,
+            organization: 20,
+            organization_name: "Org".to_string(),
+            role: "admin".to_string(),
+            status: "accepted".to_string(),
+            created_at: Some("2026-01-01T00:00:00Z".to_string()),
+            expires_at: Some("2026-02-01T00:00:00Z".to_string()),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["slug"], 10);
+        assert_eq!(json["organization_name"], "Org");
+        assert_eq!(json["created_at"], "2026-01-01T00:00:00Z");
+    }
+}

@@ -18,14 +18,14 @@
 //! ```no_run
 //! use inferadb_control_test_fixtures::{create_test_state, create_test_app, get};
 //!
-//! #[tokio::test]
-//! async fn health_check() {
-//!     let state = create_test_state();
-//!     let app = create_test_app(state);
+//! # #[tokio::main]
+//! # async fn main() {
+//! let state = create_test_state();
+//! let app = create_test_app(state);
 //!
-//!     let response = get(&app, "/healthz").await;
-//!     assert_eq!(response.status(), axum::http::StatusCode::OK);
-//! }
+//! let response = get(&app, "/healthz").await;
+//! assert_eq!(response.status(), axum::http::StatusCode::OK);
+//! # }
 //! ```
 
 // Test fixtures use unwrap/expect for clear failure messages in assertions.

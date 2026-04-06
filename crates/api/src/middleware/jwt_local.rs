@@ -201,3 +201,57 @@ pub async fn require_jwt_local(
     request.extensions_mut().insert(claims);
     Ok(next.run(request).await)
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use base64::Engine;
+
+    use super::*;
+
+    #[test]
+    fn extract_kid_no_dots_returns_error() {
+        let result = extract_kid_from_header("nodots");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_kid_invalid_base64_returns_error() {
+        let token = "!!!invalid-base64!!!.payload.signature";
+        let err = extract_kid_from_header(token).unwrap_err();
+        assert!(err.to_string().contains("invalid JWT header encoding"));
+    }
+
+    #[test]
+    fn extract_kid_unsupported_algorithm_returns_error() {
+        let header = serde_json::json!({"alg": "RS256", "typ": "JWT"});
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&header).unwrap());
+        let token = format!("{encoded}.payload.signature");
+
+        let err = extract_kid_from_header(&token).unwrap_err();
+        assert!(err.to_string().contains("unsupported JWT algorithm"));
+    }
+
+    #[test]
+    fn extract_kid_missing_kid_field_returns_error() {
+        let header = serde_json::json!({"alg": "EdDSA", "typ": "JWT"});
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&header).unwrap());
+        let token = format!("{encoded}.payload.signature");
+
+        let err = extract_kid_from_header(&token).unwrap_err();
+        assert!(err.to_string().contains("missing kid"));
+    }
+
+    #[test]
+    fn extract_kid_valid_header_returns_kid() {
+        let header = serde_json::json!({"alg": "EdDSA", "typ": "JWT", "kid": "key-abc-123"});
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&header).unwrap());
+        let token = format!("{encoded}.payload.signature");
+
+        let kid = extract_kid_from_header(&token).unwrap();
+        assert_eq!(kid, "key-abc-123");
+    }
+}

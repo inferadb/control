@@ -29,6 +29,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
+webauthn-rs = { workspace = true }
 
 [lints]
 workspace = true
