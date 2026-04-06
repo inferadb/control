@@ -121,3 +121,63 @@ pub async fn delete_user(
 
     Ok(Json(DeleteUserResponse { message: "User account deleted successfully".to_string() }))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_profile_data_serializes() {
+        let data = UserProfileData {
+            slug: 42,
+            name: "Alice".to_string(),
+            status: "active".to_string(),
+            role: "admin".to_string(),
+            created_at: Some("2026-01-01T00:00:00Z".to_string()),
+        };
+        let json = serde_json::to_value(&data).unwrap();
+        assert_eq!(json["slug"], 42);
+        assert_eq!(json["name"], "Alice");
+        assert_eq!(json["status"], "active");
+        assert_eq!(json["role"], "admin");
+        assert!(json["created_at"].is_string());
+    }
+
+    #[test]
+    fn user_profile_response_serializes() {
+        let resp = UserProfileResponse {
+            user: UserProfileData {
+                slug: 1,
+                name: "Bob".to_string(),
+                status: "active".to_string(),
+                role: "member".to_string(),
+                created_at: None,
+            },
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["user"]["slug"], 1);
+        assert!(json["user"]["created_at"].is_null());
+    }
+
+    #[test]
+    fn update_profile_request_deserializes_with_name() {
+        let json = r#"{"name": "New Name"}"#;
+        let req: UpdateProfileRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.name.as_deref(), Some("New Name"));
+    }
+
+    #[test]
+    fn update_profile_request_deserializes_without_name() {
+        let json = r#"{}"#;
+        let req: UpdateProfileRequest = serde_json::from_str(json).unwrap();
+        assert!(req.name.is_none());
+    }
+
+    #[test]
+    fn delete_user_response_serializes() {
+        let resp = DeleteUserResponse { message: "deleted".to_string() };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["message"], "deleted");
+    }
+}

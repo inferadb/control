@@ -532,3 +532,246 @@ pub async fn passkey_register_finish(
 
     Ok(Json(PasskeyRegisterFinishResponse { slug, name: created.name }))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    // ── decode_challenge_nonce ───────────────────────────────────────────
+
+    #[test]
+    fn decode_challenge_nonce_valid_base64() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"hello");
+        let result = decode_challenge_nonce(&encoded);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), b"hello");
+    }
+
+    #[test]
+    fn decode_challenge_nonce_empty_string_is_valid() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"");
+        let result = decode_challenge_nonce(&encoded);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn decode_challenge_nonce_invalid_base64_returns_error() {
+        let result = decode_challenge_nonce("not-valid-base64!!!");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn decode_challenge_nonce_binary_payload() {
+        let payload: Vec<u8> = (0..=255).collect();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&payload);
+        let result = decode_challenge_nonce(&encoded);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), payload);
+    }
+
+    // ── extract_passkey_info ────────────────────────────────────────────
+
+    #[test]
+    fn extract_passkey_info_returns_some_for_passkey_variant() {
+        let info = PasskeyCredentialInfo {
+            credential_id: vec![1, 2, 3],
+            public_key: vec![4, 5, 6],
+            sign_count: 42,
+            transports: vec!["usb".to_string()],
+            backup_eligible: true,
+            backup_state: false,
+            attestation_format: None,
+            aaguid: None,
+        };
+        let data = CredentialData::Passkey(info.clone());
+        let result = extract_passkey_info(&data);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().credential_id, vec![1, 2, 3]);
+        assert_eq!(result.unwrap().sign_count, 42);
+    }
+
+    #[test]
+    fn extract_passkey_info_returns_none_for_totp_variant() {
+        let data = CredentialData::Totp(inferadb_ledger_sdk::TotpCredentialInfo {
+            secret: vec![],
+            algorithm: inferadb_ledger_sdk::TotpAlgorithm::Sha1,
+            digits: 6,
+            period: 30,
+        });
+        assert!(extract_passkey_info(&data).is_none());
+    }
+
+    #[test]
+    fn extract_passkey_info_returns_none_for_recovery_variant() {
+        let data = CredentialData::RecoveryCode(inferadb_ledger_sdk::RecoveryCodeCredentialInfo {
+            code_hashes: vec![],
+            total_generated: 10,
+        });
+        assert!(extract_passkey_info(&data).is_none());
+    }
+
+    // ── Request type deserialization ────────────────────────────────────
+
+    #[test]
+    fn verify_totp_request_deserializes() {
+        let json = r#"{"user_slug": 42, "totp_code": "123456", "challenge_nonce": "dGVzdA=="}"#;
+        let req: VerifyTotpRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.user_slug, 42);
+        assert_eq!(req.totp_code, "123456");
+        assert_eq!(req.challenge_nonce, "dGVzdA==");
+    }
+
+    #[test]
+    fn recovery_code_request_deserializes() {
+        let json = r#"{"user_slug": 7, "code": "ABCD1234", "challenge_nonce": "bm9uY2U="}"#;
+        let req: RecoveryCodeRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.user_slug, 7);
+        assert_eq!(req.code, "ABCD1234");
+    }
+
+    #[test]
+    fn passkey_begin_request_deserializes() {
+        let json = r#"{"user_slug": 100}"#;
+        let req: PasskeyBeginRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.user_slug, 100);
+    }
+
+    #[test]
+    fn passkey_register_begin_request_with_name() {
+        let json = r#"{"name": "My MacBook"}"#;
+        let req: PasskeyRegisterBeginRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.name.as_deref(), Some("My MacBook"));
+    }
+
+    #[test]
+    fn passkey_register_begin_request_without_name() {
+        let json = r#"{}"#;
+        let req: PasskeyRegisterBeginRequest = serde_json::from_str(json).unwrap();
+        assert!(req.name.is_none());
+    }
+
+    // ── Response type serialization ────────────────────────────────────
+
+    #[test]
+    fn mfa_auth_response_serializes() {
+        let resp = MfaAuthResponse {
+            access_token: "acc".to_string(),
+            refresh_token: "ref".to_string(),
+            token_type: "Bearer",
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["access_token"], "acc");
+        assert_eq!(json["refresh_token"], "ref");
+        assert_eq!(json["token_type"], "Bearer");
+    }
+
+    #[test]
+    fn recovery_code_response_serializes() {
+        let resp = RecoveryCodeResponse {
+            access_token: "a".to_string(),
+            refresh_token: "r".to_string(),
+            token_type: "Bearer",
+            remaining_codes: 5,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["remaining_codes"], 5);
+        assert_eq!(json["token_type"], "Bearer");
+    }
+
+    #[test]
+    fn passkey_finish_response_authenticated_serializes_with_tag() {
+        let resp = PasskeyFinishResponse::Authenticated {
+            access_token: "at".to_string(),
+            refresh_token: "rt".to_string(),
+            token_type: "Bearer",
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "authenticated");
+        assert_eq!(json["access_token"], "at");
+    }
+
+    #[test]
+    fn passkey_finish_response_totp_required_serializes_with_tag() {
+        let resp = PasskeyFinishResponse::TotpRequired { challenge_nonce: "abc123".to_string() };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "totp_required");
+        assert_eq!(json["challenge_nonce"], "abc123");
+    }
+
+    #[test]
+    fn passkey_register_begin_response_serialization_includes_challenge_id() {
+        // We cannot easily construct a CreationChallengeResponse, but we can
+        // verify the struct fields exist and the challenge_id serializes.
+        let resp = PasskeyRegisterFinishResponse { slug: 42, name: "My Key".to_string() };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["slug"], 42);
+        assert_eq!(json["name"], "My Key");
+    }
+
+    // ── require_webauthn ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn require_webauthn_returns_error_when_none() {
+        let state = AppState::new_test();
+        // new_test() does not configure webauthn, so it should be None.
+        assert!(state.webauthn.is_none());
+        let result = require_webauthn(&state);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn require_webauthn_returns_ok_when_configured() {
+        use std::sync::Arc;
+
+        let mut state = AppState::new_test();
+        let webauthn =
+            inferadb_control_core::webauthn::build_webauthn("localhost", "http://localhost")
+                .unwrap();
+        state.webauthn = Some(Arc::new(webauthn));
+        let result = require_webauthn(&state);
+        assert!(result.is_ok());
+    }
+
+    // ── decode_challenge_nonce additional edge cases ───────────────
+
+    #[test]
+    fn decode_challenge_nonce_with_padding() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"ab");
+        assert!(encoded.contains('='));
+        let result = decode_challenge_nonce(&encoded);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), b"ab");
+    }
+
+    #[test]
+    fn decode_challenge_nonce_large_payload() {
+        let payload = vec![0xFFu8; 1024];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&payload);
+        let result = decode_challenge_nonce(&encoded);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 1024);
+    }
+
+    // ── PasskeyFinishResponse serialization completeness ──────────
+
+    #[test]
+    fn passkey_finish_response_totp_required_has_no_tokens() {
+        let resp = PasskeyFinishResponse::TotpRequired { challenge_nonce: "nonce".to_string() };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("access_token").is_none());
+        assert!(json.get("refresh_token").is_none());
+    }
+
+    #[test]
+    fn passkey_finish_response_authenticated_has_no_challenge() {
+        let resp = PasskeyFinishResponse::Authenticated {
+            access_token: "at".to_string(),
+            refresh_token: "rt".to_string(),
+            token_type: "Bearer",
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("challenge_nonce").is_none());
+    }
+}

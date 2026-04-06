@@ -265,6 +265,11 @@ mod tests {
     }
 
     #[test]
+    fn key_to_string_empty() {
+        assert_eq!(LedgerStorageBackend::key_to_string(b""), "");
+    }
+
+    #[test]
     fn ttl_to_expires_at_returns_future_timestamp() {
         let ttl = Duration::from_secs(3600);
         let expires = LedgerStorageBackend::ttl_to_expires_at(ttl).unwrap();
@@ -273,6 +278,22 @@ mod tests {
         // Expiry should be within a small window of now + 3600
         assert!(expires >= now + 3599);
         assert!(expires <= now + 3601);
+    }
+
+    #[test]
+    fn ttl_to_expires_at_zero_duration() {
+        let expires = LedgerStorageBackend::ttl_to_expires_at(Duration::ZERO).unwrap();
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        // Should be approximately now
+        assert!(expires >= now.saturating_sub(1));
+        assert!(expires <= now + 1);
+    }
+
+    #[test]
+    fn ttl_to_expires_at_returns_some() {
+        let result = LedgerStorageBackend::ttl_to_expires_at(Duration::from_secs(1));
+        assert!(result.is_some());
     }
 
     #[test]
@@ -305,6 +326,39 @@ mod tests {
     #[test]
     fn map_sdk_error_internal() {
         let err = SdkError::Config { message: "bad config".to_owned() };
+        let mapped = LedgerStorageBackend::map_sdk_error(err);
+        assert!(matches!(mapped, StorageError::Internal { .. }));
+    }
+
+    #[test]
+    fn map_sdk_error_unavailable() {
+        let err = SdkError::Unavailable { message: "server down".to_owned() };
+        let mapped = LedgerStorageBackend::map_sdk_error(err);
+        assert!(matches!(mapped, StorageError::Connection { .. }));
+    }
+
+    #[test]
+    fn map_sdk_error_not_found_rpc() {
+        let err = SdkError::Rpc {
+            code: Code::NotFound,
+            message: "not found".to_owned(),
+            request_id: None,
+            trace_id: None,
+            error_details: None,
+        };
+        let mapped = LedgerStorageBackend::map_sdk_error(err);
+        assert!(matches!(mapped, StorageError::Internal { .. }));
+    }
+
+    #[test]
+    fn map_sdk_error_other_rpc_code() {
+        let err = SdkError::Rpc {
+            code: Code::PermissionDenied,
+            message: "denied".to_owned(),
+            request_id: None,
+            trace_id: None,
+            error_details: None,
+        };
         let mapped = LedgerStorageBackend::map_sdk_error(err);
         assert!(matches!(mapped, StorageError::Internal { .. }));
     }

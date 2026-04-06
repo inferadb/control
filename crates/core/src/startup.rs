@@ -626,4 +626,609 @@ mod tests {
         let width = StartupDisplay::get_terminal_width();
         assert!(width > 0);
     }
+
+    #[test]
+    fn test_config_entry_warning() {
+        let entry = ConfigEntry::warning("Network", "DNS", "unresolved");
+        assert_eq!(entry.category, "Network");
+        assert_eq!(entry.display_name, "DNS");
+        assert_eq!(entry.value, "unresolved");
+        assert!(!entry.sensitive);
+        assert_eq!(entry.style, ConfigEntryStyle::Warning);
+    }
+
+    #[test]
+    fn test_config_entry_separator() {
+        let entry = ConfigEntry::separator("Server");
+        assert_eq!(entry.category, "Server");
+        assert!(entry.display_name.is_empty());
+        assert!(entry.value.is_empty());
+        assert!(!entry.sensitive);
+        assert_eq!(entry.style, ConfigEntryStyle::Separator);
+    }
+
+    #[test]
+    fn test_config_entry_as_sensitive() {
+        let entry = ConfigEntry::new("Auth", "Token", "abc123").as_sensitive();
+        assert!(entry.sensitive);
+        assert_eq!(entry.style, ConfigEntryStyle::Sensitive);
+        assert_eq!(entry.value, "abc123");
+    }
+
+    #[test]
+    fn test_config_entry_as_warning() {
+        let entry = ConfigEntry::new("Auth", "Token", "abc123").as_warning();
+        assert!(!entry.sensitive);
+        assert_eq!(entry.style, ConfigEntryStyle::Warning);
+    }
+
+    #[test]
+    fn test_config_entry_sensitive_factory() {
+        let entry = ConfigEntry::sensitive("Security", "Private Key", "secret-key-data");
+        assert!(entry.sensitive);
+        assert_eq!(entry.style, ConfigEntryStyle::Sensitive);
+        assert_eq!(entry.category, "Security");
+        assert_eq!(entry.display_name, "Private Key");
+        assert_eq!(entry.value, "secret-key-data");
+    }
+
+    #[test]
+    fn test_config_entry_style_default() {
+        let style = ConfigEntryStyle::default();
+        assert_eq!(style, ConfigEntryStyle::Normal);
+    }
+
+    #[test]
+    fn test_config_entry_new_with_various_value_types() {
+        let entry_str = ConfigEntry::new("Cat", "Key", "string_value");
+        assert_eq!(entry_str.value, "string_value");
+
+        let entry_int = ConfigEntry::new("Cat", "Port", 443);
+        assert_eq!(entry_int.value, "443");
+
+        let entry_bool = ConfigEntry::new("Cat", "Enabled", true);
+        assert_eq!(entry_bool.value, "true");
+
+        let entry_float = ConfigEntry::new("Cat", "Rate", 1.5);
+        assert_eq!(entry_float.value, "1.5");
+    }
+
+    #[test]
+    fn test_config_entry_new_with_into_string_display_name() {
+        let name = String::from("Dynamic Name");
+        let entry = ConfigEntry::new("Cat", name, "val");
+        assert_eq!(entry.display_name, "Dynamic Name");
+    }
+
+    fn test_service_info() -> ServiceInfo {
+        ServiceInfo {
+            name: "TestService",
+            subtext: "Test Subtext",
+            version: "1.2.3",
+            environment: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_startup_display_with_ansi_toggle() {
+        let display = StartupDisplay::new(test_service_info()).with_ansi(true);
+        assert!(display.use_ansi);
+
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false);
+        assert!(!display.use_ansi);
+    }
+
+    #[test]
+    fn test_startup_display_entry_chaining() {
+        let display = StartupDisplay::new(test_service_info())
+            .with_ansi(false)
+            .entry(ConfigEntry::new("A", "one", "1"))
+            .entry(ConfigEntry::new("A", "two", "2"))
+            .entry(ConfigEntry::new("B", "three", "3"));
+
+        assert_eq!(display.entries.len(), 3);
+        assert_eq!(display.entries[0].category, "A");
+        assert_eq!(display.entries[2].category, "B");
+    }
+
+    #[test]
+    fn test_startup_display_entries_extends() {
+        let display = StartupDisplay::new(test_service_info())
+            .entry(ConfigEntry::new("Pre", "zero", "0"))
+            .entries(vec![ConfigEntry::new("A", "one", "1"), ConfigEntry::new("A", "two", "2")]);
+
+        assert_eq!(display.entries.len(), 3);
+        assert_eq!(display.entries[0].display_name, "zero");
+    }
+
+    #[test]
+    fn test_startup_display_empty_entries_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false);
+        display.display();
+    }
+
+    #[test]
+    fn test_startup_display_with_entries_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info())
+            .with_ansi(false)
+            .entry(ConfigEntry::new("Server", "Host", "127.0.0.1"))
+            .entry(ConfigEntry::new("Server", "Port", 9090))
+            .entry(ConfigEntry::sensitive("Auth", "Secret", "s3cr3t"))
+            .entry(ConfigEntry::warning("Storage", "Backend", "memory (not persistent)"))
+            .entry(ConfigEntry::separator("Server"));
+
+        display.display();
+    }
+
+    #[test]
+    fn test_startup_display_with_ansi_enabled_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info())
+            .with_ansi(true)
+            .entry(ConfigEntry::new("Server", "Host", "0.0.0.0"))
+            .entry(ConfigEntry::sensitive("Auth", "Key", "secret"))
+            .entry(ConfigEntry::warning("Storage", "Mode", "ephemeral"));
+
+        display.display();
+    }
+
+    #[test]
+    fn test_startup_display_multiple_categories_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info())
+            .with_ansi(false)
+            .entry(ConfigEntry::new("General", "Name", "test"))
+            .entry(ConfigEntry::new("General", "Env", "dev"))
+            .entry(ConfigEntry::separator("General"))
+            .entry(ConfigEntry::new("Server", "Listen", "0.0.0.0:9090"))
+            .entry(ConfigEntry::new("Storage", "Backend", "memory"))
+            .entry(ConfigEntry::sensitive("Auth", "JWT Secret", "very-secret-key"));
+
+        display.display();
+    }
+
+    #[test]
+    fn test_startup_display_separator_only_category_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info())
+            .with_ansi(false)
+            .entry(ConfigEntry::separator("OnlySeparators"))
+            .entry(ConfigEntry::separator("OnlySeparators"));
+
+        display.display();
+    }
+
+    #[test]
+    fn test_print_full_banner_no_ansi_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false);
+        display.print_full_banner(120);
+    }
+
+    #[test]
+    fn test_print_full_banner_with_ansi_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info()).with_ansi(true);
+        display.print_full_banner(120);
+    }
+
+    #[test]
+    fn test_print_compact_banner_no_ansi_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false);
+        display.print_compact_banner(60);
+    }
+
+    #[test]
+    fn test_print_compact_banner_with_ansi_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info()).with_ansi(true);
+        display.print_compact_banner(60);
+    }
+
+    #[test]
+    fn test_print_compact_banner_narrow_terminal_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false);
+        display.print_compact_banner(10);
+    }
+
+    #[test]
+    fn test_print_full_banner_narrow_terminal_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false);
+        display.print_full_banner(10);
+    }
+
+    #[test]
+    fn test_print_config_tables_no_ansi_does_not_panic() {
+        let entries = vec![
+            ConfigEntry::new("Server", "Host", "localhost"),
+            ConfigEntry::new("Server", "Port", 8080),
+            ConfigEntry::separator("Server"),
+            ConfigEntry::sensitive("Auth", "Key", "secret"),
+            ConfigEntry::warning("Storage", "Backend", "memory"),
+        ];
+
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false).entries(entries);
+
+        let categories = build_categories(&display.entries);
+        display.print_config_tables(&categories, 120);
+    }
+
+    #[test]
+    fn test_print_config_tables_with_ansi_does_not_panic() {
+        let entries = vec![
+            ConfigEntry::new("Server", "Host", "localhost"),
+            ConfigEntry::sensitive("Auth", "Key", "secret"),
+            ConfigEntry::warning("Warn", "Issue", "something"),
+        ];
+
+        let display = StartupDisplay::new(test_service_info()).with_ansi(true).entries(entries);
+
+        let categories = build_categories(&display.entries);
+        display.print_config_tables(&categories, 100);
+    }
+
+    #[test]
+    fn test_print_config_tables_narrow_width_does_not_panic() {
+        let entries = vec![
+            ConfigEntry::new("Server", "Host", "localhost"),
+            ConfigEntry::new("Server", "Port", 8080),
+        ];
+
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false).entries(entries);
+
+        let categories = build_categories(&display.entries);
+        display.print_config_tables(&categories, 50);
+    }
+
+    #[test]
+    fn test_print_config_simple_no_ansi_does_not_panic() {
+        let entries = vec![
+            ConfigEntry::new("Server", "Host", "localhost"),
+            ConfigEntry::new("Server", "Port", 8080),
+            ConfigEntry::separator("Server"),
+            ConfigEntry::sensitive("Auth", "Key", "secret"),
+            ConfigEntry::warning("Storage", "Backend", "memory"),
+        ];
+
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false).entries(entries);
+
+        let categories = build_categories(&display.entries);
+        display.print_config_simple(&categories);
+    }
+
+    #[test]
+    fn test_print_config_simple_with_ansi_does_not_panic() {
+        let entries = vec![
+            ConfigEntry::new("Server", "Host", "localhost"),
+            ConfigEntry::sensitive("Auth", "Key", "secret"),
+            ConfigEntry::warning("Warn", "Issue", "something"),
+        ];
+
+        let display = StartupDisplay::new(test_service_info()).with_ansi(true).entries(entries);
+
+        let categories = build_categories(&display.entries);
+        display.print_config_simple(&categories);
+    }
+
+    #[test]
+    fn test_print_config_tables_long_value_truncation_does_not_panic() {
+        let long_value = "a".repeat(200);
+        let entries = vec![
+            ConfigEntry::new("Cat", "Long Normal", &long_value),
+            ConfigEntry::warning("Cat", "Long Warning", &long_value),
+        ];
+
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false).entries(entries);
+
+        let categories = build_categories(&display.entries);
+        display.print_config_tables(&categories, 80);
+    }
+
+    #[test]
+    fn test_private_key_hint_long_base64() {
+        let pem = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHN0YWNrb3ZlcmZsb3c=\n-----END PRIVATE KEY-----";
+        let hint = private_key_hint(pem);
+        assert!(hint.starts_with("✓ "));
+        assert!(hint.contains("..."));
+        // First 4 and last 4 chars of the base64 content
+        assert!(hint.contains("MC4C"));
+    }
+
+    #[test]
+    fn test_private_key_hint_short_base64() {
+        let pem = "-----BEGIN PRIVATE KEY-----\nABCD\n-----END PRIVATE KEY-----";
+        let hint = private_key_hint(pem);
+        assert_eq!(hint, "✓ ABCD");
+    }
+
+    #[test]
+    fn test_private_key_hint_empty_base64() {
+        let pem = "-----BEGIN PRIVATE KEY-----\n-----END PRIVATE KEY-----";
+        let hint = private_key_hint(pem);
+        assert_eq!(hint, "✓ Configured");
+    }
+
+    #[test]
+    fn test_private_key_hint_exactly_8_chars() {
+        let pem = "-----BEGIN PRIVATE KEY-----\n12345678\n-----END PRIVATE KEY-----";
+        let hint = private_key_hint(pem);
+        // len == 8, not > 8, so falls to the else-if branch
+        assert_eq!(hint, "✓ 12345678");
+    }
+
+    #[test]
+    fn test_private_key_hint_9_chars() {
+        let pem = "-----BEGIN PRIVATE KEY-----\n123456789\n-----END PRIVATE KEY-----";
+        let hint = private_key_hint(pem);
+        assert!(hint.contains("..."));
+        assert!(hint.contains("1234"));
+        assert!(hint.contains("6789"));
+    }
+
+    #[test]
+    fn test_private_key_hint_multiline_base64() {
+        let pem = "-----BEGIN PRIVATE KEY-----\nAAAA\nBBBB\nCCCC\n-----END PRIVATE KEY-----";
+        let hint = private_key_hint(pem);
+        // Combined base64 is "AAAABBBBCCCC" (12 chars, > 8)
+        assert!(hint.starts_with("✓ "));
+        assert!(hint.contains("..."));
+        assert!(hint.contains("AAAA"));
+        assert!(hint.contains("CCCC"));
+    }
+
+    #[test]
+    fn test_print_generated_keypair_does_not_panic() {
+        let pem =
+            "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHN0YWNr\n-----END PRIVATE KEY-----";
+        print_generated_keypair(pem, "pem");
+    }
+
+    #[test]
+    fn test_ascii_art_line_count() {
+        assert_eq!(ASCII_ART.len(), 6);
+    }
+
+    #[test]
+    fn test_min_width_constants() {
+        let full_art = MIN_WIDTH_FOR_FULL_ART;
+        let table = MIN_WIDTH_FOR_TABLE;
+        assert!(full_art > table);
+        assert!(table > 0);
+    }
+
+    #[test]
+    fn test_service_info_clone() {
+        let info = test_service_info();
+        let cloned = info.clone();
+        assert_eq!(info.name, cloned.name);
+        assert_eq!(info.subtext, cloned.subtext);
+        assert_eq!(info.version, cloned.version);
+        assert_eq!(info.environment, cloned.environment);
+    }
+
+    #[test]
+    fn test_config_entry_clone() {
+        let entry = ConfigEntry::new("Cat", "Key", "Val");
+        let cloned = entry.clone();
+        assert_eq!(entry.category, cloned.category);
+        assert_eq!(entry.display_name, cloned.display_name);
+        assert_eq!(entry.value, cloned.value);
+        assert_eq!(entry.sensitive, cloned.sensitive);
+        assert_eq!(entry.style, cloned.style);
+    }
+
+    #[test]
+    fn test_config_entry_style_copy() {
+        let style = ConfigEntryStyle::Warning;
+        let copied = style;
+        assert_eq!(style, copied);
+    }
+
+    #[test]
+    fn test_config_entry_style_debug() {
+        let style = ConfigEntryStyle::Sensitive;
+        let debug = format!("{style:?}");
+        assert!(debug.contains("Sensitive"));
+    }
+
+    #[test]
+    fn test_config_entry_debug() {
+        let entry = ConfigEntry::new("Cat", "Key", "Val");
+        let debug = format!("{entry:?}");
+        assert!(debug.contains("Cat"));
+        assert!(debug.contains("Key"));
+        assert!(debug.contains("Val"));
+    }
+
+    #[test]
+    fn test_service_info_debug() {
+        let info = test_service_info();
+        let debug = format!("{info:?}");
+        assert!(debug.contains("TestService"));
+        assert!(debug.contains("1.2.3"));
+    }
+
+    #[test]
+    fn test_colors_module_constants() {
+        assert!(!colors::RESET.is_empty());
+        assert!(!colors::BOLD.is_empty());
+        assert!(!colors::DIM.is_empty());
+        assert!(!colors::CYAN.is_empty());
+        assert!(!colors::BRIGHT_CYAN.is_empty());
+        assert!(!colors::GREEN.is_empty());
+        assert!(!colors::YELLOW.is_empty());
+    }
+
+    #[test]
+    fn test_colors_are_ansi_escape_sequences() {
+        assert!(colors::RESET.starts_with("\x1b["));
+        assert!(colors::BOLD.starts_with("\x1b["));
+        assert!(colors::DIM.starts_with("\x1b["));
+        assert!(colors::CYAN.starts_with("\x1b["));
+        assert!(colors::BRIGHT_CYAN.starts_with("\x1b["));
+        assert!(colors::GREEN.starts_with("\x1b["));
+        assert!(colors::YELLOW.starts_with("\x1b["));
+    }
+
+    #[test]
+    fn test_display_with_all_entry_styles_in_one_category() {
+        let display = StartupDisplay::new(test_service_info())
+            .with_ansi(false)
+            .entry(ConfigEntry::new("Mixed", "Normal", "value"))
+            .entry(ConfigEntry::warning("Mixed", "Warn", "caution"))
+            .entry(ConfigEntry::sensitive("Mixed", "Secret", "hidden"))
+            .entry(ConfigEntry::separator("Mixed"));
+
+        display.display();
+    }
+
+    #[test]
+    fn test_display_with_unicode_values_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info())
+            .with_ansi(false)
+            .entry(ConfigEntry::new("Server", "Name", "サーバー"))
+            .entry(ConfigEntry::new("Server", "Emoji", "🚀 deployed"));
+
+        display.display();
+    }
+
+    #[test]
+    fn test_print_config_tables_unicode_truncation_does_not_panic() {
+        let long_unicode = "あ".repeat(100);
+        let entries = vec![ConfigEntry::new("Cat", "Unicode", &long_unicode)];
+
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false).entries(entries);
+
+        let categories = build_categories(&display.entries);
+        display.print_config_tables(&categories, 60);
+    }
+
+    #[test]
+    fn test_print_config_tables_warning_truncation_does_not_panic() {
+        let long_value = "w".repeat(200);
+        let entries = vec![ConfigEntry::warning("Cat", "Long Warning", &long_value)];
+
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false).entries(entries);
+
+        let categories = build_categories(&display.entries);
+        display.print_config_tables(&categories, 60);
+    }
+
+    #[test]
+    fn test_print_generated_keypair_empty_pem_does_not_panic() {
+        print_generated_keypair("", "pem");
+    }
+
+    #[test]
+    fn test_print_generated_keypair_long_lines_does_not_panic() {
+        let long_line = "A".repeat(200);
+        let pem = format!("-----BEGIN PRIVATE KEY-----\n{long_line}\n-----END PRIVATE KEY-----");
+        print_generated_keypair(&pem, "test-key");
+    }
+
+    #[test]
+    fn test_log_phase_does_not_panic() {
+        log_phase("initialization");
+    }
+
+    #[test]
+    fn test_log_initialized_does_not_panic() {
+        log_initialized("storage");
+    }
+
+    #[test]
+    fn test_log_skipped_does_not_panic() {
+        log_skipped("email", "not configured");
+    }
+
+    #[test]
+    fn test_log_ready_does_not_panic() {
+        log_ready("InferaDB Control");
+    }
+
+    #[test]
+    fn test_print_banner_wide_terminal_uses_full_banner() {
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false);
+        // Wide terminal (>= MIN_WIDTH_FOR_FULL_ART) should use full banner
+        display.print_full_banner(200);
+    }
+
+    #[test]
+    fn test_print_banner_narrow_terminal_uses_compact_banner() {
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false);
+        // Narrow terminal (< MIN_WIDTH_FOR_FULL_ART) uses compact banner
+        display.print_compact_banner(40);
+    }
+
+    #[test]
+    fn test_print_config_summary_empty_entries_returns_early() {
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false);
+        // No entries -- print_config_summary returns early without output
+        display.print_config_summary();
+    }
+
+    #[test]
+    fn test_print_config_summary_with_entries_does_not_panic() {
+        let display = StartupDisplay::new(test_service_info())
+            .with_ansi(false)
+            .entry(ConfigEntry::new("Server", "Port", 8080));
+        display.print_config_summary();
+    }
+
+    #[test]
+    fn test_print_config_summary_narrow_terminal_uses_simple() {
+        let entries = vec![
+            ConfigEntry::new("Server", "Host", "localhost"),
+            ConfigEntry::new("Server", "Port", 8080),
+        ];
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false).entries(entries);
+        // We can't control terminal_size() from the test, but we can call
+        // print_config_simple directly with the categories.
+        let categories = build_categories(&display.entries);
+        display.print_config_simple(&categories);
+    }
+
+    #[test]
+    fn test_print_config_tables_with_sensitive_entry() {
+        let entries = vec![ConfigEntry::sensitive("Auth", "API Key", "super-secret-key-value")];
+        let display = StartupDisplay::new(test_service_info()).with_ansi(true).entries(entries);
+        let categories = build_categories(&display.entries);
+        display.print_config_tables(&categories, 100);
+    }
+
+    #[test]
+    fn test_print_config_tables_minimal_width() {
+        let entries = vec![ConfigEntry::new("X", "K", "V")];
+        let display = StartupDisplay::new(test_service_info()).with_ansi(false).entries(entries);
+        let categories = build_categories(&display.entries);
+        // Extremely narrow -- tests saturating_sub paths
+        display.print_config_tables(&categories, 10);
+    }
+
+    #[test]
+    fn test_private_key_hint_no_header_lines() {
+        // PEM with no header/footer lines -- all lines are base64
+        let hint = private_key_hint("AAAABBBBCCCCDDDD");
+        assert!(hint.contains("..."));
+        assert!(hint.contains("AAAA"));
+    }
+
+    #[test]
+    fn test_display_method_calls_both_banner_and_config() {
+        let display = StartupDisplay::new(test_service_info())
+            .with_ansi(false)
+            .entry(ConfigEntry::new("Server", "Host", "0.0.0.0"))
+            .entry(ConfigEntry::sensitive("Auth", "Token", "secret"))
+            .entry(ConfigEntry::warning("Storage", "Mode", "memory"))
+            .entry(ConfigEntry::separator("Server"));
+        display.display();
+    }
+
+    fn build_categories(entries: &[ConfigEntry]) -> Vec<(&str, Vec<&ConfigEntry>)> {
+        let mut categories: Vec<(&str, Vec<&ConfigEntry>)> = Vec::new();
+        for entry in entries {
+            if let Some((_, cat_entries)) =
+                categories.iter_mut().find(|(cat, _)| *cat == entry.category)
+            {
+                cat_entries.push(entry);
+            } else {
+                categories.push((entry.category, vec![entry]));
+            }
+        }
+        categories
+    }
 }

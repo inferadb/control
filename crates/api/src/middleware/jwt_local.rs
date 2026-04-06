@@ -58,6 +58,14 @@ impl JwksCache {
         }
     }
 
+    /// Pre-populates the cache with a decoding key.
+    ///
+    /// Used by test infrastructure to inject test signing keys, bypassing the
+    /// Ledger key fetch.
+    pub async fn insert_key(&self, kid: String, key: Arc<DecodingKey>) {
+        self.inner.insert(kid, key).await;
+    }
+
     /// Looks up a decoding key by kid, fetching from Ledger on cache miss.
     ///
     /// Uses `try_get_with()` for built-in deduplication: when multiple requests

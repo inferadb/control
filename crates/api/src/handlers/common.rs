@@ -241,3 +241,249 @@ pub fn validate_email(email: &str) -> std::result::Result<(), CoreError> {
 pub fn safe_id_cast(value: i64) -> std::result::Result<u64, CoreError> {
     u64::try_from(value).map_err(|_| CoreError::internal("invalid entity identifier"))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_in_result)]
+mod tests {
+    use super::*;
+
+    // ── validate_name ──────────────────────────────────────────────
+
+    #[test]
+    fn validate_name_accepts_simple_names() {
+        assert!(validate_name("hello").is_ok());
+        assert!(validate_name("Hello World").is_ok());
+        assert!(validate_name("test-name").is_ok());
+        assert!(validate_name("test_name").is_ok());
+        assert!(validate_name("O'Brien").is_ok());
+        assert!(validate_name("v1.0").is_ok());
+    }
+
+    #[test]
+    fn validate_name_rejects_empty() {
+        let err = validate_name("").unwrap_err();
+        assert!(matches!(err, CoreError::Validation { .. }));
+    }
+
+    #[test]
+    fn validate_name_rejects_whitespace_only() {
+        let err = validate_name("   ").unwrap_err();
+        assert!(matches!(err, CoreError::Validation { .. }));
+    }
+
+    #[test]
+    fn validate_name_rejects_too_long() {
+        let long = "a".repeat(129);
+        let err = validate_name(&long).unwrap_err();
+        assert!(matches!(err, CoreError::Validation { .. }));
+    }
+
+    #[test]
+    fn validate_name_rejects_disallowed_characters() {
+        assert!(matches!(validate_name("test<script>"), Err(CoreError::Validation { .. })));
+        assert!(matches!(validate_name("name@org"), Err(CoreError::Validation { .. })));
+        assert!(matches!(validate_name("name#1"), Err(CoreError::Validation { .. })));
+        assert!(matches!(validate_name("name&co"), Err(CoreError::Validation { .. })));
+        assert!(matches!(validate_name("test\ttab"), Err(CoreError::Validation { .. })));
+    }
+
+    // ── validate_description ───────────────────────────────────────
+
+    #[test]
+    fn validate_description_accepts_none() {
+        assert!(validate_description(&None).is_ok());
+    }
+
+    #[test]
+    fn validate_description_accepts_short_text() {
+        assert!(validate_description(&Some("short description".to_string())).is_ok());
+    }
+
+    #[test]
+    fn validate_description_accepts_newlines_and_tabs() {
+        assert!(validate_description(&Some("line one\nline two\ttab".to_string())).is_ok());
+    }
+
+    #[test]
+    fn validate_description_rejects_too_long() {
+        let long = "x".repeat(1025);
+        let err = validate_description(&Some(long)).unwrap_err();
+        assert!(matches!(err, CoreError::Validation { .. }));
+    }
+
+    #[test]
+    fn validate_description_rejects_control_chars() {
+        assert!(matches!(
+            validate_description(&Some("has null\x00byte".to_string())),
+            Err(CoreError::Validation { .. })
+        ));
+        assert!(matches!(
+            validate_description(&Some("has \x01 soh".to_string())),
+            Err(CoreError::Validation { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_description_rejects_bidi_overrides() {
+        assert!(matches!(
+            validate_description(&Some("bidi \u{202A} override".to_string())),
+            Err(CoreError::Validation { .. })
+        ));
+    }
+
+    // ── validate_email ─────────────────────────────────────────────
+
+    #[test]
+    fn validate_email_accepts_valid_addresses() {
+        assert!(validate_email("user@example.com").is_ok());
+        assert!(validate_email("test+tag@sub.domain.com").is_ok());
+    }
+
+    #[test]
+    fn validate_email_rejects_empty() {
+        assert!(matches!(validate_email(""), Err(CoreError::Validation { .. })));
+    }
+
+    #[test]
+    fn validate_email_rejects_no_at() {
+        assert!(matches!(validate_email("user"), Err(CoreError::Validation { .. })));
+    }
+
+    #[test]
+    fn validate_email_rejects_empty_local() {
+        assert!(matches!(validate_email("@domain.com"), Err(CoreError::Validation { .. })));
+    }
+
+    #[test]
+    fn validate_email_rejects_empty_domain() {
+        assert!(matches!(validate_email("user@"), Err(CoreError::Validation { .. })));
+    }
+
+    #[test]
+    fn validate_email_rejects_domain_without_dot() {
+        assert!(matches!(validate_email("user@domain"), Err(CoreError::Validation { .. })));
+    }
+
+    #[test]
+    fn validate_email_rejects_too_long() {
+        let local = "a".repeat(64);
+        let domain = format!("{}.com", "b".repeat(200));
+        let email = format!("{local}@{domain}");
+        assert!(email.len() > 254);
+        let err = validate_email(&email).unwrap_err();
+        assert!(matches!(err, CoreError::Validation { .. }));
+    }
+
+    #[test]
+    fn validate_email_rejects_control_chars() {
+        assert!(matches!(
+            validate_email("user\x00@example.com"),
+            Err(CoreError::Validation { .. })
+        ));
+    }
+
+    // ── CursorPaginationQuery ──────────────────────────────────────
+
+    #[test]
+    fn validated_page_size_defaults_to_50() {
+        let q = CursorPaginationQuery { page_size: 50, page_token: None };
+        assert_eq!(q.validated_page_size(), 50);
+    }
+
+    #[test]
+    fn validated_page_size_clamps_to_min() {
+        let q = CursorPaginationQuery { page_size: 0, page_token: None };
+        assert_eq!(q.validated_page_size(), 1);
+    }
+
+    #[test]
+    fn validated_page_size_clamps_to_max() {
+        let q = CursorPaginationQuery { page_size: 999, page_token: None };
+        assert_eq!(q.validated_page_size(), 100);
+    }
+
+    #[test]
+    fn decoded_page_token_none_returns_none() {
+        let q = CursorPaginationQuery { page_size: 50, page_token: None };
+        assert!(q.decoded_page_token().is_none());
+    }
+
+    #[test]
+    fn decoded_page_token_valid_base64_decodes() {
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"cursor_value");
+        let q = CursorPaginationQuery { page_size: 50, page_token: Some(encoded) };
+        assert_eq!(q.decoded_page_token().unwrap(), b"cursor_value");
+    }
+
+    #[test]
+    fn decoded_page_token_invalid_base64_returns_none() {
+        let q = CursorPaginationQuery { page_size: 50, page_token: Some("!!!invalid".to_string()) };
+        assert!(q.decoded_page_token().is_none());
+    }
+
+    // ── encode_page_token ──────────────────────────────────────────
+
+    #[test]
+    fn encode_page_token_none_returns_none() {
+        assert!(encode_page_token(&None).is_none());
+    }
+
+    #[test]
+    fn encode_page_token_some_returns_base64() {
+        use base64::Engine;
+        let result = encode_page_token(&Some(b"hello".to_vec()));
+        let expected = base64::engine::general_purpose::STANDARD.encode(b"hello");
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    // ── system_time_to_rfc3339 ─────────────────────────────────────
+
+    #[test]
+    fn system_time_to_rfc3339_none_returns_none() {
+        assert!(system_time_to_rfc3339(&None).is_none());
+    }
+
+    #[test]
+    fn system_time_to_rfc3339_some_returns_rfc3339_string() {
+        let t = std::time::SystemTime::UNIX_EPOCH;
+        let result = system_time_to_rfc3339(&Some(t)).unwrap();
+        assert!(result.contains("1970"));
+        assert!(result.contains('T'));
+    }
+
+    // ── safe_id_cast ───────────────────────────────────────────────
+
+    #[test]
+    fn safe_id_cast_zero() {
+        assert_eq!(safe_id_cast(0).unwrap(), 0u64);
+    }
+
+    #[test]
+    fn safe_id_cast_positive() {
+        assert_eq!(safe_id_cast(42).unwrap(), 42u64);
+    }
+
+    #[test]
+    fn safe_id_cast_negative_returns_error() {
+        let err = safe_id_cast(-1).unwrap_err();
+        assert!(matches!(err, CoreError::Internal { .. }));
+    }
+
+    // ── require_ledger ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn require_ledger_without_ledger_returns_error() {
+        let state = AppState::new_test();
+        let result = require_ledger(&state);
+        assert!(matches!(result, Err(CoreError::Internal { .. })));
+    }
+
+    // ── OrgMembershipCache ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn org_membership_cache_invalidate_does_not_panic() {
+        let cache = OrgMembershipCache::default();
+        cache.invalidate(1, 2).await;
+    }
+}

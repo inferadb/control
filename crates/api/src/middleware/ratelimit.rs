@@ -91,3 +91,44 @@ fn rate_limit_response(retry_after_secs: u64) -> Response {
     }
     response
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rate_limit_response_returns_429() {
+        let response = rate_limit_response(60);
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[test]
+    fn rate_limit_response_includes_retry_after_header() {
+        let response = rate_limit_response(120);
+        let retry_after = response.headers().get(header::RETRY_AFTER).unwrap();
+        assert_eq!(retry_after.to_str().unwrap(), "120");
+    }
+
+    #[test]
+    fn rate_limit_response_zero_seconds() {
+        let response = rate_limit_response(0);
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let retry_after = response.headers().get(header::RETRY_AFTER).unwrap();
+        assert_eq!(retry_after.to_str().unwrap(), "0");
+    }
+
+    #[test]
+    fn rate_limit_response_large_retry_after() {
+        let response = rate_limit_response(86400);
+        let retry_after = response.headers().get(header::RETRY_AFTER).unwrap();
+        assert_eq!(retry_after.to_str().unwrap(), "86400");
+    }
+
+    #[test]
+    fn rate_limit_config_default_values() {
+        let config = RateLimitConfig::default();
+        assert_eq!(config.login.max_requests, 100);
+        assert_eq!(config.registration.max_requests, 5);
+    }
+}

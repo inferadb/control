@@ -3,7 +3,7 @@ authors.workspace = true
 edition.workspace = true
 homepage.workspace = true
 license.workspace = true
-name = "inferadb-control-api"
+name = "inferadb-control-test-integration"
 publish.workspace = true
 repository.workspace = true
 rust-version.workspace = true
@@ -11,44 +11,24 @@ version.workspace = true
 
 [dependencies]
 # Workspace crates
+inferadb-control-api = { path = "../api" }
 inferadb-control-config = { path = "../config" }
 inferadb-control-const = { path = "../const" }
 inferadb-control-core = { path = "../core" }
 inferadb-control-types = { path = "../types" }
+
+# Ledger SDK (with mock server support)
 inferadb-ledger-sdk = { version = ">=0.1.0-0", features = ["serde"] }
 inferadb-ledger-types = ">=0.1.0-0"
-webauthn-rs = { workspace = true }
 
 # External dependencies
-anyhow = { workspace = true }
-bon = { workspace = true }
 axum = { workspace = true }
-axum-extra = { workspace = true }
-base64 = { workspace = true }
-chrono = { workspace = true }
 ed25519-dalek = { workspace = true }
 jsonwebtoken = { workspace = true }
-metrics-exporter-prometheus = { workspace = true }
-moka = { workspace = true }
-rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-time = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
-tower-http = { workspace = true }
-tracing = { workspace = true }
-uuid = { workspace = true }
-
-[dev-dependencies]
-inferadb-control-test-fixtures = { path = "../test-fixtures" }
-inferadb-control-test-integration = { path = "../test-integration" }
-inferadb-common-authn = ">=0.1.0-0"
-proptest = { workspace = true }
-sha2 = { workspace = true }
 
 [lints]
 workspace = true
-
-[features]
-default = []

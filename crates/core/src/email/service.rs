@@ -250,6 +250,125 @@ mod tests {
     }
 
     #[test]
+    fn test_mock_email_sender_default() {
+        let sender = MockEmailSender::default();
+        assert!(!sender.should_fail);
+    }
+
+    #[tokio::test]
+    async fn test_mock_email_sender_default_succeeds() {
+        let sender = MockEmailSender::default();
+        let result = sender.send_email("a@b.com", "Subj", "<p>H</p>", "T").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_mock_failing_sender_error_message() {
+        let sender = MockEmailSender::new_failing();
+        let result = sender.send_email("a@b.com", "Test", "<p>H</p>", "T").await;
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Mock email send failure"));
+    }
+
+    #[tokio::test]
+    async fn test_email_service_delegates_to_sender() {
+        let sender = Box::new(MockEmailSender::new());
+        let service = EmailService::new(sender);
+        // Multiple sends should all succeed
+        for _ in 0..3 {
+            assert!(service.send_email("user@test.com", "Hello", "<b>Hi</b>", "Hi").await.is_ok());
+        }
+    }
+
+    // ── SmtpEmailService construction ────────────────────────────
+
+    #[test]
+    fn smtp_service_rejects_mismatched_credentials() {
+        let result = SmtpEmailService::new(
+            "smtp.example.com",
+            587,
+            "user",
+            "",
+            "from@example.com".to_string(),
+            "Test".to_string(),
+            false,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn smtp_service_rejects_password_without_username() {
+        let result = SmtpEmailService::new(
+            "smtp.example.com",
+            587,
+            "",
+            "password",
+            "from@example.com".to_string(),
+            "Test".to_string(),
+            false,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn smtp_service_accepts_no_credentials() {
+        let result = SmtpEmailService::new(
+            "smtp.example.com",
+            587,
+            "",
+            "",
+            "from@example.com".to_string(),
+            "Sender".to_string(),
+            false,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn smtp_service_accepts_both_credentials() {
+        let result = SmtpEmailService::new(
+            "smtp.example.com",
+            587,
+            "user",
+            "pass",
+            "from@example.com".to_string(),
+            "Sender".to_string(),
+            false,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn smtp_service_insecure_mode() {
+        let result = SmtpEmailService::new(
+            "localhost",
+            1025,
+            "",
+            "",
+            "dev@localhost".to_string(),
+            "Dev".to_string(),
+            true,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn smtp_service_get_from_mailbox_valid() {
+        let service = SmtpEmailService::new(
+            "smtp.example.com",
+            587,
+            "",
+            "",
+            "noreply@example.com".to_string(),
+            "InferaDB".to_string(),
+            false,
+        )
+        .unwrap();
+        let mailbox = service.get_from_mailbox();
+        assert!(mailbox.is_ok());
+    }
+
+    #[test]
     fn test_email_uses_multipart_alternative() {
         let email = Message::builder()
             .from("sender@example.com".parse::<Mailbox>().unwrap())

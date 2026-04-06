@@ -376,4 +376,77 @@ mod tests {
         init_test_logging();
         // If we get here without panicking, the test passes
     }
+
+    #[test]
+    fn test_log_format_debug() {
+        let debug = format!("{:?}", LogFormat::Full);
+        assert_eq!(debug, "Full");
+        assert_eq!(format!("{:?}", LogFormat::Pretty), "Pretty");
+        assert_eq!(format!("{:?}", LogFormat::Compact), "Compact");
+        assert_eq!(format!("{:?}", LogFormat::Json), "Json");
+    }
+
+    #[test]
+    fn test_log_format_clone() {
+        let fmt = LogFormat::Pretty;
+        let cloned = fmt;
+        assert_eq!(fmt, cloned);
+    }
+
+    #[test]
+    fn test_log_config_debug() {
+        let config = LogConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("LogConfig"));
+    }
+
+    #[test]
+    fn test_log_config_clone() {
+        let config = LogConfig {
+            format: LogFormat::Json,
+            include_location: true,
+            include_target: true,
+            include_thread_id: true,
+            log_spans: true,
+            ansi: Some(true),
+            filter: Some("trace".to_string()),
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.format, LogFormat::Json);
+        assert!(cloned.include_location);
+        assert!(cloned.include_target);
+        assert!(cloned.include_thread_id);
+        assert!(cloned.log_spans);
+        assert_eq!(cloned.ansi, Some(true));
+        assert_eq!(cloned.filter, Some("trace".to_string()));
+    }
+
+    #[test]
+    fn test_log_config_default_log_spans() {
+        let config = LogConfig::default();
+        #[cfg(debug_assertions)]
+        assert!(config.log_spans);
+        #[cfg(not(debug_assertions))]
+        assert!(!config.log_spans);
+    }
+
+    #[test]
+    fn test_log_config_default_include_location() {
+        let config = LogConfig::default();
+        #[cfg(debug_assertions)]
+        assert!(config.include_location);
+        #[cfg(not(debug_assertions))]
+        assert!(!config.include_location);
+    }
+
+    #[test]
+    fn test_init_convenience_json() {
+        // init() should not panic regardless of duplicate subscriber
+        init("warn", true);
+    }
+
+    #[test]
+    fn test_init_convenience_text() {
+        init("info", false);
+    }
 }

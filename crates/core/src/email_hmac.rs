@@ -21,3 +21,34 @@ pub fn parse_blinding_key(hex: Option<&str>) -> Result<Option<EmailBlindingKey>>
         hex.parse().map_err(|e: EmailBlindingKeyParseError| Error::config(e.to_string()))?;
     Ok(Some(key))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_blinding_key_none_returns_ok_none() {
+        let result = parse_blinding_key(None);
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    fn parse_blinding_key_valid_hex_returns_ok_some() {
+        let hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let result = parse_blinding_key(Some(hex));
+        assert!(matches!(result, Ok(Some(_))));
+    }
+
+    #[test]
+    fn parse_blinding_key_too_short_returns_err() {
+        let result = parse_blinding_key(Some("abcdef"));
+        assert!(matches!(result, Err(Error::Config { .. })));
+    }
+
+    #[test]
+    fn parse_blinding_key_invalid_hex_returns_err() {
+        let hex = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";
+        let result = parse_blinding_key(Some(hex));
+        assert!(matches!(result, Err(Error::Config { .. })));
+    }
+}

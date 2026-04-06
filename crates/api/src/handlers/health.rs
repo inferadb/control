@@ -146,6 +146,8 @@ pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
     use super::*;
 
     #[tokio::test]
@@ -157,7 +159,6 @@ mod tests {
     #[tokio::test]
     async fn test_readyz_no_ledger() {
         let state = crate::handlers::AppState::new_test();
-        // new_test() has no Ledger configured — should be healthy (dev-mode fallback)
         let response = readyz_handler(State(state)).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
     }
@@ -167,5 +168,100 @@ mod tests {
         let state = crate::handlers::AppState::new_test();
         let response = healthz_handler(State(state)).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_startupz_delegates_to_readyz() {
+        let state = crate::handlers::AppState::new_test();
+        let response = startupz_handler(State(state)).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    // ── HealthCache ──────────────────────────────────────────────
+
+    #[test]
+    fn health_cache_default_is_expired() {
+        let cache = HealthCache::default();
+        assert_eq!(cache.last_check_epoch_secs.load(Ordering::Relaxed), 0);
+        assert!(!cache.last_result.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn health_cache_debug_format() {
+        let cache = HealthCache::default();
+        let debug = format!("{cache:?}");
+        assert!(debug.contains("HealthCache"));
+        assert!(debug.contains("last_check_epoch_secs"));
+        assert!(debug.contains("last_result"));
+    }
+
+    #[tokio::test]
+    async fn check_ledger_health_no_ledger_returns_true() {
+        let state = crate::handlers::AppState::new_test();
+        // No ledger configured (dev-mode) => returns true without caching
+        let result = check_ledger_health(&state).await;
+        assert!(result);
+        // Cache epoch stays at 0 because the early return skips the cache
+        let cached_epoch = state.health_cache.last_check_epoch_secs.load(Ordering::Acquire);
+        assert_eq!(cached_epoch, 0);
+    }
+
+    #[tokio::test]
+    async fn check_ledger_health_no_ledger_stable_across_calls() {
+        let state = crate::handlers::AppState::new_test();
+        let result1 = check_ledger_health(&state).await;
+        let result2 = check_ledger_health(&state).await;
+        assert!(result1);
+        assert_eq!(result1, result2);
+    }
+
+    // ── HealthStatus serialization ───────────────────────────────
+
+    #[test]
+    fn health_status_serializes_lowercase() {
+        let healthy = serde_json::to_value(HealthStatus::Healthy).unwrap();
+        assert_eq!(healthy, "healthy");
+        let degraded = serde_json::to_value(HealthStatus::Degraded).unwrap();
+        assert_eq!(degraded, "degraded");
+        let unhealthy = serde_json::to_value(HealthStatus::Unhealthy).unwrap();
+        assert_eq!(unhealthy, "unhealthy");
+    }
+
+    #[test]
+    fn health_status_deserializes() {
+        let status: HealthStatus = serde_json::from_str(r#""healthy""#).unwrap();
+        assert!(matches!(status, HealthStatus::Healthy));
+        let status: HealthStatus = serde_json::from_str(r#""degraded""#).unwrap();
+        assert!(matches!(status, HealthStatus::Degraded));
+    }
+
+    #[test]
+    fn health_response_omits_none_details() {
+        let resp = HealthResponse {
+            status: HealthStatus::Healthy,
+            service: "test".to_string(),
+            version: "0.1.0".to_string(),
+            instance_id: 0,
+            uptime_seconds: 100,
+            ledger_healthy: true,
+            details: None,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("details").is_none());
+    }
+
+    #[test]
+    fn health_response_includes_details_when_present() {
+        let resp = HealthResponse {
+            status: HealthStatus::Unhealthy,
+            service: "test".to_string(),
+            version: "0.1.0".to_string(),
+            instance_id: 1,
+            uptime_seconds: 0,
+            ledger_healthy: false,
+            details: Some("connection refused".to_string()),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["details"], "connection refused");
     }
 }

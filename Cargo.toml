@@ -6,6 +6,7 @@ members = [
   "crates/const",
   "crates/core",
   "crates/test-fixtures",
+  "crates/test-integration",
   "crates/types",
 ]
 resolver = "2"

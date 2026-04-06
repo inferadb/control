@@ -119,4 +119,61 @@ mod tests {
         let registration = limits::registration_ip();
         assert_eq!(registration.max_requests, 5);
     }
+
+    #[test]
+    fn test_login_limit_window() {
+        let login = limits::login_ip();
+        assert!(matches!(login.window, RateLimitWindow::Hour));
+    }
+
+    #[test]
+    fn test_registration_limit_window() {
+        let reg = limits::registration_ip();
+        assert!(matches!(reg.window, RateLimitWindow::Day));
+    }
+
+    // ── AnyRateLimiter ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn any_rate_limiter_default_is_in_memory() {
+        let limiter = AnyRateLimiter::default();
+        assert!(matches!(limiter, AnyRateLimiter::InMemory(_)));
+    }
+
+    #[tokio::test]
+    async fn any_rate_limiter_debug_in_memory() {
+        let limiter = AnyRateLimiter::default();
+        let debug = format!("{limiter:?}");
+        assert_eq!(debug, "AnyRateLimiter::InMemory");
+    }
+
+    #[tokio::test]
+    async fn any_rate_limiter_in_memory_allows_requests() {
+        let limiter = AnyRateLimiter::default();
+        let policy = limits::login_ip();
+        let result = limiter.check("test", "127.0.0.1", &policy).await.unwrap();
+        assert!(matches!(result, RateLimitResult::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn in_memory_rate_limiter_basic_check() {
+        let limiter = in_memory_rate_limiter();
+        let policy = limits::login_ip();
+        let result = limiter.check("login_ip", "1.2.3.4", &policy).await.unwrap();
+        assert!(matches!(result, RateLimitResult::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn in_memory_rate_limiter_exhausts_limit() {
+        let limiter = in_memory_rate_limiter();
+        let policy = RateLimit { max_requests: 2, window: RateLimitWindow::Hour };
+        // Use up the limit
+        for _ in 0..2 {
+            let result = limiter.check("test", "ip", &policy).await.unwrap();
+            assert!(matches!(result, RateLimitResult::Allowed { .. }));
+        }
+        // Third request should be limited
+        let result = limiter.check("test", "ip", &policy).await.unwrap();
+        assert!(matches!(result, RateLimitResult::Limited { .. }));
+    }
 }
