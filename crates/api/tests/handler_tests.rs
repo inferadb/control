@@ -42,7 +42,7 @@ fn test_app() -> axum::Router {
 // ── Health Endpoints ─────────────────────────────────────────────────
 
 #[tokio::test]
-async fn healthz_returns_ok() {
+async fn test_healthz_ok_returns_healthy_status() {
     let app = test_app();
     let resp = app.oneshot(json_get("/healthz")).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -51,32 +51,38 @@ async fn healthz_returns_ok() {
 }
 
 #[tokio::test]
-async fn livez_returns_ok() {
-    let app = test_app();
-    let resp = app.oneshot(json_get("/livez")).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn readyz_returns_200_without_ledger() {
-    let app = test_app();
-    let resp = app.oneshot(json_get("/readyz")).await.unwrap();
-    // Without Ledger, readyz returns OK (dev mode = healthy)
-    assert_eq!(resp.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn healthz_returns_service_name() {
+async fn test_healthz_ok_returns_service_name() {
     let app = test_app();
     let resp = app.oneshot(json_get("/healthz")).await.unwrap();
     let json = body_json(resp).await;
     assert_eq!(json["service"], "inferadb-control");
 }
 
+#[tokio::test]
+async fn test_livez_ok_returns_200() {
+    let app = test_app();
+    let resp = app.oneshot(json_get("/livez")).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_readyz_without_ledger_returns_200() {
+    let app = test_app();
+    let resp = app.oneshot(json_get("/readyz")).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_startupz_ok_returns_200() {
+    let app = test_app();
+    let resp = app.oneshot(json_get("/startupz")).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
 // ── Security Headers ─────────────────────────────────────────────────
 
 #[tokio::test]
-async fn responses_include_security_headers() {
+async fn test_response_headers_include_security_headers() {
     let app = test_app();
     let resp = app.oneshot(json_get("/healthz")).await.unwrap();
     let h = resp.headers();
@@ -90,14 +96,14 @@ async fn responses_include_security_headers() {
 }
 
 #[tokio::test]
-async fn responses_include_request_id() {
+async fn test_response_headers_include_request_id() {
     let app = test_app();
     let resp = app.oneshot(json_get("/healthz")).await.unwrap();
     assert!(resp.headers().get("x-request-id").is_some());
 }
 
 #[tokio::test]
-async fn client_request_id_is_propagated() {
+async fn test_request_id_valid_value_is_propagated() {
     let app = test_app();
     let req = Request::builder()
         .uri("/healthz")
@@ -109,7 +115,7 @@ async fn client_request_id_is_propagated() {
 }
 
 #[tokio::test]
-async fn invalid_request_id_is_replaced() {
+async fn test_request_id_invalid_value_is_replaced() {
     let app = test_app();
     let req = Request::builder()
         .uri("/healthz")
@@ -117,7 +123,6 @@ async fn invalid_request_id_is_replaced() {
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
-    // Invalid request ID should be replaced with a UUID
     let id = resp.headers().get("x-request-id").unwrap().to_str().unwrap();
     assert_ne!(id, "has spaces and $pecial chars!");
     assert!(id.contains('-')); // UUID format
@@ -126,7 +131,7 @@ async fn invalid_request_id_is_replaced() {
 // ── Input Validation (email auth) ────────────────────────────────────
 
 #[tokio::test]
-async fn email_initiate_rejects_invalid_email() {
+async fn test_email_initiate_invalid_email_returns_400() {
     let app = test_app();
     let resp = app
         .oneshot(json_post("/control/v1/auth/email/initiate", json!({"email": "not-an-email"})))
@@ -138,7 +143,7 @@ async fn email_initiate_rejects_invalid_email() {
 }
 
 #[tokio::test]
-async fn email_initiate_rejects_control_characters() {
+async fn test_email_initiate_control_characters_returns_400() {
     let app = test_app();
     let resp = app
         .oneshot(json_post(
@@ -151,7 +156,7 @@ async fn email_initiate_rejects_control_characters() {
 }
 
 #[tokio::test]
-async fn email_initiate_rejects_oversized_email() {
+async fn test_email_initiate_oversized_email_returns_400() {
     let app = test_app();
     let long_local = "a".repeat(300);
     let resp = app
@@ -165,7 +170,7 @@ async fn email_initiate_rejects_oversized_email() {
 }
 
 #[tokio::test]
-async fn complete_registration_rejects_invalid_name() {
+async fn test_email_complete_invalid_name_returns_400() {
     let app = test_app();
     let resp = app
         .oneshot(json_post(
@@ -185,7 +190,7 @@ async fn complete_registration_rejects_invalid_name() {
 }
 
 #[tokio::test]
-async fn complete_registration_rejects_empty_org_name() {
+async fn test_email_complete_empty_org_name_returns_400() {
     let app = test_app();
     let resp = app
         .oneshot(json_post(
@@ -205,23 +210,20 @@ async fn complete_registration_rejects_empty_org_name() {
 // ── Error Response Format ────────────────────────────────────────────
 
 #[tokio::test]
-async fn error_responses_have_structured_format() {
+async fn test_error_response_format_has_error_and_code_fields() {
     let app = test_app();
     let resp = app
         .oneshot(json_post("/control/v1/auth/email/initiate", json!({"email": "bad"})))
         .await
         .unwrap();
     let json = body_json(resp).await;
-    // All error responses must have `error` and `code` fields
     assert!(json["error"].is_string(), "error field must be a string");
     assert!(json["code"].is_string(), "code field must be a string");
 }
 
 #[tokio::test]
-async fn server_errors_are_scrubbed() {
+async fn test_error_response_internal_details_are_scrubbed() {
     let app = test_app();
-    // Without Ledger configured, email verify should hit the "Ledger not configured"
-    // internal error — but the client should see a generic message
     let resp = app
         .oneshot(json_post(
             "/control/v1/auth/email/verify",
@@ -233,7 +235,6 @@ async fn server_errors_are_scrubbed() {
     let json = body_json(resp).await;
     assert_eq!(json["error"], "an internal error occurred");
     assert_eq!(json["code"], "INTERNAL_ERROR");
-    // Must NOT contain "Ledger" or internal details
     let error_str = json["error"].as_str().unwrap();
     assert!(!error_str.contains("Ledger"), "internal details must not leak to client");
 }
@@ -241,7 +242,7 @@ async fn server_errors_are_scrubbed() {
 // ── 404 for Unknown Routes ───────────────────────────────────────────
 
 #[tokio::test]
-async fn unknown_route_returns_404() {
+async fn test_router_unknown_route_returns_404() {
     let app = test_app();
     let resp = app.oneshot(json_get("/control/v1/nonexistent")).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -250,10 +251,9 @@ async fn unknown_route_returns_404() {
 // ── Metrics Endpoint ─────────────────────────────────────────────────
 
 #[tokio::test]
-async fn metrics_endpoint_is_accessible_without_auth() {
+async fn test_metrics_endpoint_accessible_without_auth() {
     let app = test_app();
     let resp = app.oneshot(json_get("/metrics")).await.unwrap();
-    // Metrics should be accessible without JWT (infrastructure endpoint).
     let status = resp.status();
     assert!(
         status != StatusCode::UNAUTHORIZED && status != StatusCode::FORBIDDEN,
@@ -264,7 +264,7 @@ async fn metrics_endpoint_is_accessible_without_auth() {
 // ── CORS ─────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn cors_preflight_returns_allowed_origin() {
+async fn test_cors_preflight_returns_allowed_origin() {
     let app = test_app();
     let req = Request::builder()
         .method("OPTIONS")
@@ -283,7 +283,7 @@ async fn cors_preflight_returns_allowed_origin() {
 // ── JSON Body Handling ───────────────────────────────────────────────
 
 #[tokio::test]
-async fn malformed_json_returns_400() {
+async fn test_json_body_malformed_returns_400() {
     let app = test_app();
     let req = Request::builder()
         .method("POST")
@@ -296,13 +296,24 @@ async fn malformed_json_returns_400() {
 }
 
 #[tokio::test]
-async fn missing_required_field_is_rejected() {
+async fn test_json_body_missing_required_field_returns_client_error() {
     let app = test_app();
-    // email field is required for initiate — axum returns 422 for deserialization errors
     let resp = app.oneshot(json_post("/control/v1/auth/email/initiate", json!({}))).await.unwrap();
     let status = resp.status();
     assert!(
         status == StatusCode::BAD_REQUEST || status == StatusCode::UNPROCESSABLE_ENTITY,
         "missing required field should be rejected (got {status})"
+    );
+}
+
+#[tokio::test]
+async fn test_json_body_empty_object_to_complete_returns_client_error() {
+    let app = test_app();
+    let resp =
+        app.oneshot(json_post("/control/v1/auth/email/complete", json!({}))).await.unwrap();
+    let status = resp.status();
+    assert!(
+        status == StatusCode::BAD_REQUEST || status == StatusCode::UNPROCESSABLE_ENTITY,
+        "empty body to complete should be rejected (got {status})"
     );
 }

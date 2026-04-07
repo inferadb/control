@@ -42,10 +42,12 @@ use axum::{
 use ed25519_dalek::SigningKey;
 use inferadb_control_api::{AppState, create_router_with_state};
 use inferadb_control_config::{Config, StorageBackend};
+/// Re-exports authentication cookie name constants for test convenience.
 pub use inferadb_control_const::auth::{ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME};
 use inferadb_ledger_sdk::{ClientConfig, LedgerClient, ServerSource, mock::MockLedgerServer};
 use inferadb_ledger_types::OrganizationSlug;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
+/// Re-exports [`serde_json::Value`] for test assertions and JSON construction.
 pub use serde_json::Value;
 use tower::ServiceExt;
 
@@ -211,7 +213,7 @@ impl TestHarness {
 
     /// Starts a harness with WebAuthn configured.
     ///
-    /// Identical to [`start`] but also configures a [`webauthn_rs::Webauthn`]
+    /// Identical to [`Self::start`] but also configures a [`webauthn_rs::Webauthn`]
     /// instance in [`AppState`], enabling passkey ceremony handlers.
     pub async fn start_with_webauthn() -> Self {
         let server = MockLedgerServer::start().await.expect("mock server should start");
@@ -292,6 +294,9 @@ impl TestHarness {
     }
 
     /// Sends an authenticated POST request with JSON body.
+    ///
+    /// Attaches the [`MOCK_ACCESS_TOKEN`] as a Bearer token, which the mock
+    /// Ledger server accepts for write operations.
     pub async fn authenticated_post(&self, uri: &str, body: Value) -> axum::http::Response<Body> {
         self.app
             .clone()
@@ -309,6 +314,9 @@ impl TestHarness {
     }
 
     /// Sends an authenticated PATCH request with JSON body.
+    ///
+    /// Attaches the [`MOCK_ACCESS_TOKEN`] as a Bearer token, which the mock
+    /// Ledger server accepts for write operations.
     pub async fn authenticated_patch(&self, uri: &str, body: Value) -> axum::http::Response<Body> {
         self.app
             .clone()
@@ -326,6 +334,9 @@ impl TestHarness {
     }
 
     /// Sends an authenticated DELETE request.
+    ///
+    /// Attaches the [`MOCK_ACCESS_TOKEN`] as a Bearer token, which the mock
+    /// Ledger server accepts for write operations.
     pub async fn authenticated_delete(&self, uri: &str) -> axum::http::Response<Body> {
         self.app
             .clone()
@@ -367,6 +378,9 @@ impl TestHarness {
     }
 
     /// Sends an unauthenticated POST with a cookie header.
+    ///
+    /// Use for testing cookie-based authentication flows such as refresh token
+    /// rotation.
     pub async fn post_with_cookie(
         &self,
         uri: &str,

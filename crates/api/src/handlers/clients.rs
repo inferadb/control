@@ -55,15 +55,22 @@ pub struct CreateCertificateRequest {
 /// Client summary.
 #[derive(Debug, Serialize)]
 pub struct ClientResponse {
+    /// Client slug identifier.
     pub slug: u64,
+    /// Display name.
     pub name: String,
+    /// Optional human-readable description.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Whether the client is enabled for authentication.
     pub enabled: bool,
+    /// Credential methods configured for this client.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials: Option<CredentialsResponse>,
+    /// RFC 3339 creation timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+    /// RFC 3339 last-update timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
 }
@@ -71,9 +78,13 @@ pub struct ClientResponse {
 /// Credential configuration for a client.
 #[derive(Debug, Serialize)]
 pub struct CredentialsResponse {
+    /// Whether client secret authentication is enabled.
     pub client_secret_enabled: bool,
+    /// Whether mTLS with CA-issued certificates is enabled.
     pub mtls_ca_enabled: bool,
+    /// Whether mTLS with self-signed certificates is enabled.
     pub mtls_self_signed_enabled: bool,
+    /// Whether JWT client assertion (RFC 7523) is enabled.
     pub client_assertion_enabled: bool,
 }
 
@@ -89,14 +100,19 @@ pub struct ListClientsResponse {
     pub clients: Vec<ClientResponse>,
 }
 
-/// Certificate (assertion) response.
+/// Certificate (client assertion) response.
 #[derive(Debug, Serialize)]
 pub struct CertificateResponse {
+    /// Certificate slug identifier.
     pub slug: u64,
+    /// Friendly name (e.g., `"prod-cert"`).
     pub name: String,
+    /// Whether the certificate is active.
     pub enabled: bool,
+    /// RFC 3339 expiration timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
+    /// RFC 3339 creation timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
 }

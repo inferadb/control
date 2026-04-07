@@ -1,4 +1,4 @@
-//! Error response DTOs.
+//! Error response DTO returned to clients on failed requests.
 
 use serde::Serialize;
 

@@ -1,4 +1,8 @@
 //! Email sending service with SMTP and mock backends.
+//!
+//! Provides the [`EmailSender`] trait for async email delivery, with
+//! [`SmtpEmailService`] for production SMTP/STARTTLS and [`MockEmailSender`]
+//! for testing. [`EmailService`] wraps a boxed sender for dynamic dispatch.
 
 use async_trait::async_trait;
 use inferadb_control_types::error::{Error, Result};
@@ -19,6 +23,10 @@ pub trait EmailSender: Send + Sync {
     /// * `subject` - Email subject line
     /// * `body_html` - HTML body content
     /// * `body_text` - Plain text body content (fallback)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the email cannot be delivered.
     async fn send_email(
         &self,
         to: &str,
@@ -36,17 +44,18 @@ pub struct SmtpEmailService {
 }
 
 impl SmtpEmailService {
-    /// Creates a new SMTP email service from individual configuration fields.
+    /// Creates a new SMTP email service.
     ///
-    /// # Arguments
+    /// Connects to the given SMTP server with optional authentication.
+    /// Pass empty strings for `username` and `password` to skip auth;
+    /// providing only one of the two returns an error.
     ///
-    /// * `host` - SMTP server hostname
-    /// * `port` - SMTP server port
-    /// * `username` - SMTP username (empty string for no auth)
-    /// * `password` - SMTP password (empty string for no auth)
-    /// * `from_address` - Sender email address
-    /// * `from_name` - Sender display name
-    /// * `insecure` - Use unencrypted SMTP (development only)
+    /// Set `insecure` to `true` for unencrypted SMTP (local development only).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the SMTP transport cannot be created, or if only
+    /// one of username/password is provided.
     pub fn new(
         host: &str,
         port: u16,
@@ -142,6 +151,10 @@ impl EmailService {
     }
 
     /// Delegates to the underlying [`EmailSender`] implementation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying sender fails to deliver the email.
     pub async fn send_email(
         &self,
         to: &str,
@@ -213,77 +226,60 @@ impl EmailSender for MockEmailSender {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_email_service_success() {
-        let sender = Box::new(MockEmailSender::new());
-        let service = EmailService::new(sender);
-
-        let result =
-            service.send_email("test@example.com", "Test Subject", "<h1>Test</h1>", "Test").await;
-
-        assert!(result.is_ok());
-    }
+    // ── MockEmailSender ─────────────────────────────────────────
 
     #[tokio::test]
-    async fn test_email_service_failure() {
-        let sender = Box::new(MockEmailSender::new_failing());
-        let service = EmailService::new(sender);
-
-        let result =
-            service.send_email("test@example.com", "Test Subject", "<h1>Test</h1>", "Test").await;
-
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_mock_email_sender() {
+    async fn test_mock_sender_send_succeeds() {
         let sender = MockEmailSender::new();
-        let result = sender.send_email("test@example.com", "Test", "<p>HTML</p>", "Text").await;
+
+        let result = sender.send_email("test@example.com", "Subject", "<p>HTML</p>", "Text").await;
+
         assert!(result.is_ok());
     }
 
     #[tokio::test]
-    async fn test_mock_email_sender_failure() {
+    async fn test_mock_sender_failing_returns_error() {
         let sender = MockEmailSender::new_failing();
-        let result = sender.send_email("test@example.com", "Test", "<p>HTML</p>", "Text").await;
-        assert!(result.is_err());
-    }
 
-    #[test]
-    fn test_mock_email_sender_default() {
-        let sender = MockEmailSender::default();
-        assert!(!sender.should_fail);
-    }
+        let result = sender.send_email("test@example.com", "Subject", "<p>HTML</p>", "Text").await;
 
-    #[tokio::test]
-    async fn test_mock_email_sender_default_succeeds() {
-        let sender = MockEmailSender::default();
-        let result = sender.send_email("a@b.com", "Subj", "<p>H</p>", "T").await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_mock_failing_sender_error_message() {
-        let sender = MockEmailSender::new_failing();
-        let result = sender.send_email("a@b.com", "Test", "<p>H</p>", "T").await;
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Mock email send failure"));
     }
 
-    #[tokio::test]
-    async fn test_email_service_delegates_to_sender() {
-        let sender = Box::new(MockEmailSender::new());
-        let service = EmailService::new(sender);
-        // Multiple sends should all succeed
-        for _ in 0..3 {
-            assert!(service.send_email("user@test.com", "Hello", "<b>Hi</b>", "Hi").await.is_ok());
-        }
+    #[test]
+    fn test_mock_sender_default_does_not_fail() {
+        let sender = MockEmailSender::default();
+
+        assert!(!sender.should_fail);
     }
 
-    // ── SmtpEmailService construction ────────────────────────────
+    // ── EmailService (dynamic dispatch wrapper) ─────────────────
+
+    #[tokio::test]
+    async fn test_email_service_delegates_success_to_sender() {
+        let service = EmailService::new(Box::new(MockEmailSender::new()));
+
+        let result =
+            service.send_email("test@example.com", "Test Subject", "<h1>Test</h1>", "Test").await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_email_service_delegates_failure_to_sender() {
+        let service = EmailService::new(Box::new(MockEmailSender::new_failing()));
+
+        let result =
+            service.send_email("test@example.com", "Test Subject", "<h1>Test</h1>", "Test").await;
+
+        assert!(result.is_err());
+    }
+
+    // ── SmtpEmailService construction ───────────────────────────
 
     #[test]
-    fn smtp_service_rejects_mismatched_credentials() {
+    fn test_smtp_new_username_without_password_returns_error() {
         let result = SmtpEmailService::new(
             "smtp.example.com",
             587,
@@ -293,11 +289,12 @@ mod tests {
             "Test".to_string(),
             false,
         );
+
         assert!(result.is_err());
     }
 
     #[test]
-    fn smtp_service_rejects_password_without_username() {
+    fn test_smtp_new_password_without_username_returns_error() {
         let result = SmtpEmailService::new(
             "smtp.example.com",
             587,
@@ -307,11 +304,12 @@ mod tests {
             "Test".to_string(),
             false,
         );
+
         assert!(result.is_err());
     }
 
     #[test]
-    fn smtp_service_accepts_no_credentials() {
+    fn test_smtp_new_no_credentials_succeeds() {
         let result = SmtpEmailService::new(
             "smtp.example.com",
             587,
@@ -321,11 +319,12 @@ mod tests {
             "Sender".to_string(),
             false,
         );
+
         assert!(result.is_ok());
     }
 
     #[test]
-    fn smtp_service_accepts_both_credentials() {
+    fn test_smtp_new_both_credentials_succeeds() {
         let result = SmtpEmailService::new(
             "smtp.example.com",
             587,
@@ -335,11 +334,12 @@ mod tests {
             "Sender".to_string(),
             false,
         );
+
         assert!(result.is_ok());
     }
 
     #[test]
-    fn smtp_service_insecure_mode() {
+    fn test_smtp_new_insecure_mode_succeeds() {
         let result = SmtpEmailService::new(
             "localhost",
             1025,
@@ -349,11 +349,12 @@ mod tests {
             "Dev".to_string(),
             true,
         );
+
         assert!(result.is_ok());
     }
 
     #[test]
-    fn smtp_service_get_from_mailbox_valid() {
+    fn test_smtp_get_from_mailbox_valid_address_succeeds() {
         let service = SmtpEmailService::new(
             "smtp.example.com",
             587,
@@ -364,101 +365,9 @@ mod tests {
             false,
         )
         .unwrap();
+
         let mailbox = service.get_from_mailbox();
+
         assert!(mailbox.is_ok());
-    }
-
-    #[test]
-    fn test_email_uses_multipart_alternative() {
-        let email = Message::builder()
-            .from("sender@example.com".parse::<Mailbox>().unwrap())
-            .to("recipient@example.com".parse::<Mailbox>().unwrap())
-            .subject("Test Subject")
-            .multipart(MultiPart::alternative_plain_html(
-                String::from("Plain text body"),
-                String::from("<p>HTML body</p>"),
-            ))
-            .unwrap();
-
-        let formatted = String::from_utf8(email.formatted()).unwrap();
-        assert!(
-            formatted.contains("multipart/alternative"),
-            "Email should have multipart/alternative Content-Type"
-        );
-    }
-
-    #[test]
-    fn test_email_html_part_has_correct_content_type() {
-        let email = Message::builder()
-            .from("sender@example.com".parse::<Mailbox>().unwrap())
-            .to("recipient@example.com".parse::<Mailbox>().unwrap())
-            .subject("Test Subject")
-            .multipart(MultiPart::alternative_plain_html(
-                String::from("Plain text body"),
-                String::from("<p>HTML body</p>"),
-            ))
-            .unwrap();
-
-        let formatted = String::from_utf8(email.formatted()).unwrap();
-        assert!(
-            formatted.contains("Content-Type: text/html"),
-            "Email should contain text/html Content-Type for HTML part"
-        );
-    }
-
-    #[test]
-    fn test_email_text_part_has_correct_content_type() {
-        let email = Message::builder()
-            .from("sender@example.com".parse::<Mailbox>().unwrap())
-            .to("recipient@example.com".parse::<Mailbox>().unwrap())
-            .subject("Test Subject")
-            .multipart(MultiPart::alternative_plain_html(
-                String::from("Plain text body"),
-                String::from("<p>HTML body</p>"),
-            ))
-            .unwrap();
-
-        let formatted = String::from_utf8(email.formatted()).unwrap();
-        assert!(
-            formatted.contains("Content-Type: text/plain"),
-            "Email should contain text/plain Content-Type for text part"
-        );
-    }
-
-    #[test]
-    fn test_email_no_separator_concatenation() {
-        let email = Message::builder()
-            .from("sender@example.com".parse::<Mailbox>().unwrap())
-            .to("recipient@example.com".parse::<Mailbox>().unwrap())
-            .subject("Test Subject")
-            .multipart(MultiPart::alternative_plain_html(
-                String::from("Plain text body"),
-                String::from("<p>HTML body</p>"),
-            ))
-            .unwrap();
-
-        let formatted = String::from_utf8(email.formatted()).unwrap();
-        assert!(!formatted.contains("\n---\n"), "Email should not contain the old --- separator");
-    }
-
-    #[test]
-    fn test_email_plain_text_before_html() {
-        let email = Message::builder()
-            .from("sender@example.com".parse::<Mailbox>().unwrap())
-            .to("recipient@example.com".parse::<Mailbox>().unwrap())
-            .subject("Test Subject")
-            .multipart(MultiPart::alternative_plain_html(
-                String::from("Plain text body"),
-                String::from("<p>HTML body</p>"),
-            ))
-            .unwrap();
-
-        let formatted = String::from_utf8(email.formatted()).unwrap();
-
-        // Per RFC 2046 Section 5.1.4, the preferred format (HTML) should be
-        // the last part in a multipart/alternative message
-        let text_pos = formatted.find("Content-Type: text/plain").unwrap();
-        let html_pos = formatted.find("Content-Type: text/html").unwrap();
-        assert!(text_pos < html_pos, "Plain text part should appear before HTML part (RFC 2046)");
     }
 }

@@ -77,6 +77,11 @@ impl ClockValidator {
     ///
     /// Classifies the measured skew as Normal (< 100ms),
     /// Warning (100ms to threshold), or Critical (>= threshold).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the measured skew exceeds the critical threshold.
+    /// Returns `Ok` with `SkewSeverity::Normal` if NTP is unreachable (soft failure).
     pub async fn validate(&self) -> Result<ClockStatus> {
         let system_time = Utc::now();
 
@@ -324,122 +329,155 @@ mod tests {
     // ── ClockValidator construction ──
 
     #[test]
-    fn test_default_threshold() {
+    fn test_new_default_threshold_and_servers() {
         let v = ClockValidator::new();
+
+        assert_eq!(v.max_skew_ms, DEFAULT_MAX_SKEW_MS);
+        assert_eq!(v.ntp_servers.len(), 2);
+        assert!(v.system_fallbacks);
+    }
+
+    #[test]
+    fn test_default_trait_matches_new() {
+        let v = ClockValidator::default();
+
         assert_eq!(v.max_skew_ms, DEFAULT_MAX_SKEW_MS);
         assert_eq!(v.ntp_servers.len(), 2);
     }
 
     #[test]
-    fn test_custom_threshold() {
+    fn test_with_max_skew_converts_seconds_to_milliseconds() {
         let v = ClockValidator::with_max_skew(5);
+
         assert_eq!(v.max_skew_ms, 5000);
     }
 
-    // ── Skew classification ──
+    // ── Skew classification (table-driven) ──
 
     #[test]
-    fn test_classify_normal_skew() {
-        assert_eq!(classify_skew(0, 1000), SkewSeverity::Normal);
-        assert_eq!(classify_skew(50, 1000), SkewSeverity::Normal);
-        assert_eq!(classify_skew(99, 1000), SkewSeverity::Normal);
+    fn test_classify_skew_boundaries() {
+        let cases = [
+            // (skew_ms, max_skew_ms, expected)
+            (0, 1000, SkewSeverity::Normal, "zero skew"),
+            (50, 1000, SkewSeverity::Normal, "well below warning"),
+            (99, 1000, SkewSeverity::Normal, "just below warning threshold"),
+            (100, 1000, SkewSeverity::Warning, "exactly at warning threshold"),
+            (500, 1000, SkewSeverity::Warning, "mid-range warning"),
+            (999, 1000, SkewSeverity::Warning, "just below critical threshold"),
+            (1000, 1000, SkewSeverity::Critical, "exactly at critical threshold"),
+            (2000, 1000, SkewSeverity::Critical, "well above critical threshold"),
+        ];
+
+        for (skew_ms, max_skew_ms, expected, label) in cases {
+            assert_eq!(
+                classify_skew(skew_ms, max_skew_ms),
+                expected,
+                "classify_skew({skew_ms}, {max_skew_ms}) [{label}]"
+            );
+        }
     }
 
     #[test]
-    fn test_classify_warning_skew() {
-        assert_eq!(classify_skew(100, 1000), SkewSeverity::Warning);
-        assert_eq!(classify_skew(500, 1000), SkewSeverity::Warning);
-        assert_eq!(classify_skew(999, 1000), SkewSeverity::Warning);
+    fn test_classify_skew_custom_threshold_shifts_boundaries() {
+        // With a 5s threshold, 2s is warning (not critical)
+        assert_eq!(classify_skew(2000, 5000), SkewSeverity::Warning);
+        // At 5s exactly, becomes critical
+        assert_eq!(classify_skew(5000, 5000), SkewSeverity::Critical);
+    }
+
+    // ── evaluate_skew ──
+
+    #[test]
+    fn test_evaluate_skew_zero_returns_normal() {
+        let v = ClockValidator::new();
+        let now = Utc::now();
+
+        let status = v.evaluate_skew(now, now).unwrap();
+
+        assert_eq!(status.severity, SkewSeverity::Normal);
+        assert_eq!(status.skew_ms, 0);
+        assert!(status.within_threshold);
+        assert_eq!(status.ntp_time, Some(now));
     }
 
     #[test]
-    fn test_classify_critical_skew() {
-        assert_eq!(classify_skew(1000, 1000), SkewSeverity::Critical);
-        assert_eq!(classify_skew(2000, 1000), SkewSeverity::Critical);
-        assert_eq!(classify_skew(10000, 1000), SkewSeverity::Critical);
-    }
-
-    // ── evaluate_skew (mocked NTP responses) ──
-
-    #[test]
-    fn test_evaluate_normal_skew() {
+    fn test_evaluate_skew_small_offset_returns_normal() {
         let v = ClockValidator::new();
         let now = Utc::now();
         let ntp_time = now + TimeDelta::milliseconds(50);
 
         let status = v.evaluate_skew(now, ntp_time).unwrap();
-        assert!(status.within_threshold);
+
         assert_eq!(status.severity, SkewSeverity::Normal);
         assert!(status.skew_ms < WARNING_SKEW_MS);
+        assert!(status.within_threshold);
     }
 
     #[test]
-    fn test_evaluate_warning_skew() {
+    fn test_evaluate_skew_moderate_offset_returns_warning() {
         let v = ClockValidator::new();
         let now = Utc::now();
         let ntp_time = now + TimeDelta::milliseconds(500);
 
         let status = v.evaluate_skew(now, ntp_time).unwrap();
-        assert!(status.within_threshold);
+
         assert_eq!(status.severity, SkewSeverity::Warning);
         assert_eq!(status.skew_ms, 500);
+        assert!(status.within_threshold);
     }
 
     #[test]
-    fn test_evaluate_critical_skew_returns_error() {
+    fn test_evaluate_skew_critical_returns_error_with_details() {
         let v = ClockValidator::new();
         let now = Utc::now();
         let ntp_time = now + TimeDelta::seconds(3);
 
         let err = v.evaluate_skew(now, ntp_time).unwrap_err();
-        assert!(err.to_string().contains("3000ms"));
-        assert!(err.to_string().contains("1000ms"));
+
+        let msg = err.to_string();
+        assert!(msg.contains("3000ms"), "error should contain measured skew");
+        assert!(msg.contains("1000ms"), "error should contain threshold");
     }
 
     #[test]
-    fn test_evaluate_custom_threshold() {
-        let v = ClockValidator::with_max_skew(5);
-        let now = Utc::now();
-
-        // 2s skew is warning (threshold is 5s)
-        let ntp_time = now + TimeDelta::seconds(2);
-        let status = v.evaluate_skew(now, ntp_time).unwrap();
-        assert!(status.within_threshold);
-        assert_eq!(status.severity, SkewSeverity::Warning);
-
-        // 6s skew is critical
-        let ntp_time = now + TimeDelta::seconds(6);
-        let err = v.evaluate_skew(now, ntp_time).unwrap_err();
-        assert!(err.to_string().contains("6000ms"));
-    }
-
-    #[test]
-    fn test_evaluate_zero_skew() {
+    fn test_evaluate_skew_negative_direction_uses_absolute_value() {
         let v = ClockValidator::new();
         let now = Utc::now();
-
-        let status = v.evaluate_skew(now, now).unwrap();
-        assert!(status.within_threshold);
-        assert_eq!(status.severity, SkewSeverity::Normal);
-        assert_eq!(status.skew_ms, 0);
-    }
-
-    #[test]
-    fn test_evaluate_negative_direction_skew() {
-        let v = ClockValidator::new();
-        let now = Utc::now();
-        // NTP behind system time → same absolute skew
         let ntp_time = now - TimeDelta::milliseconds(500);
 
         let status = v.evaluate_skew(now, ntp_time).unwrap();
+
         assert_eq!(status.severity, SkewSeverity::Warning);
         assert_eq!(status.skew_ms, 500);
     }
 
-    // ── chronyc output parsing ──
+    #[test]
+    fn test_evaluate_skew_custom_threshold_allows_larger_skew() {
+        let v = ClockValidator::with_max_skew(5);
+        let now = Utc::now();
+        let ntp_time = now + TimeDelta::seconds(2);
+
+        let status = v.evaluate_skew(now, ntp_time).unwrap();
+
+        assert_eq!(status.severity, SkewSeverity::Warning);
+        assert!(status.within_threshold);
+    }
 
     #[test]
-    fn test_parse_chrony_fast() {
+    fn test_evaluate_skew_custom_threshold_critical_returns_error() {
+        let v = ClockValidator::with_max_skew(5);
+        let now = Utc::now();
+        let ntp_time = now + TimeDelta::seconds(6);
+
+        let err = v.evaluate_skew(now, ntp_time).unwrap_err();
+
+        assert!(err.to_string().contains("6000ms"));
+    }
+
+    // ── chronyc output parsing (table-driven) ──
+
+    #[test]
+    fn test_parse_chrony_offset_fast_returns_positive() {
         let output = "\
 Reference ID    : A1B2C3D4 (ntp.example.com)
 Stratum         : 2
@@ -456,70 +494,93 @@ Update interval : 64.0 seconds
 Leap status     : Normal";
 
         let offset = parse_chrony_offset(output).unwrap();
+
         assert!((offset - 0.000123456).abs() < 1e-10);
     }
 
     #[test]
-    fn test_parse_chrony_slow() {
+    fn test_parse_chrony_offset_slow_returns_negative() {
         let output = "System time     : 0.005000000 seconds slow of NTP time";
+
         let offset = parse_chrony_offset(output).unwrap();
+
         assert!((offset - (-0.005)).abs() < 1e-10);
     }
 
     #[test]
-    fn test_parse_chrony_missing() {
+    fn test_parse_chrony_offset_missing_system_time_returns_none() {
         let output = "Reference ID    : A1B2C3D4\nStratum         : 2";
+
         assert!(parse_chrony_offset(output).is_none());
     }
 
     #[test]
-    fn test_parse_chrony_malformed() {
+    fn test_parse_chrony_offset_malformed_number_returns_none() {
         let output = "System time     : not_a_number seconds fast of NTP time";
+
         assert!(parse_chrony_offset(output).is_none());
     }
 
-    // ── ntpdate output parsing ──
+    // ── ntpdate output parsing (table-driven) ──
 
     #[test]
-    fn test_parse_ntpdate_negative_offset() {
+    fn test_parse_ntpdate_offset_negative_value() {
         let output = "server 192.168.1.1, stratum 2, offset -0.003163, delay 0.02567\n\
                        21 Feb 14:30:00 ntpdate[12345]: adjust time server 192.168.1.1 offset -0.003163 sec";
+
         let offset = parse_ntpdate_offset(output).unwrap();
+
         assert!((offset - (-0.003163)).abs() < 1e-10);
     }
 
     #[test]
-    fn test_parse_ntpdate_positive_offset() {
+    fn test_parse_ntpdate_offset_positive_value() {
         let output = "server 10.0.0.1, stratum 1, offset 0.123456, delay 0.001";
+
         let offset = parse_ntpdate_offset(output).unwrap();
+
         assert!((offset - 0.123456).abs() < 1e-10);
     }
 
     #[test]
-    fn test_parse_ntpdate_missing() {
+    fn test_parse_ntpdate_offset_no_offset_field_returns_none() {
         let output = "no server suitable for synchronization found";
+
         assert!(parse_ntpdate_offset(output).is_none());
     }
 
     #[test]
-    fn test_parse_ntpdate_malformed() {
+    fn test_parse_ntpdate_offset_malformed_number_returns_none() {
         let output = "server 10.0.0.1, offset not_a_number, delay 0.001";
+
         assert!(parse_ntpdate_offset(output).is_none());
     }
 
-    // ── Async validation (integration-like) ──
+    #[test]
+    fn test_parse_ntpdate_offset_empty_input_returns_none() {
+        assert!(parse_ntpdate_offset("").is_none());
+    }
+
+    #[test]
+    fn test_parse_chrony_offset_empty_input_returns_none() {
+        assert!(parse_chrony_offset("").is_none());
+    }
+
+    // ── Async validation ──
 
     #[tokio::test]
-    async fn test_validate_soft_fails_without_ntp() {
+    async fn test_validate_unreachable_ntp_returns_ok_with_no_ntp_time() {
         let v = ClockValidator {
             max_skew_ms: DEFAULT_MAX_SKEW_MS,
             ntp_servers: vec!["192.0.2.1".to_string()], // RFC 5737 TEST-NET, won't resolve
             system_fallbacks: false,
         };
 
-        // Should soft-fail and return OK with no NTP data
         let status = v.validate().await.unwrap();
+
         assert!(status.within_threshold);
         assert!(status.ntp_time.is_none());
+        assert_eq!(status.skew_ms, 0);
+        assert_eq!(status.severity, SkewSeverity::Normal);
     }
 }

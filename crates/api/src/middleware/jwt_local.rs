@@ -60,8 +60,8 @@ impl JwksCache {
 
     /// Pre-populates the cache with a decoding key.
     ///
-    /// Used by test infrastructure to inject test signing keys, bypassing the
-    /// Ledger key fetch.
+    /// Test infrastructure calls this to inject test signing keys, bypassing
+    /// the Ledger key fetch.
     pub async fn insert_key(&self, kid: String, key: Arc<DecodingKey>) {
         self.inner.insert(kid, key).await;
     }
@@ -107,8 +107,8 @@ async fn fetch_key(ledger: &LedgerClient, target_kid: &str) -> Result<Arc<Decodi
 
 /// JWT claims matching Ledger's `UserSessionClaims`.
 ///
-/// Used for local JWT decoding. Only fields needed to construct
-/// [`UserClaims`] are extracted; `jsonwebtoken` validates the rest.
+/// Carries the subset of fields needed to construct [`UserClaims`]
+/// during local JWT decoding; `jsonwebtoken` validates the rest.
 #[derive(Debug, serde::Deserialize)]
 struct LocalJwtClaims {
     /// Token type discriminator (must be "user_session").
@@ -209,49 +209,116 @@ mod tests {
 
     use super::*;
 
+    /// Encodes a JSON value as a URL-safe base64 JWT header segment.
+    fn encode_header(header: &serde_json::Value) -> String {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(header).unwrap())
+    }
+
+    /// Builds a fake JWT string from a pre-encoded header.
+    fn fake_token(encoded_header: &str) -> String {
+        format!("{encoded_header}.payload.signature")
+    }
+
+    // ── extract_kid_from_header: malformed input ─────────────────
+
     #[test]
-    fn extract_kid_no_dots_returns_error() {
-        let result = extract_kid_from_header("nodots");
-        assert!(result.is_err());
+    fn test_extract_kid_no_dots_returns_malformed_error() {
+        let err = extract_kid_from_header("nodots").unwrap_err();
+        assert!(err.to_string().contains("malformed JWT"), "expected 'malformed JWT', got: {err}");
     }
 
     #[test]
-    fn extract_kid_invalid_base64_returns_error() {
-        let token = "!!!invalid-base64!!!.payload.signature";
-        let err = extract_kid_from_header(token).unwrap_err();
-        assert!(err.to_string().contains("invalid JWT header encoding"));
+    fn test_extract_kid_invalid_base64_returns_encoding_error() {
+        let err = extract_kid_from_header(&fake_token("!!!not-base64!!!")).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid JWT header encoding"),
+            "expected encoding error, got: {err}"
+        );
     }
 
     #[test]
-    fn extract_kid_unsupported_algorithm_returns_error() {
-        let header = serde_json::json!({"alg": "RS256", "typ": "JWT"});
-        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(serde_json::to_vec(&header).unwrap());
-        let token = format!("{encoded}.payload.signature");
+    fn test_extract_kid_invalid_json_returns_header_error() {
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"not-json");
+        let err = extract_kid_from_header(&fake_token(&encoded)).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid JWT header"),
+            "expected 'invalid JWT header', got: {err}"
+        );
+    }
 
-        let err = extract_kid_from_header(&token).unwrap_err();
-        assert!(err.to_string().contains("unsupported JWT algorithm"));
+    // ── extract_kid_from_header: algorithm validation ────────────
+
+    #[test]
+    fn test_extract_kid_missing_alg_returns_error() {
+        let header = serde_json::json!({"typ": "JWT", "kid": "k1"});
+        let err = extract_kid_from_header(&fake_token(&encode_header(&header))).unwrap_err();
+        assert!(
+            err.to_string().contains("missing algorithm"),
+            "expected 'missing algorithm', got: {err}"
+        );
     }
 
     #[test]
-    fn extract_kid_missing_kid_field_returns_error() {
+    fn test_extract_kid_unsupported_algorithm_returns_error() {
+        let cases = [("RS256", "RSA"), ("HS256", "HMAC"), ("ES256", "ECDSA")];
+        for (alg, label) in cases {
+            let header = serde_json::json!({"alg": alg, "typ": "JWT", "kid": "k1"});
+            let err = extract_kid_from_header(&fake_token(&encode_header(&header))).unwrap_err();
+            assert!(
+                err.to_string().contains("unsupported JWT algorithm"),
+                "{label} alg={alg} should be rejected, got: {err}"
+            );
+        }
+    }
+
+    // ── extract_kid_from_header: kid extraction ──────────────────
+
+    #[test]
+    fn test_extract_kid_missing_kid_returns_error() {
         let header = serde_json::json!({"alg": "EdDSA", "typ": "JWT"});
-        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(serde_json::to_vec(&header).unwrap());
-        let token = format!("{encoded}.payload.signature");
-
-        let err = extract_kid_from_header(&token).unwrap_err();
-        assert!(err.to_string().contains("missing kid"));
+        let err = extract_kid_from_header(&fake_token(&encode_header(&header))).unwrap_err();
+        assert!(err.to_string().contains("missing kid"), "expected 'missing kid', got: {err}");
     }
 
     #[test]
-    fn extract_kid_valid_header_returns_kid() {
+    fn test_extract_kid_valid_header_returns_kid() {
         let header = serde_json::json!({"alg": "EdDSA", "typ": "JWT", "kid": "key-abc-123"});
-        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(serde_json::to_vec(&header).unwrap());
-        let token = format!("{encoded}.payload.signature");
-
-        let kid = extract_kid_from_header(&token).unwrap();
+        let kid = extract_kid_from_header(&fake_token(&encode_header(&header))).unwrap();
         assert_eq!(kid, "key-abc-123");
+    }
+
+    #[test]
+    fn test_extract_kid_accepts_padded_base64() {
+        let header = serde_json::json!({"alg": "EdDSA", "typ": "JWT", "kid": "padded-key"});
+        let encoded = base64::engine::general_purpose::URL_SAFE.encode(
+            serde_json::to_vec(&header).unwrap(),
+        );
+        let kid = extract_kid_from_header(&fake_token(&encoded)).unwrap();
+        assert_eq!(kid, "padded-key");
+    }
+
+    // ── JwksCache ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_jwks_cache_insert_and_retrieve() {
+        let cache = JwksCache::new();
+        let key = Arc::new(DecodingKey::from_ed_der(&[0u8; 32]));
+        cache.insert_key("kid-1".to_string(), key.clone()).await;
+        assert_eq!(cache.inner.entry_count(), 1);
+    }
+
+    #[test]
+    fn test_jwks_cache_debug_format() {
+        let cache = JwksCache::new();
+        let debug = format!("{cache:?}");
+        assert!(debug.contains("JwksCache"), "debug output should contain struct name");
+        assert!(debug.contains("entry_count"), "debug output should contain entry_count");
+    }
+
+    #[test]
+    fn test_jwks_cache_default_creates_empty_cache() {
+        let cache = JwksCache::default();
+        assert_eq!(cache.inner.entry_count(), 0);
     }
 }

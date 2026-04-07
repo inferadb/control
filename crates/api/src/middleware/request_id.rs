@@ -12,9 +12,12 @@ use axum::{
 };
 use uuid::Uuid;
 
+/// Header name for the request correlation ID.
 static X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
-/// Unique identifier for an HTTP request.
+/// Unique identifier for an HTTP request, stored in request extensions.
+///
+/// Handlers and middleware access this via `req.extensions().get::<RequestId>()`.
 #[derive(Debug, Clone)]
 pub struct RequestId(pub String);
 

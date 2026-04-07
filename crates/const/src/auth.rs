@@ -1,4 +1,7 @@
 //! Authentication constants for JWT validation and session management.
+//!
+//! Shared between the Control Plane (issuing tokens) and the Engine
+//! (validating tokens) to ensure consistent claim values.
 
 /// Required JWT issuer claim value.
 ///

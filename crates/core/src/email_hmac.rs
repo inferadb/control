@@ -11,8 +11,13 @@ pub use inferadb_ledger_types::{
 
 /// Parses a hex-encoded blinding key from config, returning a typed key.
 ///
-/// The key must be a 64-character hex string (32 bytes). Returns `None` if
-/// no key is configured; returns an error if the key is present but malformed.
+/// The key must be a 64-character hex string (32 bytes). Returns `Ok(None)` if
+/// no key is configured.
+///
+/// # Errors
+///
+/// Returns an error if the hex string is present but malformed (wrong length
+/// or invalid hex characters).
 pub fn parse_blinding_key(hex: Option<&str>) -> Result<Option<EmailBlindingKey>> {
     let Some(hex) = hex else {
         return Ok(None);

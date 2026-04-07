@@ -28,7 +28,7 @@ impl IdGenerator {
     ///
     /// # Errors
     ///
-    /// Returns an error if worker_id is out of range or initialization fails
+    /// Returns an error if `worker_id` is out of range or initialization fails.
     pub fn init(worker_id: u16) -> Result<()> {
         if worker_id > 1023 {
             return Err(Error::config(format!(
@@ -75,40 +75,63 @@ mod tests {
 
     use super::*;
 
+    // Note: IdGenerator uses OnceLock, so init() only takes effect once per process.
+    // All tests share the same global state. We call init() defensively but cannot
+    // test re-initialization or worker_id changes.
+
     #[test]
-    fn test_id_generation() {
-        // Initialize with worker ID 0, but may already be initialized by other tests
+    fn test_init_valid_worker_id_succeeds() {
+        let result = IdGenerator::init(0);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_init_worker_id_above_1023_returns_error() {
+        let err = IdGenerator::init(1024).unwrap_err();
+        assert!(err.to_string().contains("1024"));
+        assert!(err.to_string().contains("0 and 1023"));
+    }
+
+    #[test]
+    fn test_init_worker_id_at_max_boundary_succeeds() {
+        // 1023 is the maximum valid worker ID (10-bit)
+        let result = IdGenerator::init(1023);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_next_id_returns_positive_value() {
         let _ = IdGenerator::init(0);
 
-        // Generate multiple IDs to verify they're unique and positive
+        let id = IdGenerator::next_id();
+
+        assert!(id > 0);
+    }
+
+    #[test]
+    fn test_next_id_sequential_calls_produce_unique_ids() {
+        let _ = IdGenerator::init(0);
+
+        let id1 = IdGenerator::next_id();
+        let id2 = IdGenerator::next_id();
+
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_next_id_sequential_calls_are_strictly_increasing() {
+        let _ = IdGenerator::init(0);
+
         let id1 = IdGenerator::next_id();
         let id2 = IdGenerator::next_id();
         let id3 = IdGenerator::next_id();
 
-        // All IDs should be positive
-        assert!(id1 > 0, "id1 ({id1}) should be positive");
-        assert!(id2 > 0, "id2 ({id2}) should be positive");
-        assert!(id3 > 0, "id3 ({id3}) should be positive");
-
-        // All IDs should be unique (the core requirement)
-        assert_ne!(id1, id2, "id1 and id2 should be different");
-        assert_ne!(id2, id3, "id2 and id3 should be different");
-        assert_ne!(id1, id3, "id1 and id3 should be different");
+        assert!(id2 > id1);
+        assert!(id3 > id2);
     }
 
     #[test]
-    fn test_worker_id_validation() {
-        // Invalid worker ID (out of range)
-        assert!(IdGenerator::init(1024).is_err());
-
-        // Valid worker IDs - may already be initialized by other tests,
-        // so we verify it doesn't panic
-        let _ = IdGenerator::init(1023);
-    }
-
-    #[test]
-    fn test_id_uniqueness() {
-        // May already be initialized by other tests, which is fine
+    fn test_next_id_bulk_generation_produces_no_duplicates() {
         let _ = IdGenerator::init(1);
         let mut ids = HashSet::new();
 
@@ -116,6 +139,15 @@ mod tests {
             let id = IdGenerator::next_id();
             assert!(ids.insert(id), "Duplicate ID generated: {id}");
         }
+    }
+
+    #[test]
+    fn test_worker_id_returns_initialized_value() {
+        let _ = IdGenerator::init(0);
+
+        // Due to OnceLock, worker_id returns whichever value was set first
+        let wid = IdGenerator::worker_id();
+        assert!(wid <= 1023);
     }
 
     mod proptest_id {

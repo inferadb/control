@@ -243,10 +243,10 @@ pub async fn complete(
 mod tests {
     use super::*;
 
-    // ── Response type serialization ──────────────────────────────────
+    // ── VerifyResponse serialization ────────────────────────────────
 
     #[test]
-    fn verify_response_authenticated_serializes_with_tag() {
+    fn test_verify_response_authenticated_includes_status_tag_and_tokens() {
         let resp = VerifyResponse::Authenticated {
             access_token: "at".to_string(),
             refresh_token: "rt".to_string(),
@@ -260,33 +260,39 @@ mod tests {
     }
 
     #[test]
-    fn verify_response_totp_required_serializes_with_tag() {
-        let resp = VerifyResponse::TotpRequired { challenge_nonce: "abc123".to_string() };
-        let json = serde_json::to_value(&resp).unwrap();
+    fn test_verify_response_totp_required_includes_nonce_without_tokens() {
+        let json =
+            serde_json::to_value(&VerifyResponse::TotpRequired { challenge_nonce: "abc".to_string() })
+                .unwrap();
         assert_eq!(json["status"], "totp_required");
-        assert_eq!(json["challenge_nonce"], "abc123");
+        assert_eq!(json["challenge_nonce"], "abc");
         assert!(json.get("access_token").is_none());
+        assert!(json.get("refresh_token").is_none());
     }
 
     #[test]
-    fn verify_response_registration_required_serializes_with_tag() {
-        let resp = VerifyResponse::RegistrationRequired { onboarding_token: "obt_123".to_string() };
-        let json = serde_json::to_value(&resp).unwrap();
+    fn test_verify_response_registration_required_includes_onboarding_token() {
+        let json = serde_json::to_value(&VerifyResponse::RegistrationRequired {
+            onboarding_token: "obt_123".to_string(),
+        })
+        .unwrap();
         assert_eq!(json["status"], "registration_required");
         assert_eq!(json["onboarding_token"], "obt_123");
         assert!(json.get("access_token").is_none());
     }
 
     #[test]
-    fn initiate_response_serializes() {
-        let resp = InitiateResponse { message: "verification code sent" };
-        let json = serde_json::to_value(&resp).unwrap();
+    fn test_initiate_response_serializes() {
+        let json =
+            serde_json::to_value(&InitiateResponse { message: "verification code sent" }).unwrap();
         assert_eq!(json["message"], "verification code sent");
     }
 
+    // ── CompleteRegistrationResponse serialization ───────────────────
+
     #[test]
-    fn complete_registration_response_serializes() {
-        let resp = CompleteRegistrationResponse {
+    fn test_complete_registration_response_with_organization() {
+        let json = serde_json::to_value(&CompleteRegistrationResponse {
             registration: CompleteRegistrationData {
                 user: 42,
                 organization: Some(100),
@@ -294,16 +300,17 @@ mod tests {
                 refresh_token: "rt".to_string(),
                 token_type: "Bearer",
             },
-        };
-        let json = serde_json::to_value(&resp).unwrap();
+        })
+        .unwrap();
         assert_eq!(json["registration"]["user"], 42);
         assert_eq!(json["registration"]["organization"], 100);
+        assert_eq!(json["registration"]["access_token"], "at");
         assert_eq!(json["registration"]["token_type"], "Bearer");
     }
 
     #[test]
-    fn complete_registration_response_with_no_org() {
-        let resp = CompleteRegistrationResponse {
+    fn test_complete_registration_response_without_organization_is_null() {
+        let json = serde_json::to_value(&CompleteRegistrationResponse {
             registration: CompleteRegistrationData {
                 user: 7,
                 organization: None,
@@ -311,57 +318,79 @@ mod tests {
                 refresh_token: "rt".to_string(),
                 token_type: "Bearer",
             },
-        };
-        let json = serde_json::to_value(&resp).unwrap();
+        })
+        .unwrap();
         assert_eq!(json["registration"]["user"], 7);
         assert!(json["registration"]["organization"].is_null());
     }
 
-    // ── Request type deserialization ──────────────────────────────────
+    // ── Request deserialization ──────────────────────────────────────
 
     #[test]
-    fn initiate_request_deserializes() {
-        let json = r#"{"email": "user@example.com"}"#;
-        let req: InitiateRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.email, "user@example.com");
+    fn test_initiate_request_minimal() {
+        let req: InitiateRequest = serde_json::from_str(r#"{"email": "u@e.com"}"#).unwrap();
+        assert_eq!(req.email, "u@e.com");
         assert!(req.region.is_none());
     }
 
     #[test]
-    fn initiate_request_with_region_deserializes() {
-        let json = r#"{"email": "user@example.com", "region": "ie-east-dublin"}"#;
-        let req: InitiateRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.email, "user@example.com");
+    fn test_initiate_request_with_region() {
+        let req: InitiateRequest =
+            serde_json::from_str(r#"{"email": "u@e.com", "region": "ie-east-dublin"}"#).unwrap();
         assert!(req.region.is_some());
     }
 
     #[test]
-    fn verify_request_deserializes() {
-        let json = r#"{"email": "user@example.com", "code": "123456"}"#;
-        let req: VerifyRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.email, "user@example.com");
+    fn test_initiate_request_missing_email_fails() {
+        let result = serde_json::from_str::<InitiateRequest>(r#"{}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_request_all_fields() {
+        let req: VerifyRequest =
+            serde_json::from_str(r#"{"email": "u@e.com", "code": "123456"}"#).unwrap();
+        assert_eq!(req.email, "u@e.com");
         assert_eq!(req.code, "123456");
         assert!(req.region.is_none());
     }
 
     #[test]
-    fn complete_registration_request_deserializes() {
-        let json = r#"{
-            "onboarding_token": "tok",
-            "email": "user@example.com",
-            "name": "Test",
-            "organization_name": "Org"
-        }"#;
-        let req: CompleteRegistrationRequest = serde_json::from_str(json).unwrap();
+    fn test_verify_request_missing_code_fails() {
+        let result = serde_json::from_str::<VerifyRequest>(r#"{"email": "u@e.com"}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_complete_registration_request_all_fields() {
+        let req: CompleteRegistrationRequest = serde_json::from_str(
+            r#"{
+                "onboarding_token": "tok",
+                "email": "u@e.com",
+                "name": "Test",
+                "organization_name": "Org"
+            }"#,
+        )
+        .unwrap();
         assert_eq!(req.onboarding_token, "tok");
+        assert_eq!(req.email, "u@e.com");
         assert_eq!(req.name, "Test");
         assert_eq!(req.organization_name, "Org");
+        assert!(req.region.is_none());
+    }
+
+    #[test]
+    fn test_complete_registration_request_missing_name_fails() {
+        let result = serde_json::from_str::<CompleteRegistrationRequest>(
+            r#"{"onboarding_token": "t", "email": "u@e.com", "organization_name": "O"}"#,
+        );
+        assert!(result.is_err());
     }
 
     // ── default_region ───────────────────────────────────────────────
 
     #[test]
-    fn default_region_is_us_east_va() {
+    fn test_default_region_is_us_east_va() {
         assert_eq!(default_region(), Region::US_EAST_VA);
     }
 }

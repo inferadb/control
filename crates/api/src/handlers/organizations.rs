@@ -79,10 +79,15 @@ pub struct CreateInvitationRequest {
 /// Organization summary.
 #[derive(Debug, Serialize)]
 pub struct OrganizationResponse {
+    /// Organization slug identifier.
     pub slug: u64,
+    /// Display name.
     pub name: String,
+    /// Data residency region (e.g., `"us-east-va"`).
     pub region: String,
+    /// Organization status (e.g., `"active"`, `"deleted"`).
     pub status: String,
+    /// Subscription tier (e.g., `"free"`, `"pro"`).
     pub tier: String,
 }
 
@@ -111,8 +116,11 @@ pub struct DeleteOrganizationResponse {
 /// Organization member summary.
 #[derive(Debug, Serialize)]
 pub struct MemberResponse {
+    /// User slug identifier.
     pub user: u64,
+    /// Member role (e.g., `"admin"`, `"member"`).
     pub role: String,
+    /// RFC 3339 timestamp of when the user joined the organization.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub joined_at: Option<String>,
 }
@@ -134,16 +142,25 @@ pub struct UpdateMemberRoleResponse {
 /// Invitation response (admin view).
 #[derive(Debug, Serialize)]
 pub struct InvitationResponse {
+    /// Invitation slug identifier.
     pub slug: u64,
+    /// Organization the invitation is for.
     pub organization: u64,
+    /// User slug of the person who sent the invitation.
     pub inviter: u64,
+    /// Email address of the invitee.
     pub invitee_email: String,
+    /// Role the invitee will receive (e.g., `"admin"`, `"member"`).
     pub role: String,
+    /// Invitation status (e.g., `"pending"`, `"accepted"`, `"revoked"`).
     pub status: String,
+    /// RFC 3339 timestamp of when the invitation was created.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+    /// RFC 3339 timestamp of when the invitation expires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
+    /// Invitation token (omitted in list responses for security).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
 }
@@ -159,13 +176,20 @@ pub struct ListInvitationsResponse {
 /// Received invitation response (user view).
 #[derive(Debug, Serialize)]
 pub struct ReceivedInvitationResponse {
+    /// Invitation slug identifier.
     pub slug: u64,
+    /// Organization slug.
     pub organization: u64,
+    /// Organization display name.
     pub organization_name: String,
+    /// Role offered (e.g., `"admin"`, `"member"`).
     pub role: String,
+    /// Invitation status (e.g., `"pending"`, `"accepted"`).
     pub status: String,
+    /// RFC 3339 creation timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+    /// RFC 3339 expiration timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
 }
@@ -732,18 +756,37 @@ mod tests {
     // ── org_info_to_response ─────────────────────────────────────────
 
     #[test]
-    fn org_info_to_response_maps_fields() {
-        let info = sample_org_info();
-        let resp = org_info_to_response(&info);
+    fn test_org_info_to_response_maps_slug() {
+        let resp = org_info_to_response(&sample_org_info());
         assert_eq!(resp.slug, 100);
+    }
+
+    #[test]
+    fn test_org_info_to_response_maps_name() {
+        let resp = org_info_to_response(&sample_org_info());
         assert_eq!(resp.name, "Acme Corp");
+    }
+
+    #[test]
+    fn test_org_info_to_response_maps_region() {
+        let resp = org_info_to_response(&sample_org_info());
         assert_eq!(resp.region, "us-east-va");
+    }
+
+    #[test]
+    fn test_org_info_to_response_maps_status() {
+        let resp = org_info_to_response(&sample_org_info());
         assert_eq!(resp.status, "active");
+    }
+
+    #[test]
+    fn test_org_info_to_response_maps_tier() {
+        let resp = org_info_to_response(&sample_org_info());
         assert_eq!(resp.tier, "free");
     }
 
     #[test]
-    fn org_info_to_response_serializes() {
+    fn test_org_info_to_response_serializes_to_json() {
         let resp = org_info_to_response(&sample_org_info());
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["slug"], 100);
@@ -753,16 +796,20 @@ mod tests {
     // ── member_info_to_response ──────────────────────────────────────
 
     #[test]
-    fn member_info_to_response_maps_fields() {
-        let info = sample_member_info();
-        let resp = member_info_to_response(&info);
+    fn test_member_info_to_response_maps_user_and_role() {
+        let resp = member_info_to_response(&sample_member_info());
         assert_eq!(resp.user, 42);
         assert_eq!(resp.role, "admin");
+    }
+
+    #[test]
+    fn test_member_info_to_response_with_joined_at_returns_some() {
+        let resp = member_info_to_response(&sample_member_info());
         assert!(resp.joined_at.is_some());
     }
 
     #[test]
-    fn member_info_to_response_without_joined_at() {
+    fn test_member_info_to_response_without_joined_at_returns_none() {
         let mut info = sample_member_info();
         info.joined_at = None;
         let resp = member_info_to_response(&info);
@@ -772,9 +819,8 @@ mod tests {
     // ── invitation_info_to_response ──────────────────────────────────
 
     #[test]
-    fn invitation_info_to_response_maps_fields() {
-        let info = sample_invitation_info();
-        let resp = invitation_info_to_response(&info);
+    fn test_invitation_info_to_response_maps_all_fields() {
+        let resp = invitation_info_to_response(&sample_invitation_info());
         assert_eq!(resp.slug, 200);
         assert_eq!(resp.organization, 100);
         assert_eq!(resp.inviter, 42);
@@ -783,15 +829,19 @@ mod tests {
         assert_eq!(resp.status, "pending");
         assert!(resp.created_at.is_some());
         assert!(resp.expires_at.is_some());
+    }
+
+    #[test]
+    fn test_invitation_info_to_response_token_always_none() {
+        let resp = invitation_info_to_response(&sample_invitation_info());
         assert!(resp.token.is_none());
     }
 
     // ── received_info_to_response ────────────────────────────────────
 
     #[test]
-    fn received_info_to_response_maps_fields() {
-        let info = sample_received_info();
-        let resp = received_info_to_response(&info);
+    fn test_received_info_to_response_maps_all_fields() {
+        let resp = received_info_to_response(&sample_received_info());
         assert_eq!(resp.slug, 300);
         assert_eq!(resp.organization, 100);
         assert_eq!(resp.organization_name, "Acme Corp");
@@ -802,7 +852,7 @@ mod tests {
     }
 
     #[test]
-    fn received_info_to_response_without_timestamps() {
+    fn test_received_info_to_response_no_timestamps_returns_none() {
         let mut info = sample_received_info();
         info.created_at = None;
         info.expires_at = None;
@@ -811,24 +861,59 @@ mod tests {
         assert!(resp.expires_at.is_none());
     }
 
-    // ── OrganizationRoleInput::to_sdk_role ───────────────────────────
+    // ── OrganizationRoleInput ────────────────────────────────────────
 
     #[test]
-    fn role_input_admin_maps_to_sdk_admin() {
+    fn test_role_input_admin_to_sdk_role_returns_admin() {
         let input = OrganizationRoleInput::Admin;
         assert!(matches!(input.to_sdk_role(), OrganizationMemberRole::Admin));
     }
 
     #[test]
-    fn role_input_member_maps_to_sdk_member() {
+    fn test_role_input_member_to_sdk_role_returns_member() {
         let input = OrganizationRoleInput::Member;
         assert!(matches!(input.to_sdk_role(), OrganizationMemberRole::Member));
     }
 
-    // ── Request/Response serialization ───────────────────────────────
+    #[test]
+    fn test_role_input_admin_deserializes_from_json() {
+        let json = r#""admin""#;
+        let role: OrganizationRoleInput = serde_json::from_str(json).unwrap();
+        assert!(matches!(role.to_sdk_role(), OrganizationMemberRole::Admin));
+    }
 
     #[test]
-    fn create_invitation_request_deserializes_with_role() {
+    fn test_role_input_member_deserializes_from_json() {
+        let json = r#""member""#;
+        let role: OrganizationRoleInput = serde_json::from_str(json).unwrap();
+        assert!(matches!(role.to_sdk_role(), OrganizationMemberRole::Member));
+    }
+
+    // ── Request deserialization ──────────────────────────────────────
+
+    #[test]
+    fn test_create_organization_request_deserializes() {
+        let json = r#"{"name": "My Org"}"#;
+        let req: CreateOrganizationRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.name, "My Org");
+    }
+
+    #[test]
+    fn test_update_organization_request_deserializes_with_name() {
+        let json = r#"{"name": "New Name"}"#;
+        let req: UpdateOrganizationRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.name.as_deref(), Some("New Name"));
+    }
+
+    #[test]
+    fn test_update_organization_request_deserializes_empty_body() {
+        let json = r#"{}"#;
+        let req: UpdateOrganizationRequest = serde_json::from_str(json).unwrap();
+        assert!(req.name.is_none());
+    }
+
+    #[test]
+    fn test_create_invitation_request_deserializes_with_role() {
         let json = r#"{"email": "user@example.com", "role": "admin"}"#;
         let req: CreateInvitationRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.email, "user@example.com");
@@ -836,14 +921,23 @@ mod tests {
     }
 
     #[test]
-    fn create_invitation_request_deserializes_without_role() {
+    fn test_create_invitation_request_deserializes_without_role() {
         let json = r#"{"email": "user@example.com"}"#;
         let req: CreateInvitationRequest = serde_json::from_str(json).unwrap();
         assert!(req.role.is_none());
     }
 
     #[test]
-    fn delete_organization_response_serializes() {
+    fn test_update_member_role_request_deserializes() {
+        let json = r#"{"role": "admin"}"#;
+        let req: UpdateMemberRoleRequest = serde_json::from_str(json).unwrap();
+        assert!(matches!(req.role.to_sdk_role(), OrganizationMemberRole::Admin));
+    }
+
+    // ── Response serialization ──────────────────────────────────────
+
+    #[test]
+    fn test_delete_organization_response_with_retention_serializes() {
         let resp = DeleteOrganizationResponse {
             message: "Organization deleted successfully".to_string(),
             retention_days: Some(30),
@@ -854,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_organization_response_omits_null_retention() {
+    fn test_delete_organization_response_without_retention_omits_field() {
         let resp =
             DeleteOrganizationResponse { message: "deleted".to_string(), retention_days: None };
         let json = serde_json::to_value(&resp).unwrap();
@@ -862,14 +956,14 @@ mod tests {
     }
 
     #[test]
-    fn list_organizations_response_omits_null_page_token() {
+    fn test_list_organizations_response_no_token_omits_field() {
         let resp = ListOrganizationsResponse { organizations: vec![], next_page_token: None };
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json.get("next_page_token").is_none());
     }
 
     #[test]
-    fn invitation_response_omits_null_optional_fields() {
+    fn test_invitation_response_none_optionals_omitted() {
         let resp = InvitationResponse {
             slug: 1,
             organization: 2,
@@ -888,7 +982,7 @@ mod tests {
     }
 
     #[test]
-    fn received_invitation_response_serializes() {
+    fn test_received_invitation_response_serializes_all_fields() {
         let resp = ReceivedInvitationResponse {
             slug: 10,
             organization: 20,
@@ -902,5 +996,26 @@ mod tests {
         assert_eq!(json["slug"], 10);
         assert_eq!(json["organization_name"], "Org");
         assert_eq!(json["created_at"], "2026-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_list_members_response_no_token_omits_field() {
+        let resp = ListMembersResponse { members: vec![], next_page_token: None };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("next_page_token").is_none());
+    }
+
+    #[test]
+    fn test_list_invitations_response_no_token_omits_field() {
+        let resp = ListInvitationsResponse { invitations: vec![], next_page_token: None };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("next_page_token").is_none());
+    }
+
+    #[test]
+    fn test_list_received_invitations_response_no_token_omits_field() {
+        let resp = ListReceivedInvitationsResponse { invitations: vec![], next_page_token: None };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("next_page_token").is_none());
     }
 }

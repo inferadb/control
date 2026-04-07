@@ -1,4 +1,8 @@
-//! Token and session duration constants.
+//! Token, session, and cookie TTL constants.
+//!
+//! All values are in their natural unit (seconds, hours, or days) as
+//! documented on each constant. Conversion between units is done at the
+//! point of use.
 
 /// Authorization code TTL in seconds (10 minutes).
 ///
@@ -18,16 +22,23 @@ pub const USER_SESSION_REFRESH_TOKEN_TTL_SECONDS: i64 = 3600;
 /// than browser sessions to reduce re-authentication overhead.
 pub const CLIENT_REFRESH_TOKEN_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
 
-/// Organization invitation TTL in days.
+/// Organization invitation TTL in days (7 days).
+///
+/// Invitations expire after this period. Recipients must accept within this window.
 pub const INVITATION_EXPIRY_DAYS: i64 = 7;
 
 /// Organization invitation TTL in hours, derived from [`INVITATION_EXPIRY_DAYS`].
 pub const INVITATION_EXPIRY_HOURS: u32 = (INVITATION_EXPIRY_DAYS * 24) as u32;
 
-/// Email verification token expiry in hours.
+/// Email verification token expiry in hours (24 hours).
+///
+/// Users must verify their email address within this window after registration
+/// or requesting a new verification link.
 pub const EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS: i64 = 24;
 
-/// Password reset token expiry in hours.
+/// Password reset token expiry in hours (1 hour).
+///
+/// Short expiry limits the window of exposure if the reset link is intercepted.
 pub const PASSWORD_RESET_TOKEN_EXPIRY_HOURS: i64 = 1;
 
 /// Maximum age for access token cookie in seconds (15 minutes).

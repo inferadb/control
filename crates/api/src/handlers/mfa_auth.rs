@@ -937,7 +937,7 @@ mod tests {
         assert_eq!(result.unwrap(), "Tpm");
     }
 
-    // ── Extracted helper functions (Workstream 4) ──────────────────────
+    // ── Challenge store helpers ────────────────────────────────────────
 
     fn test_challenge_store() -> inferadb_control_core::webauthn::ChallengeStore {
         inferadb_control_core::webauthn::ChallengeStore::default()

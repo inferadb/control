@@ -85,8 +85,11 @@ pub struct UpdateTeamMemberRequest {
 /// Team member summary.
 #[derive(Debug, Serialize)]
 pub struct TeamMemberResponse {
+    /// User slug identifier.
     pub user: u64,
+    /// Member role (e.g., `"manager"`, `"member"`).
     pub role: String,
+    /// RFC 3339 timestamp of when the user joined the team.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub joined_at: Option<String>,
 }
@@ -94,12 +97,18 @@ pub struct TeamMemberResponse {
 /// Team summary with members.
 #[derive(Debug, Serialize)]
 pub struct TeamResponse {
+    /// Team slug identifier.
     pub slug: u64,
+    /// Owning organization slug.
     pub organization: u64,
+    /// Team display name.
     pub name: String,
+    /// Current team members.
     pub members: Vec<TeamMemberResponse>,
+    /// RFC 3339 creation timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+    /// RFC 3339 last-update timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
 }
@@ -290,7 +299,7 @@ pub async fn add_team_member(
 
 /// GET /control/v1/organizations/{org}/teams/{team}/members
 ///
-/// Lists members of a team by fetching team info and extracting members.
+/// Lists members of a team.
 pub async fn list_team_members(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
@@ -311,7 +320,7 @@ pub async fn list_team_members(
 
 /// PATCH /control/v1/organizations/{org}/teams/{team}/members/{member}
 ///
-/// Updates a team member's role atomically via a single Ledger RPC.
+/// Updates a team member's role.
 pub async fn update_team_member(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,

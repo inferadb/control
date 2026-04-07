@@ -19,8 +19,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 /// Master encryption key (256-bit / 32 bytes).
 ///
-/// This key is used to encrypt client certificate private keys at rest.
-/// It is loaded from a file or auto-generated on first startup.
+/// Encrypts client certificate private keys at rest.
+/// Loaded from a file or auto-generated on first startup.
 ///
 /// Uses [`ZeroizeOnDrop`] to guarantee key material is securely erased from memory
 /// when dropped, preventing dead-store elimination by the optimizer.
@@ -41,6 +41,11 @@ impl MasterKey {
     /// If the file exists, loads and validates the 32-byte key. Otherwise, generates
     /// a new key, creates parent directories as needed, saves the key, and sets file
     /// permissions to 0600 (owner read/write only) on Unix.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read/written, parent directories
+    /// cannot be created, or the existing file has an invalid key length.
     pub fn load_or_generate(key_file: &Path) -> Result<Self> {
         if key_file.exists() {
             Self::load_from_file(key_file)
@@ -128,6 +133,10 @@ impl PrivateKeyEncryptor {
     ///
     /// The master key must be exactly 32 bytes (256 bits) of cryptographically
     /// secure random data, typically loaded via [`MasterKey::load_or_generate`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the AES-256-GCM cipher fails to initialize.
     pub fn new(master_key: &[u8; 32]) -> Result<Self> {
         let cipher = Aes256Gcm::new_from_slice(master_key)
             .map_err(|e| Error::internal(format!("Failed to initialize cipher: {e}")))?;
@@ -136,6 +145,10 @@ impl PrivateKeyEncryptor {
     }
 
     /// Creates a new encryptor from a [`MasterKey`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the AES-256-GCM cipher fails to initialize.
     pub fn from_master_key(master_key: &MasterKey) -> Result<Self> {
         Self::new(master_key.as_bytes())
     }
@@ -143,6 +156,10 @@ impl PrivateKeyEncryptor {
     /// Encrypts a private key (32 bytes for Ed25519).
     ///
     /// Returns base64-encoded ciphertext with nonce prepended (12 bytes nonce + ciphertext).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `private_key` is not exactly 32 bytes or encryption fails.
     pub fn encrypt(&self, private_key: &[u8]) -> Result<String> {
         if private_key.len() != 32 {
             return Err(Error::validation("Private key must be 32 bytes (Ed25519)".to_string()));
@@ -165,6 +182,12 @@ impl PrivateKeyEncryptor {
     ///
     /// Takes a base64-encoded string with the nonce prepended and returns the 32-byte
     /// private key wrapped in [`Zeroizing`] for secure erasure on drop.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the base64 is invalid, the ciphertext is too short,
+    /// decryption fails (wrong key or tampered data), or the plaintext length
+    /// is not 32 bytes.
     pub fn decrypt(&self, encrypted_base64: &str) -> Result<Zeroizing<Vec<u8>>> {
         let combined = BASE64_STANDARD
             .decode(encrypted_base64)
@@ -224,8 +247,7 @@ mod tests {
 
     use super::*;
 
-    fn create_test_key() -> [u8; 32] {
-        // Fixed test key for reproducible tests
+    fn fixed_master_key_bytes() -> [u8; 32] {
         [
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
             0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c,
@@ -233,193 +255,239 @@ mod tests {
         ]
     }
 
-    fn create_test_encryptor() -> PrivateKeyEncryptor {
-        let key = create_test_key();
-        PrivateKeyEncryptor::new(&key).unwrap()
+    fn test_encryptor() -> PrivateKeyEncryptor {
+        PrivateKeyEncryptor::new(&fixed_master_key_bytes()).unwrap()
+    }
+
+    // ── MasterKey ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_master_key_load_or_generate_creates_file_when_absent() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.key");
+
+        let _key = MasterKey::load_or_generate(&path).unwrap();
+
+        assert!(path.exists());
     }
 
     #[test]
-    fn test_encryptor_creation() {
-        let key = create_test_key();
-        assert!(PrivateKeyEncryptor::new(&key).is_ok());
-    }
+    fn test_master_key_load_or_generate_returns_same_key_on_reload() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.key");
 
-    #[test]
-    fn test_master_key_generate_and_load() {
-        let temp_dir = TempDir::new().unwrap();
-        let key_path = temp_dir.path().join("test.key");
+        let key1 = MasterKey::load_or_generate(&path).unwrap();
+        let key2 = MasterKey::load_or_generate(&path).unwrap();
 
-        // First call should generate a new key
-        let key1 = MasterKey::load_or_generate(&key_path).unwrap();
-
-        // File should exist now
-        assert!(key_path.exists());
-
-        // Second call should load the same key
-        let key2 = MasterKey::load_or_generate(&key_path).unwrap();
-
-        // Keys should be identical
         assert_eq!(key1.as_bytes(), key2.as_bytes());
     }
 
     #[test]
-    fn test_master_key_invalid_length() {
-        let temp_dir = TempDir::new().unwrap();
-        let key_path = temp_dir.path().join("invalid.key");
+    fn test_master_key_load_or_generate_invalid_length_returns_error() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("invalid.key");
+        fs::write(&path, b"too_short").unwrap();
 
-        // Write a file with wrong length
-        fs::write(&key_path, b"too_short").unwrap();
+        let result = MasterKey::load_or_generate(&path);
 
-        // Loading should fail
-        let result = MasterKey::load_or_generate(&key_path);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_master_key_creates_parent_dirs() {
-        let temp_dir = TempDir::new().unwrap();
-        let key_path = temp_dir.path().join("nested").join("dir").join("test.key");
+    fn test_master_key_load_or_generate_creates_parent_directories() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nested").join("dir").join("test.key");
+        assert!(!path.parent().unwrap().exists());
 
-        // Parent directories don't exist yet
-        assert!(!key_path.parent().unwrap().exists());
+        let _key = MasterKey::load_or_generate(&path).unwrap();
 
-        // Should create parent dirs and generate key
-        let _key = MasterKey::load_or_generate(&key_path).unwrap();
-
-        // File and parents should exist now
-        assert!(key_path.exists());
+        assert!(path.exists());
     }
 
     #[test]
-    fn test_encryptor_from_master_key() {
-        let temp_dir = TempDir::new().unwrap();
-        let key_path = temp_dir.path().join("test.key");
+    fn test_master_key_as_bytes_returns_32_bytes() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.key");
 
-        let master_key = MasterKey::load_or_generate(&key_path).unwrap();
+        let key = MasterKey::load_or_generate(&path).unwrap();
+
+        assert_eq!(key.as_bytes().len(), 32);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_master_key_save_sets_0600_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.key");
+
+        let _key = MasterKey::load_or_generate(&path).unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    // ── PrivateKeyEncryptor ────────────────────────────────────────────
+
+    #[test]
+    fn test_encryptor_new_valid_key_succeeds() {
+        let key = fixed_master_key_bytes();
+        assert!(PrivateKeyEncryptor::new(&key).is_ok());
+    }
+
+    #[test]
+    fn test_encryptor_from_master_key_encrypt_decrypt_roundtrips() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.key");
+        let master_key = MasterKey::load_or_generate(&path).unwrap();
+
         let encryptor = PrivateKeyEncryptor::from_master_key(&master_key).unwrap();
 
-        // Should work for encryption/decryption
-        let private_key = [42u8; 32];
-        let encrypted = encryptor.encrypt(&private_key).unwrap();
+        let plaintext = [42u8; 32];
+        let encrypted = encryptor.encrypt(&plaintext).unwrap();
         let decrypted = encryptor.decrypt(&encrypted).unwrap();
-        assert_eq!(decrypted.as_slice(), &private_key);
+        assert_eq!(decrypted.as_slice(), &plaintext);
     }
 
     #[test]
-    fn test_encrypt_decrypt_roundtrip() {
-        let encryptor = create_test_encryptor();
+    fn test_encryptor_encrypt_decrypt_roundtrip_preserves_data() {
+        let encryptor = test_encryptor();
+        let plaintext = [42u8; 32];
 
-        // Generate a test private key (32 bytes)
-        let private_key = [42u8; 32];
-
-        // Encrypt
-        let encrypted = encryptor.encrypt(&private_key).unwrap();
-        assert!(!encrypted.is_empty());
-
-        // Decrypt
+        let encrypted = encryptor.encrypt(&plaintext).unwrap();
         let decrypted = encryptor.decrypt(&encrypted).unwrap();
-        assert_eq!(decrypted.as_slice(), &private_key);
+
+        assert_eq!(decrypted.as_slice(), &plaintext);
     }
 
     #[test]
-    fn test_encrypt_invalid_key_length() {
-        let encryptor = create_test_encryptor();
+    fn test_encryptor_encrypt_non_32_byte_key_returns_validation_error() {
+        let encryptor = test_encryptor();
 
-        let wrong_size = [42u8; 16]; // Wrong size (not 32 bytes)
-        assert!(encryptor.encrypt(&wrong_size).is_err());
+        let result = encryptor.encrypt(&[42u8; 16]);
+
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_decrypt_invalid_base64() {
-        let encryptor = create_test_encryptor();
-        assert!(encryptor.decrypt("not-valid-base64!!!").is_err());
+    fn test_encryptor_encrypt_empty_key_returns_validation_error() {
+        let encryptor = test_encryptor();
+
+        let result = encryptor.encrypt(&[]);
+
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_decrypt_too_short() {
-        let encryptor = create_test_encryptor();
+    fn test_encryptor_decrypt_invalid_base64_returns_error() {
+        let encryptor = test_encryptor();
+
+        let result = encryptor.decrypt("not-valid-base64!!!");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_encryptor_decrypt_too_short_ciphertext_returns_error() {
+        let encryptor = test_encryptor();
         let short_data = BASE64_STANDARD.encode(b"short");
-        assert!(encryptor.decrypt(&short_data).is_err());
+
+        let result = encryptor.decrypt(&short_data);
+
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_decrypt_corrupted_ciphertext() {
-        let encryptor = create_test_encryptor();
-        let private_key = [42u8; 32];
-        let encrypted = encryptor.encrypt(&private_key).unwrap();
+    fn test_encryptor_decrypt_corrupted_ciphertext_returns_error() {
+        let encryptor = test_encryptor();
+        let encrypted = encryptor.encrypt(&[42u8; 32]).unwrap();
 
-        // Corrupt the ciphertext
-        let mut corrupted_bytes = BASE64_STANDARD.decode(&encrypted).unwrap();
-        corrupted_bytes[20] ^= 0xFF; // Flip bits in ciphertext
-        let corrupted = BASE64_STANDARD.encode(&corrupted_bytes);
+        let mut bytes = BASE64_STANDARD.decode(&encrypted).unwrap();
+        bytes[20] ^= 0xFF;
+        let corrupted = BASE64_STANDARD.encode(&bytes);
 
         assert!(encryptor.decrypt(&corrupted).is_err());
     }
 
     #[test]
-    fn test_encryption_is_nondeterministic() {
-        let encryptor = create_test_encryptor();
-        let private_key = [42u8; 32];
+    fn test_encryptor_decrypt_wrong_key_returns_error() {
+        let encryptor_a = PrivateKeyEncryptor::new(&[0xAA; 32]).unwrap();
+        let encryptor_b = PrivateKeyEncryptor::new(&[0xBB; 32]).unwrap();
 
-        let encrypted1 = encryptor.encrypt(&private_key).unwrap();
-        let encrypted2 = encryptor.encrypt(&private_key).unwrap();
+        let encrypted = encryptor_a.encrypt(&[42u8; 32]).unwrap();
 
-        // Same plaintext should produce different ciphertexts (due to random nonces)
-        assert_ne!(encrypted1, encrypted2);
-
-        // But both should decrypt to the same plaintext
-        let decrypted1 = encryptor.decrypt(&encrypted1).unwrap();
-        let decrypted2 = encryptor.decrypt(&encrypted2).unwrap();
-        assert_eq!(decrypted1.as_slice(), decrypted2.as_slice());
+        assert!(encryptor_b.decrypt(&encrypted).is_err());
     }
 
     #[test]
-    fn test_keypair_generation() {
-        let (public_key_base64, private_key_bytes) = keypair::generate();
+    fn test_encryptor_encrypt_produces_unique_ciphertexts_per_call() {
+        let encryptor = test_encryptor();
+        let plaintext = [42u8; 32];
 
-        // Public key should be URL-safe base64 encoded 32 bytes (Ed25519, JWK standard)
-        let public_key_decoded = URL_SAFE_NO_PAD.decode(&public_key_base64).unwrap();
-        assert_eq!(public_key_decoded.len(), 32);
+        let ct1 = encryptor.encrypt(&plaintext).unwrap();
+        let ct2 = encryptor.encrypt(&plaintext).unwrap();
 
-        // Private key should be 32 bytes
-        assert_eq!(private_key_bytes.len(), 32);
+        assert_ne!(ct1, ct2, "random nonces must produce different ciphertexts");
+
+        let pt1 = encryptor.decrypt(&ct1).unwrap();
+        let pt2 = encryptor.decrypt(&ct2).unwrap();
+        assert_eq!(pt1.as_slice(), pt2.as_slice());
+    }
+
+    // ── keypair ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_keypair_generate_returns_32_byte_public_and_private_keys() {
+        let (public_b64, private_bytes) = keypair::generate();
+
+        let public_decoded = URL_SAFE_NO_PAD.decode(&public_b64).unwrap();
+        assert_eq!(public_decoded.len(), 32);
+        assert_eq!(private_bytes.len(), 32);
     }
 
     #[test]
-    fn test_keypair_encryption_integration() {
-        let encryptor = create_test_encryptor();
+    fn test_keypair_generate_public_key_is_valid_ed25519() {
+        let (public_b64, _) = keypair::generate();
 
-        // Generate a real Ed25519 key pair
+        let decoded = URL_SAFE_NO_PAD.decode(&public_b64).unwrap();
+        let key_bytes: [u8; 32] = decoded.try_into().unwrap();
+        assert!(ed25519_dalek::VerifyingKey::from_bytes(&key_bytes).is_ok());
+    }
+
+    #[test]
+    fn test_keypair_generate_unique_keys_per_call() {
+        let (pub1, priv1) = keypair::generate();
+        let (pub2, priv2) = keypair::generate();
+
+        assert_ne!(pub1, pub2);
+        assert_ne!(priv1.as_slice(), priv2.as_slice());
+    }
+
+    #[test]
+    fn test_keypair_encrypt_decrypt_integration() {
+        let encryptor = test_encryptor();
         let (_public_key, private_key_bytes) = keypair::generate();
 
-        // Encrypt the private key
         let encrypted = encryptor.encrypt(&private_key_bytes).unwrap();
-
-        // Decrypt and verify
         let decrypted = encryptor.decrypt(&encrypted).unwrap();
+
         assert_eq!(decrypted.as_slice(), private_key_bytes.as_slice());
     }
 
     #[test]
     fn test_keypair_base64_roundtrip_consistency() {
-        // Generate multiple keypairs and verify the public key survives a
-        // URL_SAFE_NO_PAD encode → decode roundtrip, confirming no encoding
-        // mismatch between generation and consumption.
         for _ in 0..256 {
-            let (public_key_base64, _private_key_bytes) = keypair::generate();
+            let (public_b64, _) = keypair::generate();
 
-            // Decode the URL-safe base64 back to raw bytes
             let decoded = URL_SAFE_NO_PAD
-                .decode(&public_key_base64)
+                .decode(&public_b64)
                 .expect("URL_SAFE_NO_PAD decode should succeed for every generated key");
-
             assert_eq!(decoded.len(), 32, "Ed25519 public key must be 32 bytes");
 
-            // Re-encode and verify roundtrip
             let re_encoded = URL_SAFE_NO_PAD.encode(&decoded);
-            assert_eq!(re_encoded, public_key_base64, "base64 roundtrip must be lossless");
+            assert_eq!(re_encoded, public_b64, "base64 roundtrip must be lossless");
 
-            // Verify that the key reconstructs a valid Ed25519 VerifyingKey
             ed25519_dalek::VerifyingKey::from_bytes(&decoded.try_into().unwrap())
                 .expect("decoded bytes must form a valid Ed25519 public key");
         }
@@ -430,9 +498,8 @@ mod tests {
 
         use super::*;
 
-        fn create_test_encryptor() -> PrivateKeyEncryptor {
-            let master_key: [u8; 32] = [0x42; 32];
-            PrivateKeyEncryptor::new(&master_key).unwrap()
+        fn proptest_encryptor() -> PrivateKeyEncryptor {
+            PrivateKeyEncryptor::new(&[0x42; 32]).unwrap()
         }
 
         proptest! {
@@ -440,7 +507,7 @@ mod tests {
 
             #[test]
             fn encrypt_decrypt_roundtrip(key in proptest::collection::vec(any::<u8>(), 32)) {
-                let encryptor = create_test_encryptor();
+                let encryptor = proptest_encryptor();
                 let key_arr: [u8; 32] = key.try_into().unwrap();
 
                 let encrypted = encryptor.encrypt(&key_arr).unwrap();
@@ -450,16 +517,13 @@ mod tests {
 
             #[test]
             fn encrypt_produces_unique_ciphertexts(key in proptest::collection::vec(any::<u8>(), 32)) {
-                let encryptor = create_test_encryptor();
+                let encryptor = proptest_encryptor();
                 let key_arr: [u8; 32] = key.try_into().unwrap();
 
-                // Same plaintext encrypted twice should produce different ciphertexts
-                // (due to random nonce)
                 let ct1 = encryptor.encrypt(&key_arr).unwrap();
                 let ct2 = encryptor.encrypt(&key_arr).unwrap();
                 prop_assert_ne!(&ct1, &ct2);
 
-                // Both should decrypt to the same value
                 let pt1 = encryptor.decrypt(&ct1).unwrap();
                 let pt2 = encryptor.decrypt(&ct2).unwrap();
                 prop_assert_eq!(&*pt1, &*pt2);
@@ -467,7 +531,7 @@ mod tests {
 
             #[test]
             fn encrypt_rejects_non_32_byte_keys(len in (0usize..100).prop_filter("not 32", |l| *l != 32)) {
-                let encryptor = create_test_encryptor();
+                let encryptor = proptest_encryptor();
                 let key = vec![0u8; len];
                 prop_assert!(encryptor.encrypt(&key).is_err());
             }

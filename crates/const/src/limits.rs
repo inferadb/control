@@ -1,4 +1,7 @@
-//! Business constraint constants (max sessions, passkeys, organizations).
+//! Business constraint constants.
+//!
+//! Upper bounds on resources per user or globally. These limits are
+//! enforced at the application layer, not the storage layer.
 
 /// Maximum number of passkeys (WebAuthn credentials) per user.
 ///
@@ -20,5 +23,8 @@ pub const GLOBAL_ORGANIZATION_LIMIT: u64 = 100_000;
 /// Prevents abuse by limiting organization creation per user.
 pub const PER_USER_ORGANIZATION_LIMIT: u64 = 10;
 
-/// Minimum password length for user accounts.
+/// Minimum password length for user accounts (12 characters).
+///
+/// Enforced during registration and password changes. Aligns with NIST SP 800-63B
+/// guidance on memorized secret length.
 pub const MIN_PASSWORD_LENGTH: usize = 12;

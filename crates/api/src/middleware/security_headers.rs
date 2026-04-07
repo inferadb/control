@@ -57,30 +57,43 @@ mod tests {
             .layer(middleware::from_fn(security_headers_middleware))
     }
 
-    #[tokio::test]
-    async fn sets_security_headers() {
+    async fn get_response() -> Response {
         let app = test_router();
-        let req = Request::builder()
-            .uri("/test")
-            .header("host", "api.inferadb.com")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers().get("x-content-type-options").unwrap(), "nosniff");
-        assert_eq!(response.headers().get("x-frame-options").unwrap(), "DENY");
-        assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
-        assert!(response.headers().get("strict-transport-security").is_some());
-        assert_eq!(response.headers().get("referrer-policy").unwrap(), "no-referrer");
-        assert_eq!(
-            response.headers().get("content-security-policy").unwrap(),
-            "default-src 'none'"
-        );
+        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
+        app.oneshot(req).await.unwrap()
     }
 
     #[tokio::test]
-    async fn sets_hsts_for_localhost() {
+    async fn test_security_headers_all_values() {
+        let response = get_response().await;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let expected: &[(&str, &str)] = &[
+            ("x-content-type-options", "nosniff"),
+            ("x-frame-options", "DENY"),
+            ("cache-control", "no-store"),
+            ("strict-transport-security", "max-age=31536000; includeSubDomains"),
+            ("referrer-policy", "no-referrer"),
+            ("content-security-policy", "default-src 'none'"),
+        ];
+
+        for (header, value) in expected {
+            let actual = response
+                .headers()
+                .get(*header)
+                .unwrap_or_else(|| panic!("missing header: {header}"));
+            assert_eq!(
+                actual.to_str().unwrap(),
+                *value,
+                "header {header} mismatch"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_security_headers_hsts_set_unconditionally() {
+        // HSTS is set regardless of Host header (RFC 6797 section 8.1:
+        // browsers ignore it over plain HTTP, so it's harmless on localhost).
         let app = test_router();
         let req = Request::builder()
             .uri("/test")
@@ -89,9 +102,26 @@ mod tests {
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers().get("x-content-type-options").unwrap(), "nosniff");
-        // HSTS is always set — browsers ignore it over plain HTTP per RFC 6797 §8.1
-        assert!(response.headers().get("strict-transport-security").is_some());
+        assert_eq!(
+            response.headers().get("strict-transport-security").unwrap().to_str().unwrap(),
+            "max-age=31536000; includeSubDomains",
+        );
+    }
+
+    #[tokio::test]
+    async fn test_security_headers_do_not_override_status() {
+        // Middleware should not alter the inner handler's status code.
+        let app = Router::new()
+            .route(
+                "/err",
+                get(|| async { (StatusCode::NOT_FOUND, "nope") }),
+            )
+            .layer(middleware::from_fn(security_headers_middleware));
+
+        let req = Request::builder().uri("/err").body(Body::empty()).unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        // Headers still applied even on error responses
+        assert_eq!(response.headers().get("x-frame-options").unwrap(), "DENY");
     }
 }

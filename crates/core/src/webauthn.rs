@@ -86,6 +86,11 @@ impl ChallengeStore {
     ///
     /// Returns a base64url-encoded string containing `nonce || ciphertext || tag`.
     /// The plaintext is `timestamp_bytes || json_bytes`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization or encryption fails, or if the system
+    /// clock cannot be read.
     pub fn insert(&self, state: ChallengeState) -> Result<String> {
         let json = serde_json::to_vec(&state)
             .map_err(|e| Error::internal(format!("failed to serialize challenge state: {e}")))?;
@@ -174,6 +179,11 @@ impl Default for ChallengeStore {
 ///
 /// The RP ID and origin are immutable after deployment — changing them
 /// invalidates all registered credentials.
+///
+/// # Errors
+///
+/// Returns an error if the origin URL is invalid or the WebAuthn builder
+/// rejects the configuration.
 pub fn build_webauthn(rp_id: &str, origin: &str) -> Result<webauthn_rs::Webauthn> {
     let rp_origin =
         Url::parse(origin).map_err(|e| Error::config(format!("invalid WebAuthn origin: {e}")))?;
@@ -194,6 +204,10 @@ pub fn build_webauthn(rp_id: &str, origin: &str) -> Result<webauthn_rs::Webauthn
 /// Serializes the entire [`Passkey`] as JSON into the `public_key` field,
 /// avoiding dependency on webauthn-rs internal struct layouts and guaranteeing
 /// lossless round-tripping via [`credential_info_to_passkey`].
+///
+/// # Errors
+///
+/// Returns an error if the passkey cannot be serialized to JSON.
 pub fn passkey_to_credential_data(passkey: &Passkey) -> Result<CredentialData> {
     let cred: Credential = passkey.clone().into();
 
@@ -227,6 +241,10 @@ pub fn passkey_to_credential_data(passkey: &Passkey) -> Result<CredentialData> {
 ///
 /// Deserializes the [`Passkey`] from the JSON stored in `public_key`.
 /// Inverse of [`passkey_to_credential_data`].
+///
+/// # Errors
+///
+/// Returns an error if the stored JSON cannot be deserialized into a [`Passkey`].
 pub fn credential_info_to_passkey(info: &PasskeyCredential) -> Result<Passkey> {
     serde_json::from_slice(&info.public_key)
         .map_err(|e| Error::internal(format!("failed to deserialize passkey: {e}")))
@@ -237,156 +255,201 @@ pub fn credential_info_to_passkey(info: &PasskeyCredential) -> Result<Passkey> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn challenge_store_insert_and_take_round_trip() {
+    /// Helper: produce a real `ChallengeState::Registration` via webauthn-rs.
+    fn registration_state(user_slug: u64) -> ChallengeState {
         let webauthn = build_webauthn("localhost", "http://localhost:3000").unwrap();
-        let store = ChallengeStore::default();
-
-        // Start a registration ceremony to produce a real PasskeyRegistration state.
         let user_id = Uuid::new_v4();
         let (_, reg_state) =
             webauthn.start_passkey_registration(user_id, "test-user", "Test User", None).unwrap();
+        ChallengeState::Registration { user_slug, state: reg_state }
+    }
 
-        let state = ChallengeState::Registration { user_slug: 42, state: reg_state };
+    /// Helper: produce a real `ChallengeState::Authentication` via webauthn-rs.
+    fn authentication_state(user_slug: u64) -> ChallengeState {
+        let webauthn = build_webauthn("localhost", "http://localhost:3000").unwrap();
+        let user_id = Uuid::new_v4();
+        // Start registration first to get a passkey
+        let (ccr, reg_state) =
+            webauthn.start_passkey_registration(user_id, "test-user", "Test User", None).unwrap();
+        // We cannot complete registration without an authenticator, so we
+        // generate an authentication ceremony with an empty credential list
+        // which produces a valid PasskeyAuthentication state.
+        // webauthn-rs requires at least one credential for authentication,
+        // so we use the Registration variant for the roundtrip test of
+        // Authentication's serialization path instead.
+        //
+        // Actually, just test via the Registration state since both variants
+        // exercise the same encrypt/serialize path. The important thing is
+        // verifying both variants survive the roundtrip.
+        let _ = (ccr, reg_state);
+        // We can't easily construct an Authentication variant without a real
+        // credential, so we return a Registration and test the variant check
+        // in the caller.
+        ChallengeState::Registration { user_slug, state: reg_state }
+    }
+
+    /// Helper: craft a token with a specific timestamp using raw crypto ops.
+    fn craft_token_with_timestamp(store: &ChallengeStore, json: &[u8], timestamp_secs: u64) -> String {
+        let mut plaintext = Vec::with_capacity(TIMESTAMP_LEN + json.len());
+        plaintext.extend_from_slice(&timestamp_secs.to_be_bytes());
+        plaintext.extend_from_slice(json);
+
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        store.cipher.encrypt_in_place(&nonce, b"", &mut plaintext).unwrap();
+
+        let mut output = Vec::with_capacity(NONCE_LEN + plaintext.len());
+        output.extend_from_slice(&nonce);
+        output.extend_from_slice(&plaintext);
+
+        URL_SAFE_NO_PAD.encode(&output)
+    }
+
+    // ── ChallengeStore ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_challenge_store_insert_take_roundtrip_preserves_registration_state() {
+        let store = ChallengeStore::default();
+        let state = registration_state(42);
+
         let token = store.insert(state).unwrap();
         assert!(!token.is_empty());
 
-        // Take should succeed once and return the correct state.
-        let recovered = store.take(&token);
-        assert!(recovered.is_some());
-        match recovered.unwrap() {
+        let recovered = store.take(&token).unwrap();
+        match recovered {
             ChallengeState::Registration { user_slug, .. } => assert_eq!(user_slug, 42),
             _ => panic!("expected Registration variant"),
         }
     }
 
     #[test]
-    fn challenge_store_take_is_single_use() {
-        let webauthn = build_webauthn("localhost", "http://localhost:3000").unwrap();
+    fn test_challenge_store_stateless_token_reusable_within_ttl() {
         let store = ChallengeStore::default();
-
-        let user_id = Uuid::new_v4();
-        let (_, reg_state) =
-            webauthn.start_passkey_registration(user_id, "test-user", "Test User", None).unwrap();
-
-        let state = ChallengeState::Registration { user_slug: 1, state: reg_state };
+        let state = registration_state(1);
         let token = store.insert(state).unwrap();
 
-        // First take succeeds.
+        // Stateless design: token decrypts on every call within TTL
         assert!(store.take(&token).is_some());
-        // Stateless tokens are not single-use (no server state to invalidate),
-        // but a second take within the TTL should still decrypt successfully.
         assert!(store.take(&token).is_some());
     }
 
     #[test]
-    fn challenge_store_nonexistent_token_returns_none() {
+    fn test_challenge_store_take_garbage_string_returns_none() {
         let store = ChallengeStore::default();
+
         assert!(store.take("nonexistent-token").is_none());
     }
 
     #[test]
-    fn challenge_store_expired_token_rejected() {
-        let key = [0u8; 32];
-        let store = ChallengeStore::new(&key);
-
-        // Manually craft a token with an old timestamp
-        let json = b"{}"; // Not a valid ChallengeState, but we test TTL first
-        let old_timestamp: u64 =
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().saturating_sub(120); // 2 minutes ago
-
-        let mut plaintext = Vec::new();
-        plaintext.extend_from_slice(&old_timestamp.to_be_bytes());
-        plaintext.extend_from_slice(json);
-
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        store.cipher.encrypt_in_place(&nonce, b"", &mut plaintext).unwrap();
-
-        let mut output = Vec::new();
-        output.extend_from_slice(&nonce);
-        output.extend_from_slice(&plaintext);
-
-        let token = URL_SAFE_NO_PAD.encode(&output);
-        assert!(store.take(&token).is_none());
-    }
-
-    #[test]
-    fn challenge_store_tampered_token_rejected() {
+    fn test_challenge_store_take_empty_string_returns_none() {
         let store = ChallengeStore::default();
-        // A random base64 string should fail decryption
-        let token = URL_SAFE_NO_PAD.encode([42u8; 64]);
-        assert!(store.take(&token).is_none());
-    }
 
-    #[test]
-    fn challenge_store_short_token_rejected() {
-        let store = ChallengeStore::default();
-        let token = URL_SAFE_NO_PAD.encode([1u8; 4]);
-        assert!(store.take(&token).is_none());
-    }
-
-    #[test]
-    fn challenge_store_empty_token_rejected() {
-        let store = ChallengeStore::default();
         assert!(store.take("").is_none());
     }
 
     #[test]
-    fn challenge_store_new_with_key() {
-        let key = [7u8; 32];
+    fn test_challenge_store_take_expired_token_returns_none() {
+        let key = [0u8; 32];
         let store = ChallengeStore::new(&key);
-        // Verify the store is functional (no panics)
-        assert!(store.take("nonexistent").is_none());
+        let two_minutes_ago =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().saturating_sub(120);
+
+        let token = craft_token_with_timestamp(&store, b"{}", two_minutes_ago);
+
+        assert!(store.take(&token).is_none());
     }
 
     #[test]
-    fn challenge_store_different_keys_reject() {
-        let store1 = ChallengeStore::new(&[1u8; 32]);
-        let store2 = ChallengeStore::new(&[2u8; 32]);
+    fn test_challenge_store_take_tampered_ciphertext_returns_none() {
+        let store = ChallengeStore::default();
+        let token = URL_SAFE_NO_PAD.encode([42u8; 64]);
 
-        // We can't easily construct a real ChallengeState without a Webauthn
-        // instance, but we can verify that a token from store1 fails on store2
-        // by directly testing the inner encrypt/decrypt path.
-        // The insert_inner requires a valid ChallengeState, so we test at the
-        // crypto level: encrypt with key1, attempt decrypt with key2.
-        let mut plaintext = Vec::from(&[0u8; 8 + 2][..]);
+        assert!(store.take(&token).is_none());
+    }
+
+    #[test]
+    fn test_challenge_store_take_too_short_returns_none() {
+        let store = ChallengeStore::default();
+
+        // Shorter than nonce
+        assert!(store.take(&URL_SAFE_NO_PAD.encode([1u8; 4])).is_none());
+
+        // Exactly nonce length (missing timestamp)
+        assert!(store.take(&URL_SAFE_NO_PAD.encode([0u8; NONCE_LEN])).is_none());
+
+        // Nonce + partial timestamp
+        assert!(
+            store
+                .take(&URL_SAFE_NO_PAD.encode([0u8; NONCE_LEN + TIMESTAMP_LEN - 1]))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_challenge_store_take_corrupted_payload_returns_none() {
+        let store = ChallengeStore::default();
+        let data = [0xAB_u8; NONCE_LEN + TIMESTAMP_LEN + 32];
+        let token = URL_SAFE_NO_PAD.encode(data);
+
+        assert!(store.take(&token).is_none());
+    }
+
+    #[test]
+    fn test_challenge_store_different_keys_cannot_decrypt_each_others_tokens() {
+        let store_a = ChallengeStore::new(&[1u8; 32]);
+        let store_b = ChallengeStore::new(&[2u8; 32]);
+
+        // Encrypt raw data with store_a's key
+        let mut plaintext = vec![0u8; TIMESTAMP_LEN + 2];
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        store1.cipher.encrypt_in_place(&nonce, b"", &mut plaintext).unwrap();
+        store_a.cipher.encrypt_in_place(&nonce, b"", &mut plaintext).unwrap();
 
         let mut output = Vec::new();
         output.extend_from_slice(&nonce);
         output.extend_from_slice(&plaintext);
         let token = URL_SAFE_NO_PAD.encode(&output);
 
-        assert!(store2.take(&token).is_none());
+        assert!(store_b.take(&token).is_none());
     }
 
     #[test]
-    fn challenge_store_take_token_exactly_nonce_len_returns_none() {
+    fn test_challenge_store_default_creates_functional_store() {
         let store = ChallengeStore::default();
-        let token = URL_SAFE_NO_PAD.encode([0u8; NONCE_LEN]);
-        assert!(store.take(&token).is_none());
+        let state = registration_state(99);
+
+        let token = store.insert(state).unwrap();
+        let recovered = store.take(&token);
+
+        assert!(recovered.is_some());
     }
 
     #[test]
-    fn challenge_store_take_token_nonce_plus_partial_timestamp_returns_none() {
-        let store = ChallengeStore::default();
-        let data = [0u8; NONCE_LEN + TIMESTAMP_LEN - 1];
-        let token = URL_SAFE_NO_PAD.encode(data);
-        assert!(store.take(&token).is_none());
+    fn test_challenge_store_new_with_explicit_key_is_functional() {
+        let store = ChallengeStore::new(&[7u8; 32]);
+
+        assert!(store.take("nonexistent").is_none());
+    }
+
+    // ── build_webauthn ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_build_webauthn_localhost_http_succeeds() {
+        assert!(build_webauthn("localhost", "http://localhost:3000").is_ok());
     }
 
     #[test]
-    fn challenge_store_take_corrupted_ciphertext_returns_none() {
-        let store = ChallengeStore::default();
-        // Valid length but random bytes: nonce + enough for timestamp + some payload
-        let data = [0xAB_u8; NONCE_LEN + TIMESTAMP_LEN + 32];
-        let token = URL_SAFE_NO_PAD.encode(data);
-        assert!(store.take(&token).is_none());
+    fn test_build_webauthn_https_origin_succeeds() {
+        assert!(build_webauthn("example.com", "https://example.com").is_ok());
     }
 
     #[test]
-    fn credential_info_to_passkey_invalid_json_returns_error() {
+    fn test_build_webauthn_invalid_origin_returns_error() {
+        assert!(build_webauthn("localhost", "not-a-url").is_err());
+    }
+
+    // ── Credential conversions ─────────────────────────────────────────
+
+    #[test]
+    fn test_credential_info_to_passkey_invalid_json_returns_error() {
         let info = PasskeyCredential {
             credential_id: vec![1, 2, 3],
             public_key: b"not-valid-json".to_vec(),
@@ -397,25 +460,7 @@ mod tests {
             attestation_format: None,
             aaguid: None,
         };
-        let result = credential_info_to_passkey(&info);
-        assert!(result.is_err());
-    }
 
-    #[test]
-    fn build_webauthn_https_origin() {
-        let result = build_webauthn("example.com", "https://example.com");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn build_webauthn_valid_config() {
-        let result = build_webauthn("localhost", "http://localhost:3000");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn build_webauthn_invalid_origin() {
-        let result = build_webauthn("localhost", "not-a-url");
-        assert!(result.is_err());
+        assert!(credential_info_to_passkey(&info).is_err());
     }
 }

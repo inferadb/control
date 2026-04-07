@@ -79,15 +79,20 @@ pub struct RevokeVaultTokensRequest {
 /// Response containing an access/refresh token pair.
 #[derive(Debug, Serialize)]
 pub struct TokenPairResponse {
+    /// JWT access token.
     pub access_token: String,
+    /// Opaque refresh token for obtaining new access tokens.
     pub refresh_token: String,
+    /// Token type (always `"Bearer"`).
     pub token_type: String,
+    /// Seconds until the access token expires.
     pub expires_in: u64,
 }
 
 /// Response containing the number of revoked tokens.
 #[derive(Debug, Serialize)]
 pub struct RevokeTokensResponse {
+    /// Number of tokens that were revoked.
     pub revoked_count: u64,
 }
 

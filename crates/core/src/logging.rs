@@ -77,9 +77,10 @@ impl Default for LogConfig {
 /// Configures tracing-subscriber with the specified format, filters, and
 /// output options.
 ///
-/// # Arguments
+/// # Errors
 ///
-/// * `config` - Logging configuration options
+/// Returns an error if the env filter is invalid or the subscriber
+/// cannot be initialized (e.g., a global subscriber is already set).
 ///
 /// # Examples
 ///
@@ -323,18 +324,12 @@ mod tests {
         });
     }
 
-    #[test]
-    fn test_log_config_default() {
-        let config = LogConfig::default();
-        assert_eq!(config.format, LogFormat::default());
-        assert!(!config.include_target);
-        assert!(!config.include_thread_id);
-        assert!(config.ansi.is_none()); // Auto-detect
-    }
+    // ── LogFormat ──
 
     #[test]
-    fn test_log_format_default() {
+    fn test_log_format_default_matches_build_profile() {
         let format = LogFormat::default();
+
         #[cfg(debug_assertions)]
         assert_eq!(format, LogFormat::Full);
         #[cfg(not(debug_assertions))]
@@ -342,20 +337,56 @@ mod tests {
     }
 
     #[test]
-    fn test_log_format_variants() {
-        assert_eq!(LogFormat::Full, LogFormat::Full);
-        assert_eq!(LogFormat::Pretty, LogFormat::Pretty);
-        assert_eq!(LogFormat::Compact, LogFormat::Compact);
-        assert_eq!(LogFormat::Json, LogFormat::Json);
-        assert_ne!(LogFormat::Full, LogFormat::Json);
+    fn test_log_format_variants_are_distinct() {
+        let variants = [LogFormat::Full, LogFormat::Pretty, LogFormat::Compact, LogFormat::Json];
+
+        for (i, a) in variants.iter().enumerate() {
+            for (j, b) in variants.iter().enumerate() {
+                if i == j {
+                    assert_eq!(a, b);
+                } else {
+                    assert_ne!(a, b, "{a:?} should differ from {b:?}");
+                }
+            }
+        }
+    }
+
+    // ── LogConfig defaults ──
+
+    #[test]
+    fn test_log_config_default_target_and_thread_disabled() {
+        let config = LogConfig::default();
+
+        assert!(!config.include_target);
+        assert!(!config.include_thread_id);
+        assert!(config.ansi.is_none());
+        assert!(config.filter.is_none());
     }
 
     #[test]
-    fn test_log_config_custom() {
+    fn test_log_config_default_location_matches_build_profile() {
+        let config = LogConfig::default();
+
+        #[cfg(debug_assertions)]
+        {
+            assert!(config.include_location);
+            assert!(config.log_spans);
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            assert!(!config.include_location);
+            assert!(!config.log_spans);
+        }
+    }
+
+    // ── LogConfig construction ──
+
+    #[test]
+    fn test_log_config_custom_fields_are_preserved() {
         let config = LogConfig {
             format: LogFormat::Json,
             include_location: true,
-            include_target: false,
+            include_target: true,
             include_thread_id: true,
             log_spans: true,
             ansi: Some(false),
@@ -364,7 +395,7 @@ mod tests {
 
         assert_eq!(config.format, LogFormat::Json);
         assert!(config.include_location);
-        assert!(!config.include_target);
+        assert!(config.include_target);
         assert!(config.include_thread_id);
         assert!(config.log_spans);
         assert_eq!(config.ansi, Some(false));
@@ -372,36 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn test_init_logging_does_not_panic() {
-        init_test_logging();
-        // If we get here without panicking, the test passes
-    }
-
-    #[test]
-    fn test_log_format_debug() {
-        let debug = format!("{:?}", LogFormat::Full);
-        assert_eq!(debug, "Full");
-        assert_eq!(format!("{:?}", LogFormat::Pretty), "Pretty");
-        assert_eq!(format!("{:?}", LogFormat::Compact), "Compact");
-        assert_eq!(format!("{:?}", LogFormat::Json), "Json");
-    }
-
-    #[test]
-    fn test_log_format_clone() {
-        let fmt = LogFormat::Pretty;
-        let cloned = fmt;
-        assert_eq!(fmt, cloned);
-    }
-
-    #[test]
-    fn test_log_config_debug() {
-        let config = LogConfig::default();
-        let debug = format!("{config:?}");
-        assert!(debug.contains("LogConfig"));
-    }
-
-    #[test]
-    fn test_log_config_clone() {
+    fn test_log_config_clone_preserves_all_fields() {
         let config = LogConfig {
             format: LogFormat::Json,
             include_location: true,
@@ -411,42 +413,42 @@ mod tests {
             ansi: Some(true),
             filter: Some("trace".to_string()),
         };
+
         let cloned = config.clone();
-        assert_eq!(cloned.format, LogFormat::Json);
-        assert!(cloned.include_location);
-        assert!(cloned.include_target);
-        assert!(cloned.include_thread_id);
-        assert!(cloned.log_spans);
-        assert_eq!(cloned.ansi, Some(true));
-        assert_eq!(cloned.filter, Some("trace".to_string()));
+
+        assert_eq!(cloned.format, config.format);
+        assert_eq!(cloned.include_location, config.include_location);
+        assert_eq!(cloned.include_target, config.include_target);
+        assert_eq!(cloned.include_thread_id, config.include_thread_id);
+        assert_eq!(cloned.log_spans, config.log_spans);
+        assert_eq!(cloned.ansi, config.ansi);
+        assert_eq!(cloned.filter, config.filter);
+    }
+
+    // ── init_logging ──
+
+    #[test]
+    fn test_init_logging_succeeds_without_panic() {
+        init_test_logging();
     }
 
     #[test]
-    fn test_log_config_default_log_spans() {
-        let config = LogConfig::default();
-        #[cfg(debug_assertions)]
-        assert!(config.log_spans);
-        #[cfg(not(debug_assertions))]
-        assert!(!config.log_spans);
+    fn test_init_logging_duplicate_subscriber_silently_handled() {
+        // The first call succeeds (or already happened). The second fails because
+        // a global subscriber is already set -- but init() swallows the error.
+        init("warn", true);
+        init("info", false);
     }
 
-    #[test]
-    fn test_log_config_default_include_location() {
-        let config = LogConfig::default();
-        #[cfg(debug_assertions)]
-        assert!(config.include_location);
-        #[cfg(not(debug_assertions))]
-        assert!(!config.include_location);
-    }
+    // ── init() convenience function ──
 
     #[test]
-    fn test_init_convenience_json() {
-        // init() should not panic regardless of duplicate subscriber
+    fn test_init_json_true_does_not_panic() {
         init("warn", true);
     }
 
     #[test]
-    fn test_init_convenience_text() {
+    fn test_init_json_false_does_not_panic() {
         init("info", false);
     }
 }

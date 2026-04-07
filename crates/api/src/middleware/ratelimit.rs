@@ -97,38 +97,60 @@ fn rate_limit_response(retry_after_secs: u64) -> Response {
 mod tests {
     use super::*;
 
+    // ── rate_limit_response ──────────────────────────────────────
+
     #[test]
-    fn rate_limit_response_returns_429() {
+    fn test_rate_limit_response_status_and_retry_after() {
+        let cases: &[(u64, &str)] = &[(0, "0"), (60, "60"), (120, "120"), (86400, "86400")];
+
+        for &(secs, expected) in cases {
+            let response = rate_limit_response(secs);
+            assert_eq!(
+                response.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "retry_after={secs} should return 429"
+            );
+            let retry_after = response.headers().get(header::RETRY_AFTER).unwrap();
+            assert_eq!(
+                retry_after.to_str().unwrap(),
+                expected,
+                "Retry-After header mismatch for secs={secs}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_rate_limit_response_body_contains_error_code() {
+        let response = rate_limit_response(30);
+        let body_bytes =
+            axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+        assert_eq!(body["code"], "RATE_LIMIT_EXCEEDED");
+        assert_eq!(body["error"], "rate limit exceeded");
+    }
+
+    #[test]
+    fn test_rate_limit_response_content_type_is_json() {
         let response = rate_limit_response(60);
-        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let content_type = response.headers().get("content-type").unwrap().to_str().unwrap();
+        assert!(
+            content_type.contains("application/json"),
+            "expected JSON content type, got: {content_type}"
+        );
     }
 
-    #[test]
-    fn rate_limit_response_includes_retry_after_header() {
-        let response = rate_limit_response(120);
-        let retry_after = response.headers().get(header::RETRY_AFTER).unwrap();
-        assert_eq!(retry_after.to_str().unwrap(), "120");
-    }
+    // ── RateLimitConfig ──────────────────────────────────────────
 
     #[test]
-    fn rate_limit_response_zero_seconds() {
-        let response = rate_limit_response(0);
-        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        let retry_after = response.headers().get(header::RETRY_AFTER).unwrap();
-        assert_eq!(retry_after.to_str().unwrap(), "0");
-    }
-
-    #[test]
-    fn rate_limit_response_large_retry_after() {
-        let response = rate_limit_response(86400);
-        let retry_after = response.headers().get(header::RETRY_AFTER).unwrap();
-        assert_eq!(retry_after.to_str().unwrap(), "86400");
-    }
-
-    #[test]
-    fn rate_limit_config_default_values() {
+    fn test_rate_limit_config_default_login_limit() {
         let config = RateLimitConfig::default();
         assert_eq!(config.login.max_requests, 100);
+    }
+
+    #[test]
+    fn test_rate_limit_config_default_registration_limit() {
+        let config = RateLimitConfig::default();
         assert_eq!(config.registration.max_requests, 5);
     }
 }

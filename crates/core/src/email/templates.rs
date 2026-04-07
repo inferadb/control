@@ -553,38 +553,161 @@ This is an automated message, please do not reply.
 mod tests {
     use super::*;
 
+    // ── VerificationEmailTemplate ───────────────────────────────
+
     #[test]
-    fn test_verification_email_template() {
+    fn test_verification_subject_is_static() {
+        let template = VerificationEmailTemplate {
+            user_name: "Any".to_string(),
+            verification_link: "https://example.com/verify".to_string(),
+            verification_code: "CODE".to_string(),
+        };
+
+        assert_eq!(template.subject(), "Verify your email address");
+    }
+
+    #[test]
+    fn test_verification_html_contains_all_fields() {
         let template = VerificationEmailTemplate {
             user_name: "John Doe".to_string(),
             verification_link: "https://example.com/verify?token=abc123".to_string(),
             verification_code: "ABC123".to_string(),
         };
 
-        assert_eq!(template.subject(), "Verify your email address");
-        assert!(template.html_body().contains("John Doe"));
-        assert!(template.html_body().contains("https://example.com/verify?token=abc123"));
-        assert!(template.html_body().contains("ABC123"));
-        assert!(template.text_body().contains("John Doe"));
-        assert!(template.text_body().contains("https://example.com/verify?token=abc123"));
-        assert!(template.text_body().contains("ABC123"));
+        let html = template.html_body();
+        assert!(html.contains("John Doe"));
+        assert!(html.contains("https://example.com/verify?token=abc123"));
+        assert!(html.contains("ABC123"));
+        assert!(html.contains("<!DOCTYPE html>"));
     }
 
     #[test]
-    fn test_password_reset_email_template() {
+    fn test_verification_text_contains_all_fields() {
+        let template = VerificationEmailTemplate {
+            user_name: "John Doe".to_string(),
+            verification_link: "https://example.com/verify?token=abc123".to_string(),
+            verification_code: "ABC123".to_string(),
+        };
+
+        let text = template.text_body();
+        assert!(text.contains("John Doe"));
+        assert!(text.contains("https://example.com/verify?token=abc123"));
+        assert!(text.contains("ABC123"));
+    }
+
+    #[test]
+    fn test_verification_xss_in_all_fields() {
+        let xss = "<script>alert('xss')</script>".to_string();
+        let template = VerificationEmailTemplate {
+            user_name: xss.clone(),
+            verification_link: xss.clone(),
+            verification_code: xss.clone(),
+        };
+
+        let html = template.html_body();
+        assert!(!html.contains("<script>alert('xss')</script>"));
+        assert!(html.contains("&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"));
+
+        let text = template.text_body();
+        assert!(text.contains("<script>alert('xss')</script>"));
+    }
+
+    // ── PasswordResetEmailTemplate ──────────────────────────────
+
+    #[test]
+    fn test_password_reset_subject_is_static() {
+        let template = PasswordResetEmailTemplate {
+            user_name: "Any".to_string(),
+            reset_link: "https://example.com/reset".to_string(),
+            reset_code: "CODE".to_string(),
+        };
+
+        assert_eq!(template.subject(), "Reset your password");
+    }
+
+    #[test]
+    fn test_password_reset_html_contains_all_fields() {
         let template = PasswordResetEmailTemplate {
             user_name: "Jane Smith".to_string(),
             reset_link: "https://example.com/reset?token=xyz789".to_string(),
             reset_code: "XYZ789".to_string(),
         };
 
-        assert_eq!(template.subject(), "Reset your password");
-        assert!(template.html_body().contains("Jane Smith"));
-        assert!(template.html_body().contains("https://example.com/reset?token=xyz789"));
-        assert!(template.html_body().contains("XYZ789"));
-        assert!(template.text_body().contains("Jane Smith"));
-        assert!(template.text_body().contains("https://example.com/reset?token=xyz789"));
-        assert!(template.text_body().contains("XYZ789"));
+        let html = template.html_body();
+        assert!(html.contains("Jane Smith"));
+        assert!(html.contains("https://example.com/reset?token=xyz789"));
+        assert!(html.contains("XYZ789"));
+        assert!(html.contains("<!DOCTYPE html>"));
+    }
+
+    #[test]
+    fn test_password_reset_text_contains_all_fields() {
+        let template = PasswordResetEmailTemplate {
+            user_name: "Jane Smith".to_string(),
+            reset_link: "https://example.com/reset?token=xyz789".to_string(),
+            reset_code: "XYZ789".to_string(),
+        };
+
+        let text = template.text_body();
+        assert!(text.contains("Jane Smith"));
+        assert!(text.contains("https://example.com/reset?token=xyz789"));
+        assert!(text.contains("XYZ789"));
+    }
+
+    #[test]
+    fn test_password_reset_xss_in_all_fields() {
+        let xss = "<script>alert('xss')</script>".to_string();
+        let template = PasswordResetEmailTemplate {
+            user_name: xss.clone(),
+            reset_link: xss.clone(),
+            reset_code: xss.clone(),
+        };
+
+        let html = template.html_body();
+        assert!(!html.contains("<script>alert('xss')</script>"));
+        assert!(html.contains("&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"));
+
+        let text = template.text_body();
+        assert!(text.contains("<script>alert('xss')</script>"));
+    }
+
+    // ── InvitationEmailTemplate ─────────────────────────────────
+
+    #[test]
+    fn test_invitation_subject_contains_org_name() {
+        let template = InvitationEmailTemplate {
+            invitee_email: "test@example.com".to_string(),
+            organization_name: "Acme Corp".to_string(),
+            inviter_name: "Alice".to_string(),
+            role: "member".to_string(),
+            invitation_link: "https://example.com/invite".to_string(),
+            invitation_token: "TOKEN".to_string(),
+            expires_in: "7 days".to_string(),
+        };
+
+        assert_eq!(template.subject(), "You've been invited to join Acme Corp");
+    }
+
+    #[test]
+    fn test_invitation_html_contains_all_fields() {
+        let template = InvitationEmailTemplate {
+            invitee_email: "bob@example.com".to_string(),
+            organization_name: "Acme Corp".to_string(),
+            inviter_name: "Alice".to_string(),
+            role: "admin".to_string(),
+            invitation_link: "https://example.com/invite?token=abc".to_string(),
+            invitation_token: "ABC123".to_string(),
+            expires_in: "7 days".to_string(),
+        };
+
+        let html = template.html_body();
+        assert!(html.contains("Alice"));
+        assert!(html.contains("Acme Corp"));
+        assert!(html.contains("admin"));
+        assert!(html.contains("https://example.com/invite?token=abc"));
+        assert!(html.contains("ABC123"));
+        assert!(html.contains("7 days"));
+        assert!(html.contains("<!DOCTYPE html>"));
     }
 
     #[test]
@@ -616,51 +739,28 @@ mod tests {
     }
 
     #[test]
-    fn test_invitation_accepted_xss_prevention() {
-        let template = InvitationAcceptedEmailTemplate {
-            owner_name: "Safe Owner".to_string(),
-            member_name: r#"<b "onmouseover=alert(1)>attacker</b>"#.to_string(),
-            member_email: "attacker@example.com".to_string(),
-            organization_name: "Safe Org".to_string(),
-            role: "member".to_string(),
-        };
-
-        let html = template.html_body();
-        assert!(!html.contains(r#"<b "onmouseover"#), "HTML tags in member_name must be escaped");
-        assert!(html.contains("&lt;b &quot;onmouseover=alert(1)&gt;attacker&lt;/b&gt;"));
-    }
-
-    #[test]
-    fn test_role_change_xss_prevention() {
-        let template = RoleChangeEmailTemplate {
-            member_name: "Target User".to_string(),
-            organization_name: "Normal Org".to_string(),
-            old_role: "member".to_string(),
-            new_role: "admin".to_string(),
-            changed_by: "<script>steal()</script>".to_string(),
-        };
-
-        let html = template.html_body();
-        assert!(html.contains("&lt;script&gt;steal()&lt;/script&gt;"));
-        assert!(!html.contains("<script>steal()</script>"));
-    }
-
-    #[test]
-    fn test_org_deletion_xss_prevention() {
-        let template = OrganizationDeletionWarningEmailTemplate {
-            member_name: "User".to_string(),
+    fn test_invitation_text_body_not_escaped() {
+        let template = InvitationEmailTemplate {
+            invitee_email: "test@example.com".to_string(),
             organization_name: "<script>alert(1)</script>".to_string(),
-            deleted_by: "Admin".to_string(),
-            days_until_deletion: 30,
+            inviter_name: "Normal Name".to_string(),
+            role: "admin".to_string(),
+            invitation_link: "https://example.com/invite".to_string(),
+            invitation_token: "TOKEN".to_string(),
+            expires_in: "7 days".to_string(),
         };
 
-        let html = template.html_body();
-        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
-        assert!(!html.contains("<script>alert(1)</script>"));
+        let text = template.text_body();
+        assert!(
+            text.contains("<script>alert(1)</script>"),
+            "plain text body should not HTML-escape (it is not rendered as HTML)"
+        );
     }
 
+    // ── InvitationAcceptedEmailTemplate ─────────────────────────
+
     #[test]
-    fn test_invitation_accepted_subject_and_bodies() {
+    fn test_invitation_accepted_subject_contains_member_and_org() {
         let template = InvitationAcceptedEmailTemplate {
             owner_name: "Alice Owner".to_string(),
             member_name: "Bob Member".to_string(),
@@ -673,6 +773,17 @@ mod tests {
         assert!(subject.contains("Bob Member"));
         assert!(subject.contains("Acme Corp"));
         assert!(subject.contains("accepted"));
+    }
+
+    #[test]
+    fn test_invitation_accepted_html_contains_all_fields() {
+        let template = InvitationAcceptedEmailTemplate {
+            owner_name: "Alice Owner".to_string(),
+            member_name: "Bob Member".to_string(),
+            member_email: "bob@example.com".to_string(),
+            organization_name: "Acme Corp".to_string(),
+            role: "admin".to_string(),
+        };
 
         let html = template.html_body();
         assert!(html.contains("Alice Owner"));
@@ -682,6 +793,17 @@ mod tests {
         assert!(html.contains("admin"));
         assert!(html.contains("Invitation Accepted"));
         assert!(html.contains("<!DOCTYPE html>"));
+    }
+
+    #[test]
+    fn test_invitation_accepted_text_contains_all_fields() {
+        let template = InvitationAcceptedEmailTemplate {
+            owner_name: "Alice Owner".to_string(),
+            member_name: "Bob Member".to_string(),
+            member_email: "bob@example.com".to_string(),
+            organization_name: "Acme Corp".to_string(),
+            role: "admin".to_string(),
+        };
 
         let text = template.text_body();
         assert!(text.contains("Alice Owner"));
@@ -711,8 +833,10 @@ mod tests {
         assert!(text.contains("<script>alert('xss')</script>"));
     }
 
+    // ── RoleChangeEmailTemplate ─────────────────────────────────
+
     #[test]
-    fn test_role_change_subject_and_bodies() {
+    fn test_role_change_subject_contains_org_name() {
         let template = RoleChangeEmailTemplate {
             member_name: "Carol".to_string(),
             organization_name: "DevOrg".to_string(),
@@ -724,6 +848,17 @@ mod tests {
         let subject = template.subject();
         assert!(subject.contains("DevOrg"));
         assert!(subject.contains("updated"));
+    }
+
+    #[test]
+    fn test_role_change_html_contains_all_fields() {
+        let template = RoleChangeEmailTemplate {
+            member_name: "Carol".to_string(),
+            organization_name: "DevOrg".to_string(),
+            old_role: "member".to_string(),
+            new_role: "admin".to_string(),
+            changed_by: "Dave Admin".to_string(),
+        };
 
         let html = template.html_body();
         assert!(html.contains("Carol"));
@@ -735,6 +870,17 @@ mod tests {
         assert!(html.contains("Previous role:"));
         assert!(html.contains("New role:"));
         assert!(html.contains("<!DOCTYPE html>"));
+    }
+
+    #[test]
+    fn test_role_change_text_contains_all_fields() {
+        let template = RoleChangeEmailTemplate {
+            member_name: "Carol".to_string(),
+            organization_name: "DevOrg".to_string(),
+            old_role: "member".to_string(),
+            new_role: "admin".to_string(),
+            changed_by: "Dave Admin".to_string(),
+        };
 
         let text = template.text_body();
         assert!(text.contains("Carol"));
@@ -765,8 +911,10 @@ mod tests {
         assert!(text.contains("<script>alert('xss')</script>"));
     }
 
+    // ── OrganizationDeletionWarningEmailTemplate ────────────────
+
     #[test]
-    fn test_org_deletion_warning_subject_and_bodies() {
+    fn test_org_deletion_subject_contains_org_and_days() {
         let template = OrganizationDeletionWarningEmailTemplate {
             member_name: "Eve".to_string(),
             organization_name: "OldOrg".to_string(),
@@ -778,6 +926,16 @@ mod tests {
         assert!(subject.contains("OldOrg"));
         assert!(subject.contains("14"));
         assert!(subject.contains("deleted"));
+    }
+
+    #[test]
+    fn test_org_deletion_html_contains_all_fields() {
+        let template = OrganizationDeletionWarningEmailTemplate {
+            member_name: "Eve".to_string(),
+            organization_name: "OldOrg".to_string(),
+            deleted_by: "Frank Admin".to_string(),
+            days_until_deletion: 14,
+        };
 
         let html = template.html_body();
         assert!(html.contains("Eve"));
@@ -787,6 +945,16 @@ mod tests {
         assert!(html.contains("permanently deleted"));
         assert!(html.contains("Organization Deletion Warning"));
         assert!(html.contains("<!DOCTYPE html>"));
+    }
+
+    #[test]
+    fn test_org_deletion_text_contains_all_fields() {
+        let template = OrganizationDeletionWarningEmailTemplate {
+            member_name: "Eve".to_string(),
+            organization_name: "OldOrg".to_string(),
+            deleted_by: "Frank Admin".to_string(),
+            days_until_deletion: 14,
+        };
 
         let text = template.text_body();
         assert!(text.contains("Eve"));
@@ -797,7 +965,7 @@ mod tests {
     }
 
     #[test]
-    fn test_org_deletion_warning_xss_in_all_fields() {
+    fn test_org_deletion_xss_in_all_fields() {
         let xss = "<script>alert('xss')</script>".to_string();
         let template = OrganizationDeletionWarningEmailTemplate {
             member_name: xss.clone(),
@@ -812,24 +980,5 @@ mod tests {
 
         let text = template.text_body();
         assert!(text.contains("<script>alert('xss')</script>"));
-    }
-
-    #[test]
-    fn test_text_body_not_escaped() {
-        let template = InvitationEmailTemplate {
-            invitee_email: "test@example.com".to_string(),
-            organization_name: "<script>alert(1)</script>".to_string(),
-            inviter_name: "Normal Name".to_string(),
-            role: "admin".to_string(),
-            invitation_link: "https://example.com/invite".to_string(),
-            invitation_token: "TOKEN".to_string(),
-            expires_in: "7 days".to_string(),
-        };
-
-        let text = template.text_body();
-        assert!(
-            text.contains("<script>alert(1)</script>"),
-            "plain text body should not HTML-escape (it is not rendered as HTML)"
-        );
     }
 }

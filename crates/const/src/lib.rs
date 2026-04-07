@@ -1,22 +1,18 @@
-//! # InferaDB Control Constants
+//! Constants used across the InferaDB Control codebase.
 //!
-//! Zero-dependency crate containing constants used across the Control codebase.
-//!
-//! This crate centralizes:
-//! - Authentication constants (JWT issuer/audience, session cookies)
-//! - Token and session duration constants (TTLs, expiry times)
-//! - Business limit constants (max sessions, passkeys, organizations)
-//! - Rate limit category identifiers
+//! Zero-dependency crate centralizing authentication, duration, limit,
+//! and rate-limit constants. All values are compile-time constants with
+//! no runtime configuration.
 
 #![deny(unsafe_code)]
 
-/// Authentication constants (JWT issuer/audience, session cookies).
+/// JWT issuer/audience, session cookie names, and system caller identity.
 pub mod auth;
-/// Token and session duration constants.
+/// Token, session, and cookie TTL values.
 pub mod duration;
-/// Business constraint constants (max sessions, passkeys, organizations).
+/// Business constraints (max sessions, passkeys, organizations, password length).
 pub mod limits;
-/// Rate limit category identifiers.
+/// Rate-limit bucket identifiers.
 pub mod ratelimit;
 
 pub use auth::{

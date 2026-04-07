@@ -140,6 +140,10 @@ fn rpc_code_to_error(code: Code, message: &str) -> Error {
 /// records gRPC request metrics (duration and status code) and logs results.
 pub trait SdkResultExt<T> {
     /// Maps the error variant from [`SdkError`] to [`Error`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the converted [`Error`] if the original result was `Err`.
     fn map_sdk_err(self) -> inferadb_control_types::error::Result<T>;
 
     /// Maps the error and records gRPC request metrics (duration and status).
@@ -147,6 +151,10 @@ pub trait SdkResultExt<T> {
     /// Records `grpc_request_duration_seconds` and logs failures with the
     /// Ledger method name. Prefer this over [`map_sdk_err`](Self::map_sdk_err)
     /// in handler functions.
+    ///
+    /// # Errors
+    ///
+    /// Returns the converted [`Error`] if the original result was `Err`.
     fn map_sdk_err_instrumented(
         self,
         method: &str,

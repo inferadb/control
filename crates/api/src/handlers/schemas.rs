@@ -63,25 +63,32 @@ pub struct SchemaDefinitionResponse {
     pub description: Option<String>,
 }
 
-/// Query parameters for the diff endpoint.
+/// Query parameters for the schema diff endpoint.
 #[derive(Debug, Deserialize)]
 pub struct DiffQuery {
+    /// Source schema version number.
     pub from: u32,
+    /// Target schema version number.
     pub to: u32,
 }
 
 /// A field-level change between two schema versions.
 #[derive(Debug, Serialize)]
 pub struct FieldChange {
+    /// Dotted path to the changed field (e.g., `"users.email"`).
     pub field: String,
+    /// Kind of change (e.g., `"added"`, `"removed"`, `"modified"`).
     pub change_type: String,
 }
 
 /// Diff between two schema versions.
 #[derive(Debug, Serialize)]
 pub struct DiffResponse {
+    /// Source schema version.
     pub from: u32,
+    /// Target schema version.
     pub to: u32,
+    /// Field-level changes between the two versions.
     pub changes: Vec<FieldChange>,
 }
 

@@ -134,7 +134,7 @@ impl ConfigEntry {
         self
     }
 
-    /// Marks an entry as warning style.
+    /// Marks an entry with warning style.
     pub fn as_warning(mut self) -> Self {
         self.style = ConfigEntryStyle::Warning;
         self
@@ -442,17 +442,17 @@ impl StartupDisplay {
     }
 }
 
-/// Logs a startup phase header to separate initialization stages.
+/// Logs a labeled header to visually separate startup sections.
 pub fn log_phase(phase: &str) {
     tracing::info!("━━━ {} ━━━", phase);
 }
 
-/// Logs a successful component initialization.
+/// Logs that a component initialized successfully.
 pub fn log_initialized(component: &str) {
     tracing::info!("✓ {} initialized", component);
 }
 
-/// Logs a skipped component initialization with a reason.
+/// Logs that a component was skipped during startup, with a reason.
 pub fn log_skipped(component: &str, reason: &str) {
     tracing::info!("○ {} skipped: {}", component, reason);
 }

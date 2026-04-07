@@ -41,22 +41,33 @@ pub struct ListAuditLogsQuery {
 /// A single audit log entry.
 #[derive(Debug, Serialize)]
 pub struct AuditLogEntry {
+    /// UUID identifying this event.
     pub event_id: String,
+    /// Hierarchical event type (e.g., `"ledger.vault.created"`).
     pub event_type: String,
+    /// Who performed the action (e.g., `"user:42"`).
     pub principal: String,
+    /// Result of the action (e.g., `"success"`, `"failed:NOT_FOUND"`).
     pub outcome: String,
+    /// RFC 3339 timestamp of the event.
     pub timestamp: String,
+    /// Service that emitted the event (e.g., `"control"`).
     pub source: String,
+    /// Machine-readable action name (e.g., `"vault_created"`).
     pub action: String,
+    /// Additional key-value context for the event.
     pub details: HashMap<String, String>,
 }
 
 /// Paginated audit log response.
 #[derive(Debug, Serialize)]
 pub struct ListAuditLogsResponse {
+    /// Audit log entries for the current page.
     pub entries: Vec<AuditLogEntry>,
+    /// Opaque token for fetching the next page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_page_token: Option<String>,
+    /// Approximate total number of matching entries.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_estimate: Option<u64>,
 }

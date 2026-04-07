@@ -90,7 +90,7 @@ pub struct Cli {
     pub config: Config,
 }
 
-/// CLI subcommands. Reserved for future use; the server starts when no subcommand is given.
+/// CLI subcommands. The server starts when no subcommand is given.
 #[derive(Debug, clap::Subcommand)]
 pub enum CliCommand {}
 
@@ -272,7 +272,7 @@ pub struct Config {
     pub worker_id: Option<u16>,
 
     // ── Mode Flags ───────────────────────────────────────────────────
-    /// Force development mode: uses in-memory storage regardless of `--storage`. Defaults to
+    /// Forces development mode: uses in-memory storage regardless of `--storage`. Defaults to
     /// `false`.
     ///
     /// No environment variable; this must be an explicit CLI choice.

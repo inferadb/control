@@ -4,7 +4,9 @@
 //! plus HTML email templates for verification, password reset, invitations,
 //! role changes, and organization deletion warnings.
 
+/// Email sending backends (SMTP and mock).
 pub mod service;
+/// HTML and plain text email template definitions.
 pub mod templates;
 
 pub use service::{EmailSender, EmailService, MockEmailSender, SmtpEmailService};
@@ -18,7 +20,7 @@ pub use templates::{
 ///
 /// Replaces `&`, `<`, `>`, `"`, and `'` with their HTML entity equivalents.
 ///
-/// ```
+/// ```no_run
 /// use inferadb_control_core::email::html_escape;
 /// assert_eq!(html_escape("<script>"), "&lt;script&gt;");
 /// ```

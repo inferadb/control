@@ -60,7 +60,9 @@ pub struct HealthResponse {
 /// concurrent callers may occasionally duplicate a health check, which is
 /// acceptable for probes.
 pub struct HealthCache {
+    /// Unix epoch seconds of the last health check.
     last_check_epoch_secs: AtomicU64,
+    /// Whether the last health check succeeded.
     last_result: AtomicBool,
 }
 
@@ -79,7 +81,7 @@ impl std::fmt::Debug for HealthCache {
     }
 }
 
-/// Checks Ledger SDK health, caching the result for 5 seconds.
+/// Probes Ledger SDK health, caching the result for 5 seconds.
 async fn check_ledger_health(state: &AppState) -> bool {
     let Some(ref ledger) = state.ledger else {
         // No Ledger configured (dev-mode) — consider healthy
@@ -101,28 +103,28 @@ async fn check_ledger_health(state: &AppState) -> bool {
     result
 }
 
-/// Liveness probe handler (`/livez`).
+/// GET /livez
 ///
-/// Always returns 200 OK if the server is running.
+/// Returns 200 OK if the server process is running.
 pub async fn livez_handler() -> impl IntoResponse {
     StatusCode::OK
 }
 
-/// Readiness probe handler (`/readyz`).
+/// GET /readyz
 ///
-/// Checks whether the Ledger SDK client is reachable.
+/// Returns 200 OK when the Ledger SDK client is reachable, 503 otherwise.
 pub async fn readyz_handler(State(state): State<AppState>) -> impl IntoResponse {
     if check_ledger_health(&state).await { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE }
 }
 
-/// Startup probe handler (`/startupz`).
+/// GET /startupz
 ///
-/// Delegates to the readiness probe; Ledger must be accessible.
+/// Delegates to the readiness probe. Ledger must be accessible.
 pub async fn startupz_handler(State(state): State<AppState>) -> impl IntoResponse {
     readyz_handler(State(state)).await
 }
 
-/// Detailed health check handler (`/healthz`).
+/// GET /healthz
 ///
 /// Returns JSON with service health, version, uptime, and Ledger status.
 pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse {
@@ -150,44 +152,68 @@ mod tests {
 
     use super::*;
 
+    // ── livez_handler ──────────────────────────────────────────────
+
     #[tokio::test]
-    async fn test_livez() {
+    async fn test_livez_handler_returns_200() {
         let response = livez_handler().await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
     }
 
+    // ── readyz_handler ─────────────────────────────────────────────
+
     #[tokio::test]
-    async fn test_readyz_no_ledger() {
+    async fn test_readyz_handler_no_ledger_returns_200() {
         let state = crate::handlers::AppState::new_test();
         let response = readyz_handler(State(state)).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
     }
 
+    // ── startupz_handler ───────────────────────────────────────────
+
     #[tokio::test]
-    async fn test_healthz_no_ledger() {
+    async fn test_startupz_handler_no_ledger_returns_200() {
+        let state = crate::handlers::AppState::new_test();
+        let response = startupz_handler(State(state)).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    // ── healthz_handler ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_healthz_handler_no_ledger_returns_200() {
         let state = crate::handlers::AppState::new_test();
         let response = healthz_handler(State(state)).await.into_response();
         assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
-    async fn test_startupz_delegates_to_readyz() {
+    async fn test_healthz_handler_no_ledger_response_is_healthy() {
         let state = crate::handlers::AppState::new_test();
-        let response = startupz_handler(State(state)).await.into_response();
-        assert_eq!(response.status(), StatusCode::OK);
+        let response = healthz_handler(State(state)).await.into_response();
+        let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["status"], "healthy");
+        assert_eq!(json["service"], "inferadb-control");
+        assert!(json["ledger_healthy"].as_bool().unwrap());
     }
 
     // ── HealthCache ──────────────────────────────────────────────
 
     #[test]
-    fn health_cache_default_is_expired() {
+    fn test_health_cache_default_epoch_is_zero() {
         let cache = HealthCache::default();
         assert_eq!(cache.last_check_epoch_secs.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_health_cache_default_result_is_false() {
+        let cache = HealthCache::default();
         assert!(!cache.last_result.load(Ordering::Relaxed));
     }
 
     #[test]
-    fn health_cache_debug_format() {
+    fn test_health_cache_debug_contains_field_names() {
         let cache = HealthCache::default();
         let debug = format!("{cache:?}");
         assert!(debug.contains("HealthCache"));
@@ -195,48 +221,73 @@ mod tests {
         assert!(debug.contains("last_result"));
     }
 
+    // ── check_ledger_health ────────────────────────────────────────
+
     #[tokio::test]
-    async fn check_ledger_health_no_ledger_returns_true() {
+    async fn test_check_ledger_health_no_ledger_returns_true() {
         let state = crate::handlers::AppState::new_test();
-        // No ledger configured (dev-mode) => returns true without caching
         let result = check_ledger_health(&state).await;
         assert!(result);
-        // Cache epoch stays at 0 because the early return skips the cache
+    }
+
+    #[tokio::test]
+    async fn test_check_ledger_health_no_ledger_skips_cache() {
+        let state = crate::handlers::AppState::new_test();
+        check_ledger_health(&state).await;
         let cached_epoch = state.health_cache.last_check_epoch_secs.load(Ordering::Acquire);
         assert_eq!(cached_epoch, 0);
     }
 
     #[tokio::test]
-    async fn check_ledger_health_no_ledger_stable_across_calls() {
+    async fn test_check_ledger_health_no_ledger_stable_across_calls() {
         let state = crate::handlers::AppState::new_test();
         let result1 = check_ledger_health(&state).await;
         let result2 = check_ledger_health(&state).await;
-        assert!(result1);
         assert_eq!(result1, result2);
     }
 
     // ── HealthStatus serialization ───────────────────────────────
 
     #[test]
-    fn health_status_serializes_lowercase() {
-        let healthy = serde_json::to_value(HealthStatus::Healthy).unwrap();
-        assert_eq!(healthy, "healthy");
-        let degraded = serde_json::to_value(HealthStatus::Degraded).unwrap();
-        assert_eq!(degraded, "degraded");
-        let unhealthy = serde_json::to_value(HealthStatus::Unhealthy).unwrap();
-        assert_eq!(unhealthy, "unhealthy");
+    fn test_health_status_healthy_serializes_lowercase() {
+        let json = serde_json::to_value(HealthStatus::Healthy).unwrap();
+        assert_eq!(json, "healthy");
     }
 
     #[test]
-    fn health_status_deserializes() {
+    fn test_health_status_degraded_serializes_lowercase() {
+        let json = serde_json::to_value(HealthStatus::Degraded).unwrap();
+        assert_eq!(json, "degraded");
+    }
+
+    #[test]
+    fn test_health_status_unhealthy_serializes_lowercase() {
+        let json = serde_json::to_value(HealthStatus::Unhealthy).unwrap();
+        assert_eq!(json, "unhealthy");
+    }
+
+    #[test]
+    fn test_health_status_healthy_deserializes() {
         let status: HealthStatus = serde_json::from_str(r#""healthy""#).unwrap();
         assert!(matches!(status, HealthStatus::Healthy));
+    }
+
+    #[test]
+    fn test_health_status_degraded_deserializes() {
         let status: HealthStatus = serde_json::from_str(r#""degraded""#).unwrap();
         assert!(matches!(status, HealthStatus::Degraded));
     }
 
     #[test]
-    fn health_response_omits_none_details() {
+    fn test_health_status_unhealthy_deserializes() {
+        let status: HealthStatus = serde_json::from_str(r#""unhealthy""#).unwrap();
+        assert!(matches!(status, HealthStatus::Unhealthy));
+    }
+
+    // ── HealthResponse serialization ─────────────────────────────
+
+    #[test]
+    fn test_health_response_none_details_omitted() {
         let resp = HealthResponse {
             status: HealthStatus::Healthy,
             service: "test".to_string(),
@@ -251,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn health_response_includes_details_when_present() {
+    fn test_health_response_present_details_included() {
         let resp = HealthResponse {
             status: HealthStatus::Unhealthy,
             service: "test".to_string(),
@@ -263,5 +314,25 @@ mod tests {
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["details"], "connection refused");
+    }
+
+    #[test]
+    fn test_health_response_serializes_all_fields() {
+        let resp = HealthResponse {
+            status: HealthStatus::Healthy,
+            service: "inferadb-control".to_string(),
+            version: "1.2.3".to_string(),
+            instance_id: 5,
+            uptime_seconds: 3600,
+            ledger_healthy: true,
+            details: None,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "healthy");
+        assert_eq!(json["service"], "inferadb-control");
+        assert_eq!(json["version"], "1.2.3");
+        assert_eq!(json["instance_id"], 5);
+        assert_eq!(json["uptime_seconds"], 3600);
+        assert_eq!(json["ledger_healthy"], true);
     }
 }

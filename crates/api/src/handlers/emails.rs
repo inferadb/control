@@ -32,10 +32,15 @@ pub struct AddEmailRequest {
 /// Email information mapped from Ledger SDK [`UserEmailInfo`].
 #[derive(Debug, Serialize)]
 pub struct EmailInfoResponse {
+    /// Email address slug identifier.
     pub slug: u64,
+    /// The email address.
     pub email: String,
+    /// Whether the email has been verified.
     pub verified: bool,
+    /// RFC 3339 creation timestamp.
     pub created_at: Option<String>,
+    /// RFC 3339 timestamp of when the email was verified.
     pub verified_at: Option<String>,
 }
 

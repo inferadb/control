@@ -1,5 +1,3 @@
-#![deny(unsafe_code)]
-
 //! # InferaDB Control Core
 //!
 //! Core business logic for the InferaDB Control Plane.
@@ -7,6 +5,8 @@
 //! Handlers call the Ledger SDK directly and use [`SdkResultExt`] for error
 //! mapping. The remaining modules handle local concerns: email delivery,
 //! ID generation, logging, and rate limiting.
+
+#![deny(unsafe_code)]
 
 pub mod clock;
 pub mod crypto;

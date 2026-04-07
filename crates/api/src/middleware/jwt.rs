@@ -21,8 +21,8 @@ use crate::handlers::state::{ApiError, AppState};
 
 /// Claims extracted from a validated JWT access token.
 ///
-/// Injected into request extensions by [`require_jwt`]. Handlers access
-/// this via `Extension<UserClaims>`.
+/// [`require_jwt`] injects this into request extensions. Handlers retrieve
+/// it via `Extension<UserClaims>`.
 #[derive(Debug, Clone)]
 pub struct UserClaims {
     /// The authenticated user's slug identifier (Snowflake ID).

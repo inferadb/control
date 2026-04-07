@@ -82,16 +82,12 @@ impl AnyRateLimiter {
 
 /// Category string constants (e.g., `"login_ip"`, `"registration_ip"`).
 ///
-/// Re-exported from `inferadb-control-const` for convenience.
+/// Re-exported from `inferadb-control-const`.
 pub mod categories {
     pub use inferadb_control_const::ratelimit::*;
 }
 
-/// Standard rate limits for the management API.
-///
-/// These functions construct policies from compile-time constants via direct
-/// struct construction, avoiding the fallible `per_hour`/`per_day` constructors
-/// (which validate runtime user input).
+/// Standard rate limit policies for the management API.
 pub mod limits {
     use super::{RateLimit, RateLimitWindow};
 
@@ -111,69 +107,103 @@ pub mod limits {
 mod tests {
     use super::*;
 
+    // ── Standard limit policies ─────────────────────────────────
+
     #[test]
-    fn test_standard_limits() {
+    fn test_login_ip_limit_is_100_per_hour() {
         let login = limits::login_ip();
+
         assert_eq!(login.max_requests, 100);
-
-        let registration = limits::registration_ip();
-        assert_eq!(registration.max_requests, 5);
-    }
-
-    #[test]
-    fn test_login_limit_window() {
-        let login = limits::login_ip();
         assert!(matches!(login.window, RateLimitWindow::Hour));
     }
 
     #[test]
-    fn test_registration_limit_window() {
+    fn test_registration_ip_limit_is_5_per_day() {
         let reg = limits::registration_ip();
+
+        assert_eq!(reg.max_requests, 5);
         assert!(matches!(reg.window, RateLimitWindow::Day));
     }
 
-    // ── AnyRateLimiter ───────────────────────────────────────────
+    // ── AnyRateLimiter ──────────────────────────────────────────
 
-    #[tokio::test]
-    async fn any_rate_limiter_default_is_in_memory() {
+    #[test]
+    fn test_any_rate_limiter_default_is_in_memory() {
         let limiter = AnyRateLimiter::default();
+
         assert!(matches!(limiter, AnyRateLimiter::InMemory(_)));
     }
 
-    #[tokio::test]
-    async fn any_rate_limiter_debug_in_memory() {
+    #[test]
+    fn test_any_rate_limiter_debug_shows_variant() {
         let limiter = AnyRateLimiter::default();
-        let debug = format!("{limiter:?}");
-        assert_eq!(debug, "AnyRateLimiter::InMemory");
+
+        assert_eq!(format!("{limiter:?}"), "AnyRateLimiter::InMemory");
     }
 
     #[tokio::test]
-    async fn any_rate_limiter_in_memory_allows_requests() {
+    async fn test_any_rate_limiter_check_allows_first_request() {
         let limiter = AnyRateLimiter::default();
         let policy = limits::login_ip();
+
         let result = limiter.check("test", "127.0.0.1", &policy).await.unwrap();
+
         assert!(matches!(result, RateLimitResult::Allowed { .. }));
     }
 
+    // ── InMemoryRateLimiter ─────────────────────────────────────
+
     #[tokio::test]
-    async fn in_memory_rate_limiter_basic_check() {
+    async fn test_in_memory_limiter_allows_first_request() {
         let limiter = in_memory_rate_limiter();
         let policy = limits::login_ip();
+
         let result = limiter.check("login_ip", "1.2.3.4", &policy).await.unwrap();
+
         assert!(matches!(result, RateLimitResult::Allowed { .. }));
     }
 
     #[tokio::test]
-    async fn in_memory_rate_limiter_exhausts_limit() {
+    async fn test_in_memory_limiter_denies_after_limit_exhausted() {
         let limiter = in_memory_rate_limiter();
         let policy = RateLimit { max_requests: 2, window: RateLimitWindow::Hour };
-        // Use up the limit
+
         for _ in 0..2 {
             let result = limiter.check("test", "ip", &policy).await.unwrap();
             assert!(matches!(result, RateLimitResult::Allowed { .. }));
         }
-        // Third request should be limited
+
         let result = limiter.check("test", "ip", &policy).await.unwrap();
         assert!(matches!(result, RateLimitResult::Limited { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_in_memory_limiter_separate_keys_are_independent() {
+        let limiter = in_memory_rate_limiter();
+        let policy = RateLimit { max_requests: 1, window: RateLimitWindow::Hour };
+
+        let r1 = limiter.check("test", "ip_a", &policy).await.unwrap();
+        assert!(matches!(r1, RateLimitResult::Allowed { .. }));
+
+        // Different key should still be allowed
+        let r2 = limiter.check("test", "ip_b", &policy).await.unwrap();
+        assert!(matches!(r2, RateLimitResult::Allowed { .. }));
+
+        // Original key should now be limited
+        let r3 = limiter.check("test", "ip_a", &policy).await.unwrap();
+        assert!(matches!(r3, RateLimitResult::Limited { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_in_memory_limiter_separate_categories_are_independent() {
+        let limiter = in_memory_rate_limiter();
+        let policy = RateLimit { max_requests: 1, window: RateLimitWindow::Hour };
+
+        let r1 = limiter.check("cat_a", "ip", &policy).await.unwrap();
+        assert!(matches!(r1, RateLimitResult::Allowed { .. }));
+
+        // Different category, same key should still be allowed
+        let r2 = limiter.check("cat_b", "ip", &policy).await.unwrap();
+        assert!(matches!(r2, RateLimitResult::Allowed { .. }));
     }
 }

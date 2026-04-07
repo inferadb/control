@@ -1,4 +1,7 @@
-//! InferaDB control plane binary entrypoint.
+//! InferaDB Control Plane binary entrypoint.
+//!
+//! Parses CLI configuration, initializes subsystems (logging, storage,
+//! email, rate limiting, WebAuthn), and starts the HTTP server.
 
 use std::sync::Arc;
 

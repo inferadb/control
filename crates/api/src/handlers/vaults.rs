@@ -40,12 +40,18 @@ pub struct UpdateVaultRequest {
 /// Vault summary.
 #[derive(Debug, Serialize)]
 pub struct VaultResponse {
+    /// Owning organization slug.
     pub organization: u64,
+    /// Vault slug identifier.
     pub slug: u64,
+    /// Current Raft log height (block count).
     pub height: u64,
+    /// Vault status (e.g., `"active"`, `"deleting"`).
     pub status: String,
+    /// Node IDs in the vault's Raft cluster.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub nodes: Vec<String>,
+    /// Current Raft leader node ID, if known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub leader: Option<String>,
 }
@@ -158,7 +164,8 @@ pub async fn get_vault(
 
 /// PATCH /control/v1/organizations/{org}/vaults/{vault}
 ///
-/// Updates a vault.
+/// Updates vault configuration. Returns a validation error if
+/// `retention_policy` is provided (not yet supported).
 pub async fn update_vault(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,

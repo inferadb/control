@@ -74,19 +74,48 @@ mod tests {
 
     use super::*;
 
-    async fn test_handler() -> impl IntoResponse {
+    async fn ok_handler() -> impl IntoResponse {
         StatusCode::OK
     }
 
-    #[tokio::test]
-    async fn test_logging_middleware() {
-        let app = Router::new()
-            .route("/test", get(test_handler))
-            .layer(middleware::from_fn(logging_middleware));
+    async fn error_handler() -> impl IntoResponse {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
 
+    fn app_with_logging(path: &str, handler: axum::routing::MethodRouter) -> Router {
+        Router::new()
+            .route(path, handler)
+            .layer(middleware::from_fn(logging_middleware))
+    }
+
+    #[tokio::test]
+    async fn test_logging_middleware_passes_through_ok_response() {
+        let app = app_with_logging("/test", get(ok_handler));
         let request = Request::builder().uri("/test").body(Body::empty()).unwrap();
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_logging_middleware_passes_through_error_response() {
+        let app = app_with_logging("/fail", get(error_handler));
+        let request = Request::builder().uri("/fail").body(Body::empty()).unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn test_logging_middleware_preserves_response_body() {
+        let app = app_with_logging(
+            "/body",
+            get(|| async { (StatusCode::OK, "hello") }),
+        );
+        let request = Request::builder().uri("/body").body(Body::empty()).unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(&body[..], b"hello");
     }
 }

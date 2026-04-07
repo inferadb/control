@@ -26,9 +26,8 @@ fn auth_request(ip: &str) -> axum::http::Request<axum::body::Body> {
         .unwrap()
 }
 
-/// Requests under the rate limit threshold should not be blocked.
 #[tokio::test]
-async fn test_login_not_rate_limited() {
+async fn test_ratelimit_login_under_limit_returns_non_429() {
     let _ = IdGenerator::init(800);
 
     let state = create_test_state();

@@ -187,6 +187,9 @@ impl Error {
     }
 }
 
+/// Converts [`StorageError`] variants into the appropriate [`Error`] variant
+/// based on HTTP semantics: not-found maps to 404, conflicts to 409,
+/// rate limits to 429, and most others to 500.
 impl From<StorageError> for Error {
     fn from(e: StorageError) -> Self {
         match &e {
@@ -205,446 +208,368 @@ impl From<StorageError> for Error {
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_pass_by_value)]
 mod tests {
     use super::*;
 
-    // ── Factory methods ──────────────────────────────────────────────
+    // ── Factory methods (table-driven) ──────────────────────────────
 
-    #[test]
-    fn factory_config_creates_config_variant() {
-        let err = Error::config("bad config");
-        assert!(matches!(err, Error::Config { ref message, .. } if message == "bad config"));
+    /// Helper enum to describe the expected variant for assertion.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Variant {
+        Config,
+        Storage,
+        Auth,
+        Authz,
+        Validation,
+        NotFound,
+        AlreadyExists,
+        RateLimit,
+        TierLimit,
+        TooManyPasskeys,
+        Unavailable,
+        External,
+        Internal,
+    }
+
+    fn classify(err: &Error) -> Variant {
+        match err {
+            Error::Config { .. } => Variant::Config,
+            Error::Storage { .. } => Variant::Storage,
+            Error::Auth { .. } => Variant::Auth,
+            Error::Authz { .. } => Variant::Authz,
+            Error::Validation { .. } => Variant::Validation,
+            Error::NotFound { .. } => Variant::NotFound,
+            Error::AlreadyExists { .. } => Variant::AlreadyExists,
+            Error::RateLimit { .. } => Variant::RateLimit,
+            Error::TierLimit { .. } => Variant::TierLimit,
+            Error::TooManyPasskeys { .. } => Variant::TooManyPasskeys,
+            Error::Unavailable { .. } => Variant::Unavailable,
+            Error::External { .. } => Variant::External,
+            Error::Internal { .. } => Variant::Internal,
+        }
+    }
+
+    fn message_of(err: &Error) -> Option<&str> {
+        match err {
+            Error::Config { message, .. }
+            | Error::Storage { message, .. }
+            | Error::Auth { message, .. }
+            | Error::Authz { message, .. }
+            | Error::Validation { message, .. }
+            | Error::NotFound { message, .. }
+            | Error::AlreadyExists { message, .. }
+            | Error::RateLimit { message, .. }
+            | Error::TierLimit { message, .. }
+            | Error::Unavailable { message, .. }
+            | Error::External { message, .. }
+            | Error::Internal { message, .. } => Some(message),
+            Error::TooManyPasskeys { .. } => None,
+        }
     }
 
     #[test]
-    fn factory_storage_creates_storage_variant() {
-        let err = Error::storage("disk full");
-        assert!(matches!(err, Error::Storage { ref message, .. } if message == "disk full"));
+    fn test_factory_creates_correct_variant_and_preserves_message() {
+        let cases = vec![
+            ("config", Error::config("bad config"), Variant::Config, Some("bad config")),
+            ("storage", Error::storage("disk full"), Variant::Storage, Some("disk full")),
+            ("auth", Error::auth("invalid token"), Variant::Auth, Some("invalid token")),
+            ("authz", Error::authz("forbidden"), Variant::Authz, Some("forbidden")),
+            (
+                "validation",
+                Error::validation("invalid email"),
+                Variant::Validation,
+                Some("invalid email"),
+            ),
+            ("not_found", Error::not_found("user 42"), Variant::NotFound, Some("user 42")),
+            (
+                "already_exists",
+                Error::already_exists("duplicate key"),
+                Variant::AlreadyExists,
+                Some("duplicate key"),
+            ),
+            ("rate_limit", Error::rate_limit("too fast"), Variant::RateLimit, Some("too fast")),
+            (
+                "tier_limit",
+                Error::tier_limit("plan exceeded"),
+                Variant::TierLimit,
+                Some("plan exceeded"),
+            ),
+            (
+                "unavailable",
+                Error::unavailable("maintenance"),
+                Variant::Unavailable,
+                Some("maintenance"),
+            ),
+            (
+                "external",
+                Error::external("upstream failed"),
+                Variant::External,
+                Some("upstream failed"),
+            ),
+            ("internal", Error::internal("unexpected"), Variant::Internal, Some("unexpected")),
+        ];
+
+        for (name, err, expected_variant, expected_msg) in cases {
+            assert_eq!(classify(&err), expected_variant, "variant mismatch for {name}");
+            assert_eq!(message_of(&err), expected_msg, "message mismatch for {name}");
+        }
     }
 
     #[test]
-    fn factory_auth_creates_auth_variant() {
-        let err = Error::auth("invalid token");
-        assert!(matches!(err, Error::Auth { ref message, .. } if message == "invalid token"));
-    }
-
-    #[test]
-    fn factory_authz_creates_authz_variant() {
-        let err = Error::authz("forbidden");
-        assert!(matches!(err, Error::Authz { ref message, .. } if message == "forbidden"));
-    }
-
-    #[test]
-    fn factory_validation_creates_validation_variant() {
-        let err = Error::validation("invalid email");
-        assert!(matches!(err, Error::Validation { ref message, .. } if message == "invalid email"));
-    }
-
-    #[test]
-    fn factory_not_found_creates_not_found_variant() {
-        let err = Error::not_found("user 42");
-        assert!(matches!(err, Error::NotFound { ref message, .. } if message == "user 42"));
-    }
-
-    #[test]
-    fn factory_already_exists_creates_already_exists_variant() {
-        let err = Error::already_exists("duplicate key");
-        assert!(
-            matches!(err, Error::AlreadyExists { ref message, .. } if message == "duplicate key")
-        );
-    }
-
-    #[test]
-    fn factory_rate_limit_creates_rate_limit_variant() {
-        let err = Error::rate_limit("too fast");
-        assert!(matches!(err, Error::RateLimit { ref message, .. } if message == "too fast"));
-    }
-
-    #[test]
-    fn factory_tier_limit_creates_tier_limit_variant() {
-        let err = Error::tier_limit("plan exceeded");
-        assert!(matches!(err, Error::TierLimit { ref message, .. } if message == "plan exceeded"));
-    }
-
-    #[test]
-    fn factory_too_many_passkeys_creates_too_many_passkeys_variant() {
+    fn test_factory_too_many_passkeys_stores_max() {
         let err = Error::too_many_passkeys(10);
+
+        assert_eq!(classify(&err), Variant::TooManyPasskeys);
         assert!(matches!(err, Error::TooManyPasskeys { max: 10, .. }));
     }
 
-    #[test]
-    fn factory_unavailable_creates_unavailable_variant() {
-        let err = Error::unavailable("maintenance");
-        assert!(matches!(err, Error::Unavailable { ref message, .. } if message == "maintenance"));
-    }
+    // ── Factory methods accept &str and String via Into<String> ─────
 
     #[test]
-    fn factory_external_creates_external_variant() {
-        let err = Error::external("upstream failed");
-        assert!(matches!(err, Error::External { ref message, .. } if message == "upstream failed"));
-    }
-
-    #[test]
-    fn factory_internal_creates_internal_variant() {
-        let err = Error::internal("unexpected");
-        assert!(matches!(err, Error::Internal { ref message, .. } if message == "unexpected"));
-    }
-
-    // ── Factory methods accept &str via Into<String> ─────────────────
-
-    #[test]
-    fn factory_accepts_str_ref() {
+    fn test_factory_accepts_str_ref() {
         let msg: &str = "a message";
+
         let err = Error::validation(msg);
-        assert!(matches!(err, Error::Validation { .. }));
+
+        assert_eq!(message_of(&err), Some("a message"));
     }
 
     #[test]
-    fn factory_accepts_owned_string() {
+    fn test_factory_accepts_owned_string() {
         let msg = String::from("a message");
+
         let err = Error::validation(msg);
-        assert!(matches!(err, Error::Validation { .. }));
-    }
 
-    // ── status_code ──────────────────────────────────────────────────
-
-    #[test]
-    fn status_code_config_is_500() {
-        assert_eq!(Error::config("x").status_code(), 500);
+        assert_eq!(message_of(&err), Some("a message"));
     }
 
     #[test]
-    fn status_code_storage_is_500() {
-        assert_eq!(Error::storage("x").status_code(), 500);
+    fn test_factory_accepts_empty_string() {
+        let err = Error::validation("");
+
+        assert_eq!(message_of(&err), Some(""));
+    }
+
+    // ── status_code (table-driven) ──────────────────────────────────
+
+    #[test]
+    fn test_status_code_maps_variant_to_http_code() {
+        let cases = vec![
+            ("config", Error::config("x"), 500u16),
+            ("storage", Error::storage("x"), 500),
+            ("auth", Error::auth("x"), 401),
+            ("authz", Error::authz("x"), 403),
+            ("validation", Error::validation("x"), 400),
+            ("not_found", Error::not_found("x"), 404),
+            ("already_exists", Error::already_exists("x"), 409),
+            ("rate_limit", Error::rate_limit("x"), 429),
+            ("tier_limit", Error::tier_limit("x"), 402),
+            ("too_many_passkeys", Error::too_many_passkeys(5), 400),
+            ("unavailable", Error::unavailable("x"), 503),
+            ("external", Error::external("x"), 502),
+            ("internal", Error::internal("x"), 500),
+        ];
+
+        for (name, err, expected_code) in cases {
+            assert_eq!(err.status_code(), expected_code, "status_code mismatch for {name}");
+        }
+    }
+
+    // ── error_code (table-driven) ───────────────────────────────────
+
+    #[test]
+    fn test_error_code_maps_variant_to_machine_string() {
+        let cases = vec![
+            ("config", Error::config("x"), "CONFIGURATION_ERROR"),
+            ("storage", Error::storage("x"), "STORAGE_ERROR"),
+            ("auth", Error::auth("x"), "AUTHENTICATION_ERROR"),
+            ("authz", Error::authz("x"), "AUTHORIZATION_ERROR"),
+            ("validation", Error::validation("x"), "VALIDATION_ERROR"),
+            ("not_found", Error::not_found("x"), "NOT_FOUND"),
+            ("already_exists", Error::already_exists("x"), "ALREADY_EXISTS"),
+            ("rate_limit", Error::rate_limit("x"), "RATE_LIMIT_EXCEEDED"),
+            ("tier_limit", Error::tier_limit("x"), "TIER_LIMIT_EXCEEDED"),
+            ("too_many_passkeys", Error::too_many_passkeys(1), "TOO_MANY_PASSKEYS"),
+            ("unavailable", Error::unavailable("x"), "SERVICE_UNAVAILABLE"),
+            ("external", Error::external("x"), "EXTERNAL_SERVICE_ERROR"),
+            ("internal", Error::internal("x"), "INTERNAL_ERROR"),
+        ];
+
+        for (name, err, expected_code) in cases {
+            assert_eq!(err.error_code(), expected_code, "error_code mismatch for {name}");
+        }
+    }
+
+    // ── Display impl (table-driven) ─────────────────────────────────
+
+    #[test]
+    fn test_display_includes_prefix_and_message() {
+        let cases = vec![
+            ("config", Error::config("missing key"), "Configuration error", "missing key"),
+            ("storage", Error::storage("io failure"), "Storage error", "io failure"),
+            ("auth", Error::auth("bad token"), "Authentication error", "bad token"),
+            ("authz", Error::authz("no access"), "Authorization error", "no access"),
+            ("validation", Error::validation("bad input"), "Validation error", "bad input"),
+            ("not_found", Error::not_found("item xyz"), "not found", "item xyz"),
+            ("already_exists", Error::already_exists("duplicate"), "already exists", "duplicate"),
+            ("rate_limit", Error::rate_limit("slow down"), "Rate limit", "slow down"),
+            ("tier_limit", Error::tier_limit("upgrade required"), "Tier limit", "upgrade required"),
+            (
+                "unavailable",
+                Error::unavailable("down for maintenance"),
+                "unavailable",
+                "down for maintenance",
+            ),
+            ("external", Error::external("api timeout"), "External", "api timeout"),
+            ("internal", Error::internal("oops"), "Internal error", "oops"),
+        ];
+
+        for (name, err, expected_prefix, expected_msg) in cases {
+            let display = err.to_string();
+            assert!(display.contains(expected_prefix), "{name}: expected prefix '{expected_prefix}' in '{display}'");
+            assert!(display.contains(expected_msg), "{name}: expected message '{expected_msg}' in '{display}'");
+        }
     }
 
     #[test]
-    fn status_code_auth_is_401() {
-        assert_eq!(Error::auth("x").status_code(), 401);
-    }
-
-    #[test]
-    fn status_code_authz_is_403() {
-        assert_eq!(Error::authz("x").status_code(), 403);
-    }
-
-    #[test]
-    fn status_code_validation_is_400() {
-        assert_eq!(Error::validation("x").status_code(), 400);
-    }
-
-    #[test]
-    fn status_code_not_found_is_404() {
-        assert_eq!(Error::not_found("x").status_code(), 404);
-    }
-
-    #[test]
-    fn status_code_already_exists_is_409() {
-        assert_eq!(Error::already_exists("x").status_code(), 409);
-    }
-
-    #[test]
-    fn status_code_rate_limit_is_429() {
-        assert_eq!(Error::rate_limit("x").status_code(), 429);
-    }
-
-    #[test]
-    fn status_code_tier_limit_is_402() {
-        assert_eq!(Error::tier_limit("x").status_code(), 402);
-    }
-
-    #[test]
-    fn status_code_too_many_passkeys_is_400() {
-        assert_eq!(Error::too_many_passkeys(5).status_code(), 400);
-    }
-
-    #[test]
-    fn status_code_unavailable_is_503() {
-        assert_eq!(Error::unavailable("x").status_code(), 503);
-    }
-
-    #[test]
-    fn status_code_external_is_502() {
-        assert_eq!(Error::external("x").status_code(), 502);
-    }
-
-    #[test]
-    fn status_code_internal_is_500() {
-        assert_eq!(Error::internal("x").status_code(), 500);
-    }
-
-    // ── error_code ───────────────────────────────────────────────────
-
-    #[test]
-    fn error_code_config() {
-        assert_eq!(Error::config("x").error_code(), "CONFIGURATION_ERROR");
-    }
-
-    #[test]
-    fn error_code_storage() {
-        assert_eq!(Error::storage("x").error_code(), "STORAGE_ERROR");
-    }
-
-    #[test]
-    fn error_code_auth() {
-        assert_eq!(Error::auth("x").error_code(), "AUTHENTICATION_ERROR");
-    }
-
-    #[test]
-    fn error_code_authz() {
-        assert_eq!(Error::authz("x").error_code(), "AUTHORIZATION_ERROR");
-    }
-
-    #[test]
-    fn error_code_validation() {
-        assert_eq!(Error::validation("x").error_code(), "VALIDATION_ERROR");
-    }
-
-    #[test]
-    fn error_code_not_found() {
-        assert_eq!(Error::not_found("x").error_code(), "NOT_FOUND");
-    }
-
-    #[test]
-    fn error_code_already_exists() {
-        assert_eq!(Error::already_exists("x").error_code(), "ALREADY_EXISTS");
-    }
-
-    #[test]
-    fn error_code_rate_limit() {
-        assert_eq!(Error::rate_limit("x").error_code(), "RATE_LIMIT_EXCEEDED");
-    }
-
-    #[test]
-    fn error_code_tier_limit() {
-        assert_eq!(Error::tier_limit("x").error_code(), "TIER_LIMIT_EXCEEDED");
-    }
-
-    #[test]
-    fn error_code_too_many_passkeys() {
-        assert_eq!(Error::too_many_passkeys(1).error_code(), "TOO_MANY_PASSKEYS");
-    }
-
-    #[test]
-    fn error_code_unavailable() {
-        assert_eq!(Error::unavailable("x").error_code(), "SERVICE_UNAVAILABLE");
-    }
-
-    #[test]
-    fn error_code_external() {
-        assert_eq!(Error::external("x").error_code(), "EXTERNAL_SERVICE_ERROR");
-    }
-
-    #[test]
-    fn error_code_internal() {
-        assert_eq!(Error::internal("x").error_code(), "INTERNAL_ERROR");
-    }
-
-    // ── Display impl ─────────────────────────────────────────────────
-
-    #[test]
-    fn display_config_includes_message() {
-        let err = Error::config("missing key");
-        let display = err.to_string();
-        assert!(display.contains("missing key"), "got: {display}");
-        assert!(display.contains("Configuration error"), "got: {display}");
-    }
-
-    #[test]
-    fn display_storage_includes_message() {
-        let err = Error::storage("io failure");
-        let display = err.to_string();
-        assert!(display.contains("io failure"), "got: {display}");
-        assert!(display.contains("Storage error"), "got: {display}");
-    }
-
-    #[test]
-    fn display_auth_includes_message() {
-        let err = Error::auth("bad token");
-        let display = err.to_string();
-        assert!(display.contains("bad token"), "got: {display}");
-        assert!(display.contains("Authentication error"), "got: {display}");
-    }
-
-    #[test]
-    fn display_authz_includes_message() {
-        let err = Error::authz("no access");
-        let display = err.to_string();
-        assert!(display.contains("no access"), "got: {display}");
-        assert!(display.contains("Authorization error"), "got: {display}");
-    }
-
-    #[test]
-    fn display_validation_includes_message() {
-        let err = Error::validation("bad input");
-        let display = err.to_string();
-        assert!(display.contains("bad input"), "got: {display}");
-        assert!(display.contains("Validation error"), "got: {display}");
-    }
-
-    #[test]
-    fn display_not_found_includes_message() {
-        let err = Error::not_found("item xyz");
-        let display = err.to_string();
-        assert!(display.contains("item xyz"), "got: {display}");
-        assert!(display.contains("not found"), "got: {display}");
-    }
-
-    #[test]
-    fn display_already_exists_includes_message() {
-        let err = Error::already_exists("duplicate");
-        let display = err.to_string();
-        assert!(display.contains("duplicate"), "got: {display}");
-        assert!(display.contains("already exists"), "got: {display}");
-    }
-
-    #[test]
-    fn display_rate_limit_includes_message() {
-        let err = Error::rate_limit("slow down");
-        let display = err.to_string();
-        assert!(display.contains("slow down"), "got: {display}");
-        assert!(display.contains("Rate limit"), "got: {display}");
-    }
-
-    #[test]
-    fn display_tier_limit_includes_message() {
-        let err = Error::tier_limit("upgrade required");
-        let display = err.to_string();
-        assert!(display.contains("upgrade required"), "got: {display}");
-        assert!(display.contains("Tier limit"), "got: {display}");
-    }
-
-    #[test]
-    fn display_too_many_passkeys_includes_max() {
+    fn test_display_too_many_passkeys_includes_max() {
         let err = Error::too_many_passkeys(10);
+
         let display = err.to_string();
+
         assert!(display.contains("10"), "got: {display}");
         assert!(display.contains("passkeys"), "got: {display}");
     }
 
+    // ── std::error::Error impl ──────────────────────────────────────
+
     #[test]
-    fn display_unavailable_includes_message() {
-        let err = Error::unavailable("down for maintenance");
-        let display = err.to_string();
-        assert!(display.contains("down for maintenance"), "got: {display}");
-        assert!(display.contains("unavailable"), "got: {display}");
+    fn test_error_implements_std_error_trait() {
+        let err = Error::validation("test");
+
+        let std_err: &dyn std::error::Error = &err;
+
+        assert!(std_err.to_string().contains("test"));
     }
 
     #[test]
-    fn display_external_includes_message() {
-        let err = Error::external("api timeout");
-        let display = err.to_string();
-        assert!(display.contains("api timeout"), "got: {display}");
-        assert!(display.contains("External"), "got: {display}");
+    fn test_error_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<Error>();
+    }
+
+    // ── From<StorageError> conversion (table-driven) ────────────────
+
+    #[test]
+    fn test_from_storage_error_maps_to_correct_variant_and_status() {
+        let cases: Vec<(&str, StorageError, Variant, u16)> = vec![
+            ("not_found", StorageError::not_found("test_key"), Variant::NotFound, 404),
+            ("conflict", StorageError::conflict(), Variant::AlreadyExists, 409),
+            (
+                "cas_retries_exhausted",
+                StorageError::cas_retries_exhausted(5),
+                Variant::AlreadyExists,
+                409,
+            ),
+            (
+                "rate_limit_exceeded",
+                StorageError::rate_limit_exceeded(std::time::Duration::from_secs(1)),
+                Variant::RateLimit,
+                429,
+            ),
+            (
+                "range_limit_exceeded",
+                StorageError::range_limit_exceeded(1000, 500),
+                Variant::Validation,
+                400,
+            ),
+            ("circuit_open", StorageError::circuit_open(), Variant::Unavailable, 503),
+            ("shutting_down", StorageError::shutting_down(), Variant::Unavailable, 503),
+            (
+                "internal",
+                StorageError::Internal {
+                    message: "backend crashed".to_string(),
+                    source: None,
+                    span_id: None,
+                },
+                Variant::Internal,
+                500,
+            ),
+            (
+                "connection",
+                StorageError::Connection {
+                    message: "refused".to_string(),
+                    source: None,
+                    span_id: None,
+                },
+                Variant::Internal,
+                500,
+            ),
+            (
+                "serialization",
+                StorageError::Serialization {
+                    message: "bad data".to_string(),
+                    source: None,
+                    span_id: None,
+                },
+                Variant::Internal,
+                500,
+            ),
+            (
+                "timeout",
+                StorageError::Timeout { context: None, span_id: None },
+                Variant::Internal,
+                500,
+            ),
+            (
+                "size_limit_exceeded",
+                StorageError::size_limit_exceeded("value", 2048, 1024),
+                Variant::Internal,
+                500,
+            ),
+        ];
+
+        for (name, storage_err, expected_variant, expected_status) in cases {
+            let err = Error::from(storage_err);
+            assert_eq!(
+                classify(&err),
+                expected_variant,
+                "{name}: variant mismatch"
+            );
+            assert_eq!(
+                err.status_code(),
+                expected_status,
+                "{name}: status_code mismatch"
+            );
+        }
     }
 
     #[test]
-    fn display_internal_includes_message() {
-        let err = Error::internal("oops");
-        let display = err.to_string();
-        assert!(display.contains("oops"), "got: {display}");
-        assert!(display.contains("Internal error"), "got: {display}");
-    }
+    fn test_from_storage_error_preserves_original_message() {
+        let se = StorageError::not_found("my_key");
+        let original_display = se.to_string();
 
-    // ── From<StorageError> conversion ────────────────────────────────
-
-    #[test]
-    fn from_storage_not_found_maps_to_not_found() {
-        let se = StorageError::not_found("test_key");
         let err = Error::from(se);
-        assert!(matches!(err, Error::NotFound { .. }));
-        assert_eq!(err.status_code(), 404);
+
+        let err_display = err.to_string();
+        assert!(
+            err_display.contains(&original_display),
+            "converted error should contain original storage error message: got '{err_display}', expected to contain '{original_display}'"
+        );
     }
 
     #[test]
-    fn from_storage_conflict_maps_to_already_exists() {
-        let se = StorageError::conflict();
-        let err = Error::from(se);
-        assert!(matches!(err, Error::AlreadyExists { .. }));
-        assert_eq!(err.status_code(), 409);
-    }
-
-    #[test]
-    fn from_storage_cas_retries_exhausted_maps_to_already_exists() {
-        let se = StorageError::cas_retries_exhausted(5);
-        let err = Error::from(se);
-        assert!(matches!(err, Error::AlreadyExists { .. }));
-        assert_eq!(err.status_code(), 409);
-    }
-
-    #[test]
-    fn from_storage_rate_limit_exceeded_maps_to_rate_limit() {
-        let se = StorageError::rate_limit_exceeded(std::time::Duration::from_secs(1));
-        let err = Error::from(se);
-        assert!(matches!(err, Error::RateLimit { .. }));
-        assert_eq!(err.status_code(), 429);
-    }
-
-    #[test]
-    fn from_storage_range_limit_exceeded_maps_to_validation() {
-        let se = StorageError::range_limit_exceeded(1000, 500);
-        let err = Error::from(se);
-        assert!(matches!(err, Error::Validation { .. }));
-        assert_eq!(err.status_code(), 400);
-    }
-
-    #[test]
-    fn from_storage_circuit_open_maps_to_unavailable() {
+    fn test_from_storage_unavailable_uses_fixed_message() {
         let se = StorageError::circuit_open();
-        let err = Error::from(se);
-        assert!(matches!(err, Error::Unavailable { .. }));
-        assert_eq!(err.status_code(), 503);
-    }
 
-    #[test]
-    fn from_storage_shutting_down_maps_to_unavailable() {
-        let se = StorageError::shutting_down();
         let err = Error::from(se);
-        assert!(matches!(err, Error::Unavailable { .. }));
-        assert_eq!(err.status_code(), 503);
-    }
 
-    #[test]
-    fn from_storage_internal_maps_to_internal() {
-        let se = StorageError::Internal {
-            message: "backend crashed".to_string(),
-            source: None,
-            span_id: None,
-        };
-        let err = Error::from(se);
-        assert!(matches!(err, Error::Internal { .. }));
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn from_storage_connection_maps_to_internal() {
-        let se = StorageError::Connection {
-            message: "refused".to_string(),
-            source: None,
-            span_id: None,
-        };
-        let err = Error::from(se);
-        assert!(matches!(err, Error::Internal { .. }));
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn from_storage_serialization_maps_to_internal() {
-        let se = StorageError::Serialization {
-            message: "bad data".to_string(),
-            source: None,
-            span_id: None,
-        };
-        let err = Error::from(se);
-        assert!(matches!(err, Error::Internal { .. }));
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn from_storage_timeout_maps_to_internal() {
-        let se = StorageError::Timeout { context: None, span_id: None };
-        let err = Error::from(se);
-        assert!(matches!(err, Error::Internal { .. }));
-        assert_eq!(err.status_code(), 500);
+        let display = err.to_string();
+        assert!(
+            display.contains("storage service temporarily unavailable"),
+            "unavailable mapping should use fixed message, got: {display}"
+        );
     }
 }

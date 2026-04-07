@@ -1,7 +1,7 @@
-//! Rate limit category identifiers.
+//! Rate-limit bucket identifiers.
 //!
-//! These string constants identify rate limit buckets. Using constants
-//! prevents typos that could bypass rate limiting.
+//! String constants that key rate-limit buckets. Using constants
+//! prevents typos that could silently bypass rate limiting.
 
 /// Rate limit category for login attempts by IP address.
 pub const LOGIN_IP: &str = "login_ip";

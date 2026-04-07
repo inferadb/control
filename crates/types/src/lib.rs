@@ -1,7 +1,7 @@
 //! Shared type definitions for the InferaDB Control plane.
 //!
-//! Provides the [`Error`] enum, [`IdGenerator`], and shared DTOs
-//! used across Control crates to prevent circular dependencies.
+//! Provides the [`Error`] enum, [`Result`] alias, [`IdGenerator`], and
+//! shared DTOs used across Control crates to prevent circular dependencies.
 
 #![deny(unsafe_code)]
 

@@ -35,8 +35,11 @@ pub struct RefreshTokenRequest {
 /// Response containing a session token pair (access + refresh).
 #[derive(Debug, Serialize)]
 pub struct SessionTokenResponse {
+    /// JWT access token.
     pub access_token: String,
+    /// Opaque refresh token for obtaining new access tokens.
     pub refresh_token: String,
+    /// Token type (always `"Bearer"`).
     pub token_type: &'static str,
 }
 
@@ -195,86 +198,52 @@ mod tests {
     // ── set_token_cookies ─────────────────────────────────────────────
 
     #[test]
-    fn set_token_cookies_adds_access_cookie() {
-        let jar = CookieJar::new();
-        let pair = make_token_pair();
-        let jar = set_token_cookies(jar, &pair);
-        let cookie = jar.get(ACCESS_TOKEN_COOKIE_NAME).expect("access cookie should be set");
-        assert_eq!(cookie.value(), "test-access-token");
+    fn test_set_token_cookies_values_match_token_pair() {
+        let jar = set_token_cookies(CookieJar::new(), &make_token_pair());
+
+        let access = jar.get(ACCESS_TOKEN_COOKIE_NAME).expect("access cookie missing");
+        assert_eq!(access.value(), "test-access-token");
+
+        let refresh = jar.get(REFRESH_TOKEN_COOKIE_NAME).expect("refresh cookie missing");
+        assert_eq!(refresh.value(), "test-refresh-token");
     }
 
     #[test]
-    fn set_token_cookies_adds_refresh_cookie() {
-        let jar = CookieJar::new();
-        let pair = make_token_pair();
-        let jar = set_token_cookies(jar, &pair);
-        let cookie = jar.get(REFRESH_TOKEN_COOKIE_NAME).expect("refresh cookie should be set");
-        assert_eq!(cookie.value(), "test-refresh-token");
-    }
-
-    #[test]
-    fn set_token_cookies_access_has_root_path() {
-        let jar = CookieJar::new();
-        let pair = make_token_pair();
-        let jar = set_token_cookies(jar, &pair);
+    fn test_set_token_cookies_access_path_is_root() {
+        let jar = set_token_cookies(CookieJar::new(), &make_token_pair());
         let cookie = jar.get(ACCESS_TOKEN_COOKIE_NAME).unwrap();
         assert_eq!(cookie.path().unwrap(), "/");
     }
 
     #[test]
-    fn set_token_cookies_refresh_has_auth_path() {
-        let jar = CookieJar::new();
-        let pair = make_token_pair();
-        let jar = set_token_cookies(jar, &pair);
+    fn test_set_token_cookies_refresh_path_is_auth_scope() {
+        let jar = set_token_cookies(CookieJar::new(), &make_token_pair());
         let cookie = jar.get(REFRESH_TOKEN_COOKIE_NAME).unwrap();
         assert_eq!(cookie.path().unwrap(), "/control/v1/auth");
     }
 
     #[test]
-    fn set_token_cookies_are_http_only() {
-        let jar = CookieJar::new();
-        let pair = make_token_pair();
-        let jar = set_token_cookies(jar, &pair);
+    fn test_set_token_cookies_security_attributes() {
+        let jar = set_token_cookies(CookieJar::new(), &make_token_pair());
         let access = jar.get(ACCESS_TOKEN_COOKIE_NAME).unwrap();
         let refresh = jar.get(REFRESH_TOKEN_COOKIE_NAME).unwrap();
-        assert!(access.http_only().unwrap_or(false), "access cookie should be httpOnly");
-        assert!(refresh.http_only().unwrap_or(false), "refresh cookie should be httpOnly");
+
+        for (label, cookie) in [("access", &access), ("refresh", &refresh)] {
+            assert!(cookie.http_only().unwrap_or(false), "{label} cookie should be httpOnly");
+            assert!(cookie.secure().unwrap_or(false), "{label} cookie should be secure");
+            assert_eq!(cookie.same_site(), Some(SameSite::Lax), "{label} cookie should be Lax");
+        }
     }
 
     #[test]
-    fn set_token_cookies_are_secure() {
-        let jar = CookieJar::new();
-        let pair = make_token_pair();
-        let jar = set_token_cookies(jar, &pair);
+    fn test_set_token_cookies_no_expiry_uses_default_max_age() {
+        let jar = set_token_cookies(CookieJar::new(), &make_token_pair());
         let access = jar.get(ACCESS_TOKEN_COOKIE_NAME).unwrap();
-        let refresh = jar.get(REFRESH_TOKEN_COOKIE_NAME).unwrap();
-        assert!(access.secure().unwrap_or(false), "access cookie should be secure");
-        assert!(refresh.secure().unwrap_or(false), "refresh cookie should be secure");
+        assert_eq!(access.max_age(), Some(time::Duration::seconds(ACCESS_COOKIE_MAX_AGE_SECONDS)));
     }
 
     #[test]
-    fn set_token_cookies_are_same_site_lax() {
-        let jar = CookieJar::new();
-        let pair = make_token_pair();
-        let jar = set_token_cookies(jar, &pair);
-        let access = jar.get(ACCESS_TOKEN_COOKIE_NAME).unwrap();
-        let refresh = jar.get(REFRESH_TOKEN_COOKIE_NAME).unwrap();
-        assert_eq!(access.same_site(), Some(SameSite::Lax));
-        assert_eq!(refresh.same_site(), Some(SameSite::Lax));
-    }
-
-    #[test]
-    fn set_token_cookies_uses_default_max_age_without_expiry() {
-        let jar = CookieJar::new();
-        let pair = make_token_pair();
-        let jar = set_token_cookies(jar, &pair);
-        let access = jar.get(ACCESS_TOKEN_COOKIE_NAME).unwrap();
-        let expected = time::Duration::seconds(ACCESS_COOKIE_MAX_AGE_SECONDS);
-        assert_eq!(access.max_age(), Some(expected));
-    }
-
-    #[test]
-    fn set_token_cookies_uses_expiry_based_max_age() {
+    fn test_set_token_cookies_with_expiry_derives_max_age() {
         let pair = TokenPair {
             access_token: "at".to_string(),
             refresh_token: "rt".to_string(),
@@ -284,58 +253,46 @@ mod tests {
             refresh_expires_at: None,
         };
         let jar = set_token_cookies(CookieJar::new(), &pair);
-        let access = jar.get(ACCESS_TOKEN_COOKIE_NAME).unwrap();
-        let max_age_secs = access.max_age().unwrap().whole_seconds();
-        // Should be approximately 300 seconds (allow some slack for test execution)
+        let max_age_secs = jar.get(ACCESS_TOKEN_COOKIE_NAME).unwrap().max_age().unwrap().whole_seconds();
         assert!((295..=305).contains(&max_age_secs), "max_age should be ~300s, got {max_age_secs}");
+    }
+
+    #[test]
+    fn test_set_token_cookies_refresh_has_expected_max_age() {
+        let jar = set_token_cookies(CookieJar::new(), &make_token_pair());
+        let refresh = jar.get(REFRESH_TOKEN_COOKIE_NAME).unwrap();
+        assert_eq!(
+            refresh.max_age(),
+            Some(time::Duration::seconds(REFRESH_COOKIE_MAX_AGE_SECONDS))
+        );
     }
 
     // ── clear_token_cookies ───────────────────────────────────────────
 
     #[test]
-    fn clear_token_cookies_removes_access_cookie() {
-        let jar = CookieJar::new();
-        let pair = make_token_pair();
-        let jar = set_token_cookies(jar, &pair);
+    fn test_clear_token_cookies_removes_both_cookies() {
+        let jar = set_token_cookies(CookieJar::new(), &make_token_pair());
         assert!(jar.get(ACCESS_TOKEN_COOKIE_NAME).is_some());
-        let jar = clear_token_cookies(jar);
-        // After clearing, the cookie should be a removal cookie (empty value)
-        let cookie = jar.get(ACCESS_TOKEN_COOKIE_NAME);
-        assert!(
-            cookie.is_none() || cookie.is_some_and(|c| c.value().is_empty()),
-            "access cookie should be removed or empty after clearing"
-        );
-    }
-
-    #[test]
-    fn clear_token_cookies_removes_refresh_cookie() {
-        let jar = CookieJar::new();
-        let pair = make_token_pair();
-        let jar = set_token_cookies(jar, &pair);
         assert!(jar.get(REFRESH_TOKEN_COOKIE_NAME).is_some());
+
         let jar = clear_token_cookies(jar);
-        let cookie = jar.get(REFRESH_TOKEN_COOKIE_NAME);
-        assert!(
-            cookie.is_none() || cookie.is_some_and(|c| c.value().is_empty()),
-            "refresh cookie should be removed or empty after clearing"
-        );
+
+        let is_removed = |c: Option<&Cookie>| c.is_none() || c.is_some_and(|c| c.value().is_empty());
+        assert!(is_removed(jar.get(ACCESS_TOKEN_COOKIE_NAME)), "access cookie should be cleared");
+        assert!(is_removed(jar.get(REFRESH_TOKEN_COOKIE_NAME)), "refresh cookie should be cleared");
     }
 
     #[test]
-    fn clear_token_cookies_on_empty_jar_is_noop() {
-        let jar = CookieJar::new();
-        let jar = clear_token_cookies(jar);
-        // Should not panic and jar should have no meaningful cookies
-        assert!(
-            jar.get(ACCESS_TOKEN_COOKIE_NAME).is_none()
-                || jar.get(ACCESS_TOKEN_COOKIE_NAME).is_some_and(|c| c.value().is_empty())
-        );
+    fn test_clear_token_cookies_empty_jar_does_not_panic() {
+        let jar = clear_token_cookies(CookieJar::new());
+        let is_removed = |c: Option<&Cookie>| c.is_none() || c.is_some_and(|c| c.value().is_empty());
+        assert!(is_removed(jar.get(ACCESS_TOKEN_COOKIE_NAME)));
     }
 
-    // ── Response type serialization ───────────────────────────────────
+    // ── SessionTokenResponse serialization ────────────────────────────
 
     #[test]
-    fn session_token_response_serializes() {
+    fn test_session_token_response_serializes_all_fields() {
         let resp = SessionTokenResponse {
             access_token: "at".to_string(),
             refresh_token: "rt".to_string(),
@@ -348,30 +305,41 @@ mod tests {
     }
 
     #[test]
-    fn logout_response_serializes() {
-        let resp = LogoutResponse { message: "logged out" };
-        let json = serde_json::to_value(&resp).unwrap();
+    fn test_logout_response_serializes() {
+        let json = serde_json::to_value(&LogoutResponse { message: "logged out" }).unwrap();
         assert_eq!(json["message"], "logged out");
     }
 
     #[test]
-    fn revoke_all_response_serializes() {
-        let resp = RevokeAllResponse { revoked_count: 5 };
-        let json = serde_json::to_value(&resp).unwrap();
+    fn test_revoke_all_response_serializes_count() {
+        let json = serde_json::to_value(&RevokeAllResponse { revoked_count: 5 }).unwrap();
         assert_eq!(json["revoked_count"], 5);
     }
 
     #[test]
-    fn refresh_token_request_deserializes_with_token() {
-        let json = r#"{"refresh_token": "tok"}"#;
-        let req: RefreshTokenRequest = serde_json::from_str(json).unwrap();
+    fn test_revoke_all_response_serializes_zero_count() {
+        let json = serde_json::to_value(&RevokeAllResponse { revoked_count: 0 }).unwrap();
+        assert_eq!(json["revoked_count"], 0);
+    }
+
+    // ── RefreshTokenRequest deserialization ───────────────────────────
+
+    #[test]
+    fn test_refresh_token_request_with_token() {
+        let req: RefreshTokenRequest = serde_json::from_str(r#"{"refresh_token": "tok"}"#).unwrap();
         assert_eq!(req.refresh_token.as_deref(), Some("tok"));
     }
 
     #[test]
-    fn refresh_token_request_deserializes_without_token() {
-        let json = r#"{}"#;
-        let req: RefreshTokenRequest = serde_json::from_str(json).unwrap();
+    fn test_refresh_token_request_without_token() {
+        let req: RefreshTokenRequest = serde_json::from_str(r#"{}"#).unwrap();
+        assert!(req.refresh_token.is_none());
+    }
+
+    #[test]
+    fn test_refresh_token_request_with_null_token() {
+        let req: RefreshTokenRequest =
+            serde_json::from_str(r#"{"refresh_token": null}"#).unwrap();
         assert!(req.refresh_token.is_none());
     }
 }
