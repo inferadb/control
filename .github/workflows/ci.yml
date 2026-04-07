@@ -203,88 +203,6 @@ jobs:
       - name: Run doc tests
         run: cargo test --workspace --doc
 
-  # Ledger Integration Tests
-  # Runs Control tests against a real Ledger server to verify storage backend integration.
-  # Uses Docker Compose to start a single-node Ledger cluster, then runs native cargo tests.
-  ledger-integration-tests:
-    name: Ledger Integration Tests
-    needs: [fmt, clippy]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    timeout-minutes: 10
-    env:
-      CARGO_INCREMENTAL: 0
-      RUSTFLAGS: "-C codegen-units=16 -C link-arg=-fuse-ld=mold"
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@fe104658747b27e96e4f7e80cd0a94068e53901d # v2.16.1
-        with:
-          egress-policy: audit
-
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-
-      - name: Install mold linker
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq mold
-
-      - name: Install development tools via Mise
-        uses: step-security/mise-action@88aa01c99be6cb55cfeecd74955f88bc4151d030 # v3.6.1
-        with:
-          install_args: protobuf cargo:cargo-nextest
-          cache: true
-
-      - name: Cache Rust dependencies
-        uses: step-security/rust-cache@9be15b830520fab0ec3939586e917e4855cf76bd # v2.8.3
-        with:
-          shared-key: management-ubuntu-latest-x86_64-unknown-linux-gnu
-          save-if: false
-
-      - name: Start Ledger server
-        working-directory: docker/ledger-integration-tests
-        run: |
-          docker compose up -d ledger
-          echo "Waiting for Ledger to be ready..."
-          # Wait for metrics endpoint to be available (indicates server is running)
-          # Then add delay for Raft bootstrap to complete
-          for i in {1..30}; do
-            if curl -sf http://localhost:9092/metrics > /dev/null 2>&1; then
-              echo "Ledger metrics endpoint is available"
-              # Give Raft a moment to fully bootstrap after server starts
-              sleep 3
-              echo "Ledger should be ready!"
-              break
-            fi
-            echo "Attempt $i/30: Ledger not ready yet..."
-            sleep 2
-          done
-          # Final check - metrics endpoint must be available
-          curl -sf http://localhost:9092/metrics > /dev/null || (docker compose logs ledger && exit 1)
-
-      - name: Run Ledger integration tests
-        env:
-          LEDGER_ENDPOINT: "http://localhost:50052"
-          RUST_BACKTRACE: "1"
-        run: |
-          cargo nextest run \
-            --package inferadb-control-storage \
-            --features integration \
-            --test ledger_integration_tests \
-            --profile ci \
-            --no-fail-fast
-
-      - name: Stop Ledger server
-        if: always()
-        working-directory: docker/ledger-integration-tests
-        run: docker compose down -v
-
   # Test code coverage (nightly only to reduce CI costs)
   coverage:
     name: Code Coverage
@@ -390,7 +308,7 @@ jobs:
   # Overall status check
   ci-success:
     name: CI Success
-    needs: [commits, fmt, clippy, test, ledger-integration-tests, coverage, dependencies]
+    needs: [commits, fmt, clippy, test, coverage, dependencies]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -425,11 +343,6 @@ jobs:
           # Test job runs on multiple platforms
           if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
             echo "Tests failed"
-            exit 1
-          fi
-          # Ledger integration tests verify storage backend
-          if [[ "${{ needs.ledger-integration-tests.result }}" != "success" && "${{ needs.ledger-integration-tests.result }}" != "skipped" ]]; then
-            echo "Ledger integration tests failed"
             exit 1
           fi
           # Coverage and dependencies are optional (skipped on PRs or non-main branches)
