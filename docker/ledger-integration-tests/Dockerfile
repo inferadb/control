@@ -1,6 +1,6 @@
 # Test runner for Control + Ledger integration tests
 
-FROM rust:1.93-bookworm
+FROM rust:1.94-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     protobuf-compiler \
