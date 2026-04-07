@@ -475,9 +475,11 @@ mod tests {
     // ── app_info_to_response ─────────────────────────────────────────
 
     #[test]
-    fn app_info_to_response_maps_all_fields() {
+    fn test_app_info_to_response_maps_all_fields() {
         let info = sample_app_info();
+
         let resp = app_info_to_response(&info);
+
         assert_eq!(resp.slug, 500);
         assert_eq!(resp.name, "Test App");
         assert_eq!(resp.description.as_deref(), Some("A test application"));
@@ -488,36 +490,27 @@ mod tests {
     }
 
     #[test]
-    fn app_info_to_response_without_credentials() {
+    fn test_app_info_to_response_none_optionals_map_to_none() {
         let mut info = sample_app_info();
         info.credentials = None;
-        let resp = app_info_to_response(&info);
-        assert!(resp.credentials.is_none());
-    }
-
-    #[test]
-    fn app_info_to_response_without_description() {
-        let mut info = sample_app_info();
         info.description = None;
-        let resp = app_info_to_response(&info);
-        assert!(resp.description.is_none());
-    }
-
-    #[test]
-    fn app_info_to_response_without_timestamps() {
-        let mut info = sample_app_info();
         info.created_at = None;
         info.updated_at = None;
+
         let resp = app_info_to_response(&info);
+
+        assert!(resp.credentials.is_none());
+        assert!(resp.description.is_none());
         assert!(resp.created_at.is_none());
         assert!(resp.updated_at.is_none());
     }
 
     #[test]
-    fn app_info_to_response_credentials_fields() {
+    fn test_app_info_to_response_credentials_fields() {
         let info = sample_app_info();
-        let resp = app_info_to_response(&info);
-        let creds = resp.credentials.unwrap();
+
+        let creds = app_info_to_response(&info).credentials.unwrap();
+
         assert!(creds.client_secret_enabled);
         assert!(!creds.mtls_ca_enabled);
         assert!(!creds.mtls_self_signed_enabled);
@@ -527,9 +520,11 @@ mod tests {
     // ── assertion_to_response ────────────────────────────────────────
 
     #[test]
-    fn assertion_to_response_maps_fields() {
+    fn test_assertion_to_response_maps_all_fields() {
         let info = sample_assertion_info();
+
         let resp = assertion_to_response(&info).unwrap();
+
         assert_eq!(resp.slug, 42);
         assert_eq!(resp.name, "prod-cert");
         assert!(resp.enabled);
@@ -538,17 +533,19 @@ mod tests {
     }
 
     #[test]
-    fn assertion_to_response_without_timestamps() {
+    fn test_assertion_to_response_none_timestamps_map_to_none() {
         let mut info = sample_assertion_info();
         info.expires_at = None;
         info.created_at = None;
+
         let resp = assertion_to_response(&info).unwrap();
+
         assert!(resp.expires_at.is_none());
         assert!(resp.created_at.is_none());
     }
 
     #[test]
-    fn assertion_to_response_negative_id_returns_error() {
+    fn test_assertion_to_response_negative_id_returns_error() {
         let info = AppClientAssertionInfo {
             id: ClientAssertionId::new(-1),
             name: "bad".to_string(),
@@ -556,13 +553,14 @@ mod tests {
             expires_at: None,
             created_at: None,
         };
+
         assert!(assertion_to_response(&info).is_err());
     }
 
     // ── Response type serialization ──────────────────────────────────
 
     #[test]
-    fn client_response_omits_null_optional_fields() {
+    fn test_client_response_omits_null_optional_fields() {
         let resp = ClientResponse {
             slug: 1,
             name: "App".to_string(),
@@ -572,7 +570,9 @@ mod tests {
             created_at: None,
             updated_at: None,
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert!(json.get("description").is_none());
         assert!(json.get("credentials").is_none());
         assert!(json.get("created_at").is_none());
@@ -580,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    fn certificate_response_omits_null_optional_fields() {
+    fn test_certificate_response_omits_null_optional_fields() {
         let resp = CertificateResponse {
             slug: 1,
             name: "cert".to_string(),
@@ -588,20 +588,24 @@ mod tests {
             expires_at: None,
             created_at: None,
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert!(json.get("expires_at").is_none());
         assert!(json.get("created_at").is_none());
     }
 
     #[test]
-    fn rotate_secret_response_serializes() {
+    fn test_rotate_secret_response_serializes() {
         let resp = RotateSecretResponse { secret: "new-secret-value".to_string() };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["secret"], "new-secret-value");
     }
 
     #[test]
-    fn create_certificate_response_serializes() {
+    fn test_create_certificate_response_serializes_with_private_key() {
         let resp = CreateCertificateResponse {
             certificate: CertificateResponse {
                 slug: 10,
@@ -613,7 +617,9 @@ mod tests {
             private_key_pem: "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----"
                 .to_string(),
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["certificate"]["slug"], 10);
         assert!(json["private_key_pem"].as_str().unwrap().contains("PRIVATE KEY"));
     }
@@ -621,32 +627,40 @@ mod tests {
     // ── Request type deserialization ─────────────────────────────────
 
     #[test]
-    fn create_client_request_deserializes() {
+    fn test_create_client_request_deserializes_without_description() {
         let json = r#"{"name": "My App"}"#;
+
         let req: CreateClientRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.name, "My App");
         assert!(req.description.is_none());
     }
 
     #[test]
-    fn create_client_request_deserializes_with_description() {
+    fn test_create_client_request_deserializes_with_description() {
         let json = r#"{"name": "My App", "description": "A thing"}"#;
+
         let req: CreateClientRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.description.as_deref(), Some("A thing"));
     }
 
     #[test]
-    fn update_client_request_deserializes_partial() {
+    fn test_update_client_request_deserializes_partial() {
         let json = r#"{"name": "New Name"}"#;
+
         let req: UpdateClientRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.name.as_deref(), Some("New Name"));
         assert!(req.description.is_none());
     }
 
     #[test]
-    fn create_certificate_request_deserializes() {
+    fn test_create_certificate_request_deserializes() {
         let json = r#"{"name": "prod", "expires_at": "2027-01-01T00:00:00Z"}"#;
+
         let req: CreateCertificateRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.name, "prod");
         assert_eq!(req.expires_at, "2027-01-01T00:00:00Z");
     }

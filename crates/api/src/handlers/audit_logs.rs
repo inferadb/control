@@ -183,22 +183,24 @@ mod tests {
     // ── format_outcome ────────────────────────────────────────────
 
     #[test]
-    fn format_outcome_success() {
+    fn test_format_outcome_success_returns_success() {
         assert_eq!(format_outcome(&EventOutcome::Success), "success");
     }
 
     #[test]
-    fn format_outcome_failed_includes_code() {
+    fn test_format_outcome_failed_includes_code() {
         let outcome = EventOutcome::Failed {
             code: "NOT_FOUND".to_string(),
             detail: "entity missing".to_string(),
         };
+
         assert_eq!(format_outcome(&outcome), "failed:NOT_FOUND");
     }
 
     #[test]
-    fn format_outcome_denied_includes_reason() {
+    fn test_format_outcome_denied_includes_reason() {
         let outcome = EventOutcome::Denied { reason: "rate_limited".to_string() };
+
         assert_eq!(format_outcome(&outcome), "denied:rate_limited");
     }
 
@@ -227,9 +229,12 @@ mod tests {
     }
 
     #[test]
-    fn sdk_entry_to_response_maps_fields() {
+    fn test_sdk_entry_to_response_maps_all_fields() {
         let entry = make_test_entry();
+
         let resp = sdk_entry_to_response(entry);
+
+        assert_eq!(resp.event_id, "00000000-0000-0000-0000-000000000000");
         assert_eq!(resp.event_type, "ledger.vault.created");
         assert_eq!(resp.principal, "user:42");
         assert_eq!(resp.outcome, "success");
@@ -239,107 +244,90 @@ mod tests {
     }
 
     #[test]
-    fn sdk_entry_to_response_formats_event_id_as_uuid() {
-        let entry = make_test_entry();
-        let resp = sdk_entry_to_response(entry);
-        assert_eq!(resp.event_id, "00000000-0000-0000-0000-000000000000");
-    }
-
-    #[test]
-    fn sdk_entry_to_response_with_failed_outcome() {
+    fn test_sdk_entry_to_response_failed_outcome_includes_code() {
         let mut entry = make_test_entry();
         entry.outcome =
             EventOutcome::Failed { code: "PERM".to_string(), detail: "forbidden".to_string() };
+
         let resp = sdk_entry_to_response(entry);
+
         assert_eq!(resp.outcome, "failed:PERM");
     }
 
     // ── parse_outcome_filter ──────────────────────────────────────
 
     #[test]
-    fn parse_outcome_filter_success() {
-        assert!(parse_outcome_filter("success").is_ok());
+    fn test_parse_outcome_filter_valid_values_return_ok() {
+        for value in ["success", "failed", "denied"] {
+            assert!(parse_outcome_filter(value).is_ok(), "expected ok for {value:?}");
+        }
     }
 
     #[test]
-    fn parse_outcome_filter_failed() {
-        assert!(parse_outcome_filter("failed").is_ok());
-    }
-
-    #[test]
-    fn parse_outcome_filter_denied() {
-        assert!(parse_outcome_filter("denied").is_ok());
-    }
-
-    #[test]
-    fn parse_outcome_filter_invalid_returns_error() {
+    fn test_parse_outcome_filter_invalid_value_returns_validation_error() {
         let err = parse_outcome_filter("unknown").unwrap_err();
+
         assert!(matches!(err, CoreError::Validation { .. }));
     }
 
     // ── build_event_filter ────────────────────────────────────────
 
     #[test]
-    fn build_event_filter_no_filters() {
+    fn test_build_event_filter_no_filters_returns_ok() {
         let query = ListAuditLogsQuery {
             pagination: CursorPaginationQuery { page_size: 50, page_token: None },
             event_type: None,
             principal: None,
             outcome: None,
         };
+
         assert!(build_event_filter(&query).is_ok());
     }
 
     #[test]
-    fn build_event_filter_with_outcome() {
+    fn test_build_event_filter_with_outcome_returns_ok() {
         let query = ListAuditLogsQuery {
             pagination: CursorPaginationQuery { page_size: 50, page_token: None },
             event_type: None,
             principal: None,
             outcome: Some("success".to_string()),
         };
+
         assert!(build_event_filter(&query).is_ok());
     }
 
     #[test]
-    fn build_event_filter_with_event_type_and_principal() {
-        let query = ListAuditLogsQuery {
-            pagination: CursorPaginationQuery { page_size: 50, page_token: None },
-            event_type: Some("ledger.vault".to_string()),
-            principal: Some("user:42".to_string()),
-            outcome: None,
-        };
-        assert!(build_event_filter(&query).is_ok());
-    }
-
-    #[test]
-    fn build_event_filter_with_invalid_outcome() {
-        let query = ListAuditLogsQuery {
-            pagination: CursorPaginationQuery { page_size: 50, page_token: None },
-            event_type: None,
-            principal: None,
-            outcome: Some("bogus".to_string()),
-        };
-        assert!(build_event_filter(&query).is_err());
-    }
-
-    #[test]
-    fn build_event_filter_with_all_fields() {
+    fn test_build_event_filter_with_all_fields_returns_ok() {
         let query = ListAuditLogsQuery {
             pagination: CursorPaginationQuery { page_size: 50, page_token: None },
             event_type: Some("ledger.vault".to_string()),
             principal: Some("user:7".to_string()),
             outcome: Some("denied".to_string()),
         };
+
         assert!(build_event_filter(&query).is_ok());
+    }
+
+    #[test]
+    fn test_build_event_filter_invalid_outcome_returns_error() {
+        let query = ListAuditLogsQuery {
+            pagination: CursorPaginationQuery { page_size: 50, page_token: None },
+            event_type: None,
+            principal: None,
+            outcome: Some("bogus".to_string()),
+        };
+
+        assert!(build_event_filter(&query).is_err());
     }
 
     // ── ListAuditLogsQuery deserialization ─────────────────────────
 
     #[test]
-    fn list_audit_logs_query_deserializes_with_defaults() {
+    fn test_list_audit_logs_query_deserializes_with_defaults() {
         let json = r#"{"page_size": 25}"#;
+
         let query: ListAuditLogsQuery = serde_json::from_str(json).unwrap();
+
         assert_eq!(query.pagination.page_size, 25);
         assert!(query.event_type.is_none());
         assert!(query.principal.is_none());
@@ -349,7 +337,7 @@ mod tests {
     // ── Response serialization ────────────────────────────────────
 
     #[test]
-    fn audit_log_entry_serializes() {
+    fn test_audit_log_entry_serializes() {
         let entry = AuditLogEntry {
             event_id: "abc".to_string(),
             event_type: "test".to_string(),
@@ -360,28 +348,34 @@ mod tests {
             action: "test_action".to_string(),
             details: HashMap::new(),
         };
+
         let json = serde_json::to_value(&entry).unwrap();
+
         assert_eq!(json["event_id"], "abc");
         assert_eq!(json["outcome"], "success");
     }
 
     #[test]
-    fn list_response_omits_none_fields() {
+    fn test_list_response_omits_none_optional_fields() {
         let resp =
             ListAuditLogsResponse { entries: vec![], next_page_token: None, total_estimate: None };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert!(json.get("next_page_token").is_none());
         assert!(json.get("total_estimate").is_none());
     }
 
     #[test]
-    fn list_response_includes_present_fields() {
+    fn test_list_response_includes_present_optional_fields() {
         let resp = ListAuditLogsResponse {
             entries: vec![],
             next_page_token: Some("token".to_string()),
             total_estimate: Some(42),
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["next_page_token"], "token");
         assert_eq!(json["total_estimate"], 42);
     }

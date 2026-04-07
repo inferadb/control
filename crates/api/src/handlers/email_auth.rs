@@ -261,9 +261,10 @@ mod tests {
 
     #[test]
     fn test_verify_response_totp_required_includes_nonce_without_tokens() {
-        let json =
-            serde_json::to_value(&VerifyResponse::TotpRequired { challenge_nonce: "abc".to_string() })
-                .unwrap();
+        let json = serde_json::to_value(&VerifyResponse::TotpRequired {
+            challenge_nonce: "abc".to_string(),
+        })
+        .unwrap();
         assert_eq!(json["status"], "totp_required");
         assert_eq!(json["challenge_nonce"], "abc");
         assert!(json.get("access_token").is_none());

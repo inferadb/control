@@ -8,7 +8,7 @@ The **Control** is InferaDB's control plane, providing self-service capabilities
 
 **Key Responsibilities**:
 
-- User authentication & session management (password, passkey/WebAuthn, OAuth)
+- User authentication & session management (email code, passkey/WebAuthn, TOTP, client assertion)
 - Multi-tenant organization management with role-based access control (RBAC)
 - Vault lifecycle management (create, configure, sync with Engine, delete)
 - Client credential management for backend services (Ed25519 certificates, OAuth 2.0 JWT Bearer)
@@ -185,7 +185,7 @@ This section provides detailed specifications for all entities in Control data m
 
 ### User
 
-Represents an individual user. Lives under the `/v1/users` API path.
+Represents an individual user. Lives under the `/control/v1/users` API path.
 
 **Registration**: Anyone CAN register a new User account.
 
@@ -217,7 +217,7 @@ Represents an individual user. Lives under the `/v1/users` API path.
 
 ### UserEmail
 
-Represents a unique email address for a User account. Lives under the `/v1/users/emails` API path.
+Represents a unique email address for a User account. Lives under the `/control/v1/users/emails` API path.
 
 **Data**:
 
@@ -291,7 +291,7 @@ Represents a token for password reset. Not exposed via REST API (internal use on
 
 ### UserPasskey
 
-Represents a WebAuthn passkey (FIDO2 credential). Lives under the `/v1/users/passkeys` API path.
+Represents a WebAuthn passkey (FIDO2 credential). Lives under the `/control/v1/users/me/credentials/passkeys` API path.
 
 **Data**:
 
@@ -321,7 +321,7 @@ Represents a WebAuthn passkey (FIDO2 credential). Lives under the `/v1/users/pas
 
 ### UserSession
 
-Represents an authenticated user session. Lives under the `/v1/users/sessions` API path (admin/debug only).
+Represents an authenticated user session. Sessions are managed through the auth endpoints (login, logout, revoke-all). No standalone session list/revoke endpoint exists.
 
 **Data**:
 
@@ -377,7 +377,7 @@ Enum defining session types (hard-coded).
 
 ### Organization
 
-Represents a single organization (tenant). Lives under the `/v1/organizations` API path.
+Represents a single organization (tenant). Lives under the `/control/v1/organizations` API path.
 
 **Creation**: Any User can create a new Organization.
 
@@ -408,7 +408,7 @@ Represents a single organization (tenant). Lives under the `/v1/organizations` A
 
 ### OrganizationMember
 
-Associates a User with an Organization. Lives under the `/v1/organizations/:org/members` API path.
+Associates a User with an Organization. Lives under the `/control/v1/organizations/{org}/members` API path.
 
 **Data**:
 
@@ -438,7 +438,7 @@ Represents a registered Client for an Organization using the Client Assertion pa
 
 Clients are used for backend services, SDKs, CLIs, and any non-interactive authentication scenarios. See [AUTHENTICATION.md](AUTHENTICATION.md#4-client-assertion-recommended-for-backend-services) for complete documentation.
 
-Lives under the `/v1/organizations/:org/clients` API path.
+Lives under the `/control/v1/organizations/{org}/clients` API path.
 
 **Data**:
 
@@ -471,7 +471,7 @@ Lives under the `/v1/organizations/:org/clients` API path.
 
 Represents a cryptographic certificate (Ed25519 key pair) for a Client. Multiple certificates can be active simultaneously to enable zero-downtime credential rotation.
 
-Lives under the `/v1/organizations/:org/clients/:client/certificates` API path.
+Lives under the `/control/v1/organizations/{org}/clients/{client}/certificates` API path.
 
 **Data**:
 
@@ -562,7 +562,7 @@ Enum defining Organization membership roles (hard-coded).
 
 ### OrganizationInvitation
 
-Represents an invitation for a User to join an Organization. Lives under the `/v1/organizations/:org/invitations` API path.
+Represents an invitation for a User to join an Organization. Lives under the `/control/v1/organizations/{org}/invitations` API path.
 
 **Data**:
 
@@ -661,7 +661,7 @@ Enum defining Organization billing/feature tiers (hard-coded).
 
 ### OrganizationTeam
 
-Represents a team (group of users) within an Organization. Lives under the `/v1/organizations/:org/teams` API path.
+Represents a team (group of users) within an Organization. Lives under the `/control/v1/organizations/{org}/teams` API path.
 
 **Data**:
 
@@ -686,7 +686,7 @@ Represents a team (group of users) within an Organization. Lives under the `/v1/
 
 ### OrganizationTeamMember
 
-Associates a User with a Team. Lives under the `/v1/organizations/:org/teams/:team/members` API path.
+Associates a User with a Team. Lives under the `/control/v1/organizations/{org}/teams/{team}/members` API path.
 
 **Data**:
 
@@ -709,7 +709,7 @@ Associates a User with a Team. Lives under the `/v1/organizations/:org/teams/:te
 
 ### OrganizationTeamPermission
 
-Grants a Team specific administrative permissions within an Organization. Lives under the `/v1/organizations/:org/teams/:team/permissions` API path.
+Grants a Team specific administrative permissions within an Organization. Lives under the `/control/v1/organizations/{org}/teams/{team}/permissions` API path.
 
 **Purpose**: Enables delegating administrative capabilities to teams without granting full Admin or Owner roles. This allows organizations to implement least-privilege access control for sensitive operations like Client management.
 
@@ -745,27 +745,27 @@ Enum defining organization-level permissions that can be delegated to teams (har
 **Client Management Permissions**:
 
 - **ORG_PERM_CLIENT_READ**: View existing Clients (list, read details, view public keys)
-  - **Allows**: `GET /v1/organizations/:org/clients`, `GET /v1/organizations/:org/clients/:client`
+  - **Allows**: `GET /control/v1/organizations/{org}/clients`, `GET /control/v1/organizations/{org}/clients/{client}`
   - **Denies**: Cannot view private keys (never returned by API anyway)
   - **Use case**: Security audit, monitoring which clients exist
 
 - **ORG_PERM_CLIENT_CREATE**: Create new Clients
-  - **Allows**: `POST /v1/organizations/:org/clients`
+  - **Allows**: `POST /control/v1/organizations/{org}/clients`
   - **Grants**: Private key is shown once on creation (team member must save securely)
   - **Use case**: DevOps teams provisioning new service accounts
 
 - **ORG_PERM_CLIENT_ROTATE**: Rotate Client credentials (create new, revoke old)
-  - **Allows**: `POST /v1/organizations/:org/clients/:client/rotate`
+  - **Allows**: `POST /control/v1/organizations/{org}/clients/{client}/secret/rotate`
   - **Security**: Atomic operation (both create new and revoke old succeed or both fail)
   - **Use case**: Security team enforcing credential rotation policies
 
 - **ORG_PERM_CLIENT_REVOKE**: Revoke existing Clients (non-destructive, can be reversed by creating new client)
-  - **Allows**: `POST /v1/organizations/:org/clients/:client/revoke`
+  - **Allows**: `DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}`
   - **Note**: Cannot un-revoke, but can create new client to restore access
   - **Use case**: Security incident response team
 
 - **ORG_PERM_CLIENT_DELETE**: Permanently delete Clients (destructive, cannot be undone)
-  - **Allows**: `DELETE /v1/organizations/:org/clients/:client`
+  - **Allows**: `DELETE /control/v1/organizations/{org}/clients/{client}`
   - **Security**: Requires confirmation parameter to prevent accidental deletion
   - **Use case**: Cleanup of deprecated service accounts
 
@@ -776,39 +776,39 @@ Enum defining organization-level permissions that can be delegated to teams (har
 **Vault Management Permissions**:
 
 - **ORG_PERM_VAULT_CREATE**: Create new Vaults
-  - **Allows**: `POST /v1/vaults` (with organization_id matching the team's org)
+  - **Allows**: `POST /control/v1/organizations/{org}/vaults` (with organization_id matching the team's org)
   - **Automatically grants**: Creator receives VAULT_ROLE_ADMIN on created vault
   - **Use case**: Engineering teams creating vaults for new projects
 
 - **ORG_PERM_VAULT_DELETE**: Delete Vaults
-  - **Allows**: `DELETE /v1/vaults/:vault` (vault must belong to same org)
+  - **Allows**: `DELETE /control/v1/organizations/{org}/vaults/{vault}` (vault must belong to same org)
   - **Requires**: User must also have VAULT_ROLE_ADMIN on the specific vault
   - **Use case**: Engineering leads cleaning up obsolete vaults
 
 **Team Management Permissions**:
 
 - **ORG_PERM_TEAM_CREATE**: Create new Teams
-  - **Allows**: `POST /v1/organizations/:org/teams`
+  - **Allows**: `POST /control/v1/organizations/{org}/teams`
   - **Use case**: HR or team leads organizing people
 
 - **ORG_PERM_TEAM_DELETE**: Delete Teams
-  - **Allows**: `DELETE /v1/organizations/:org/teams/:team`
+  - **Allows**: `DELETE /control/v1/organizations/{org}/teams/{team}`
   - **Restriction**: Cannot delete team with active VaultTeamGrant entries (must revoke vault access first)
   - **Use case**: Cleanup of dissolved teams
 
 - **ORG_PERM_TEAM_MANAGE_MEMBERS**: Add/remove members from Teams
-  - **Allows**: `POST /v1/organizations/:org/teams/:team/members`, `DELETE /v1/organizations/:org/teams/:team/members/:member`
+  - **Allows**: `POST /control/v1/organizations/{org}/teams/{team}/members`, `DELETE /control/v1/organizations/{org}/teams/{team}/members/{member}`
   - **Use case**: Team leads managing their team membership
 
 **Invitation Permissions**:
 
 - **ORG_PERM_INVITE_USERS**: Send invitations to join the Organization
-  - **Allows**: `POST /v1/organizations/:org/invitations`
+  - **Allows**: `POST /control/v1/organizations/{org}/invitations`
   - **Restriction**: Can only invite as Member role (not Admin or Owner)
   - **Use case**: Team leads onboarding new team members
 
 - **ORG_PERM_REVOKE_INVITATIONS**: Revoke pending invitations
-  - **Allows**: `DELETE /v1/organizations/:org/invitations/:invitation`
+  - **Allows**: `DELETE /control/v1/organizations/{org}/invitations/{invitation}`
   - **Use case**: Revoking invitations for candidates who declined
 
 **High-Privilege Permissions** (Require Owner role to grant):
@@ -840,7 +840,7 @@ Users can accumulate permissions from multiple sources:
 
 ### Vault
 
-Represents an authorization vault (tenant in @engine). Lives under the `/v1/vaults` API path.
+Represents an authorization vault (tenant in @engine). Lives under the `/control/v1/organizations/{org}/vaults` API path.
 
 **Data**:
 
@@ -882,7 +882,7 @@ Enum for vault synchronization status with @engine (hard-coded).
 
 ### VaultTeamGrant
 
-Grants a Team access to a Vault. Lives under the `/v1/vaults/:vault/team-grants` API path.
+Grants a Team access to a Vault. Team-based vault access is managed at the vault level.
 
 **Data**:
 
@@ -904,7 +904,7 @@ Grants a Team access to a Vault. Lives under the `/v1/vaults/:vault/team-grants`
 
 ### VaultUserGrant
 
-Grants a User direct access to a Vault. Lives under the `/v1/vaults/:vault/user-grants` API path.
+Grants a User direct access to a Vault. User-based vault access is managed at the vault level.
 
 **Data**:
 
@@ -1029,7 +1029,7 @@ Represents a refresh token for vault-scoped JWTs. Enables long-running operation
 
 ### AuditLog
 
-Represents a security audit event for tracking authentication events, permission changes, and sensitive operations. Not directly exposed via REST API (admin/debug access only via `/v1/audit-logs` endpoint).
+Represents a security audit event for tracking authentication events, permission changes, and sensitive operations. Accessible via `GET /control/v1/organizations/{org}/audit-logs`.
 
 **Data**:
 
@@ -1138,7 +1138,7 @@ Enum defining types of audit events (hard-coded).
 
 ### When a new OrganizationTeam is created
 
-1. Must be bound to an Organization (from URL path: `/v1/organizations/:org/teams`)
+1. Must be bound to an Organization (from URL path: `/control/v1/organizations/{org}/teams`)
 2. Validate that team name is unique within the Organization
 3. Only Admins and Owners can create teams (or Members with `ORG_PERM_TEAM_CREATE` via team grant)
 
@@ -1206,25 +1206,25 @@ fn user_has_org_permission(
 
 **Authorization checks** (before performing operation):
 
-- **List Clients** (`GET /v1/organizations/:org/clients`):
+- **List Clients** (`GET /control/v1/organizations/{org}/clients`):
   - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_READ`
 
-- **Get Client details** (`GET /v1/organizations/:org/clients/:client`):
+- **Get Client details** (`GET /control/v1/organizations/{org}/clients/{client}`):
   - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_READ`
 
-- **Create Client** (`POST /v1/organizations/:org/clients`):
+- **Create Client** (`POST /control/v1/organizations/{org}/clients`):
   - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_CREATE` OR `ORG_PERM_CLIENT_MANAGE`
   - Log AuditEventType::CLIENT_CREATED with creating user
 
-- **Create certificate** (`POST /v1/organizations/:org/clients/:client/certificates`):
+- **Create certificate** (`POST /control/v1/organizations/{org}/clients/{client}/certificates`):
   - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_CREATE` OR `ORG_PERM_CLIENT_MANAGE`
   - Enables graceful zero-downtime rotation
 
-- **Revoke certificate** (`POST /v1/organizations/:org/clients/:client/certificates/:cert/revoke`):
+- **Revoke certificate** (`DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}`):
   - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_REVOKE` OR `ORG_PERM_CLIENT_MANAGE`
   - Cannot revoke last active certificate (must generate new one first)
 
-- **Delete Client** (`DELETE /v1/organizations/:org/clients/:client`):
+- **Delete Client** (`DELETE /control/v1/organizations/{org}/clients/{client}`):
   - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_DELETE` OR `ORG_PERM_CLIENT_MANAGE`
   - Require confirmation parameter: `?confirm_delete=<client_id>`
   - Log AuditEventType::CLIENT_DELETED
@@ -1299,21 +1299,15 @@ fn user_has_org_permission(
 
 ### When Organization ownership is transferred
 
-**Endpoint**: `POST /v1/organizations/:org/transfer-ownership`
+Ownership transfer is handled through role updates on organization members. Owners can promote other members to Owner via `PATCH /control/v1/organizations/{org}/members/{member}`.
 
 **Behavior**:
 
 1. Validate that the requesting user is an Owner of the organization
-2. Validate that the target user (new owner) is already an OrganizationMember of this organization
-3. If target user is not already an Owner:
-   - Update their OrganizationMember.role to OWNER
-4. The requesting user (current owner) has three options (specified in request):
-   - **remain_owner**: Keep Owner role (organization will have multiple Owners)
-   - **demote_to_admin**: Demote to Admin role
-   - **leave_organization**: Remove their OrganizationMember entry (leave the org entirely)
-5. If requesting user chooses to leave and they are the last Owner, the transfer will fail (must complete transfer first)
-6. No consent required from target user (they're already a member)
-7. Log this action in audit trail for security purposes
+2. Validate that the target user is already an OrganizationMember
+3. Update the target member's role to OWNER
+4. The original Owner retains their Owner role (multiple Owners are allowed)
+5. Owners can optionally demote themselves afterward or leave the organization
 
 ### When an OrganizationMember is removed
 
@@ -1528,7 +1522,7 @@ Permissions are hierarchical - higher roles include all lower role permissions:
 5. Return Client details with private key (one-time display)
 6. Log AuditEventType::CLIENT_CREATED with creating user
 
-**When creating a new certificate for existing Client** (`POST /v1/organizations/:org/clients/:client/certificates`):
+**When creating a new certificate for existing Client** (`POST /control/v1/organizations/{org}/clients/{client}/certificates`):
 
 1. Validate requesting user has `ORG_PERM_CLIENT_CREATE` or `ORG_PERM_CLIENT_MANAGE` permission
 2. Validate client has < 5 active (non-revoked) certificates
@@ -1565,7 +1559,7 @@ Phase 4: Revoke old certificate (when convenient)
 14. Ledger's TTL garbage collector auto-deletes after 90 days
 ```
 
-**When revoking a certificate** (`POST /v1/organizations/:org/clients/:client/certificates/:cert/revoke`):
+**When revoking a certificate** (`DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}`):
 
 1. Validate requesting user has `ORG_PERM_CLIENT_REVOKE` or `ORG_PERM_CLIENT_MANAGE` permission
 2. **Check if last active certificate**: Count non-revoked certificates for this client
@@ -1575,7 +1569,7 @@ Phase 4: Revoke old certificate (when convenient)
 6. Log AuditEventType::CLIENT_CERTIFICATE_REVOKED
 7. Return success with message: "Certificate revoked. It will remain visible for 90 days for audit purposes."
 
-**When listing certificates** (`GET /v1/organizations/:org/clients/:client/certificates`):
+**When listing certificates** (`GET /control/v1/organizations/{org}/clients/{client}/certificates`):
 
 Response includes:
 
@@ -1626,7 +1620,7 @@ Response includes:
 }
 ```
 
-**When deleting a certificate** (`DELETE /v1/organizations/:org/clients/:client/certificates/:cert`):
+**When deleting a certificate** (`DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}`):
 
 1. Validate requesting user has `ORG_PERM_CLIENT_DELETE` or `ORG_PERM_CLIENT_MANAGE` permission
 2. Require confirmation parameter: `?confirm_delete=<cert_id>`
@@ -1681,7 +1675,7 @@ Response includes:
 
 1. Set Vault.sync_status = FAILED
 2. Keep Vault entity in Control (do not delete)
-3. **Manual retry**: Admin can trigger retry via `POST /v1/vaults/:vault/retry-sync`
+3. **Manual retry**: Admin can trigger retry via `POST /control/v1/organizations/{org}/vaults/{vault}/retry-sync`
 4. **Automatic retry**: Failed syncs can be retried via the admin endpoint (up to 3 attempts)
 5. After 3 failed attempts:
    - Send alert to organization Owners
@@ -1704,188 +1698,78 @@ Response includes:
 
 ### User Registration Flow
 
-**Endpoint**: `POST /v1/auth/register`
+Registration uses a 3-step passwordless email verification flow:
+
+**Step 1: Initiate email verification**
+
+**Endpoint**: `POST /control/v1/auth/email/initiate`
 
 **Request**:
 
 ```json
 {
-  "name": "John Doe",
   "email": "john@example.com",
-  "password": "secret123",
-  "tos_accepted": true
+  "region": "US_EAST_VA"
 }
 ```
 
-**Response**:
+Sends a verification code to the email address. The `region` field specifies data residency and defaults to `US_EAST_VA` if omitted.
 
-```json
-{
-  "user_id": "<snowflake_id>",
-  "email_verification_required": true,
-  "session_id": "<snowflake_id>",
-  "expires_at": "2024-12-31T23:59:59Z"
-}
-```
+**Step 2: Verify email code**
 
-**Behavior**:
-
-1. Validate email is not already in use (globally unique constraint)
-2. Validate password meets minimum requirements:
-   - Minimum length: 12 characters (configurable via `config.authentication.password_min_length`)
-   - No additional complexity requirements (length alone provides sufficient entropy)
-   - Rationale: Modern guidance (NIST SP 800-63B) recommends length over complexity rules
-3. Create User entity with `tos_accepted_at = now()`
-4. Hash password with Argon2id and store in User.password_hash
-5. Create UserEmail (unverified, primary=true)
-6. Generate UserEmailVerificationToken
-7. Send verification email with link
-8. Create default Organization with same name as user, tier=TIER_DEV_V1
-9. Create OrganizationMember linking user to org with role=OWNER
-10. Generate first Client for the organization
-11. Create UserSession (30-day expiry for WEB, type determined by User-Agent or explicit parameter)
-12. Return session_id for immediate use
-
-**Email Verification Requirements**:
-
-- Users CAN use the platform immediately after registration without email verification
-- Unverified emails have the following restrictions:
-  - Cannot request password reset (must verify email first)
-  - Cannot be used as primary email for sensitive operations
-  - Cannot invite other users to organizations (Admins/Owners only, requires verified email)
-  - Cannot create additional organizations beyond the default one (requires verified email)
-- Users receive periodic reminders to verify their email (planned: reminders at day 3, 7, 14, 30)
-- After 30 days without verification, account functionality becomes limited:
-  - Can only access existing resources (read-only mode for organizations, vaults, teams)
-  - Cannot create new vaults, teams, or organizations
-  - Cannot modify vault access grants or team memberships
-  - Can still read data from vaults they have access to (via @engine API)
-  - Must verify email to restore full functionality
-  - UI displays prominent banner: "Please verify your email to restore full access"
-- Verification reminders are paused if user has verified at least one email
-
-**Alternative Registration: Passkey-Only Accounts**:
-
-Users can also register with passkey-only (no password):
-
-**Endpoint**: `POST /v1/auth/register/passkey/begin`
+**Endpoint**: `POST /control/v1/auth/email/verify`
 
 **Request**:
 
 ```json
 {
-  "name": "John Doe",
   "email": "john@example.com",
-  "tos_accepted": true
+  "code": "123456",
+  "region": "US_EAST_VA"
 }
 ```
 
-**Response**: WebAuthn registration challenge (same format as passkey login)
+For existing users, returns a session token pair. For new users, returns an onboarding token.
 
-**Endpoint**: `POST /v1/auth/register/passkey/finish`
+**Step 3: Complete registration (new users only)**
 
-**Request**: WebAuthn credential response
+**Endpoint**: `POST /control/v1/auth/email/complete` (rate-limited: 5/day per IP)
 
-**Behavior**: Same as password registration, but User.password_hash remains unset.
+**Request**:
+
+```json
+{
+  "onboarding_token": "<token_from_step_2>",
+  "email": "john@example.com",
+  "name": "John Doe"
+}
+```
+
+Creates the user account and returns a session token pair.
 
 ---
 
 ### Authentication Flow
 
-Control supports **three authentication methods**:
+Control supports **four authentication methods**:
 
-#### 1. Password Authentication
+#### 1. Email Code Authentication (Passwordless)
 
-**Endpoint**: `POST /v1/auth/login/password`
+The primary authentication method. Uses Ledger's 3-step email verification flow:
 
-**Request**:
+1. `POST /control/v1/auth/email/initiate` -- sends a verification code to the email
+2. `POST /control/v1/auth/email/verify` -- verifies the code and returns session tokens (existing users) or an onboarding token (new users)
+3. `POST /control/v1/auth/email/complete` -- completes registration for new users (rate-limited: 5/day per IP)
 
-```json
-{
-  "email": "user@example.com",
-  "password": "secret"
-}
-```
+If the user has TOTP enabled, step 2 returns a challenge nonce instead of tokens. The user must then complete MFA via one of:
 
-**Response**:
-
-```json
-{
-  "session_id": "<snowflake_id>",
-  "user_id": "<snowflake_id>",
-  "expires_at": "2024-12-31T23:59:59Z"
-}
-```
-
-**Behavior**:
-
-1. Lookup User by email (via UserEmail)
-2. Verify password against Argon2id hash
-3. Create UserSession (30-day expiry for web)
-4. Return session ID (used as Bearer token in subsequent requests)
-
----
+- `POST /control/v1/auth/totp/verify` -- verify TOTP code from authenticator app
+- `POST /control/v1/auth/recovery` -- consume a recovery code (TOTP bypass)
 
 #### 2. Passkey Authentication (WebAuthn)
 
-**Endpoint**: `POST /v1/auth/login/passkey/begin`
-
-**Request**:
-
-```json
-{
-  "email": "user@example.com"
-}
-```
-
-**Response**:
-
-```json
-{
-  "challenge": "<base64url>",
-  "allowCredentials": [
-    {
-      "id": "<base64url>",
-      "type": "public-key",
-      "transports": ["usb", "nfc"]
-    }
-  ],
-  "timeout": 60000,
-  "rpId": "inferadb.com",
-  "userVerification": "required"
-}
-```
-
-**Endpoint**: `POST /v1/auth/login/passkey/finish`
-
-**Request**:
-
-```json
-{
-  "credentialId": "<base64url>",
-  "authenticatorData": "<base64url>",
-  "clientDataJSON": "<base64url>",
-  "signature": "<base64url>"
-}
-```
-
-**Response**:
-
-```json
-{
-  "session_id": "<snowflake_id>",
-  "user_id": "<snowflake_id>",
-  "expires_at": "2024-12-31T23:59:59Z"
-}
-```
-
-**Behavior**:
-
-1. `/begin`: Generate WebAuthn challenge, return user's registered passkeys
-2. `/finish`: Verify signature, update sign_count, create UserSession
-3. Follow WebAuthn Level 2 specification
-
----
+- `POST /control/v1/auth/passkey/begin` -- generate WebAuthn challenge
+- `POST /control/v1/auth/passkey/finish` -- verify signature, return session tokens
 
 #### 3. Client Assertion Authentication (for @engine access)
 
@@ -1918,7 +1802,7 @@ Backend applications authenticate to @engine using **Client Assertion** (OAuth 2
 
 1. Backend application creates a short-lived JWT assertion (max 60 seconds)
 2. Signs assertion with its private key (Ed25519)
-3. Sends assertion to Control `/v1/token` endpoint
+3. Sends assertion to Control `/control/v1/token` endpoint
 4. Control verifies signature using stored public key
 5. Control issues vault-scoped JWT for @engine requests
 6. Backend uses vault JWT to call @engine API
@@ -1959,43 +1843,9 @@ Backend applications authenticate to @engine using **Client Assertion** (OAuth 2
 
 Users can register and manage multiple passkeys for their account.
 
-**Endpoint**: `POST /v1/users/passkeys/register/begin` (Start passkey registration)
+**Endpoint**: `POST /control/v1/users/me/credentials/passkeys/begin` (Start passkey registration, requires JWT)
 
-**Request**:
-
-```json
-{
-  "name": "iPhone 15 Pro"
-}
-```
-
-**Response**:
-
-```json
-{
-  "challenge": "<base64url>",
-  "user": {
-    "id": "<base64url>",
-    "name": "john@example.com",
-    "displayName": "John Doe"
-  },
-  "rp": {
-    "id": "inferadb.com",
-    "name": "InferaDB"
-  },
-  "pubKeyCredParams": [
-    { "type": "public-key", "alg": -8 },
-    { "type": "public-key", "alg": -7 }
-  ],
-  "timeout": 60000,
-  "authenticatorSelection": {
-    "userVerification": "required",
-    "residentKey": "preferred"
-  }
-}
-```
-
-**Endpoint**: `POST /v1/users/passkeys/register/finish` (Complete passkey registration)
+**Endpoint**: `POST /control/v1/users/me/credentials/passkeys/finish` (Complete passkey registration, requires JWT)
 
 **Request**:
 
@@ -2031,30 +1881,7 @@ Users can register and manage multiple passkeys for their account.
 3. Create UserPasskey entity
 4. Return passkey details
 
-**Endpoint**: `GET /v1/users/passkeys` (List user's passkeys)
-
-**Response**:
-
-```json
-{
-  "passkeys": [
-    {
-      "id": "<snowflake_id>",
-      "name": "iPhone 15 Pro",
-      "created_at": "2024-01-15T10:30:00Z",
-      "last_used_at": "2024-01-20T14:22:00Z"
-    }
-  ]
-}
-```
-
-**Endpoint**: `DELETE /v1/users/passkeys/:id` (Delete a passkey)
-
-**Constraints**:
-
-- Users with passkey-only accounts (no password) must have at least 1 passkey
-- Users with password can delete all passkeys
-- Cannot delete the last passkey if User.password_hash is null
+Passkey listing and deletion are not yet exposed as standalone REST endpoints. Passkeys are managed through the registration flow above and through the Ledger SDK credential management.
 
 ---
 
@@ -2063,7 +1890,7 @@ Users can register and manage multiple passkeys for their account.
 **Flow**:
 
 1. Client authenticates to Control (password, passkey, or existing session)
-2. Client requests a vault-scoped JWT: `POST /v1/tokens/vault/:vault_id`
+2. Client requests a vault-scoped JWT: `POST /control/v1/organizations/{org}/vaults/{vault}/tokens`
 3. Control validates:
    - User has active session (or valid API key client assertion)
    - User has access to vault (via VaultUserGrant or VaultTeamGrant)
@@ -2074,21 +1901,25 @@ Users can register and manage multiple passkeys for their account.
 7. @engine validates JWT signature against Organization's public keys
 8. When JWT expires, client can use refresh token to get new JWT without re-authenticating
 
-**Endpoint**: `POST /v1/tokens/vault/:vault_id`
+**Endpoint**: `POST /control/v1/organizations/{org}/vaults/{vault}/tokens`
 
-**Request**: (authenticated via session token or API key client assertion)
+**Request**: (authenticated via JWT)
+
+```json
+{
+  "app": 12345,
+  "scopes": ["vault:read", "vault:write"]
+}
+```
 
 **Response**:
 
 ```json
 {
   "access_token": "<jwt>",
-  "refresh_token": "<cryptographic_token>",
+  "refresh_token": "<opaque_token>",
   "token_type": "Bearer",
-  "expires_in": 3600,
-  "refresh_expires_in": 86400,
-  "vault_id": "<snowflake_id>",
-  "vault_role": "VAULT_ROLE_WRITER"
+  "expires_in": 3600
 }
 ```
 
@@ -2110,9 +1941,9 @@ Users can register and manage multiple passkeys for their account.
 
 ### Refresh Token Flow
 
-**Endpoint**: `POST /v1/tokens/refresh`
+**Endpoint**: `POST /control/v1/tokens/refresh`
 
-**Request**: (authenticated via session token or API key client assertion)
+**Request**:
 
 ```json
 {
@@ -2127,10 +1958,7 @@ Users can register and manage multiple passkeys for their account.
   "access_token": "<new_jwt>",
   "refresh_token": "<new_refresh_token>",
   "token_type": "Bearer",
-  "expires_in": 3600,
-  "refresh_expires_in": 86400,
-  "vault_id": "<snowflake_id>",
-  "vault_role": "VAULT_ROLE_WRITER"
+  "expires_in": 3600
 }
 ```
 
@@ -2404,7 +2232,7 @@ Dashboard UI (`https://app.inferadb.com/cli-login`):
 - Dashboard generates authorization code (single-use, 5-minute expiry)
 - Redirects to callback URL
 
-**Control Endpoint**: `POST /v1/auth/cli/authorize` (called by Dashboard)
+**Control Endpoint**: `POST /control/v1/auth/cli/authorize` (called by Dashboard)
 
 **Request**:
 
@@ -2453,7 +2281,7 @@ GET /callback?code=<authorization_code>&state=<state>
 
 CLI calls Control to exchange code for session token:
 
-**Control Endpoint**: `POST /v1/auth/cli/token`
+**Control Endpoint**: `POST /control/v1/auth/cli/token`
 
 **Request**:
 
@@ -2492,8 +2320,8 @@ inferadb vaults list
 CLI includes session token in requests:
 
 ```http
-GET /v1/organizations
-Authorization: Bearer <session_token>
+GET /control/v1/organizations
+Authorization: Bearer <jwt_access_token>
 ```
 
 **Security Properties**:
@@ -2528,7 +2356,7 @@ For non-interactive environments (CI/CD pipelines, automation scripts, backend s
 5. User sets environment variable in CI/CD: `INFERADB_CLIENT_ID=<client_id>` and `INFERADB_PRIVATE_KEY=<private_key>`
 6. CLI/SDK uses private key to generate and sign client assertion JWTs
 
-**Control Endpoint**: `POST /v1/organizations/:org/clients`
+**Control Endpoint**: `POST /control/v1/organizations/{org}/clients`
 
 **Request**:
 
@@ -2604,16 +2432,20 @@ fn generate_client_assertion(client_id: &str, private_key_pem: &str) -> Result<S
 CLI/SDK exchanges client assertion for vault-scoped JWT:
 
 ```http
-POST /v1/token
-Content-Type: application/x-www-form-urlencoded
+POST /control/v1/token
+Content-Type: application/json
 
-grant_type=client_credentials&
-client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&
-client_assertion=<signed_jwt>&
-scope=vault:vault_123:WRITER
+{
+  "grant_type": "client_credentials",
+  "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+  "client_assertion": "<signed_jwt>",
+  "organization": 12345,
+  "vault": "vault_123",
+  "scopes": ["vault:read", "vault:write"]
+}
 ```
 
-**Control Token Endpoint**: `/v1/token`
+**Control Token Endpoint**: `/control/v1/token`
 
 **Validation**:
 
@@ -2675,8 +2507,8 @@ $ inferadb vaults list
 **Control Request**:
 
 ```http
-GET /v1/organizations
-Authorization: Bearer <session_token>
+GET /control/v1/organizations
+Authorization: Bearer <jwt_access_token>
 ```
 
 **Validation**:
@@ -2756,7 +2588,7 @@ SDKs automatically:
 
 ### Email Verification
 
-**Endpoint**: `POST /v1/users/emails` (Add new email)
+**Endpoint**: `POST /control/v1/users/emails` (Add new email, requires JWT)
 
 **Request**:
 
@@ -2766,14 +2598,7 @@ SDKs automatically:
 }
 ```
 
-**Behavior**:
-
-1. Create UserEmail (unverified)
-2. Generate UserEmailVerificationToken
-3. Send verification email with link: `https://app.inferadb.com/verify-email?token=<token>`
-4. Email contains 6-digit code and clickable link
-
-**Endpoint**: `POST /v1/auth/verify-email` (Confirm verification)
+**Endpoint**: `POST /control/v1/auth/verify-email` (Confirm verification, public rate-limited)
 
 **Request**:
 
@@ -2783,54 +2608,11 @@ SDKs automatically:
 }
 ```
 
-**Behavior**:
-
-1. Validate token (not expired, exists)
-2. Set UserEmail.verified_at = now()
-3. Delete UserEmailVerificationToken
-4. Return success
-
 ---
 
 ### Password Reset
 
-**Endpoint**: `POST /v1/auth/password-reset/request`
-
-**Request**:
-
-```json
-{
-  "email": "user@example.com"
-}
-```
-
-**Behavior**:
-
-1. Lookup User by email
-2. Generate UserPasswordResetToken
-3. Send password reset email with link: `https://app.inferadb.com/reset-password?token=<token>`
-4. Email contains 6-digit code and clickable link
-5. Token expires in 1 hour
-
-**Endpoint**: `POST /v1/auth/password-reset/confirm`
-
-**Request**:
-
-```json
-{
-  "token": "<token>",
-  "new_password": "newsecret"
-}
-```
-
-**Behavior**:
-
-1. Validate token (not expired, exists)
-2. Hash new password with Argon2id
-3. Update User.password_hash
-4. Delete all UserPasswordResetToken entries for this user
-5. Invalidate all UserSession entries for this user (force re-login)
-6. Return success
+Password reset is not implemented as a standalone flow. The passwordless email code authentication (`/control/v1/auth/email/initiate` + `/control/v1/auth/email/verify`) serves as the primary account recovery mechanism. Users authenticate via email code to regain access.
 
 ---
 
@@ -2838,13 +2620,13 @@ SDKs automatically:
 
 ### REST API
 
-**Base URL**: `https://api.inferadb.com/v1/control`
+**Route prefix**: `/control/v1/`
 
-**Authentication**: Bearer token (UserSession ID) in `Authorization` header
+**Authentication**: JWT access token in `Authorization` header or `inferadb_access` cookie
 
 **Common Headers**:
 
-- `Authorization: Bearer <session_id>`
+- `Authorization: Bearer <jwt_access_token>`
 - `Content-Type: application/json`
 
 **Error Response Format**:
@@ -2880,99 +2662,129 @@ SDKs automatically:
 
 ### REST API Endpoints
 
-#### Authentication Endpoints
+All `/control/v1/` routes require JWT authentication unless noted otherwise. Read operations (GET) use local JWT validation; write operations (POST/PATCH/DELETE) use Ledger-validated JWT.
 
-- `POST /v1/auth/register` - Register new user with password
-- `POST /v1/auth/register/passkey/begin` - Begin passkey-only registration
-- `POST /v1/auth/register/passkey/finish` - Complete passkey-only registration
-- `POST /v1/auth/login/password` - Login with password
-- `POST /v1/auth/login/passkey/begin` - Begin passkey login
-- `POST /v1/auth/login/passkey/finish` - Complete passkey login
-- `POST /v1/auth/logout` - Logout (revoke current session)
-- `POST /v1/auth/verify-email` - Verify email with token
-- `POST /v1/auth/password-reset/request` - Request password reset
-- `POST /v1/auth/password-reset/confirm` - Confirm password reset with token
+#### Authentication Endpoints (Public, Rate-Limited)
+
+These endpoints are rate-limited at 100 requests/hour per IP for brute-force protection:
+
+- `POST /control/v1/auth/email/initiate` - Send email verification code (passwordless login step 1)
+- `POST /control/v1/auth/email/verify` - Verify email code (returns session or onboarding token)
+- `POST /control/v1/auth/totp/verify` - Verify TOTP code (second-factor authentication)
+- `POST /control/v1/auth/recovery` - Consume recovery code (TOTP bypass)
+- `POST /control/v1/auth/passkey/begin` - Begin passkey authentication
+- `POST /control/v1/auth/passkey/finish` - Complete passkey authentication
+- `POST /control/v1/token` - Client assertion authentication (OAuth 2.0 JWT Bearer, RFC 7523)
+- `POST /control/v1/auth/refresh` - Refresh session token pair
+- `POST /control/v1/auth/verify-email` - Verify email ownership with token
+
+Registration endpoint (rate-limited at 5 requests/day per IP):
+
+- `POST /control/v1/auth/email/complete` - Complete new-user registration
+
+Session endpoints (no rate limiting):
+
+- `POST /control/v1/auth/logout` - Logout (revoke current session)
+- `POST /control/v1/tokens/refresh` - Refresh vault token
+
+#### Authenticated Write Endpoints (JWT Required, Ledger-Validated)
+
+- `POST /control/v1/auth/revoke-all` - Revoke all sessions
 
 #### User Endpoints
 
-- `GET /v1/users/me` - Get current user profile
-- `PATCH /v1/users/me` - Update current user profile
-- `DELETE /v1/users/me` - Delete current user account
-- `GET /v1/users/emails` - List user's emails
-- `POST /v1/users/emails` - Add new email (triggers verification)
-- `PATCH /v1/users/emails/:id` - Update email (e.g., set as primary)
-- `DELETE /v1/users/emails/:id` - Remove email
-- `GET /v1/users/passkeys` - List user's passkeys
-- `POST /v1/users/passkeys/register/begin` - Begin passkey registration
-- `POST /v1/users/passkeys/register/finish` - Complete passkey registration
-- `DELETE /v1/users/passkeys/:id` - Delete passkey
-- `GET /v1/users/sessions` - List user's active sessions
-- `DELETE /v1/users/sessions/:id` - Revoke specific session
+- `GET /control/v1/users/me` - Get current user profile
+- `PATCH /control/v1/users/me` - Update current user profile
+- `DELETE /control/v1/users/me` - Delete current user account
+- `GET /control/v1/users/emails` - List user's emails
+- `POST /control/v1/users/emails` - Add new email
+- `DELETE /control/v1/users/emails/{id}` - Remove email
+- `GET /control/v1/users/me/invitations` - List received invitations
+- `POST /control/v1/users/me/invitations/{invitation}/accept` - Accept invitation
+- `POST /control/v1/users/me/invitations/{invitation}/decline` - Decline invitation
+
+#### Passkey Credential Management (JWT Required)
+
+- `POST /control/v1/users/me/credentials/passkeys/begin` - Begin passkey registration
+- `POST /control/v1/users/me/credentials/passkeys/finish` - Complete passkey registration
 
 #### Organization Endpoints
 
-- `GET /v1/organizations` - List user's organizations
-- `POST /v1/organizations` - Create new organization
-- `GET /v1/organizations/:org` - Get organization details
-- `PATCH /v1/organizations/:org` - Update organization
-- `DELETE /v1/organizations/:org` - Delete organization
-- `GET /v1/organizations/:org/members` - List organization members
-- `PATCH /v1/organizations/:org/members/:member` - Update member role
-- `DELETE /v1/organizations/:org/members/:member` - Remove member
-- `POST /v1/organizations/:org/invitations` - Create invitation
-- `GET /v1/organizations/:org/invitations` - List pending invitations
-- `DELETE /v1/organizations/:org/invitations/:invitation` - Revoke invitation
-- `POST /v1/organizations/:org/invitations/:token/accept` - Accept invitation
-- `POST /v1/organizations/:org/transfer-ownership` - Transfer ownership to another user
-- `GET /v1/organizations/:org/clients` - List organization clients
-- `POST /v1/organizations/:org/clients` - Create new client (automatically creates first certificate)
-- `GET /v1/organizations/:org/clients/:client` - Get client details
-- `PATCH /v1/organizations/:org/clients/:client` - Update client (name only)
-- `DELETE /v1/organizations/:org/clients/:client` - Delete client (soft delete, requires confirmation)
-- `GET /v1/organizations/:org/clients/:client/certificates` - List client certificates (active + revoked last 90 days)
-- `POST /v1/organizations/:org/clients/:client/certificates` - Create new certificate for client
-- `POST /v1/organizations/:org/clients/:client/certificates/:cert/revoke` - Revoke certificate
-- `DELETE /v1/organizations/:org/clients/:client/certificates/:cert` - Delete certificate (requires confirmation)
+- `GET /control/v1/organizations` - List user's organizations
+- `POST /control/v1/organizations` - Create new organization
+- `GET /control/v1/organizations/{org}` - Get organization details
+- `PATCH /control/v1/organizations/{org}` - Update organization
+- `DELETE /control/v1/organizations/{org}` - Delete organization
+- `GET /control/v1/organizations/{org}/members` - List organization members
+- `PATCH /control/v1/organizations/{org}/members/{member}` - Update member role
+- `DELETE /control/v1/organizations/{org}/members/{member}` - Remove member
+- `DELETE /control/v1/organizations/{org}/members/me` - Leave organization
+- `POST /control/v1/organizations/{org}/invitations` - Create invitation
+- `GET /control/v1/organizations/{org}/invitations` - List pending invitations
+- `DELETE /control/v1/organizations/{org}/invitations/{invitation}` - Revoke invitation
+
+#### Client Endpoints
+
+- `GET /control/v1/organizations/{org}/clients` - List organization clients
+- `POST /control/v1/organizations/{org}/clients` - Create new client
+- `GET /control/v1/organizations/{org}/clients/{client}` - Get client details
+- `PATCH /control/v1/organizations/{org}/clients/{client}` - Update client
+- `DELETE /control/v1/organizations/{org}/clients/{client}` - Delete client
+
+#### Certificate Endpoints
+
+- `GET /control/v1/organizations/{org}/clients/{client}/certificates` - List client certificates
+- `GET /control/v1/organizations/{org}/clients/{client}/certificates/{cert}` - Get certificate details
+- `POST /control/v1/organizations/{org}/clients/{client}/certificates` - Create new certificate
+- `DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}` - Revoke certificate
+- `POST /control/v1/organizations/{org}/clients/{client}/secret/rotate` - Rotate client secret
 
 #### Team Endpoints
 
-- `GET /v1/organizations/:org/teams` - List teams in organization
-- `POST /v1/organizations/:org/teams` - Create new team
-- `GET /v1/organizations/:org/teams/:team` - Get team details
-- `PATCH /v1/organizations/:org/teams/:team` - Update team
-- `DELETE /v1/organizations/:org/teams/:team` - Delete team
-- `GET /v1/organizations/:org/teams/:team/members` - List team members
-- `POST /v1/organizations/:org/teams/:team/members` - Add team member
-- `PATCH /v1/organizations/:org/teams/:team/members/:member` - Update team member (e.g., set as manager)
-- `DELETE /v1/organizations/:org/teams/:team/members/:member` - Remove team member
-- `GET /v1/organizations/:org/teams/:team/permissions` - List team's organization permissions
-- `POST /v1/organizations/:org/teams/:team/permissions` - Grant organization permission to team
-- `DELETE /v1/organizations/:org/teams/:team/permissions/:permission` - Revoke organization permission from team
+- `GET /control/v1/organizations/{org}/teams` - List teams in organization
+- `POST /control/v1/organizations/{org}/teams` - Create new team
+- `GET /control/v1/organizations/{org}/teams/{team}` - Get team details
+- `PATCH /control/v1/organizations/{org}/teams/{team}` - Update team
+- `DELETE /control/v1/organizations/{org}/teams/{team}` - Delete team
+- `GET /control/v1/organizations/{org}/teams/{team}/members` - List team members
+- `POST /control/v1/organizations/{org}/teams/{team}/members` - Add team member
+- `PATCH /control/v1/organizations/{org}/teams/{team}/members/{member}` - Update team member
+- `DELETE /control/v1/organizations/{org}/teams/{team}/members/{member}` - Remove team member
 
 #### Vault Endpoints
 
-- `GET /v1/vaults` - List vaults (filtered by user's organization memberships)
-- `POST /v1/vaults` - Create new vault
-- `GET /v1/vaults/:vault` - Get vault details
-- `PATCH /v1/vaults/:vault` - Update vault metadata
-- `DELETE /v1/vaults/:vault` - Delete vault
-- `GET /v1/vaults/:vault/team-grants` - List team access grants
-- `POST /v1/vaults/:vault/team-grants` - Grant team access
-- `PATCH /v1/vaults/:vault/team-grants/:grant` - Update team access role
-- `DELETE /v1/vaults/:vault/team-grants/:grant` - Revoke team access
-- `GET /v1/vaults/:vault/user-grants` - List user access grants
-- `POST /v1/vaults/:vault/user-grants` - Grant user access
-- `PATCH /v1/vaults/:vault/user-grants/:grant` - Update user access role
-- `DELETE /v1/vaults/:vault/user-grants/:grant` - Revoke user access
+- `GET /control/v1/organizations/{org}/vaults` - List vaults in organization
+- `POST /control/v1/organizations/{org}/vaults` - Create new vault
+- `GET /control/v1/organizations/{org}/vaults/{vault}` - Get vault details
+- `PATCH /control/v1/organizations/{org}/vaults/{vault}` - Update vault metadata
+- `DELETE /control/v1/organizations/{org}/vaults/{vault}` - Delete vault
+- `POST /control/v1/organizations/{org}/vaults/{vault}/tokens` - Generate vault-scoped JWT
+- `DELETE /control/v1/organizations/{org}/vaults/{vault}/tokens` - Revoke vault tokens
 
-#### Token Endpoints
+#### Schema Endpoints
 
-- `POST /v1/tokens/vault/:vault` - Generate vault-scoped JWT and refresh token for @engine
-- `POST /v1/tokens/refresh` - Refresh an expired vault JWT using a refresh token
+- `GET /control/v1/organizations/{org}/vaults/{vault}/schemas` - List schema versions
+- `GET /control/v1/organizations/{org}/vaults/{vault}/schemas/current` - Get current active schema
+- `GET /control/v1/organizations/{org}/vaults/{vault}/schemas/diff` - Diff between schema versions
+- `GET /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}` - Get specific schema version
+- `POST /control/v1/organizations/{org}/vaults/{vault}/schemas` - Deploy new schema (1 MiB body limit)
+- `POST /control/v1/organizations/{org}/vaults/{vault}/schemas/rollback` - Rollback schema
+- `POST /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate` - Activate schema version
 
-#### Public Endpoints (No Authentication Required)
+#### Audit Log Endpoints
 
-- `GET /healthz` - Health check endpoint
+- `GET /control/v1/organizations/{org}/audit-logs` - List audit logs for organization
+
+#### Health Endpoints (Public, No Authentication)
+
+- `GET /livez` - Liveness probe (is the process alive?)
+- `GET /readyz` - Readiness probe (can it accept traffic?)
+- `GET /startupz` - Startup probe (has initialization completed?)
+- `GET /healthz` - Detailed health status
+
+#### Metrics Endpoint (Network-Policy Protected)
+
+- `GET /metrics` - Prometheus metrics
 
 ---
 
@@ -3188,7 +3000,7 @@ Control exposes a JWKS endpoint for the Engine to fetch system public keys:
 
 - Recommended: Rotate every 90 days
 - Alert when key is within 30 days of expiry
-- Support emergency rotation endpoint: `POST /v1/system/api-keys/rotate`
+- Support emergency rotation endpoint: `POST /control/v1/system/api-keys/rotate`
 
 ### Privileged Operations Authorization
 
@@ -3332,7 +3144,7 @@ This section focuses on **tenant requests** and how the Engine enforces VaultRol
 
 ### Vault-Scoped JWT Authentication
 
-**JWT Issuance**: Control issues vault-scoped JWTs via the `POST /v1/tokens/vault/:vault` endpoint.
+**JWT Issuance**: Control issues vault-scoped JWTs via the `POST /control/v1/organizations/{org}/vaults/{vault}/tokens` endpoint.
 
 **JWT Claims**:
 
@@ -3689,6 +3501,8 @@ inferadb-control \
   --listen 0.0.0.0:9090 \
   --storage ledger \
   --ledger-endpoint https://ledger.inferadb.com \
+  --ledger-client-id ctrl-01 \
+  --ledger-organization 1 \
   --key-file /run/secrets/master.key \
   --frontend-url https://app.inferadb.com \
   --email-host smtp.sendgrid.net \
@@ -3697,7 +3511,9 @@ inferadb-control \
   --email-password "$SMTP_PASSWORD" \
   --email-from-address noreply@inferadb.com \
   --email-from-name InferaDB \
-  --log-level info
+  --log-level info \
+  --webauthn-rp-id app.inferadb.com \
+  --webauthn-origin https://app.inferadb.com
 ```
 
 **Environment variable example** (prefix `INFERADB__CONTROL__`, flat structure):
@@ -3706,10 +3522,14 @@ inferadb-control \
 INFERADB__CONTROL__LISTEN=0.0.0.0:9090
 INFERADB__CONTROL__STORAGE=ledger
 INFERADB__CONTROL__LEDGER_ENDPOINT=https://ledger.inferadb.com
+INFERADB__CONTROL__LEDGER_CLIENT_ID=ctrl-01
+INFERADB__CONTROL__LEDGER_ORGANIZATION=1
 INFERADB__CONTROL__KEY_FILE=/run/secrets/master.key
 INFERADB__CONTROL__FRONTEND_URL=https://app.inferadb.com
 INFERADB__CONTROL__EMAIL_HOST=smtp.sendgrid.net
 INFERADB__CONTROL__EMAIL_PASSWORD=<secret>
+INFERADB__CONTROL__WEBAUTHN_RP_ID=app.inferadb.com
+INFERADB__CONTROL__WEBAUTHN_ORIGIN=https://app.inferadb.com
 ```
 
 **Dev mode** (in-memory storage, no external dependencies):
@@ -4225,7 +4045,7 @@ Control is designed as a **true multi-tenant SaaS platform** supporting thousand
 
 - **Role-based access**: OrganizationMember roles (Member, Admin, Owner) scoped to single organization
 - **Vault permissions**: VaultUserGrant and VaultTeamGrant scoped to vault + organization
-- **API endpoints**: All mutation endpoints require organization context (`/v1/organizations/:org/...`)
+- **API endpoints**: All mutation endpoints require organization context (`/control/v1/organizations/{org}/...`)
 - **Permission queries**: Cannot check permissions across organization boundaries
 
 **4. Rate Limiting Isolation**:
@@ -4361,82 +4181,32 @@ Comprehensive error codes for consistent client handling and debugging.
 }
 ```
 
-**Error Codes**:
+**Error Codes** (from `Error::error_code()`):
 
-### Authentication Errors (AUTH\_\*)
+| Error Code | HTTP Status | Factory Method | Description |
+|---|---|---|---|
+| `CONFIGURATION_ERROR` | 500 | `Error::config(msg)` | Invalid or missing configuration |
+| `STORAGE_ERROR` | 500 | `Error::storage(msg)` | Storage backend failure |
+| `AUTHENTICATION_ERROR` | 401 | `Error::auth(msg)` | Caller identity could not be verified |
+| `AUTHORIZATION_ERROR` | 403 | `Error::authz(msg)` | Caller lacks permission |
+| `VALIDATION_ERROR` | 400 | `Error::validation(msg)` | Request payload failed validation |
+| `NOT_FOUND` | 404 | `Error::not_found(msg)` | Requested resource does not exist |
+| `ALREADY_EXISTS` | 409 | `Error::already_exists(msg)` | Resource conflicts with existing one |
+| `RATE_LIMIT_EXCEEDED` | 429 | `Error::rate_limit(msg)` | Request rate exceeded allowed limit |
+| `TIER_LIMIT_EXCEEDED` | 402 | `Error::tier_limit(msg)` | Subscription tier limit reached |
+| `TOO_MANY_PASSKEYS` | 400 | `Error::too_many_passkeys(max)` | Maximum passkeys registered |
+| `SERVICE_UNAVAILABLE` | 503 | `Error::unavailable(msg)` | Upstream service temporarily unavailable |
+| `EXTERNAL_SERVICE_ERROR` | 502 | `Error::external(msg)` | External dependency returned an error |
+| `INTERNAL_ERROR` | 500 | `Error::internal(msg)` | Unexpected internal failure |
 
-- `AUTH_INVALID_CREDENTIALS`: Email or password incorrect
-- `AUTH_PASSKEY_VERIFICATION_FAILED`: Passkey signature verification failed
-- `AUTH_SESSION_EXPIRED`: User session has expired
-- `AUTH_SESSION_REVOKED`: User session was explicitly revoked
-- `AUTH_UNVERIFIED_EMAIL`: Operation requires verified email
-- `AUTH_PASSWORD_RESET_REQUIRED`: User must reset password
-- `AUTH_MFA_REQUIRED`: Multi-factor authentication required (future)
+**StorageError conversion**: Storage layer errors are automatically converted:
 
-### Validation Errors (VALIDATION\_\*)
-
-- `VALIDATION_INVALID_EMAIL`: Email format is invalid
-- `VALIDATION_EMAIL_ALREADY_EXISTS`: Email address already registered
-- `VALIDATION_PASSWORD_TOO_SHORT`: Password doesn't meet minimum length
-- `VALIDATION_INVALID_NAME`: Name contains invalid characters
-- `VALIDATION_REQUIRED_FIELD`: Required field is missing
-- `VALIDATION_INVALID_VAULT_NAME`: Vault name contains invalid characters or already exists
-- `VALIDATION_INVALID_TEAM_NAME`: Team name already exists in organization
-
-### Authorization Errors (AUTHZ\_\*)
-
-- `AUTHZ_INSUFFICIENT_PERMISSIONS`: User lacks required permission
-- `AUTHZ_NOT_ORGANIZATION_MEMBER`: User is not a member of the organization
-- `AUTHZ_NOT_TEAM_MEMBER`: User is not a member of the team
-- `AUTHZ_REQUIRES_OWNER`: Operation requires Owner role
-- `AUTHZ_REQUIRES_ADMIN`: Operation requires Admin or Owner role
-- `AUTHZ_VAULT_ACCESS_DENIED`: User lacks access to vault
-- `AUTHZ_CANNOT_REMOVE_LAST_OWNER`: Cannot remove the last Owner from organization
-
-### Resource Errors (RESOURCE\_\*)
-
-- `RESOURCE_NOT_FOUND`: Requested resource does not exist
-- `RESOURCE_ALREADY_EXISTS`: Resource with same identifier already exists
-- `RESOURCE_DELETED`: Resource was soft-deleted (in grace period)
-- `RESOURCE_CONFLICT`: Resource state conflict (e.g., vault name already taken)
-
-### Rate Limiting Errors (RATE*LIMIT*\*)
-
-- `RATE_LIMIT_EXCEEDED`: Rate limit exceeded, try again later
-- `RATE_LIMIT_LOGIN_ATTEMPTS`: Too many login attempts from this IP
-- `RATE_LIMIT_REGISTRATIONS`: Too many registration attempts from this IP
-- `RATE_LIMIT_EMAIL_TOKENS`: Too many email verification tokens requested
-- `RATE_LIMIT_PASSWORD_RESET_TOKENS`: Too many password reset tokens requested
-
-### Tier Limit Errors (TIER*LIMIT*\*)
-
-- `TIER_LIMIT_USERS_EXCEEDED`: Organization has reached maximum users for tier
-- `TIER_LIMIT_TEAMS_EXCEEDED`: Organization has reached maximum teams for tier
-- `TIER_LIMIT_VAULTS_EXCEEDED`: Organization has reached maximum vaults for tier
-- `TIER_LIMIT_DOWNGRADE_BLOCKED`: Cannot downgrade tier due to usage exceeding new limits
-
-### External Service Errors (EXTERNAL\_\*)
-
-- `EXTERNAL_EMAIL_SEND_FAILED`: Failed to send email (SMTP error)
-- `EXTERNAL_SERVER_SYNC_FAILED`: Failed to sync with @engine (vault creation/deletion)
-- `EXTERNAL_JWKS_FETCH_FAILED`: Failed to fetch JWKS from Control
-
-### System Errors (SYSTEM\_\*)
-
-- `SYSTEM_INTERNAL_ERROR`: Unexpected server error
-- `SYSTEM_STORAGE_ERROR`: Database/storage layer error
-- `SYSTEM_UNAVAILABLE`: Service temporarily unavailable
-
-**HTTP Status Code Mapping**:
-
-- 400 Bad Request: VALIDATION*\*, some AUTHZ*\*, RESOURCE_CONFLICT
-- 401 Unauthorized: AUTH_INVALID_CREDENTIALS, AUTH_SESSION_EXPIRED, AUTH_SESSION_REVOKED
-- 403 Forbidden: AUTHZ\_\* (except those mapped to 400), AUTH_UNVERIFIED_EMAIL
-- 404 Not Found: RESOURCE_NOT_FOUND
-- 409 Conflict: RESOURCE_ALREADY_EXISTS, RESOURCE_CONFLICT
-- 429 Too Many Requests: RATE*LIMIT*\*
-- 500 Internal Server Error: SYSTEM*\*, EXTERNAL*\* (except retryable errors)
-- 503 Service Unavailable: SYSTEM_UNAVAILABLE
+- `StorageError::NotFound` → `NOT_FOUND` (404)
+- `StorageError::Conflict` / `CasRetriesExhausted` → `ALREADY_EXISTS` (409)
+- `StorageError::RateLimitExceeded` → `RATE_LIMIT_EXCEEDED` (429)
+- `StorageError::RangeLimitExceeded` → `VALIDATION_ERROR` (400)
+- `StorageError::CircuitOpen` / `ShuttingDown` → `SERVICE_UNAVAILABLE` (503)
+- All others → `INTERNAL_ERROR` (500)
 
 ---
 
@@ -4444,9 +4214,7 @@ Comprehensive error codes for consistent client handling and debugging.
 
 ### Client Emergency Revocation
 
-When a Client's private key is compromised, immediate revocation with propagation to @engine is critical.
-
-**Endpoint**: `POST /v1/organizations/:org/clients/:client/emergency-revoke`
+When a Client's private key is compromised, immediate revocation with propagation to @engine is critical. Client deletion via `DELETE /control/v1/organizations/{org}/clients/{client}` serves as the revocation mechanism.
 
 **Request**:
 
@@ -4626,53 +4394,9 @@ enum JwksInvalidationEvent {
 - ✅ Graceful degradation (use cached keys if Control unavailable)
 - ✅ Per-organization and global invalidation support
 
-### Password Reset Session Invalidation Options
+### Session Revocation
 
-Enhanced password reset flow with user control over session invalidation.
-
-**Updated Endpoint**: `POST /v1/auth/password-reset/confirm`
-
-**Request**:
-
-```json
-{
-  "token": "<reset_token>",
-  "new_password": "newsecret",
-  "invalidate_other_sessions": true // Optional, default: true
-}
-```
-
-**Behavior**:
-
-1. Validate reset token (not expired, exists)
-2. Hash new password with Argon2id
-3. Update User.password_hash
-4. Delete all UserPasswordResetToken entries for this user
-5. **If `invalidate_other_sessions` is true** (default):
-   - Soft-delete all UserSession entries for this user **except the current session** (identified by reset token context)
-   - Force re-login on all other devices
-   - Send notification email: "Your password was reset. All other sessions have been logged out."
-6. **If `invalidate_other_sessions` is false**:
-   - Keep all existing sessions active
-   - Send notification email: "Your password was reset. Your active sessions remain logged in."
-7. Return success with session status
-
-**Response**:
-
-```json
-{
-  "success": true,
-  "sessions_invalidated": 5, // Number of sessions logged out (if invalidate_other_sessions=true)
-  "message": "Password reset successfully. Please log in with your new password."
-}
-```
-
-**UX Improvements**:
-
-- Default behavior (invalidate all) is most secure
-- Power users can opt to keep sessions active (convenience)
-- Clear messaging about session status
-- Notification emails for transparency
+Users can revoke all active sessions via `POST /control/v1/auth/revoke-all` (requires JWT). This invalidates all sessions except the current one.
 
 ### Vault Deletion Failure Recovery
 
@@ -4777,7 +4501,7 @@ pub async fn delete_vault_with_retry(vault_id: i64) -> Result<()> {
 }
 ```
 
-**Admin Intervention Endpoint**: `POST /vaults/:vault/retry-deletion`
+**Admin Intervention Endpoint**: `POST /control/v1/organizations/{org}/vaults/{vault}/retry-deletion`
 
 **Behavior**:
 
@@ -4900,13 +4624,9 @@ observability:
 
 Items deferred for later implementation:
 
-1. **Audit Logging**: Comprehensive audit trail of all sensitive operations
-2. **Observability**: Metrics, tracing, structured logging (integrate `infera-observe`)
-3. **Billing Integration**: Webhooks for tier changes, usage tracking
-4. **Advanced Rate Limiting**: Per-user, per-IP, adaptive throttling
-5. **Account Recovery**: Additional recovery mechanisms beyond email
-6. **Two-Factor Authentication**: TOTP support in addition to passkeys
-7. **JWT Token Exchange**: For truly serverless SPAs (see [AUTHENTICATION.md](AUTHENTICATION.md#5-single-page-applications-spas) and [examples/spa-integration/TRULY_SERVERLESS_OPTIONS.md](../examples/spa-integration/TRULY_SERVERLESS_OPTIONS.md))
-8. **Webhooks**: Organization-level webhooks for events
-9. **SSO Integration**: SAML, OIDC for enterprise authentication
-10. **Advanced Search**: Full-text search across entities
+1. **Billing Integration**: Webhooks for tier changes, usage tracking
+2. **Account Recovery**: Additional recovery mechanisms beyond email
+3. **JWT Token Exchange**: For truly serverless SPAs
+4. **Webhooks**: Organization-level webhooks for events
+5. **SSO Integration**: SAML, OIDC for enterprise authentication
+6. **Advanced Search**: Full-text search across entities

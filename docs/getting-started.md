@@ -1,65 +1,61 @@
 # Getting Started
 
-This tutorial walks you through setting up and using InferaDB Control from scratch.
+Set up InferaDB Control and make your first API calls in under five minutes.
 
-## Prerequisites
+## Why this matters
 
-- **Rust** 1.92+ (install via [rustup](https://rustup.rs/))
-- **curl** or similar HTTP client
+InferaDB Control is the administration API for the InferaDB platform. You use it to manage accounts, organizations, vaults, clients, and vault tokens. This tutorial takes you from zero to a working vault token you can use with the InferaDB Engine.
 
-**Note**: This guide uses the in-memory storage backend for quick setup. Ledger backend is planned for future multi-instance production deployments but is not yet implemented.
-
-## Installation
-
-### 1. Build Control
+## Quickstart
 
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/inferadb.git
-cd inferadb/control
-
-# Build the project
 cargo build --release
-
-# Verify build
-./target/release/inferadb-control --version
-```
-
-### 2. Configure the API
-
-No configuration file is needed. InferaDB Control is configured entirely via CLI flags and environment variables (prefix `INFERADB__CONTROL__`).
-
-For development, `--dev-mode` handles everything: it uses in-memory storage and auto-generates an identity key.
-
-For production, use CLI flags such as `--listen`, `--storage`, `--key-file`, `--frontend-url`, etc. Run `inferadb-control --help` for the full list.
-
-### 3. Start the API Server
-
-```bash
-# Run in development mode (in-memory storage, auto-generated identity)
 ./target/release/inferadb-control --dev-mode
 ```
 
-You should see output like:
+The server starts on `http://localhost:9090`. Dev mode uses in-memory storage and auto-generates an Ed25519 identity key. No configuration files needed.
+
+## Prerequisites
+
+- **Rust 1.92+** -- install via [rustup](https://rustup.rs/)
+- **curl** or any HTTP client
+- **jq** (optional, for pretty-printing JSON responses)
+
+## Step 1: Build and start the server
+
+```bash
+git clone https://github.com/inferadb/inferadb.git
+cd inferadb/control
+cargo build --release
+./target/release/inferadb-control --dev-mode
+```
+
+Expected output:
 
 ```text
-2025-11-18T10:00:00.000Z INFO  Starting InferaDB Control
-2025-11-18T10:00:00.123Z INFO  HTTP server listening on 127.0.0.1:9090
+2026-04-06T10:00:00.000Z INFO  Starting InferaDB Control
+2026-04-06T10:00:00.123Z INFO  HTTP server listening on 127.0.0.1:9090
 ```
 
-## Quick Start Tutorial
-
-### Step 1: Register a User
-
-Create your first user account:
+Verify the server is running:
 
 ```bash
-curl -X POST http://localhost:9090/control/v1/auth/register \
+curl http://localhost:9090/healthz
+```
+
+## Step 2: Create an account (email auth flow)
+
+InferaDB uses passwordless email authentication. The flow has three steps: initiate, verify, and complete registration.
+
+### Initiate email verification
+
+Send a verification code to your email address:
+
+```bash
+curl -s -X POST http://localhost:9090/control/v1/auth/email/initiate \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "alice@example.com",
-    "password": "SecurePass123!",
-    "name": "Alice"
+    "email": "alice@northwind.com"
   }'
 ```
 
@@ -67,378 +63,244 @@ Response:
 
 ```json
 {
-  "user": {
-    "id": 1234567890123456789,
-    "name": "Alice",
-    "created_at": "2025-11-18T10:05:00Z"
-  },
-  "session_id": "sess_abc123...",
-  "message": "Registration successful. Please verify your email."
+  "message": "verification code sent"
 }
 ```
 
-**Save the session_id** - you'll need it for authenticated requests.
+In dev mode without SMTP configured, the server logs the code but does not send email. Check the server logs for the 6-character code.
 
-### Step 2: Login
-
-Login with your credentials:
+### Verify the code
 
 ```bash
-curl -X POST http://localhost:9090/control/v1/auth/login/password \
+curl -s -X POST http://localhost:9090/control/v1/auth/email/verify \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "alice@example.com",
-    "password": "SecurePass123!"
+    "email": "alice@northwind.com",
+    "code": "847291"
   }'
 ```
 
-Response:
+For a new user, the response indicates registration is required:
 
 ```json
 {
-  "session_id": "sess_xyz789...",
-  "user": {
-    "id": 1234567890123456789,
-    "name": "Alice"
-  }
+  "status": "registration_required",
+  "onboarding_token": "obt_e8f4a2b1c9d7..."
 }
 ```
 
-### Step 3: Create an Organization
-
-Organizations are the top-level container for all resources:
-
-```bash
-curl -X POST http://localhost:9090/control/v1/organizations \
-  -H "Cookie: infera_session=sess_xyz789..." \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Acme Corp",
-    "display_name": "Acme Corporation"
-  }'
-```
-
-Response:
+For an existing user without TOTP, you receive session tokens directly:
 
 ```json
 {
-  "id": 9876543210987654321,
-  "name": "acme-corp",
-  "display_name": "Acme Corporation",
-  "created_at": "2025-11-18T10:10:00Z",
-  "role": "owner"
-}
-```
-
-**Save the organization ID** (`9876543210987654321`) - you'll use it in subsequent requests.
-
-### Step 4: Create a Vault
-
-Vaults store your authorization policies:
-
-```bash
-curl -X POST http://localhost:9090/control/v1/organizations/9876543210987654321/vaults \
-  -H "Cookie: infera_session=sess_xyz789..." \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Production Policies",
-    "description": "Authorization policies for production environment"
-  }'
-```
-
-Response:
-
-```json
-{
-  "id": 1111222233334444555,
-  "organization_id": 9876543210987654321,
-  "name": "Production Policies",
-  "description": "Authorization policies for production environment",
-  "created_at": "2025-11-18T10:15:00Z"
-}
-```
-
-**Save the vault ID** (`1111222233334444555`).
-
-### Step 5: Generate a Vault Token
-
-Vault tokens are JWTs used to authorize requests to the InferaDB policy engine:
-
-```bash
-curl -X POST http://localhost:9090/control/v1/organizations/9876543210987654321/vaults/1111222233334444555/tokens \
-  -H "Cookie: infera_session=sess_xyz789..."
-```
-
-Response:
-
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "refresh_abc123...",
-  "expires_in": 3600,
+  "status": "authenticated",
+  "access_token": "eyJhbGciOiJFZERTQSIs...",
+  "refresh_token": "rt_7c9d3e2f1a8b...",
   "token_type": "Bearer"
 }
 ```
 
-**Save the access_token** - this is what your application will use to make authorization decisions.
-
-### Step 6: Use the Vault Token
-
-Now you can use the vault token to make authorization requests to the **InferaDB Engine** (a separate service from Control):
+### Complete registration (new users only)
 
 ```bash
-# Example: Check if user can read a document
-# Note: This request goes to InferaDB Engine, not Control.
-# See the Engine documentation for setup and endpoint details.
-curl -X POST http://localhost:8080/v1/authorize \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+curl -s -X POST http://localhost:9090/control/v1/auth/email/complete \
   -H "Content-Type: application/json" \
   -d '{
-    "subject": "user:alice",
-    "action": "read",
-    "resource": "document:123"
+    "onboarding_token": "obt_e8f4a2b1c9d7...",
+    "email": "alice@northwind.com",
+    "name": "Alice Chen",
+    "organization_name": "Northwind Analytics"
   }'
 ```
 
-## Common Workflows
+Response:
 
-### Creating a Team
+```json
+{
+  "registration": {
+    "user": 7284619350142976,
+    "organization": 7284619350143104,
+    "access_token": "eyJhbGciOiJFZERTQSIs...",
+    "refresh_token": "rt_7c9d3e2f1a8b...",
+    "token_type": "Bearer"
+  }
+}
+```
 
-Teams help you organize users and manage permissions:
+Save the `access_token` for authenticated requests. The server also sets `inferadb_access` and `inferadb_refresh` cookies.
+
+For the rest of this tutorial, store the token and IDs:
 
 ```bash
-# 1. Create a team
-curl -X POST http://localhost:9090/control/v1/organizations/9876543210987654321/teams \
-  -H "Cookie: infera_session=sess_xyz789..." \
+export TOKEN="eyJhbGciOiJFZERTQSIs..."
+export ORG=7284619350143104
+```
+
+## Step 3: Create a vault
+
+Vaults are Ledger-managed Raft clusters that store your data. Creating a vault requires no request body:
+
+```bash
+curl -s -X POST http://localhost:9090/control/v1/organizations/$ORG/vaults \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Response (HTTP 201):
+
+```json
+{
+  "vault": {
+    "organization": 7284619350143104,
+    "slug": 7284619350143232,
+    "height": 0,
+    "status": "active"
+  }
+}
+```
+
+Save the vault slug:
+
+```bash
+export VAULT=7284619350143232
+```
+
+## Step 4: Create a client
+
+Clients represent applications that access vaults. You need a client before generating vault tokens:
+
+```bash
+curl -s -X POST http://localhost:9090/control/v1/organizations/$ORG/clients \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
-    "name": "Engineering",
-    "description": "Engineering team"
+    "name": "Northwind API",
+    "description": "Production backend service for Northwind Analytics"
   }'
+```
 
-# Response: {"id": 7777888899990000111, ...}
+Response (HTTP 201):
 
-# 2. Invite a team member
-curl -X POST http://localhost:9090/control/v1/teams/7777888899990000111/members \
-  -H "Cookie: infera_session=sess_xyz789..." \
+```json
+{
+  "client": {
+    "slug": 7284619350143360,
+    "name": "Northwind API",
+    "description": "Production backend service for Northwind Analytics",
+    "enabled": true,
+    "created_at": "2026-04-06T10:05:00+00:00"
+  }
+}
+```
+
+Save the client slug:
+
+```bash
+export CLIENT=7284619350143360
+```
+
+## Step 5: Generate a vault token
+
+Vault tokens are JWTs that authorize requests to the InferaDB Engine. They are scoped to a vault and an app (client):
+
+```bash
+curl -s -X POST http://localhost:9090/control/v1/organizations/$ORG/vaults/$VAULT/tokens \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
-    "email": "bob@example.com",
-    "role": "member"
-  }'
-
-# 3. Grant team access to vault
-curl -X POST http://localhost:9090/control/v1/organizations/9876543210987654321/vaults/1111222233334444555/team-grants \
-  -H "Cookie: infera_session=sess_xyz789..." \
-  -H "Content-Type: application/json" \
-  -d '{
-    "team_id": 7777888899990000111,
-    "access_level": "read_write"
+    "app": '"$CLIENT"',
+    "scopes": ["vault:read", "vault:write"]
   }'
 ```
 
-### Creating an OAuth Client
+Response (HTTP 201):
 
-OAuth clients allow applications to obtain vault tokens:
-
-```bash
-# 1. Create a client
-curl -X POST http://localhost:9090/control/v1/organizations/9876543210987654321/clients \
-  -H "Cookie: infera_session=sess_xyz789..." \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Production API",
-    "grant_types": ["client_credentials"],
-    "vault_ids": [1111222233334444555]
-  }'
-
-# Response: {"client_id": "client_abc123", "client_secret": "secret_xyz789", ...}
-
-# 2. Obtain token using client credentials
-curl -X POST http://localhost:9090/control/v1/oauth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d 'grant_type=client_credentials&client_id=client_abc123&client_secret=secret_xyz789&scope=vault:1111222233334444555'
-
-# Response: {"access_token": "eyJ...", "expires_in": 3600, ...}
+```json
+{
+  "access_token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "rt_vault_3f8a2c1d9e7b...",
+  "token_type": "Bearer",
+  "expires_in": 3600
+}
 ```
 
-### Viewing Audit Logs
+Use this `access_token` to authenticate requests to the InferaDB Engine.
 
-Review security events:
+## Core concepts
 
-```bash
-# Get recent audit logs
-curl -X GET "http://localhost:9090/control/v1/organizations/9876543210987654321/audit-logs?limit=25" \
-  -H "Cookie: infera_session=sess_xyz789..."
+### Authentication model
 
-# Filter by event type
-curl -X GET "http://localhost:9090/control/v1/organizations/9876543210987654321/audit-logs?event_type=vault_token_generated" \
-  -H "Cookie: infera_session=sess_xyz789..."
+InferaDB Control uses a two-token model:
+
+- **Access token**: Short-lived JWT (15 minutes). Send as `Authorization: Bearer <token>` or via the `inferadb_access` cookie.
+- **Refresh token**: Long-lived opaque token (30 days for web sessions). Use it to obtain new token pairs via `POST /control/v1/auth/refresh`.
+
+### Resource hierarchy
+
+```
+User
+  -> Organization (up to 10 per user)
+       -> Vault (Raft cluster)
+       -> Client (app)
+            -> Certificate (for machine-to-machine auth)
+       -> Team
+            -> Team Member
+       -> Invitation
 ```
 
-## Development Tips
+### Pagination
 
-### Using Environment Variables
+All list endpoints use cursor-based pagination with `page_size` (default 50, max 100) and `page_token` query parameters. When more results exist, the response includes a `next_page_token` field.
 
-Override CLI flags with environment variables (use `INFERADB__CONTROL__` prefix with double underscores as separators):
+### Error responses
 
-```bash
-export INFERADB__CONTROL__LISTEN="127.0.0.1:8080"
-export INFERADB__CONTROL__LOG_LEVEL=debug
-export INFERADB__CONTROL__KEY_FILE="/path/to/key.pem"
+All errors follow a consistent format:
 
-./target/release/inferadb-control
+```json
+{
+  "error": "VALIDATION_ERROR",
+  "message": "name must be between 1 and 128 characters"
+}
 ```
 
-### Running Tests
+| HTTP Status | Error Code | Meaning |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Invalid request payload |
+| 401 | `AUTHENTICATION_ERROR` | Missing or invalid credentials |
+| 403 | `AUTHORIZATION_ERROR` | Insufficient permissions |
+| 404 | `NOT_FOUND` | Resource does not exist |
+| 409 | `ALREADY_EXISTS` | Resource conflict |
+| 429 | `RATE_LIMIT_EXCEEDED` | Too many requests |
 
-```bash
-# Run all tests
-cargo test
+### Rate limits
 
-# Run specific test
-cargo test test_user_registration
-
-# Run with output
-cargo test -- --nocapture
-
-# Run with nextest (faster)
-cargo nextest run
-```
-
-### Generating API Documentation
-
-```bash
-# Generate and open Rust docs
-cargo doc --open
-
-# View OpenAPI spec (file in repo, not served by the API)
-open openapi.yaml
-```
-
-### Debugging
-
-Enable debug logging:
-
-```bash
-# Via CLI flag
-./target/release/inferadb-control --dev-mode --log-level debug
-
-# Or via environment variable
-export INFERADB__CONTROL__LOG_LEVEL=debug
-```
-
-View structured logs:
-
-```bash
-# Pretty-print JSON logs
-./target/release/inferadb-control | jq
-
-# Filter for errors
-./target/release/inferadb-control | jq 'select(.level == "ERROR")'
-```
-
-### Resetting the Database
-
-If you need to start fresh with the in-memory backend:
-
-```bash
-# Stop the API server (Ctrl+C)
-
-# Restart the API server (in-memory data is automatically cleared on restart)
-./target/release/inferadb-control --dev-mode
-```
-
-**Note**: The in-memory backend stores all data in RAM. Restarting the server clears all data.
-
-## Next Steps
-
-Now that you have the basics working, explore:
-
-- **[Authentication](authentication.md)**: Deep dive into auth flows and session management
-- **[Entities](overview.md)**: Complete data model reference
-- **[API Examples](examples.md)**: Real-world integration examples
-- **[Deployment](deployment.md)**: Production deployment guide
-- **[Audit Logs](audit-logs.md)**: Security audit trail and compliance
+- Auth endpoints (login, verify, refresh): 100 requests/hour per IP
+- Registration endpoint: 5 requests/day per IP
 
 ## Troubleshooting
 
-### Storage backend issues
-
-**Note**: This guide uses the in-memory backend. Ledger backend is not yet implemented.
-
-**Error**: `Failed to initialize storage backend`
-
-**Solutions**:
-
-1. Verify you are using `--storage memory` or `--dev-mode` (which defaults to memory)
-2. Check that you have sufficient memory available (at least 1GB free)
-3. Review error logs for specific issues
-
 ### Port already in use
 
-**Error**: `Address already in use (os error 48)`
-
-**Solutions**:
-
-1. Change port via CLI flag: `--listen 127.0.0.1:8080`
-2. Find and stop conflicting process: `lsof -i :9090`
-3. Use environment variable: `export INFERADB__CONTROL__LISTEN="127.0.0.1:8080"`
-
-### Key encryption secret too short
-
-**Error**: `Key encryption secret must be at least 32 bytes`
-
-**Solution**: Generate a proper secret:
-
-```bash
-# Generate a PEM key file
-openssl genpkey -algorithm ed25519 -out key.pem
-
-# Pass it via CLI flag
-./target/release/inferadb-control --key-file key.pem
+```
+Address already in use (os error 48)
 ```
 
-### Session cookie not working
+Change the port: `--listen 127.0.0.1:8080` or find the conflicting process: `lsof -i :9090`.
 
-**Issue**: Requests return 401 Unauthorized
+### 401 Unauthorized on every request
 
-**Solutions**:
+Access tokens expire after 15 minutes. Refresh the token:
 
-1. Check cookie format: `-H "Cookie: infera_session=sess_xyz789..."`
-2. Verify session hasn't expired (default: 30 days)
-3. Check for typos in session ID
-4. Login again to get fresh session
+```bash
+curl -s -X POST http://localhost:9090/control/v1/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token": "rt_7c9d3e2f1a8b..."}'
+```
 
-### Rate limit exceeded
+### Verification code not received
 
-**Error**: `429 Too Many Requests`
+In dev mode without SMTP, the code appears in server logs. For production, configure SMTP with `--email-host`, `--email-port`, `--email-username`, and `--email-password`.
 
-**Solutions**:
+## Next steps
 
-1. Wait before retrying (exponential backoff recommended)
-2. Reduce request frequency
-3. Rate limits use built-in defaults and are not currently configurable via CLI flags
-
-## Getting Help
-
-- **Documentation**: [docs/](.)
-- **OpenAPI Spec**: [openapi.yaml](../openapi.yaml)
-- **Examples**: [examples.md](examples.md)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/inferadb/issues)
-
-## Security Checklist
-
-Before deploying to production, review:
-
-- [ ] Changed all default secrets and passwords
-- [ ] Using HTTPS (TLS) for all connections
-- [ ] Configured firewall rules (only expose necessary ports)
-- [ ] Set up monitoring and alerting
-- [ ] Configured audit log retention
-- [ ] Reviewed rate limiting settings
-- [ ] Enabled OpenTelemetry tracing
-- [ ] Documented data persistence strategy (in-memory backend loses data on restart)
-- [ ] Tested disaster recovery procedures
-
-See [Deployment Guide](deployment.md) for complete production deployment guide.
+- [API Examples](examples.md): Complete request/response examples for every workflow
+- [Configuration Guide](guides/configuration.md): CLI flags, environment variables, and deployment profiles

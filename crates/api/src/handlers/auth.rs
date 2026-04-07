@@ -253,7 +253,8 @@ mod tests {
             refresh_expires_at: None,
         };
         let jar = set_token_cookies(CookieJar::new(), &pair);
-        let max_age_secs = jar.get(ACCESS_TOKEN_COOKIE_NAME).unwrap().max_age().unwrap().whole_seconds();
+        let max_age_secs =
+            jar.get(ACCESS_TOKEN_COOKIE_NAME).unwrap().max_age().unwrap().whole_seconds();
         assert!((295..=305).contains(&max_age_secs), "max_age should be ~300s, got {max_age_secs}");
     }
 
@@ -277,7 +278,8 @@ mod tests {
 
         let jar = clear_token_cookies(jar);
 
-        let is_removed = |c: Option<&Cookie>| c.is_none() || c.is_some_and(|c| c.value().is_empty());
+        let is_removed =
+            |c: Option<&Cookie>| c.is_none() || c.is_some_and(|c| c.value().is_empty());
         assert!(is_removed(jar.get(ACCESS_TOKEN_COOKIE_NAME)), "access cookie should be cleared");
         assert!(is_removed(jar.get(REFRESH_TOKEN_COOKIE_NAME)), "refresh cookie should be cleared");
     }
@@ -285,7 +287,8 @@ mod tests {
     #[test]
     fn test_clear_token_cookies_empty_jar_does_not_panic() {
         let jar = clear_token_cookies(CookieJar::new());
-        let is_removed = |c: Option<&Cookie>| c.is_none() || c.is_some_and(|c| c.value().is_empty());
+        let is_removed =
+            |c: Option<&Cookie>| c.is_none() || c.is_some_and(|c| c.value().is_empty());
         assert!(is_removed(jar.get(ACCESS_TOKEN_COOKIE_NAME)));
     }
 
@@ -312,14 +315,10 @@ mod tests {
 
     #[test]
     fn test_revoke_all_response_serializes_count() {
-        let json = serde_json::to_value(&RevokeAllResponse { revoked_count: 5 }).unwrap();
-        assert_eq!(json["revoked_count"], 5);
-    }
-
-    #[test]
-    fn test_revoke_all_response_serializes_zero_count() {
-        let json = serde_json::to_value(&RevokeAllResponse { revoked_count: 0 }).unwrap();
-        assert_eq!(json["revoked_count"], 0);
+        for count in [0, 1, 5, 100] {
+            let json = serde_json::to_value(&RevokeAllResponse { revoked_count: count }).unwrap();
+            assert_eq!(json["revoked_count"], count, "count={count}");
+        }
     }
 
     // ── RefreshTokenRequest deserialization ───────────────────────────
@@ -338,8 +337,7 @@ mod tests {
 
     #[test]
     fn test_refresh_token_request_with_null_token() {
-        let req: RefreshTokenRequest =
-            serde_json::from_str(r#"{"refresh_token": null}"#).unwrap();
+        let req: RefreshTokenRequest = serde_json::from_str(r#"{"refresh_token": null}"#).unwrap();
         assert!(req.refresh_token.is_none());
     }
 }

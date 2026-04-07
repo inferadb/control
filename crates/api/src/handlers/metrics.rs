@@ -54,13 +54,16 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_handler_after_init_returns_200() {
         init_exporter();
+
         let response = metrics_handler().await;
+
         assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[test]
-    fn test_init_exporter_multiple_calls_no_panic() {
+    fn test_init_exporter_idempotent_no_panic() {
         init_exporter();
         init_exporter();
+        // No panic = success; OnceLock ensures single initialization.
     }
 }

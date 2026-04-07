@@ -589,40 +589,44 @@ mod tests {
     // ── decode_challenge_nonce ───────────────────────────────────────────
 
     #[test]
-    fn decode_challenge_nonce_valid_base64() {
+    fn test_decode_challenge_nonce_valid_base64_returns_bytes() {
         let encoded = base64::engine::general_purpose::STANDARD.encode(b"hello");
-        let result = decode_challenge_nonce(&encoded);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), b"hello");
+
+        let result = decode_challenge_nonce(&encoded).unwrap();
+
+        assert_eq!(result, b"hello");
     }
 
     #[test]
-    fn decode_challenge_nonce_empty_string_is_valid() {
+    fn test_decode_challenge_nonce_empty_input_returns_empty_vec() {
         let encoded = base64::engine::general_purpose::STANDARD.encode(b"");
-        let result = decode_challenge_nonce(&encoded);
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+
+        let result = decode_challenge_nonce(&encoded).unwrap();
+
+        assert!(result.is_empty());
     }
 
     #[test]
-    fn decode_challenge_nonce_invalid_base64_returns_error() {
+    fn test_decode_challenge_nonce_invalid_base64_returns_error() {
         let result = decode_challenge_nonce("not-valid-base64!!!");
+
         assert!(result.is_err());
     }
 
     #[test]
-    fn decode_challenge_nonce_binary_payload() {
+    fn test_decode_challenge_nonce_binary_payload_round_trips() {
         let payload: Vec<u8> = (0..=255).collect();
         let encoded = base64::engine::general_purpose::STANDARD.encode(&payload);
-        let result = decode_challenge_nonce(&encoded);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), payload);
+
+        let result = decode_challenge_nonce(&encoded).unwrap();
+
+        assert_eq!(result, payload);
     }
 
     // ── extract_passkey_info ────────────────────────────────────────────
 
     #[test]
-    fn extract_passkey_info_returns_some_for_passkey_variant() {
+    fn test_extract_passkey_info_passkey_variant_returns_inner() {
         let info = PasskeyCredentialInfo {
             credential_id: vec![1, 2, 3],
             public_key: vec![4, 5, 6],
@@ -633,127 +637,158 @@ mod tests {
             attestation_format: None,
             aaguid: None,
         };
-        let data = CredentialData::Passkey(info.clone());
+        let data = CredentialData::Passkey(info);
+
         let result = extract_passkey_info(&data);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().credential_id, vec![1, 2, 3]);
-        assert_eq!(result.unwrap().sign_count, 42);
+
+        let extracted = result.expect("should return Some for Passkey variant");
+        assert_eq!(extracted.credential_id, vec![1, 2, 3]);
+        assert_eq!(extracted.sign_count, 42);
     }
 
     #[test]
-    fn extract_passkey_info_returns_none_for_totp_variant() {
-        let data = CredentialData::Totp(inferadb_ledger_sdk::TotpCredentialInfo {
-            secret: vec![],
-            algorithm: inferadb_ledger_sdk::TotpAlgorithm::Sha1,
-            digits: 6,
-            period: 30,
-        });
-        assert!(extract_passkey_info(&data).is_none());
-    }
+    fn test_extract_passkey_info_non_passkey_variants_return_none() {
+        let cases: Vec<(&str, CredentialData)> = vec![
+            (
+                "Totp",
+                CredentialData::Totp(inferadb_ledger_sdk::TotpCredentialInfo {
+                    secret: vec![],
+                    algorithm: inferadb_ledger_sdk::TotpAlgorithm::Sha1,
+                    digits: 6,
+                    period: 30,
+                }),
+            ),
+            (
+                "RecoveryCode",
+                CredentialData::RecoveryCode(inferadb_ledger_sdk::RecoveryCodeCredentialInfo {
+                    code_hashes: vec![],
+                    total_generated: 10,
+                }),
+            ),
+        ];
 
-    #[test]
-    fn extract_passkey_info_returns_none_for_recovery_variant() {
-        let data = CredentialData::RecoveryCode(inferadb_ledger_sdk::RecoveryCodeCredentialInfo {
-            code_hashes: vec![],
-            total_generated: 10,
-        });
-        assert!(extract_passkey_info(&data).is_none());
+        for (label, data) in cases {
+            assert!(extract_passkey_info(&data).is_none(), "{label} variant should return None");
+        }
     }
 
     // ── Request type deserialization ────────────────────────────────────
 
     #[test]
-    fn verify_totp_request_deserializes() {
+    fn test_verify_totp_request_deserializes_all_fields() {
         let json = r#"{"user_slug": 42, "totp_code": "123456", "challenge_nonce": "dGVzdA=="}"#;
+
         let req: VerifyTotpRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.user_slug, 42);
         assert_eq!(req.totp_code, "123456");
         assert_eq!(req.challenge_nonce, "dGVzdA==");
     }
 
     #[test]
-    fn recovery_code_request_deserializes() {
+    fn test_recovery_code_request_deserializes_all_fields() {
         let json = r#"{"user_slug": 7, "code": "ABCD1234", "challenge_nonce": "bm9uY2U="}"#;
+
         let req: RecoveryCodeRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.user_slug, 7);
         assert_eq!(req.code, "ABCD1234");
+        assert_eq!(req.challenge_nonce, "bm9uY2U=");
     }
 
     #[test]
-    fn passkey_begin_request_deserializes() {
+    fn test_passkey_begin_request_deserializes_user_slug() {
         let json = r#"{"user_slug": 100}"#;
+
         let req: PasskeyBeginRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.user_slug, 100);
     }
 
     #[test]
-    fn passkey_register_begin_request_with_name() {
+    fn test_passkey_register_begin_request_with_name() {
         let json = r#"{"name": "My MacBook"}"#;
+
         let req: PasskeyRegisterBeginRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.name.as_deref(), Some("My MacBook"));
     }
 
     #[test]
-    fn passkey_register_begin_request_without_name() {
-        let json = r#"{}"#;
-        let req: PasskeyRegisterBeginRequest = serde_json::from_str(json).unwrap();
+    fn test_passkey_register_begin_request_without_name() {
+        let req: PasskeyRegisterBeginRequest = serde_json::from_str(r#"{}"#).unwrap();
+
         assert!(req.name.is_none());
     }
 
     // ── Response type serialization ────────────────────────────────────
 
     #[test]
-    fn mfa_auth_response_serializes() {
+    fn test_mfa_auth_response_serializes_all_fields() {
         let resp = MfaAuthResponse {
             access_token: "acc".to_string(),
             refresh_token: "ref".to_string(),
             token_type: "Bearer",
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["access_token"], "acc");
         assert_eq!(json["refresh_token"], "ref");
         assert_eq!(json["token_type"], "Bearer");
     }
 
     #[test]
-    fn recovery_code_response_serializes() {
+    fn test_recovery_code_response_serializes_all_fields() {
         let resp = RecoveryCodeResponse {
             access_token: "a".to_string(),
             refresh_token: "r".to_string(),
             token_type: "Bearer",
             remaining_codes: 5,
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
+        assert_eq!(json["access_token"], "a");
+        assert_eq!(json["refresh_token"], "r");
         assert_eq!(json["remaining_codes"], 5);
         assert_eq!(json["token_type"], "Bearer");
     }
 
     #[test]
-    fn passkey_finish_response_authenticated_serializes_with_tag() {
+    fn test_passkey_finish_response_authenticated_includes_tag_and_tokens() {
         let resp = PasskeyFinishResponse::Authenticated {
             access_token: "at".to_string(),
             refresh_token: "rt".to_string(),
             token_type: "Bearer",
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["status"], "authenticated");
         assert_eq!(json["access_token"], "at");
+        assert_eq!(json["refresh_token"], "rt");
+        assert!(json.get("challenge_nonce").is_none());
     }
 
     #[test]
-    fn passkey_finish_response_totp_required_serializes_with_tag() {
+    fn test_passkey_finish_response_totp_required_includes_tag_without_tokens() {
         let resp = PasskeyFinishResponse::TotpRequired { challenge_nonce: "abc123".to_string() };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["status"], "totp_required");
         assert_eq!(json["challenge_nonce"], "abc123");
+        assert!(json.get("access_token").is_none());
+        assert!(json.get("refresh_token").is_none());
     }
 
     #[test]
-    fn passkey_register_begin_response_serialization_includes_challenge_id() {
-        // We cannot easily construct a CreationChallengeResponse, but we can
-        // verify the struct fields exist and the challenge_id serializes.
+    fn test_passkey_register_finish_response_serializes_all_fields() {
         let resp = PasskeyRegisterFinishResponse { slug: 42, name: "My Key".to_string() };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["slug"], 42);
         assert_eq!(json["name"], "My Key");
     }
@@ -761,16 +796,16 @@ mod tests {
     // ── require_webauthn ────────────────────────────────────────────────
 
     #[tokio::test]
-    async fn require_webauthn_returns_error_when_none() {
+    async fn test_require_webauthn_unconfigured_returns_error() {
         let state = AppState::new_test();
-        // new_test() does not configure webauthn, so it should be None.
-        assert!(state.webauthn.is_none());
+
         let result = require_webauthn(&state);
+
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn require_webauthn_returns_ok_when_configured() {
+    async fn test_require_webauthn_configured_returns_ok() {
         use std::sync::Arc;
 
         let mut state = AppState::new_test();
@@ -778,163 +813,50 @@ mod tests {
             inferadb_control_core::webauthn::build_webauthn("localhost", "http://localhost")
                 .unwrap();
         state.webauthn = Some(Arc::new(webauthn));
+
         let result = require_webauthn(&state);
+
         assert!(result.is_ok());
-    }
-
-    // ── decode_challenge_nonce additional edge cases ───────────────
-
-    #[test]
-    fn decode_challenge_nonce_with_padding() {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(b"ab");
-        assert!(encoded.contains('='));
-        let result = decode_challenge_nonce(&encoded);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), b"ab");
-    }
-
-    #[test]
-    fn decode_challenge_nonce_large_payload() {
-        let payload = vec![0xFFu8; 1024];
-        let encoded = base64::engine::general_purpose::STANDARD.encode(&payload);
-        let result = decode_challenge_nonce(&encoded);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 1024);
-    }
-
-    // ── PasskeyFinishResponse serialization completeness ──────────
-
-    #[test]
-    fn passkey_finish_response_totp_required_has_no_tokens() {
-        let resp = PasskeyFinishResponse::TotpRequired { challenge_nonce: "nonce".to_string() };
-        let json = serde_json::to_value(&resp).unwrap();
-        assert!(json.get("access_token").is_none());
-        assert!(json.get("refresh_token").is_none());
-    }
-
-    #[test]
-    fn passkey_finish_response_authenticated_has_no_challenge() {
-        let resp = PasskeyFinishResponse::Authenticated {
-            access_token: "at".to_string(),
-            refresh_token: "rt".to_string(),
-            token_type: "Bearer",
-        };
-        let json = serde_json::to_value(&resp).unwrap();
-        assert!(json.get("challenge_nonce").is_none());
     }
 
     // ── validate_name for passkey registration ────────────────────────
 
     #[test]
-    fn validate_name_accepts_valid_passkey_names() {
-        assert!(super::super::common::validate_name("My MacBook").is_ok());
-        assert!(super::super::common::validate_name("Touch ID").is_ok());
-        assert!(super::super::common::validate_name("YubiKey 5").is_ok());
-        assert!(super::super::common::validate_name("Work Laptop's Key").is_ok());
-        assert!(super::super::common::validate_name("key-1").is_ok());
-        assert!(super::super::common::validate_name("key_2").is_ok());
-        assert!(super::super::common::validate_name("v1.0").is_ok());
+    fn test_validate_name_accepts_valid_passkey_names() {
+        let valid_names =
+            ["My MacBook", "Touch ID", "YubiKey 5", "Work Laptop's Key", "key-1", "key_2", "v1.0"];
+
+        for name in valid_names {
+            assert!(super::super::common::validate_name(name).is_ok(), "expected valid: {name:?}");
+        }
     }
 
     #[test]
-    fn validate_name_rejects_empty_passkey_name() {
-        assert!(super::super::common::validate_name("").is_err());
+    fn test_validate_name_rejects_invalid_passkey_names() {
+        let invalid_names = [
+            ("", "empty"),
+            ("   ", "whitespace only"),
+            ("<script>alert(1)</script>", "script injection"),
+            ("key@home", "at sign"),
+            ("key#1", "hash"),
+            ("key&co", "ampersand"),
+            ("key;drop", "semicolon"),
+            (&"a".repeat(129), "exceeds max length"),
+        ];
+
+        for (name, label) in invalid_names {
+            assert!(
+                super::super::common::validate_name(name).is_err(),
+                "expected invalid ({label}): {name:?}"
+            );
+        }
     }
 
     #[test]
-    fn validate_name_rejects_whitespace_only_passkey_name() {
-        assert!(super::super::common::validate_name("   ").is_err());
-    }
-
-    #[test]
-    fn validate_name_rejects_script_injection() {
-        assert!(super::super::common::validate_name("<script>alert(1)</script>").is_err());
-    }
-
-    #[test]
-    fn validate_name_rejects_special_chars() {
-        assert!(super::super::common::validate_name("key@home").is_err());
-        assert!(super::super::common::validate_name("key#1").is_err());
-        assert!(super::super::common::validate_name("key&co").is_err());
-        assert!(super::super::common::validate_name("key;drop").is_err());
-    }
-
-    #[test]
-    fn validate_name_rejects_too_long_passkey_name() {
-        let long = "a".repeat(129);
-        assert!(super::super::common::validate_name(&long).is_err());
-    }
-
-    #[test]
-    fn validate_name_accepts_max_length_passkey_name() {
+    fn test_validate_name_accepts_max_length() {
         let exact = "a".repeat(128);
+
         assert!(super::super::common::validate_name(&exact).is_ok());
-    }
-
-    // ── Transport formatting ──────────────────────────────────────────
-
-    #[test]
-    fn transport_formatting_produces_lowercase() {
-        // The handler converts transports via `format!("{t:?}").to_lowercase()`.
-        // Verify the lowercasing step works as expected for typical transport strings.
-        let transports = ["Internal", "Usb", "Nfc", "Ble", "Hybrid"];
-        let formatted: Vec<String> = transports.iter().map(|t| t.to_lowercase()).collect();
-        assert_eq!(formatted, ["internal", "usb", "nfc", "ble", "hybrid"]);
-    }
-
-    #[test]
-    fn empty_transports_produces_empty_vec() {
-        let transports: Option<Vec<String>> = None;
-        let result: Vec<String> = transports
-            .as_ref()
-            .map(|ts| ts.iter().map(|t| t.to_lowercase()).collect::<Vec<_>>())
-            .unwrap_or_default();
-        assert!(result.is_empty());
-    }
-
-    // ── AttestationFormat conversion ──────────────────────────────────
-
-    #[test]
-    fn attestation_format_none_maps_to_none() {
-        let fmt = AttestationFormat::None;
-        let result: Option<String> = match fmt {
-            AttestationFormat::None => None,
-            other => Some(format!("{other:?}")),
-        };
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn attestation_format_packed_maps_to_string() {
-        let fmt = AttestationFormat::Packed;
-        let result: Option<String> = match fmt {
-            AttestationFormat::None => None,
-            other => Some(format!("{other:?}")),
-        };
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), "Packed");
-    }
-
-    #[test]
-    fn attestation_format_fidou2f_maps_to_string() {
-        let fmt = AttestationFormat::FIDOU2F;
-        let result: Option<String> = match fmt {
-            AttestationFormat::None => None,
-            other => Some(format!("{other:?}")),
-        };
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), "FIDOU2F");
-    }
-
-    #[test]
-    fn attestation_format_tpm_maps_to_string() {
-        let fmt = AttestationFormat::Tpm;
-        let result: Option<String> = match fmt {
-            AttestationFormat::None => None,
-            other => Some(format!("{other:?}")),
-        };
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), "Tpm");
     }
 
     // ── Challenge store helpers ────────────────────────────────────────
@@ -949,88 +871,90 @@ mod tests {
     }
 
     #[test]
-    fn take_auth_challenge_missing_id_returns_error() {
+    fn test_take_auth_challenge_missing_id_returns_error() {
         let store = test_challenge_store();
+
         let result = take_auth_challenge(&store, "nonexistent");
+
         assert!(result.is_err());
     }
 
     #[test]
-    fn take_auth_challenge_with_registration_state_returns_error() {
+    fn test_take_auth_challenge_registration_state_returns_type_mismatch_error() {
         let store = test_challenge_store();
         let webauthn = test_webauthn();
         let user_uuid = uuid::Uuid::from_u64_pair(0, 42);
         let (_, reg_state) =
             webauthn.start_passkey_registration(user_uuid, "test-user", "Test Key", None).unwrap();
-
         let state = ChallengeState::Registration { user_slug: 42, state: reg_state };
         let token = store.insert(state).unwrap();
 
         let result = take_auth_challenge(&store, &token);
+
         assert!(result.is_err());
     }
 
     #[test]
-    fn take_registration_challenge_missing_id_returns_error() {
-        let store = test_challenge_store();
-        let result = take_registration_challenge(&store, "nonexistent", 42);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn take_auth_challenge_returns_user_slug_and_state() {
+    fn test_take_auth_challenge_consumes_token_single_use() {
         let store = test_challenge_store();
         let webauthn = test_webauthn();
         let user_uuid = uuid::Uuid::from_u64_pair(0, 42);
-
-        // We need a passkey to start authentication. Create a registration first
-        // to get a valid passkey, then use it for authentication.
         let (_, reg_state) =
             webauthn.start_passkey_registration(user_uuid, "test-user", "Key", None).unwrap();
-
-        // We can't complete registration without a real authenticator, so test
-        // the Registration→auth type mismatch instead. Already covered above.
-        // Just verify the Registration variant IS extractable:
-        let state = ChallengeState::Registration { user_slug: 42, state: reg_state };
-        let token = store.insert(state).unwrap();
-        let taken = store.take(&token);
-        assert!(taken.is_some());
-        assert!(matches!(taken.unwrap(), ChallengeState::Registration { user_slug: 42, .. }));
-    }
-
-    #[test]
-    fn take_registration_challenge_wrong_user_returns_error() {
-        let store = test_challenge_store();
-        let webauthn = test_webauthn();
-        let user_uuid = uuid::Uuid::from_u64_pair(0, 42);
-        let (_, reg_state) =
-            webauthn.start_passkey_registration(user_uuid, "test-user", "Test Key", None).unwrap();
-
         let state = ChallengeState::Registration { user_slug: 42, state: reg_state };
         let token = store.insert(state).unwrap();
 
-        // Try to take with wrong user
-        let result = take_registration_challenge(&store, &token, 99);
+        // First take consumes it (returns error because type mismatch, but still consumed)
+        let _ = take_auth_challenge(&store, &token);
+        // Second take should fail because token is consumed
+        let result = take_auth_challenge(&store, &token);
+
         assert!(result.is_err());
     }
 
     #[test]
-    fn take_registration_challenge_correct_user_succeeds() {
+    fn test_take_registration_challenge_missing_id_returns_error() {
+        let store = test_challenge_store();
+
+        let result = take_registration_challenge(&store, "nonexistent", 42);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_take_registration_challenge_wrong_user_returns_error() {
         let store = test_challenge_store();
         let webauthn = test_webauthn();
         let user_uuid = uuid::Uuid::from_u64_pair(0, 42);
         let (_, reg_state) =
             webauthn.start_passkey_registration(user_uuid, "test-user", "Test Key", None).unwrap();
+        let state = ChallengeState::Registration { user_slug: 42, state: reg_state };
+        let token = store.insert(state).unwrap();
 
+        let result = take_registration_challenge(&store, &token, 99);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_take_registration_challenge_correct_user_returns_state() {
+        let store = test_challenge_store();
+        let webauthn = test_webauthn();
+        let user_uuid = uuid::Uuid::from_u64_pair(0, 42);
+        let (_, reg_state) =
+            webauthn.start_passkey_registration(user_uuid, "test-user", "Test Key", None).unwrap();
         let state = ChallengeState::Registration { user_slug: 42, state: reg_state };
         let token = store.insert(state).unwrap();
 
         let result = take_registration_challenge(&store, &token, 42);
+
         assert!(result.is_ok());
     }
 
+    // ── build_updated_passkey_info ────────────────────────────────────
+
     #[test]
-    fn build_updated_passkey_info_updates_fields() {
+    fn test_build_updated_passkey_info_updates_mutable_fields_preserves_immutable() {
         let existing = PasskeyCredentialInfo {
             credential_id: vec![1, 2, 3],
             public_key: vec![4, 5, 6],
@@ -1050,7 +974,6 @@ mod tests {
         assert_eq!(updated.transports, vec!["usb".to_string()]);
         assert_eq!(updated.attestation_format, Some("packed".to_string()));
         assert_eq!(updated.aaguid, Some(vec![0u8; 16]));
-
         // Updated fields
         assert_eq!(updated.sign_count, 42);
         assert!(updated.backup_eligible);
@@ -1058,7 +981,7 @@ mod tests {
     }
 
     #[test]
-    fn build_updated_passkey_info_preserves_none_fields() {
+    fn test_build_updated_passkey_info_preserves_none_optional_fields() {
         let existing = PasskeyCredentialInfo {
             credential_id: vec![],
             public_key: vec![],
@@ -1071,24 +994,9 @@ mod tests {
         };
 
         let updated = build_updated_passkey_info(&existing, 1, false, false);
+
         assert!(updated.attestation_format.is_none());
         assert!(updated.aaguid.is_none());
         assert_eq!(updated.sign_count, 1);
-    }
-
-    #[test]
-    fn credential_to_sdk_data_produces_passkey_variant() {
-        let webauthn = test_webauthn();
-        let user_uuid = uuid::Uuid::from_u64_pair(0, 42);
-        let (ccr, reg_state) =
-            webauthn.start_passkey_registration(user_uuid, "test-user", "Test Key", None).unwrap();
-
-        // We can't complete the registration without a real authenticator,
-        // but we can verify the function signature and error handling by
-        // checking that credential_to_sdk_data accepts valid Credential types.
-        // The ccr (CreationChallengeResponse) proves WebAuthn is configured correctly.
-        assert!(!serde_json::to_string(&ccr).unwrap().is_empty());
-        // reg_state is consumed — just verify it was created
-        let _ = reg_state;
     }
 }

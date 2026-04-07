@@ -11,9 +11,9 @@
 - [Refresh Token Flow](#refresh-token-flow)
   - [Refresh Token Security Properties](#refresh-token-security-properties)
 - [Authentication Methods](#authentication-methods)
-  - [1. Password Authentication](#1-password-authentication)
+  - [1. Email Code Authentication (Primary)](#1-email-code-authentication-primary)
   - [2. Passkey Authentication (WebAuthn/FIDO2)](#2-passkey-authentication-webauthnfido2)
-  - [3. CLI OAuth Flow](#3-cli-oauth-flow)
+  - [3. TOTP / Recovery Code Verification](#3-totp--recovery-code-verification)
   - [4. Client Assertion (Recommended for Backend Services)](#4-client-assertion-recommended-for-backend-services)
     - [Client Assertion Flow](#client-assertion-flow)
     - [Client Assertion Benefits](#client-assertion-benefits)
@@ -38,7 +38,7 @@ The **Control** acts as the central authentication orchestrator for the entire I
 
 InferaDB uses a **two-token system** to maintain clean separation of concerns:
 
-1. **Session Tokens** - Used for Control operations
+1. **Access Tokens (JWT)** - Used for Control operations
    - Identity and account management
    - Organization and vault administration
    - User profile and settings
@@ -54,15 +54,16 @@ This separation ensures that authentication (identity) and authorization (policy
 
 ### Token Formats
 
-**Session Tokens**:
+**Access Tokens (JWT)**:
 
-- Format: Cryptographically secure random string (base64url-encoded)
-- Length: 43 characters (256 bits of entropy)
-- Example: `sess_7k9mxPqR2vN4wLtY8jFnEaGbUcH5ZdKs3iOoXpW1`
-- Storage: Control database with associated metadata (user_id, org_id, created_at, expires_at)
-- Transmission: Bearer token in Authorization header
-- Validation: Looked up in database on each use
-- Renewal: "Sliding window" - `expires_at` updated on active Control requests
+- Format: Signed JSON Web Token (JWT) using Ed25519
+- Structure: Header + Payload + Signature
+- Example: `eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpc3MiOi...`
+- Storage: Stateless (no database storage for read routes); Ledger-validated for write routes
+- Transmission: `Authorization: Bearer` header (API clients) or `inferadb_access` HttpOnly cookie (web clients)
+- Validation: Local Ed25519 signature verification for read routes; Ledger `validate_token` for write routes
+- Cookie attributes: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, max-age 15 minutes
+- Renewal: Use refresh token to obtain a new access token
 
 **Vault-Scoped JWTs**:
 
@@ -76,13 +77,12 @@ This separation ensures that authentication (identity) and authorization (policy
 
 **Refresh Tokens**:
 
-- Format: Cryptographically secure random string (base64url-encoded)
-- Length: 43 characters (256 bits of entropy)
-- Example: `vrt_9aB3cD4eF5gH6iJ7kL8mN0oP1qR2sT3uV4wX5yZ6`
-- Storage: Control database with single-use flag
-- Transmission: In request body (not header) for refresh endpoint
-- Validation: Looked up in database, marked as used, then invalidated
-- Renewal: New refresh token issued with each successful refresh
+- Format: Opaque token issued by Ledger
+- Storage: Ledger database with single-use flag
+- Transmission: Request body for API clients; `inferadb_refresh` HttpOnly cookie for web clients
+- Cookie attributes: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/control/v1/auth`, max-age 30 days
+- Validation: Looked up in Ledger, marked as used, then invalidated
+- Renewal: New refresh token issued with each successful refresh (rotate-on-use)
 - **Lifetime**:
   - User session-bound refresh tokens: 1 hour (3,600 seconds)
   - Client-bound refresh tokens: 7 days (604,800 seconds)
@@ -96,19 +96,22 @@ sequenceDiagram
     participant ServerAPI as Engine<br/>(Authorization Policy Engine)
 
     Note over Client: User initiates login
-    Client->>MgmtAPI: 1. Login Request<br/>(email/password, passkey, OAuth, etc.)
+    Client->>MgmtAPI: 1. POST /control/v1/auth/email/initiate<br/>{email}
+    MgmtAPI-->>Client: 2. Verification code sent
 
-    Note over MgmtAPI: 2. Validate Credentials<br/>3. Create Session (Snowflake ID)<br/>4. Issue Session + Refresh Tokens
+    Client->>MgmtAPI: 3. POST /control/v1/auth/email/verify<br/>{email, code}
 
-    MgmtAPI-->>Client: 5. Return Tokens<br/>{session_token, refresh_token}
+    Note over MgmtAPI: 4. Validate code<br/>5. Issue access + refresh tokens<br/>(or TOTP challenge / onboarding token)
 
-    Note over Client: Store session credentials
+    MgmtAPI-->>Client: 6. Return Tokens<br/>{access_token, refresh_token}
 
-    Client->>MgmtAPI: 6. Request Vault Access<br/>POST /control/v1/organizations/{org}/vaults/{vault}/tokens<br/>Authorization: Bearer {session_token}<br/>{requested_role: "read"} (optional)
+    Note over Client: Store access credentials
 
-    Note over MgmtAPI: 7. Validate Session Token<br/>8. Check User Vault Permissions<br/>9. Determine Role (requested or default)<br/>10. Generate Vault JWT (Ed25519)<br/>11. Issue Vault Tokens
+    Client->>MgmtAPI: 7. Request Vault Access<br/>POST /control/v1/organizations/{org}/vaults/{vault}/tokens<br/>Authorization: Bearer {access_token}<br/>{app: <app_slug>, scopes: [...]}
 
-    MgmtAPI-->>Client: 12. Return Vault Token<br/>{access_token (JWT), refresh_token,<br/>expires_in: 300, vault_role}
+    Note over MgmtAPI: 8. Validate Access Token<br/>9. Check App Access in Org<br/>10. Generate Vault JWT (Ed25519)<br/>11. Issue Vault Tokens
+
+    MgmtAPI-->>Client: 12. Return Vault Token<br/>{access_token (JWT), refresh_token,<br/>token_type: Bearer, expires_in}
 
     Note over Client: Store vault access token
 
@@ -127,7 +130,7 @@ Vault-scoped JWTs issued by Control contain the following claims:
 {
   "iss": "https://api.inferadb.com",
   "sub": "client:1234567890123456789",
-  "aud": "https://api.inferadb.com/evaluate",
+  "aud": "https://api.inferadb.com",
   "exp": 1234567890,
   "iat": 1234567800,
   "org_id": "9876543210987654321",
@@ -141,7 +144,7 @@ Vault-scoped JWTs issued by Control contain the following claims:
 
 - **iss** (Issuer): Control URL (`https://api.inferadb.com`)
 - **sub** (Subject): Format `client:<client_id>` for service accounts (where client_id is a Snowflake ID)
-- **aud** (Audience): Target service (Engine evaluation endpoint: `https://api.inferadb.com/evaluate`)
+- **aud** (Audience): Target service (`https://api.inferadb.com`)
 - **exp** (Expiration): Unix timestamp when token expires (5 minutes from issuance by default)
 - **iat** (Issued At): Unix timestamp when token was created
 - **org_id**: Organization ID (Snowflake ID as string)
@@ -163,103 +166,41 @@ Vault-scoped JWTs issued by Control contain the following claims:
 
 ## Vault Token Request
 
-When requesting a vault access token, clients can optionally specify the desired permission level:
+When requesting a vault access token, clients specify the app and desired scopes:
 
 ```http
 POST /control/v1/organizations/{org}/vaults/{vault}/tokens
-Authorization: Bearer {session_token}
+Authorization: Bearer {access_token}
 Content-Type: application/json
 
 {
-  "requested_role": "read"  // Optional: "read", "write", or "admin"
+  "app": 1234567890123456789,
+  "scopes": ["vault:read", "vault:write"]
 }
 ```
 
-**Role Selection Logic**:
+**Request Fields**:
 
-- If `requested_role` is omitted, defaults to `read` (principle of least privilege)
-- If `requested_role` is specified, it must be less than or equal to the user's actual vault permissions
-- Users cannot request a role higher than their membership level
-- Example: A user with `write` permissions can request `read` or `write`, but not `admin`
-
-**Available Roles** (request values are lowercase):
-
-- **read**: Read-only access to vault data and policy evaluation (JWT: `READER`)
-- **write**: Read and write access, can modify vault data (JWT: `WRITER`)
-- **manage**: Read, write, and manage grants (JWT: `MANAGER`)
-- **admin**: Full administrative access to vault configuration (JWT: `ADMIN`)
+- **app** (required): App slug (Snowflake ID) to create the token for. The caller must have access to this app in the organization.
+- **scopes** (optional): Array of scope strings to grant (e.g., `["vault:read", "vault:write"]`). Defaults to empty.
 
 ### Error Scenarios
 
-The vault token request endpoint returns standard OAuth 2.0 error responses:
+#### 1. App Not Found or No Access
 
-#### 1. `access_denied` - No Vault Access
+The endpoint verifies the caller has access to the specified app in the organization before creating a vault token. If the app does not exist or the caller lacks access, the Ledger SDK returns an error.
 
-```json
-HTTP 403 Forbidden
-{
-  "error": "access_denied",
-  "error_description": "User does not have access to vault <vault_id>"
-}
-```
-
-**Cause**: User is not a member of the requested vault
-
-**Client Action**: Redirect to vault selection page or show error message
-
-#### 2. `invalid_request` - Role Exceeds Permissions
-
-```json
-HTTP 400 Bad Request
-{
-  "error": "invalid_request",
-  "error_description": "Requested role 'admin' exceeds user's permission level 'write'"
-}
-```
-
-**Cause**: User requested a role higher than their vault membership level
-
-**Client Action**: Retry with a valid role or use default (`read`)
-
-#### 3. `invalid_request` - Invalid Role
-
-```json
-HTTP 400 Bad Request
-{
-  "error": "invalid_request",
-  "error_description": "Invalid role 'superadmin'. Must be one of: read, write, manage, admin"
-}
-```
-
-**Cause**: Invalid role value provided
-
-**Client Action**: Fix request to use valid role
-
-#### 4. `not_found` - Vault Does Not Exist
-
-```json
-HTTP 404 Not Found
-{
-  "error": "not_found",
-  "error_description": "Vault <vault_id> not found"
-}
-```
-
-**Cause**: Vault ID does not exist or has been deleted
-
-**Client Action**: Remove vault from client cache, redirect to vault selection
-
-#### 5. `unauthorized` - Invalid Session Token
+#### 2. `unauthorized` - Invalid Access Token
 
 ```json
 HTTP 401 Unauthorized
 {
   "error": "unauthorized",
-  "error_description": "Invalid or expired session token"
+  "error_description": "Invalid or expired access token"
 }
 ```
 
-**Cause**: Session token is invalid, expired, or revoked
+**Cause**: Access token is invalid, expired, or revoked
 
 **Client Action**: Re-authenticate user (full login flow)
 
@@ -270,14 +211,13 @@ When a client requests a vault access token, Control returns:
 ```json
 {
   "access_token": "<jwt>",
-  "refresh_token": "<cryptographic_token>",
+  "refresh_token": "<opaque_token>",
   "token_type": "Bearer",
-  "expires_in": 300,
-  "refresh_expires_in": 3600,
-  "vault_id": "<snowflake_id>",
-  "vault_role": "write"
+  "expires_in": 300
 }
 ```
+
+The `expires_in` field is derived from the access token's expiration time. If the access token has no expiration set, `expires_in` will be `0`.
 
 ## Refresh Token Flow
 
@@ -396,23 +336,39 @@ async function refreshVaultToken(vaultId, refreshToken) {
 
 Control supports multiple authentication methods:
 
-### 1. Password Authentication
+### 1. Email Code Authentication (Primary)
 
-- Traditional email/password login
-- Password hashing with modern algorithms (Argon2, bcrypt)
-- Rate limiting and brute-force protection
+Three-step passwordless flow via Ledger:
+
+1. **Initiate** (`POST /control/v1/auth/email/initiate`): Send a 6-character verification code to the provided email address. Accepts `email` (required) and `region` (optional, defaults to `US_EAST_VA`).
+2. **Verify** (`POST /control/v1/auth/email/verify`): Verify the code. Returns one of:
+   - `authenticated`: Existing user without TOTP -- returns access and refresh tokens
+   - `totp_required`: Existing user with TOTP enabled -- returns a `challenge_nonce` for the TOTP verification step
+   - `registration_required`: New user -- returns an `onboarding_token` for the complete step
+3. **Complete** (`POST /control/v1/auth/email/complete`): Complete registration for new users. Accepts `onboarding_token`, `email`, `name`, `organization_name`, and optional `region`. Creates user + default organization and returns access and refresh tokens.
+
+Rate limiting: Initiate and verify are rate-limited at 100/hour per IP. Complete is rate-limited at 5/day per IP.
 
 ### 2. Passkey Authentication (WebAuthn/FIDO2)
 
-- Hardware-backed cryptographic authentication
-- Phishing-resistant
-- Platform authenticators (TouchID, Windows Hello) and roaming authenticators (YubiKey)
+Two-step WebAuthn authentication ceremony:
 
-### 3. CLI OAuth Flow
+1. **Begin** (`POST /control/v1/auth/passkey/begin`): Accepts `user_slug`, fetches passkey credentials from Ledger, generates a WebAuthn authentication challenge. Returns `challenge_id` and `challenge`.
+2. **Finish** (`POST /control/v1/auth/passkey/finish`): Accepts `challenge_id` and `credential` (WebAuthn `PublicKeyCredential`). Returns one of:
+   - `authenticated`: No TOTP -- returns access and refresh tokens
+   - `totp_required`: TOTP enabled -- returns a `challenge_nonce` for the TOTP verification step
 
-- OAuth 2.0 with PKCE (Proof Key for Code Exchange)
-- Designed for headless/CLI environments
-- Browser-based authorization with device code flow
+Passkey registration (requires existing JWT auth):
+
+1. **Begin** (`POST /control/v1/users/me/credentials/passkeys/begin`): Accepts optional `name`. Returns `challenge_id` and `challenge`.
+2. **Finish** (`POST /control/v1/users/me/credentials/passkeys/finish`): Accepts `challenge_id`, `name`, and `credential` (WebAuthn `RegisterPublicKeyCredential`). Returns `slug` and `name`.
+
+### 3. TOTP / Recovery Code Verification
+
+For users with TOTP enabled, after email code or passkey authentication returns `totp_required`:
+
+- **TOTP** (`POST /control/v1/auth/totp/verify`): Accepts `user_slug`, `totp_code`, and `challenge_nonce` (base64-encoded). Returns access and refresh tokens.
+- **Recovery Code** (`POST /control/v1/auth/recovery`): Accepts `user_slug`, `code` (8-character alphanumeric), and `challenge_nonce`. Returns access and refresh tokens plus `remaining_codes` count.
 
 ### 4. Client Assertion (Recommended for Backend Services)
 
@@ -457,11 +413,11 @@ sequenceDiagram
 
     Note over Backend: 2. Sign with Private Key (Ed25519)
 
-    Backend->>MgmtAPI: 3. POST /control/v1/token<br/>{grant_type: client_credentials,<br/>client_assertion_type: jwt-bearer,<br/>client_assertion: {signed_jwt},<br/>vault_id: "<vault_id>",<br/>requested_role: "write"}
+    Backend->>MgmtAPI: 3. POST /control/v1/token<br/>{grant_type: client_credentials,<br/>client_assertion_type: jwt-bearer,<br/>client_assertion: {signed_jwt},<br/>organization: <org_slug>,<br/>vault: "<vault_slug>",<br/>scopes: [...],<br/>requested_role: "write"}
 
     Note over MgmtAPI: 4. Parse Assertion JWT<br/>5. Lookup Client by iss/sub<br/>6. Verify Signature (Public Key)<br/>7. Validate Claims (aud, exp, jti)<br/>8. Check Vault Permissions<br/>9. Generate Vault-Scoped JWT
 
-    MgmtAPI-->>Backend: 10. Vault Token Response<br/>{access_token: {vault_jwt},<br/>token_type: Bearer,<br/>expires_in: 300,<br/>vault_role: "write",<br/>scope: "inferadb.check inferadb.read inferadb.write ..."}
+    MgmtAPI-->>Backend: 10. Vault Token Response<br/>{access_token: {vault_jwt},<br/>refresh_token: {opaque_token},<br/>token_type: Bearer,<br/>expires_in: 300}
 
     Note over Backend: 11. Cache JWT (~5 min)<br/>12. Use for Engine Requests<br/>13. Repeat when expired
 ```
@@ -476,16 +432,22 @@ Content-Type: application/json
   "grant_type": "client_credentials",
   "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
   "client_assertion": "<signed_jwt>",
-  "vault_id": "<vault_id>", // Required: Which vault to access
-  "requested_role": "write" // Optional: "read", "write", "manage", or "admin" (defaults to "read")
+  "organization": 1234567890123456789,
+  "vault": "9876543210987654321",
+  "scopes": ["vault:read", "vault:write"],
+  "requested_role": "write"
 }
 ```
 
-**Scope Format**: The returned `scope` contains space-separated permissions:
+**Request Fields**:
 
-- Format: `{permission1} {permission2} ...`
-- Example: `"vault:read vault:write"`
-- The vault ID is provided separately in the `vault_id` JWT claim, not in the scope
+- **grant_type** (required): Must be `"client_credentials"`
+- **client_assertion_type** (required): Must be `"urn:ietf:params:oauth:client-assertion-type:jwt-bearer"`
+- **client_assertion** (required): Signed JWT assertion (Ed25519/EdDSA)
+- **organization** (required): Organization slug (Snowflake ID as number)
+- **vault** (required): Vault slug (Snowflake ID as string)
+- **scopes** (optional): Array of scope strings to grant
+- **requested_role** (optional): Requested role, appended to scopes if not already present
 
 #### Client Assertion Benefits
 
@@ -867,43 +829,44 @@ InferaDB follows security-first principles with short-lived tokens as the defaul
 
 **Recommended Configuration** (Security-First):
 
-- **Session Tokens**: Varies by session type
-  - **Web Sessions**: 24 hours (86,400 seconds)
-  - **CLI Sessions**: 7 days (604,800 seconds)
-  - **SDK Sessions**: 30 days (2,592,000 seconds)
-  - Sliding window: Renewed on active Control use
-  - Revocable: Can be invalidated immediately
-  - Forces regular re-authentication for enhanced security
+- **Access Token Cookie**: 15 minutes (900 seconds)
+  - JWT access token stored in `inferadb_access` HttpOnly cookie
+  - Short-lived to limit exposure if token leaks
+  - Read routes validate locally (Ed25519 signature check)
+  - Write routes validate via Ledger round-trip
 
-- **Vault Access Tokens (JWT)**: 5 minutes (300 seconds)
-  - Used for Engine policy evaluation
-  - Very short lifetime minimizes impact of token compromise
-  - Automatically refreshed by clients before expiration
-  - Limits attack window to 5 minutes maximum
+- **Refresh Token Cookie**: 30 days (2,592,000 seconds)
+  - Opaque refresh token stored in `inferadb_refresh` HttpOnly cookie
+  - Scoped to `/control/v1/auth` path
+  - Rotate-on-use: old refresh token invalidated on each refresh
 
-- **Vault Refresh Tokens**: Varies by auth method
-  - **User Session Refresh Tokens**: 1 hour (3,600 seconds)
-    - For interactive user sessions
-    - Allows ~12 refreshes before requiring new vault token request
-  - **Client Refresh Tokens**: 7 days (604,800 seconds)
-    - For service accounts and backend applications
-    - Longer lifetime suitable for automated systems
-  - Single-use tokens for obtaining new vault access tokens
-  - Automatically rotated on each use
-  - Bound to specific vault + session/client
+- **User Session Refresh Token TTL**: 1 hour (3,600 seconds)
+  - For interactive user sessions (browser)
+  - Shorter TTL limits exposure from compromised browser sessions
+
+- **Client Refresh Token TTL**: 7 days (604,800 seconds)
+  - For service accounts using Ed25519 certificate authentication
+  - Longer TTL reduces re-authentication overhead for automated systems
 
 - **Client Assertions**: 60 seconds maximum
   - Ephemeral proof of client identity
   - Used only for token endpoint authentication
   - Not stored or cached
 
+- **Authorization Code TTL**: 10 minutes (600 seconds)
+  - Single-use, must be exchanged for tokens within this window
+
+- **Email Verification Token**: 24 hours
+
+- **Invitation Expiry**: 7 days
+
 **Rationale**:
 
 These conservative lifetimes prioritize security over convenience:
 
-- **Short access tokens** (5 min) limit blast radius of any token compromise
+- **Short access tokens** (15 min cookie) limit blast radius of any token compromise
 - **Single-use refresh tokens** prevent replay attacks while reducing auth overhead
-- **Session type-based lifetimes** balance security with UX for different use cases
+- **Path-scoped refresh cookie** prevents the refresh token from being sent to non-auth endpoints
 - **Automatic rotation** at every layer provides defense in depth
 - All tokens are revocable for immediate incident response
 
@@ -936,7 +899,7 @@ setInterval(async () => {
 
 ### Token Scoping
 
-- Session tokens scope to user + organization
+- Access tokens scope to authenticated user
 - Vault tokens scope to specific vault + role
 - Prevents privilege escalation across vaults
 - Role-based access control (RBAC) enforcement
@@ -949,23 +912,30 @@ Token revocation provides immediate invalidation of compromised or unwanted acce
 
 **How It Works**:
 
-1. Control marks session as revoked in database
-2. Session ID added to Redis revocation cache (TTL: 7 days)
-3. All vault tokens derived from this session become invalid
-4. Next refresh attempt returns `invalid_grant` error
+1. Control revokes sessions via Ledger SDK (`revoke_all_user_sessions` or `revoke_token`)
+2. Next refresh attempt is rejected
+3. Existing access token JWTs continue to work until expiry (max 15 minutes)
 
-**API Endpoint**:
+**API Endpoints**:
 
 ```http
-DELETE /control/v1/users/sessions/{id}
-Authorization: Bearer {admin_session_token}
+POST /control/v1/auth/revoke-all
+Authorization: Bearer {access_token}
 ```
+
+Revokes all sessions for the authenticated user. Returns `{ "revoked_count": <number> }`.
+
+```http
+POST /control/v1/auth/logout
+Cookie: inferadb_refresh={refresh_token}
+```
+
+Revokes the current session's refresh token and clears both cookies (best-effort).
 
 **Effect**:
 
-- Immediate: Session cannot be used for new vault token requests
-- Delayed (max 5 min): Existing vault JWTs expire naturally
-- Refresh tokens: Rejected immediately on next use
+- Immediate: Refresh tokens are rejected on next use
+- Delayed (max 15 min): Existing access token JWTs expire naturally
 
 **Use Cases**:
 
@@ -1022,7 +992,7 @@ Authorization: Bearer {admin_session_token}
 
 ```http
 DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}
-Authorization: Bearer {admin_session_token}
+Authorization: Bearer {access_token}
 ```
 
 **Effect**:
@@ -1042,11 +1012,11 @@ Authorization: Bearer {admin_session_token}
 
 **For Immediate Revocation**:
 
-If you need to revoke access immediately (cannot wait 5 minutes):
+If you need to revoke access immediately (cannot wait for access token expiry):
 
 1. Implement real-time vault membership checks in Engine
-2. Use Redis pub/sub to propagate revocation events
-3. Maintain session/client revocation cache
+2. Use a pub/sub mechanism to propagate revocation events
+3. Maintain a revocation cache in the Engine
 
 **For Normal Operations**:
 
@@ -1063,7 +1033,7 @@ Track these metrics:
 - `session_revocations_total`: Number of sessions revoked
 - `certificate_revocations_total`: Number of certificates revoked
 - `refresh_token_rejections_total`: Refresh attempts after revocation
-- `revocation_cache_size`: Current size of revocation cache
+- `revocation_propagation_delay`: Time between revocation and effective enforcement
 
 #### Architecture Diagram
 
@@ -1071,23 +1041,23 @@ Track these metrics:
 sequenceDiagram
     participant Admin as Administrator
     participant MgmtAPI as Control
-    participant Redis as Redis Cache
+    participant DB as Ledger
     participant ServerAPI as Engine
     participant Client as Client Application
 
-    Admin->>MgmtAPI: DELETE /control/v1/users/sessions/{id}
-    MgmtAPI->>MgmtAPI: Mark session as revoked in DB
-    MgmtAPI->>Redis: Add session_id to revocation set<br/>(TTL: 7 days)
-    MgmtAPI-->>Admin: Session revoked
+    Admin->>MgmtAPI: POST /control/v1/auth/revoke-all
+    MgmtAPI->>DB: Revoke All User Sessions
+    DB-->>MgmtAPI: Revoked Count
+    MgmtAPI-->>Admin: {revoked_count}
 
-    Note over Client: Attempts to refresh vault token
+    Note over Client: Attempts to refresh token
 
-    Client->>MgmtAPI: POST /control/v1/tokens/refresh
-    MgmtAPI->>Redis: Check if session revoked
-    Redis-->>MgmtAPI: Session in revocation set
-    MgmtAPI-->>Client: 401 invalid_grant
+    Client->>MgmtAPI: POST /control/v1/auth/refresh
+    MgmtAPI->>DB: Validate Refresh Token
+    DB-->>MgmtAPI: Token Revoked
+    MgmtAPI-->>Client: 401 Unauthorized
 
-    Note over Client: Existing JWT still valid (max 5 min)
+    Note over Client: Existing access JWT still valid until expiry
 
     Client->>ServerAPI: POST /check<br/>Authorization: Bearer {vault_jwt}
     ServerAPI->>ServerAPI: Validate JWT signature (JWKS)
@@ -1095,7 +1065,7 @@ sequenceDiagram
     Note over ServerAPI: JWT is valid until expiration<br/>(stateless validation)
     ServerAPI-->>Client: Authorization decision
 
-    Note over Client,ServerAPI: After 5 minutes, JWT expires
+    Note over Client,ServerAPI: After access token expires
 
     Client->>ServerAPI: POST /check<br/>Authorization: Bearer {expired_jwt}
     ServerAPI-->>Client: 401 Token expired
@@ -1270,12 +1240,14 @@ User-facing endpoints with session authentication and permission enforcement:
 ```bash
 # Request to public server (port 9090)
 curl -X GET http://localhost:9090/control/v1/organizations/123456789 \
-  -H "Cookie: infera_session=sess_abc123..."
+  -H "Authorization: Bearer eyJhbGci..."
 ```
+
+Or using the `inferadb_access` cookie (set automatically for web clients).
 
 **Authorization**:
 
-- User must be authenticated via session cookie
+- User must be authenticated via JWT access token (header or cookie)
 - User must be a member of the organization
 - User must have appropriate permissions (checked via middleware)
 
@@ -1305,7 +1277,7 @@ curl -X GET http://localhost:9092/internal/organizations/123456789 \
 
 | Aspect             | Public Server (9090)       | Service Mesh Server (9092)     |
 | ------------------ | -------------------------- | ------------------------------ |
-| **Authentication** | Session cookies            | Engine JWTs (EdDSA)            |
+| **Authentication** | JWT access tokens          | Engine JWTs (EdDSA)            |
 | **Authorization**  | Permission checks required | No permission checks           |
 | **Network**        | Public internet            | Internal network only          |
 | **Endpoints**      | `/control/v1/*`            | `/internal/*`                  |

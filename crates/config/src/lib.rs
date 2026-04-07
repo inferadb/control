@@ -407,7 +407,7 @@ mod tests {
     // ── Default Values ───────────────────────────────────────────────
 
     #[test]
-    fn defaults_match_expected_values() {
+    fn test_builder_defaults_match_expected_values() {
         let config = Config::builder().build();
 
         assert_eq!(config.listen, "127.0.0.1:9090".parse::<SocketAddr>().unwrap());
@@ -420,6 +420,7 @@ mod tests {
         assert!(config.ledger_client_id.is_none());
         assert!(config.ledger_organization.is_none());
         assert!(config.ledger_vault.is_none());
+        assert!(config.email_blinding_key.is_none());
         assert_eq!(config.email_host, "");
         assert_eq!(config.email_port, 587);
         assert!(config.email_username.is_none());
@@ -428,184 +429,273 @@ mod tests {
         assert_eq!(config.email_from_name, "InferaDB");
         assert!(!config.email_insecure);
         assert_eq!(config.frontend_url, "http://localhost:3000");
+        assert_eq!(config.webauthn_rp_id, "localhost");
+        assert_eq!(config.webauthn_origin, "http://localhost:3000");
+        assert!(config.trusted_proxy_depth.is_none());
+        assert!(config.worker_id.is_none());
         assert!(!config.dev_mode);
+    }
+
+    // ── Enum defaults ───────────────────────────────────────────────
+
+    #[test]
+    fn test_storage_backend_default_is_ledger() {
+        assert_eq!(StorageBackend::default(), StorageBackend::Ledger);
+    }
+
+    #[test]
+    fn test_log_format_default_is_auto() {
+        assert_eq!(LogFormat::default(), LogFormat::Auto);
     }
 
     // ── Validation: Ledger Storage ───────────────────────────────────
 
     #[test]
-    fn validate_rejects_ledger_without_endpoint() {
-        let config = Config::builder().storage(StorageBackend::Ledger).build();
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("--ledger-endpoint is required"));
+    fn test_validate_ledger_missing_fields_rejected() {
+        struct Case {
+            name: &'static str,
+            config: Config,
+            expected_msg: &'static str,
+        }
+        let cases = vec![
+            Case {
+                name: "missing_endpoint",
+                config: Config::builder().storage(StorageBackend::Ledger).build(),
+                expected_msg: "--ledger-endpoint is required",
+            },
+            Case {
+                name: "missing_client_id",
+                config: Config::builder()
+                    .storage(StorageBackend::Ledger)
+                    .ledger_endpoint("http://localhost:50051")
+                    .build(),
+                expected_msg: "--ledger-client-id is required",
+            },
+            Case {
+                name: "missing_organization",
+                config: Config::builder()
+                    .storage(StorageBackend::Ledger)
+                    .ledger_endpoint("http://localhost:50051")
+                    .ledger_client_id("control-test")
+                    .build(),
+                expected_msg: "--ledger-organization is required",
+            },
+            Case {
+                name: "invalid_endpoint_scheme",
+                config: Config::builder()
+                    .storage(StorageBackend::Ledger)
+                    .ledger_endpoint("grpc://localhost:50051")
+                    .ledger_client_id("control-test")
+                    .maybe_ledger_organization(Some(1))
+                    .build(),
+                expected_msg: "must start with http:// or https://",
+            },
+        ];
+
+        for case in cases {
+            let err = case.config.validate().unwrap_err();
+            assert!(
+                err.to_string().contains(case.expected_msg),
+                "{}: expected '{}' in '{}'",
+                case.name,
+                case.expected_msg,
+                err
+            );
+        }
     }
 
     #[test]
-    fn validate_rejects_ledger_without_client_id() {
+    fn test_validate_ledger_complete_config_passes() {
         let config = Config::builder()
             .storage(StorageBackend::Ledger)
             .ledger_endpoint("http://localhost:50051")
-            .build();
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("--ledger-client-id is required"));
-    }
-
-    #[test]
-    fn validate_rejects_ledger_without_organization() {
-        let config = Config::builder()
-            .storage(StorageBackend::Ledger)
-            .ledger_endpoint("http://localhost:50051")
-            .ledger_client_id("control-test")
-            .build();
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("--ledger-organization is required"));
-    }
-
-    #[test]
-    fn validate_rejects_invalid_ledger_endpoint_scheme() {
-        let config = Config::builder()
-            .storage(StorageBackend::Ledger)
-            .ledger_endpoint("grpc://localhost:50051")
             .ledger_client_id("control-test")
             .maybe_ledger_organization(Some(1))
             .build();
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("http://"));
+
+        assert!(config.validate().is_ok());
     }
 
     #[test]
-    fn validate_passes_complete_ledger_config() {
+    fn test_validate_ledger_https_endpoint_passes() {
         let config = Config::builder()
             .storage(StorageBackend::Ledger)
-            .ledger_endpoint("http://localhost:50051")
-            .ledger_client_id("control-test")
+            .ledger_endpoint("https://ledger.prod:50051")
+            .ledger_client_id("control-prod")
             .maybe_ledger_organization(Some(1))
             .build();
+
         assert!(config.validate().is_ok());
     }
 
     // ── Validation: Frontend URL ─────────────────────────────────────
 
     #[test]
-    fn validate_rejects_frontend_url_without_scheme() {
-        let config = Config::builder()
-            .storage(StorageBackend::Memory)
-            .frontend_url("ftp://example.com")
-            .build();
-        assert!(config.validate().is_err());
+    fn test_validate_frontend_url_invalid_rejected() {
+        struct Case {
+            name: &'static str,
+            url: &'static str,
+            expected_msg: &'static str,
+        }
+        let cases = vec![
+            Case {
+                name: "ftp_scheme",
+                url: "ftp://example.com",
+                expected_msg: "must start with http:// or https://",
+            },
+            Case {
+                name: "no_scheme",
+                url: "example.com",
+                expected_msg: "must start with http:// or https://",
+            },
+            Case {
+                name: "trailing_slash",
+                url: "https://example.com/",
+                expected_msg: "must not end with a trailing slash",
+            },
+        ];
+
+        for case in cases {
+            let config =
+                Config::builder().storage(StorageBackend::Memory).frontend_url(case.url).build();
+
+            let err = config.validate().unwrap_err();
+            assert!(
+                err.to_string().contains(case.expected_msg),
+                "{}: expected '{}' in '{}'",
+                case.name,
+                case.expected_msg,
+                err
+            );
+        }
     }
 
     #[test]
-    fn validate_rejects_frontend_url_with_trailing_slash() {
-        let config = Config::builder()
-            .storage(StorageBackend::Memory)
-            .frontend_url("https://example.com/")
-            .build();
-        assert!(config.validate().is_err());
-    }
+    fn test_validate_frontend_url_valid_passes() {
+        let cases =
+            vec![("https", "https://app.inferadb.com"), ("http", "http://staging.inferadb.com")];
 
-    #[test]
-    fn validate_passes_valid_https_frontend_url() {
-        let config = Config::builder()
-            .storage(StorageBackend::Memory)
-            .frontend_url("https://app.inferadb.com")
-            .build();
-        assert!(config.validate().is_ok());
+        for (name, url) in cases {
+            let config =
+                Config::builder().storage(StorageBackend::Memory).frontend_url(url).build();
+            assert!(config.validate().is_ok(), "{name}: expected Ok for {url}");
+        }
     }
 
     // ── Validation: Memory Storage ───────────────────────────────────
 
     #[test]
-    fn validate_passes_minimal_memory_config() {
+    fn test_validate_memory_minimal_config_passes() {
         let config = Config::builder().storage(StorageBackend::Memory).build();
+
         assert!(config.validate().is_ok());
     }
 
     // ── Helper Methods ───────────────────────────────────────────────
 
     #[test]
-    fn is_email_enabled_returns_false_when_host_empty() {
+    fn test_is_email_enabled_empty_host_returns_false() {
         let config = Config::builder().storage(StorageBackend::Memory).build();
+
         assert!(!config.is_email_enabled());
     }
 
     #[test]
-    fn is_email_enabled_returns_true_when_host_set() {
+    fn test_is_email_enabled_nonempty_host_returns_true() {
         let config = Config::builder()
             .storage(StorageBackend::Memory)
             .email_host("smtp.example.com")
             .build();
+
         assert!(config.is_email_enabled());
     }
 
     #[test]
-    fn effective_storage_returns_memory_in_dev_mode() {
+    fn test_effective_storage_dev_mode_returns_memory() {
         let config = Config::builder().storage(StorageBackend::Ledger).dev_mode(true).build();
+
         assert_eq!(config.effective_storage(), StorageBackend::Memory);
     }
 
     #[test]
-    fn effective_storage_returns_field_when_not_dev_mode() {
-        let config = Config::builder().storage(StorageBackend::Ledger).build();
-        assert_eq!(config.effective_storage(), StorageBackend::Ledger);
+    fn test_effective_storage_no_dev_mode_returns_configured() {
+        let cases = vec![
+            ("ledger", StorageBackend::Ledger, StorageBackend::Ledger),
+            ("memory", StorageBackend::Memory, StorageBackend::Memory),
+        ];
 
-        let config = Config::builder().storage(StorageBackend::Memory).build();
-        assert_eq!(config.effective_storage(), StorageBackend::Memory);
+        for (name, input, expected) in cases {
+            let config = Config::builder().storage(input).build();
+            assert_eq!(config.effective_storage(), expected, "mismatch for {name}");
+        }
     }
 
     #[test]
-    fn dev_mode_skips_ledger_validation() {
+    fn test_is_dev_mode_returns_field_value() {
+        let config_off = Config::builder().build();
+        let config_on = Config::builder().dev_mode(true).build();
+
+        assert!(!config_off.is_dev_mode());
+        assert!(config_on.is_dev_mode());
+    }
+
+    #[test]
+    fn test_validate_dev_mode_skips_ledger_validation() {
         let config = Config::builder().dev_mode(true).build();
-        // dev_mode forces Memory, so ledger fields aren't required
+
         assert!(config.validate().is_ok());
     }
 
     // ── CLI Parsing ──────────────────────────────────────────────────
 
     #[test]
-    fn cli_parse_dev_mode() {
+    fn test_cli_parse_dev_mode_flag() {
         let cli = Cli::try_parse_from(["test", "--dev-mode"]).unwrap();
+
         assert!(cli.config.dev_mode);
     }
 
     #[test]
-    fn cli_parse_storage_memory() {
+    fn test_cli_parse_storage_memory() {
         let cli = Cli::try_parse_from(["test", "--storage", "memory"]).unwrap();
+
         assert_eq!(cli.config.storage, StorageBackend::Memory);
     }
 
     #[test]
-    fn cli_parse_listen_address() {
+    fn test_cli_parse_listen_address() {
         let cli = Cli::try_parse_from(["test", "--listen", "0.0.0.0:8080"]).unwrap();
+
         assert_eq!(cli.config.listen, "0.0.0.0:8080".parse::<SocketAddr>().unwrap());
     }
 
     #[test]
-    fn cli_parse_log_format_json() {
-        let cli = Cli::try_parse_from(["test", "--log-format", "json"]).unwrap();
-        assert_eq!(cli.config.log_format, LogFormat::Json);
+    fn test_cli_parse_log_format_values() {
+        let cases =
+            vec![("json", LogFormat::Json), ("text", LogFormat::Text), ("auto", LogFormat::Auto)];
+
+        for (input, expected) in cases {
+            let cli = Cli::try_parse_from(["test", "--log-format", input]).unwrap();
+            assert_eq!(cli.config.log_format, expected, "mismatch for --log-format {input}");
+        }
     }
 
     #[test]
-    fn cli_parse_log_format_text() {
-        let cli = Cli::try_parse_from(["test", "--log-format", "text"]).unwrap();
-        assert_eq!(cli.config.log_format, LogFormat::Text);
-    }
-
-    #[test]
-    fn cli_rejects_invalid_storage_value() {
+    fn test_cli_rejects_invalid_storage_value() {
         let result = Cli::try_parse_from(["test", "--storage", "postgres"]);
+
         assert!(result.is_err());
     }
 
     #[test]
-    fn cli_rejects_unknown_flags() {
+    fn test_cli_rejects_unknown_flags() {
         let result = Cli::try_parse_from(["test", "--config", "foo.yaml"]);
+
         assert!(result.is_err());
     }
 
     #[test]
-    fn cli_parse_all_ledger_fields() {
+    fn test_cli_parse_all_ledger_fields() {
         let cli = Cli::try_parse_from([
             "test",
             "--storage",
@@ -629,7 +719,7 @@ mod tests {
     }
 
     #[test]
-    fn cli_parse_email_fields() {
+    fn test_cli_parse_email_fields() {
         let cli = Cli::try_parse_from([
             "test",
             "--storage",
@@ -660,51 +750,92 @@ mod tests {
     }
 
     #[test]
-    fn cli_parse_key_file() {
+    fn test_cli_parse_key_file() {
         let cli = Cli::try_parse_from(["test", "--key-file", "/data/master.key"]).unwrap();
+
         assert_eq!(cli.config.key_file, PathBuf::from("/data/master.key"));
+    }
+
+    #[test]
+    fn test_cli_parse_webauthn_fields() {
+        let cli = Cli::try_parse_from([
+            "test",
+            "--storage",
+            "memory",
+            "--webauthn-rp-id",
+            "example.com",
+            "--webauthn-origin",
+            "https://example.com",
+        ])
+        .unwrap();
+
+        assert_eq!(cli.config.webauthn_rp_id, "example.com");
+        assert_eq!(cli.config.webauthn_origin, "https://example.com");
+    }
+
+    #[test]
+    fn test_cli_parse_worker_id() {
+        let cli = Cli::try_parse_from(["test", "--worker-id", "512"]).unwrap();
+
+        assert_eq!(cli.config.worker_id, Some(512));
+    }
+
+    #[test]
+    fn test_cli_rejects_worker_id_above_1023() {
+        let result = Cli::try_parse_from(["test", "--worker-id", "1024"]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cli_parse_trusted_proxy_depth() {
+        let cli = Cli::try_parse_from(["test", "--trusted-proxy-depth", "2"]).unwrap();
+
+        assert_eq!(cli.config.trusted_proxy_depth.map(|v| v.get()), Some(2));
     }
 
     // ── Validation: Email Insecure ────────────────────────────────────
 
     #[test]
-    fn validate_passes_with_email_insecure_and_non_localhost_host() {
+    fn test_validate_email_insecure_non_localhost_passes() {
         let config = Config::builder()
             .storage(StorageBackend::Memory)
             .email_host("smtp.example.com")
             .email_insecure(true)
             .build();
+
         assert!(config.validate().is_ok());
     }
 
-    #[test]
-    fn validate_passes_with_production_frontend_url() {
-        let config = Config::builder()
-            .storage(StorageBackend::Memory)
-            .frontend_url("https://app.inferadb.com")
-            .build();
-        assert!(config.validate().is_ok());
-    }
+    // ── Debug redaction ──────────────────────────────────────────────
 
     #[test]
-    fn validate_passes_with_http_frontend_url() {
+    fn test_debug_redacts_sensitive_fields() {
         let config = Config::builder()
             .storage(StorageBackend::Memory)
-            .frontend_url("http://staging.inferadb.com")
+            .pem("SECRET_PEM_DATA")
+            .email_blinding_key("deadbeef".repeat(4))
+            .email_password("hunter2")
             .build();
-        assert!(config.validate().is_ok());
+
+        let debug = format!("{config:?}");
+
+        assert!(debug.contains("[REDACTED]"), "should redact sensitive fields");
+        assert!(!debug.contains("SECRET_PEM_DATA"), "pem should be redacted");
+        assert!(!debug.contains("hunter2"), "email_password should be redacted");
+        assert!(!debug.contains(&"deadbeef".repeat(4)), "email_blinding_key should be redacted");
     }
 
     // ── Enum Display ─────────────────────────────────────────────────
 
     #[test]
-    fn storage_backend_display() {
+    fn test_storage_backend_display() {
         assert_eq!(StorageBackend::Memory.to_string(), "memory");
         assert_eq!(StorageBackend::Ledger.to_string(), "ledger");
     }
 
     #[test]
-    fn log_format_display() {
+    fn test_log_format_display() {
         assert_eq!(LogFormat::Auto.to_string(), "auto");
         assert_eq!(LogFormat::Json.to_string(), "json");
         assert_eq!(LogFormat::Text.to_string(), "text");

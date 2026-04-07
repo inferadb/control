@@ -83,9 +83,7 @@ mod tests {
     }
 
     fn app_with_logging(path: &str, handler: axum::routing::MethodRouter) -> Router {
-        Router::new()
-            .route(path, handler)
-            .layer(middleware::from_fn(logging_middleware))
+        Router::new().route(path, handler).layer(middleware::from_fn(logging_middleware))
     }
 
     #[tokio::test]
@@ -108,10 +106,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_logging_middleware_preserves_response_body() {
-        let app = app_with_logging(
-            "/body",
-            get(|| async { (StatusCode::OK, "hello") }),
-        );
+        let app = app_with_logging("/body", get(|| async { (StatusCode::OK, "hello") }));
         let request = Request::builder().uri("/body").body(Body::empty()).unwrap();
 
         let response = app.oneshot(request).await.unwrap();

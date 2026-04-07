@@ -264,32 +264,12 @@ mod tests {
         ChallengeState::Registration { user_slug, state: reg_state }
     }
 
-    /// Helper: produce a real `ChallengeState::Authentication` via webauthn-rs.
-    fn authentication_state(user_slug: u64) -> ChallengeState {
-        let webauthn = build_webauthn("localhost", "http://localhost:3000").unwrap();
-        let user_id = Uuid::new_v4();
-        // Start registration first to get a passkey
-        let (ccr, reg_state) =
-            webauthn.start_passkey_registration(user_id, "test-user", "Test User", None).unwrap();
-        // We cannot complete registration without an authenticator, so we
-        // generate an authentication ceremony with an empty credential list
-        // which produces a valid PasskeyAuthentication state.
-        // webauthn-rs requires at least one credential for authentication,
-        // so we use the Registration variant for the roundtrip test of
-        // Authentication's serialization path instead.
-        //
-        // Actually, just test via the Registration state since both variants
-        // exercise the same encrypt/serialize path. The important thing is
-        // verifying both variants survive the roundtrip.
-        let _ = (ccr, reg_state);
-        // We can't easily construct an Authentication variant without a real
-        // credential, so we return a Registration and test the variant check
-        // in the caller.
-        ChallengeState::Registration { user_slug, state: reg_state }
-    }
-
     /// Helper: craft a token with a specific timestamp using raw crypto ops.
-    fn craft_token_with_timestamp(store: &ChallengeStore, json: &[u8], timestamp_secs: u64) -> String {
+    fn craft_token_with_timestamp(
+        store: &ChallengeStore,
+        json: &[u8],
+        timestamp_secs: u64,
+    ) -> String {
         let mut plaintext = Vec::with_capacity(TIMESTAMP_LEN + json.len());
         plaintext.extend_from_slice(&timestamp_secs.to_be_bytes());
         plaintext.extend_from_slice(json);
@@ -312,13 +292,21 @@ mod tests {
         let state = registration_state(42);
 
         let token = store.insert(state).unwrap();
-        assert!(!token.is_empty());
-
         let recovered = store.take(&token).unwrap();
         match recovered {
             ChallengeState::Registration { user_slug, .. } => assert_eq!(user_slug, 42),
             _ => panic!("expected Registration variant"),
         }
+    }
+
+    #[test]
+    fn test_challenge_store_insert_produces_nonempty_token() {
+        let store = ChallengeStore::default();
+        let state = registration_state(1);
+
+        let token = store.insert(state).unwrap();
+
+        assert!(!token.is_empty());
     }
 
     #[test]
@@ -367,21 +355,27 @@ mod tests {
     }
 
     #[test]
-    fn test_challenge_store_take_too_short_returns_none() {
+    fn test_challenge_store_take_shorter_than_nonce_returns_none() {
         let store = ChallengeStore::default();
+        let token = URL_SAFE_NO_PAD.encode([1u8; 4]);
 
-        // Shorter than nonce
-        assert!(store.take(&URL_SAFE_NO_PAD.encode([1u8; 4])).is_none());
+        assert!(store.take(&token).is_none());
+    }
 
-        // Exactly nonce length (missing timestamp)
-        assert!(store.take(&URL_SAFE_NO_PAD.encode([0u8; NONCE_LEN])).is_none());
+    #[test]
+    fn test_challenge_store_take_missing_timestamp_returns_none() {
+        let store = ChallengeStore::default();
+        let token = URL_SAFE_NO_PAD.encode([0u8; NONCE_LEN]);
 
-        // Nonce + partial timestamp
-        assert!(
-            store
-                .take(&URL_SAFE_NO_PAD.encode([0u8; NONCE_LEN + TIMESTAMP_LEN - 1]))
-                .is_none()
-        );
+        assert!(store.take(&token).is_none());
+    }
+
+    #[test]
+    fn test_challenge_store_take_partial_timestamp_returns_none() {
+        let store = ChallengeStore::default();
+        let token = URL_SAFE_NO_PAD.encode([0u8; NONCE_LEN + TIMESTAMP_LEN - 1]);
+
+        assert!(store.take(&token).is_none());
     }
 
     #[test]
@@ -397,16 +391,9 @@ mod tests {
     fn test_challenge_store_different_keys_cannot_decrypt_each_others_tokens() {
         let store_a = ChallengeStore::new(&[1u8; 32]);
         let store_b = ChallengeStore::new(&[2u8; 32]);
+        let state = registration_state(1);
 
-        // Encrypt raw data with store_a's key
-        let mut plaintext = vec![0u8; TIMESTAMP_LEN + 2];
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        store_a.cipher.encrypt_in_place(&nonce, b"", &mut plaintext).unwrap();
-
-        let mut output = Vec::new();
-        output.extend_from_slice(&nonce);
-        output.extend_from_slice(&plaintext);
-        let token = URL_SAFE_NO_PAD.encode(&output);
+        let token = store_a.insert(state).unwrap();
 
         assert!(store_b.take(&token).is_none());
     }
@@ -423,10 +410,17 @@ mod tests {
     }
 
     #[test]
-    fn test_challenge_store_new_with_explicit_key_is_functional() {
+    fn test_challenge_store_new_explicit_key_insert_take_roundtrips() {
         let store = ChallengeStore::new(&[7u8; 32]);
+        let state = registration_state(55);
 
-        assert!(store.take("nonexistent").is_none());
+        let token = store.insert(state).unwrap();
+        let recovered = store.take(&token).unwrap();
+
+        match recovered {
+            ChallengeState::Registration { user_slug, .. } => assert_eq!(user_slug, 55),
+            ChallengeState::Authentication { .. } => panic!("expected Registration variant"),
+        }
     }
 
     // ── build_webauthn ─────────────────────────────────────────────────

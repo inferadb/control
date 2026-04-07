@@ -4,6 +4,8 @@ This document illustrates the data flows for key operations in InferaDB Control.
 
 ## User Registration Flow
 
+Registration uses the 3-step email code authentication flow. New users are detected at the verify step and must complete registration separately.
+
 ```mermaid
 sequenceDiagram
     participant User
@@ -11,80 +13,81 @@ sequenceDiagram
     participant DB as Ledger
     participant Email as Email Service
 
-    User->>API: POST /control/v1/auth/register<br/>{email, password, name}
+    User->>API: POST /control/v1/auth/email/initiate<br/>{email, region?}
 
-    API->>API: Validate Input<br/>(email format, password strength)
+    API->>API: Validate Email Format
 
     alt Validation Fails
         API-->>User: 400 Bad Request
     end
 
-    API->>DB: Check Email Exists
-    DB-->>API: Email Available
+    API->>DB: Initiate Email Verification
+    DB-->>API: Verification Code
 
-    alt Email Already Registered
-        API-->>User: 409 Conflict
-    end
-
-    API->>API: Hash Password (Argon2)
-    API->>API: Generate User ID (Snowflake)
-    API->>API: Generate Session ID (Snowflake)
-    API->>API: Generate Org ID (Snowflake)
-    API->>API: Generate Member ID (Snowflake)
-
-    API->>DB: BEGIN TRANSACTION
-    API->>DB: Create User
-    API->>DB: Create User Email
-    API->>DB: Create User Session
-    API->>DB: Create Default Organization
-    API->>DB: Create Organization Member (Owner)
-    API->>DB: COMMIT TRANSACTION
-
-    API->>API: Generate Email Verification Token
-    API->>DB: Store Verification Token
-
-    API->>Email: Send Verification Email
+    API->>Email: Send Verification Code<br/>(6-character code, 10 min expiry)
     Email-->>User: Verification Email
 
-    API-->>User: 201 Created<br/>{session_token, user, organization}
+    API-->>User: 200 OK<br/>{message: "verification code sent"}
+
+    User->>API: POST /control/v1/auth/email/verify<br/>{email, code, region?}
+
+    API->>DB: Verify Email Code
+    DB-->>API: NewUser {onboarding_token}
+
+    API-->>User: 200 OK<br/>{status: "registration_required",<br/>onboarding_token}
+
+    User->>API: POST /control/v1/auth/email/complete<br/>{onboarding_token, email, name,<br/>organization_name, region?}
+
+    API->>API: Validate Email, Name, Org Name
+
+    API->>DB: Complete Registration<br/>(Create User + Default Org)
+    DB-->>API: User + Organization + Session
+
+    API-->>User: 200 OK<br/>{registration: {user, organization,<br/>access_token, refresh_token}}
+
+    Note over User: Cookies set:<br/>inferadb_access (15 min)<br/>inferadb_refresh (30 days)
 ```
 
 ## Login Flow
+
+Existing users authenticate via the email code flow. If TOTP is enabled, a second factor is required.
 
 ```mermaid
 sequenceDiagram
     participant User
     participant API as Control
     participant DB as Ledger
+    participant Email as Email Service
 
-    User->>API: POST /control/v1/auth/login/password<br/>{email, password}
+    User->>API: POST /control/v1/auth/email/initiate<br/>{email}
 
-    API->>DB: Get User by Email
-    DB-->>API: User + Password Hash
+    API->>DB: Initiate Email Verification
+    DB-->>API: Verification Code
 
-    alt User Not Found
-        API-->>User: 401 Unauthorized
+    API->>Email: Send Verification Code
+    Email-->>User: Verification Email
+
+    API-->>User: 200 OK<br/>{message: "verification code sent"}
+
+    User->>API: POST /control/v1/auth/email/verify<br/>{email, code}
+
+    API->>DB: Verify Email Code
+    DB-->>API: ExistingUser {session}
+
+    API-->>User: 200 OK<br/>{status: "authenticated",<br/>access_token, refresh_token}
+
+    Note over User: Cookies set:<br/>inferadb_access (15 min)<br/>inferadb_refresh (30 days)
+
+    alt TOTP Enabled
+        Note over DB: Returns TotpRequired instead
+        API-->>User: 200 OK<br/>{status: "totp_required",<br/>challenge_nonce}
+
+        User->>API: POST /control/v1/auth/totp/verify<br/>{user_slug, totp_code, challenge_nonce}
+        API->>DB: Verify TOTP
+        DB-->>API: Session Tokens
+
+        API-->>User: 200 OK<br/>{access_token, refresh_token}
     end
-
-    API->>API: Verify Password (Argon2)
-
-    alt Password Invalid
-        API-->>User: 401 Unauthorized
-    end
-
-    alt Account Deleted
-        API-->>User: 401 Unauthorized
-    end
-
-    API->>API: Generate Session ID
-    API->>DB: Create User Session<br/>(Type: Web, 30 day TTL)
-
-    API->>DB: Get User Organizations
-    DB-->>API: Organization List
-
-    API-->>User: 200 OK<br/>{session_token, user, organizations}
-
-    Note over User: Cookie: infera_session={session_id}
 ```
 
 ## Token Generation Flow
@@ -96,41 +99,25 @@ sequenceDiagram
     participant DB as Ledger
     participant Engine as InferaDB Engine
 
-    App->>API: POST /control/v1/organizations/{org}/vaults/{vault}/tokens<br/>Cookie: infera_session={session_id}
+    App->>API: POST /control/v1/organizations/{org}/vaults/{vault}/tokens<br/>Authorization: Bearer {access_token}<br/>{app: <app_slug>, scopes: [...]}
 
-    API->>DB: Validate Session
-    DB-->>API: Session + User
+    API->>API: Validate JWT Access Token<br/>(Ledger round-trip for write routes)
 
-    alt Session Invalid/Expired
+    alt Token Invalid/Expired
         API-->>App: 401 Unauthorized
     end
 
-    API->>DB: Get Vault
-    DB-->>API: Vault Details
+    API->>DB: Get App<br/>(Verify caller has access)
+    DB-->>API: App Details
 
-    alt Vault Not Found
-        API-->>App: 404 Not Found
+    alt App Not Found / No Access
+        API-->>App: Error
     end
 
-    API->>DB: Check User Access to Vault<br/>(Direct Grant or Team Grant)
-    DB-->>API: Access Level
+    API->>DB: Create Vault Token<br/>(org, app, vault, scopes)
+    DB-->>API: Token Pair + Expiry
 
-    alt No Access
-        API-->>App: 403 Forbidden
-    end
-
-    API->>DB: Get Vault Client Certificates
-    DB-->>API: Active Certificates
-
-    API->>API: Select Certificate (Most Recent)
-    API->>API: Load Private Key<br/>(Decrypt with Master Secret)
-
-    API->>API: Generate JWT Claims<br/>{vault_id, org_id, scopes, exp}
-    API->>API: Sign JWT with Ed25519<br/>(Client Private Key)
-
-    API->>DB: Create Refresh Token<br/>(90 day TTL)
-
-    API-->>App: 200 OK<br/>{access_token, refresh_token, expires_in}
+    API-->>App: 201 Created<br/>{access_token, refresh_token,<br/>token_type, expires_in}
 
     Note over App: App can now call Engine
     App->>Engine: POST /v1/evaluate<br/>Authorization: Bearer {access_token}
@@ -145,15 +132,14 @@ sequenceDiagram
     participant API as Control
     participant DB as Ledger
 
-    User->>API: POST /control/v1/organizations<br/>{name, tier}<br/>Cookie: infera_session={session_id}
+    User->>API: POST /control/v1/organizations<br/>{name, tier}<br/>Authorization: Bearer {access_token}
 
-    API->>DB: Validate Session
-    DB-->>API: Session + User
+    API->>API: Validate JWT Access Token
 
     API->>DB: Count User's Organizations
     DB-->>API: Organization Count
 
-    alt Exceeds Global Limit (100k)
+    alt Exceeds Per-User Limit (10) or Global Limit (100k)
         API-->>User: 400 Bad Request
     end
 
@@ -169,51 +155,6 @@ sequenceDiagram
     API-->>User: 201 Created<br/>{organization}
 ```
 
-## Vault Access Grant Flow
-
-```mermaid
-sequenceDiagram
-    participant Admin
-    participant API as Control
-    participant DB as Ledger
-
-    Admin->>API: POST /control/v1/organizations/{org}/vaults/{vault}/user-grants<br/>{user_id, role}<br/>Cookie: infera_session={session_id}
-
-    API->>DB: Validate Session
-    DB-->>API: Session + Admin User
-
-    API->>DB: Get Organization Member
-    DB-->>API: Admin Membership
-
-    alt Not Admin/Owner
-        API-->>Admin: 403 Forbidden
-    end
-
-    API->>DB: Get Vault
-    DB-->>API: Vault Details
-
-    alt Wrong Organization
-        API-->>Admin: 404 Not Found
-    end
-
-    API->>DB: Get Target User
-    DB-->>API: User Details
-
-    API->>DB: Check User in Organization
-    DB-->>API: User Membership
-
-    alt User Not in Org
-        API-->>Admin: 400 Bad Request
-    end
-
-    API->>API: Generate Grant ID
-    API->>DB: Create Vault User Grant<br/>{vault_id, user_id, role}
-
-    API-->>Admin: 201 Created<br/>{grant}
-
-    Note over Admin,DB: User can now generate tokens for this vault
-```
-
 ## Client Certificate Generation Flow
 
 ```mermaid
@@ -222,10 +163,9 @@ sequenceDiagram
     participant API as Control
     participant DB as Ledger
 
-    Admin->>API: POST /control/v1/organizations/{org}/clients/{client}/certificates<br/>{name}<br/>Cookie: infera_session={session_id}
+    Admin->>API: POST /control/v1/organizations/{org}/clients/{client}/certificates<br/>{name}<br/>Authorization: Bearer {access_token}
 
-    API->>DB: Validate Session
-    DB-->>API: Session + Admin User
+    API->>API: Validate JWT Access Token
 
     API->>DB: Get Organization Member
     DB-->>API: Admin Membership
@@ -272,39 +212,14 @@ sequenceDiagram
 
     App->>API: POST /control/v1/tokens/refresh<br/>{refresh_token}
 
-    API->>DB: Get Refresh Token
-    DB-->>API: Token Details
+    API->>DB: Refresh Token<br/>(validates, rotates, issues new pair)
+    DB-->>API: New Token Pair
 
-    alt Token Not Found
-        API-->>App: 401 Unauthorized
+    alt Token Invalid/Expired/Used
+        API-->>App: Error
     end
 
-    alt Token Expired
-        API->>DB: Mark Token as Used
-        API-->>App: 401 Unauthorized
-    end
-
-    alt Token Already Used
-        API-->>App: 401 Unauthorized
-    end
-
-    alt Token Revoked
-        API-->>App: 401 Unauthorized
-    end
-
-    API->>DB: Mark Token as Used
-    API->>DB: Get Vault
-    DB-->>API: Vault Details
-
-    API->>DB: Get Client Certificates
-    DB-->>API: Active Certificates
-
-    API->>API: Generate New JWT
-    API->>API: Sign with Certificate
-
-    API->>DB: Create New Refresh Token
-
-    API-->>App: 200 OK<br/>{access_token, refresh_token, expires_in}
+    API-->>App: 200 OK<br/>{access_token, refresh_token,<br/>token_type, expires_in}
 ```
 
 ## Email Verification Flow
@@ -317,89 +232,15 @@ sequenceDiagram
 
     User->>API: POST /control/v1/auth/verify-email<br/>{token}
 
-    API->>DB: Get Verification Token
-    DB-->>API: Token Details
+    API->>DB: Verify User Email (token)
 
-    alt Token Not Found
-        API-->>User: 400 Bad Request
+    alt Token Invalid/Expired
+        API-->>User: Error
     end
 
-    alt Token Expired
-        API-->>User: 400 Bad Request
-    end
+    DB-->>API: Email Verified
 
-    alt Token Already Used
-        API-->>User: 400 Bad Request
-    end
-
-    API->>DB: Mark Token as Used
-    API->>DB: Get User Email
-    DB-->>API: Email Details
-
-    alt Already Verified
-        API-->>User: 200 OK<br/>{message: "Already verified"}
-    end
-
-    API->>DB: Mark Email as Verified
-
-    API-->>User: 200 OK<br/>{message: "Email verified successfully"}
-```
-
-## Password Reset Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant API as Control
-    participant DB as Ledger
-    participant Email as Email Service
-
-    rect rgb(240, 240, 240)
-    Note over User,Email: Step 1: Request Reset
-    User->>API: POST /control/v1/auth/password-reset/request<br/>{email}
-
-    API->>DB: Get User by Email
-    DB-->>API: User Details
-
-    alt User Not Found
-        Note over API: Still return success (security)
-        API-->>User: 200 OK
-    end
-
-    API->>API: Generate Reset Token
-    API->>DB: Store Reset Token<br/>(1 hour expiry)
-
-    API->>Email: Send Reset Email<br/>(token + reset link)
-    Email-->>User: Reset Email
-
-    API-->>User: 200 OK
-    end
-
-    rect rgb(255, 250, 240)
-    Note over User,DB: Step 2: Reset Password
-    User->>API: POST /control/v1/auth/password-reset/confirm<br/>{token, new_password}
-
-    API->>DB: Get Reset Token
-    DB-->>API: Token Details
-
-    alt Token Invalid/Expired/Used
-        API-->>User: 400 Bad Request
-    end
-
-    API->>API: Validate New Password<br/>(strength requirements)
-
-    alt Password Too Weak
-        API-->>User: 400 Bad Request
-    end
-
-    API->>DB: Mark Token as Used
-    API->>API: Hash New Password (Argon2)
-    API->>DB: Update User Password
-
-    API->>DB: Revoke All User Sessions<br/>(force re-login)
-
-    API-->>User: 200 OK
-    end
+    API-->>User: 200 OK<br/>{message: "Email verified successfully",<br/>verified: true}
 ```
 
 ## Audit Log Flow
@@ -411,9 +252,9 @@ sequenceDiagram
     participant Handler as Request Handler
     participant DB as Ledger
 
-    User->>API: POST /control/v1/organizations/{org}/vaults<br/>{name}<br/>Cookie: infera_session={session_id}
+    User->>API: POST /control/v1/organizations/{org}/vaults<br/>{name}<br/>Authorization: Bearer {access_token}
 
-    API->>API: Extract Session Context<br/>(user_id, org_id, IP, user_agent)
+    API->>API: Extract Auth Context<br/>(user_id from JWT, org_id, IP, user_agent)
 
     API->>Handler: Process Request
 
@@ -481,31 +322,31 @@ sequenceDiagram
     participant RateLimit as Rate Limiter
     participant DB as Ledger
 
-    User->>API: POST /control/v1/auth/login/password<br/>(Request 1)
+    User->>API: POST /control/v1/auth/email/initiate<br/>(Request 1)
 
-    API->>RateLimit: Check Rate Limit<br/>(category: auth.login, IP: x.x.x.x)
+    API->>RateLimit: Check Rate Limit<br/>(category: login_ip, IP: x.x.x.x)
     RateLimit->>DB: Get Current Window Count
-    DB-->>RateLimit: Count: 1/10 (within limit)
+    DB-->>RateLimit: Count: 1/100 (within limit)
 
     RateLimit->>DB: Increment Counter
     RateLimit-->>API: ALLOWED
 
-    API->>API: Process Login
+    API->>API: Process Request
     API-->>User: 200 OK
 
-    Note over User,DB: ... 9 more requests ...
+    Note over User,DB: ... 99 more requests ...
 
-    User->>API: POST /control/v1/auth/login/password<br/>(Request 11)
+    User->>API: POST /control/v1/auth/email/initiate<br/>(Request 101)
 
     API->>RateLimit: Check Rate Limit
     RateLimit->>DB: Get Current Window Count
-    DB-->>RateLimit: Count: 10/10 (at limit)
+    DB-->>RateLimit: Count: 100/100 (at limit)
 
     RateLimit-->>API: BLOCKED
 
-    API-->>User: 429 Too Many Requests<br/>Retry-After: 60
+    API-->>User: 429 Too Many Requests<br/>Retry-After: {seconds}
 
-    Note over User: Wait for window to reset
+    Note over User: Wait for window to reset (1 hour window)
 ```
 
 ## Further Reading

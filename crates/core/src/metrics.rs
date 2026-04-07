@@ -212,76 +212,66 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_init_metrics() {
-        // Should not panic when called multiple times
+    fn test_init_idempotent_across_multiple_calls() {
         init();
         init();
     }
 
     #[test]
-    fn test_record_http_request() {
+    fn test_record_http_request_various_methods_and_statuses() {
         init();
+
         record_http_request("GET", "/v1/health", 200, 0.001);
         record_http_request("POST", "/v1/auth/login", 200, 0.125);
         record_http_request("POST", "/v1/auth/login", 401, 0.050);
     }
 
     #[test]
-    fn test_record_auth_attempt() {
+    fn test_record_auth_attempt_success_and_failure() {
         init();
+
         record_auth_attempt("password", true);
         record_auth_attempt("password", false);
         record_auth_attempt("passkey", true);
     }
 
     #[test]
-    fn test_record_registration() {
+    fn test_counter_functions_accept_various_labels() {
         init();
-        record_registration();
-    }
 
-    #[test]
-    fn test_record_rate_limit_exceeded() {
-        init();
+        record_registration();
         record_rate_limit_exceeded("login_ip");
         record_rate_limit_exceeded("registration_ip");
+        record_discovery_cache_hit();
+        record_discovery_cache_miss();
     }
 
     #[test]
-    fn test_record_db_query() {
+    fn test_histogram_functions_record_durations() {
         init();
+
         record_db_query("get", 0.001);
         record_db_query("set", 0.002);
         record_db_query("transaction", 0.050);
-    }
-
-    #[test]
-    fn test_record_grpc_request() {
-        init();
         record_grpc_request("ControlService", "CreateVault", "OK", 0.015);
         record_grpc_request("ControlService", "DeleteVault", "NotFound", 0.005);
     }
 
     #[test]
-    fn test_set_gauges() {
+    fn test_gauge_functions_set_values() {
         init();
+
         set_active_sessions(150);
         set_organizations_total(42);
         set_vaults_total(105);
+        set_discovered_endpoints(5);
         set_clock_skew(0.042);
     }
 
     #[test]
-    fn test_record_discovery_metrics() {
+    fn test_signing_key_metrics_all_operations() {
         init();
-        record_discovery_cache_hit();
-        record_discovery_cache_miss();
-        set_discovered_endpoints(5);
-    }
 
-    #[test]
-    fn test_record_signing_key_metrics() {
-        init();
         record_signing_key_registered(OrganizationSlug::from(123), 0.015);
         record_signing_key_revoked(OrganizationSlug::from(123), "user_requested", 0.010);
         record_signing_key_revoked(OrganizationSlug::from(456), "emergency", 0.005);

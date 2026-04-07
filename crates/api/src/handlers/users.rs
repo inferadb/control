@@ -186,8 +186,7 @@ mod tests {
 
     #[test]
     fn test_update_profile_request_with_name() {
-        let req: UpdateProfileRequest =
-            serde_json::from_str(r#"{"name": "New Name"}"#).unwrap();
+        let req: UpdateProfileRequest = serde_json::from_str(r#"{"name": "New Name"}"#).unwrap();
         assert_eq!(req.name.as_deref(), Some("New Name"));
     }
 
@@ -199,8 +198,7 @@ mod tests {
 
     #[test]
     fn test_update_profile_request_explicit_null_name() {
-        let req: UpdateProfileRequest =
-            serde_json::from_str(r#"{"name": null}"#).unwrap();
+        let req: UpdateProfileRequest = serde_json::from_str(r#"{"name": null}"#).unwrap();
         assert!(req.name.is_none());
     }
 

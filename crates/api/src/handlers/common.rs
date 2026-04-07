@@ -250,276 +250,189 @@ mod tests {
     // ── validate_name ──────────────────────────────────────────────
 
     #[test]
-    fn test_validate_name_alphanumeric_returns_ok() {
-        assert!(validate_name("hello").is_ok());
+    fn test_validate_name_valid_inputs_return_ok() {
+        let cases = [
+            ("hello", "alphanumeric"),
+            ("Hello World", "spaces"),
+            ("test-name", "hyphens"),
+            ("test_name", "underscores"),
+            ("O'Brien", "apostrophes"),
+            ("v1.0", "periods"),
+            ("Ünïcödé", "unicode alphanumeric"),
+            ("a", "single char"),
+        ];
+
+        for (input, label) in cases {
+            assert!(validate_name(input).is_ok(), "expected ok for {label}: {input:?}");
+        }
     }
 
     #[test]
-    fn test_validate_name_with_spaces_returns_ok() {
-        assert!(validate_name("Hello World").is_ok());
-    }
-
-    #[test]
-    fn test_validate_name_with_hyphens_returns_ok() {
-        assert!(validate_name("test-name").is_ok());
-    }
-
-    #[test]
-    fn test_validate_name_with_underscores_returns_ok() {
-        assert!(validate_name("test_name").is_ok());
-    }
-
-    #[test]
-    fn test_validate_name_with_apostrophes_returns_ok() {
-        assert!(validate_name("O'Brien").is_ok());
-    }
-
-    #[test]
-    fn test_validate_name_with_periods_returns_ok() {
-        assert!(validate_name("v1.0").is_ok());
-    }
-
-    #[test]
-    fn test_validate_name_unicode_alphanumeric_returns_ok() {
-        assert!(validate_name("Ünïcödé").is_ok());
-    }
-
-    #[test]
-    fn test_validate_name_single_char_returns_ok() {
-        assert!(validate_name("a").is_ok());
-    }
-
-    #[test]
-    fn test_validate_name_exactly_128_chars_returns_ok() {
+    fn test_validate_name_at_max_length_returns_ok() {
         let name = "a".repeat(128);
+
         assert!(validate_name(&name).is_ok());
     }
 
     #[test]
     fn test_validate_name_empty_returns_validation_error() {
         let err = validate_name("").unwrap_err();
+
         assert!(matches!(err, CoreError::Validation { .. }));
     }
 
     #[test]
     fn test_validate_name_whitespace_only_returns_validation_error() {
         let err = validate_name("   ").unwrap_err();
+
         assert!(matches!(err, CoreError::Validation { .. }));
     }
 
     #[test]
-    fn test_validate_name_129_chars_returns_validation_error() {
+    fn test_validate_name_over_max_length_returns_validation_error() {
         let long = "a".repeat(129);
+
         let err = validate_name(&long).unwrap_err();
+
         assert!(matches!(err, CoreError::Validation { .. }));
     }
 
     #[test]
-    fn test_validate_name_angle_brackets_returns_validation_error() {
-        assert!(matches!(validate_name("test<script>"), Err(CoreError::Validation { .. })));
-    }
+    fn test_validate_name_disallowed_characters_return_validation_error() {
+        let cases = [
+            ("test<script>", "angle brackets"),
+            ("name@org", "at sign"),
+            ("name#1", "hash"),
+            ("name&co", "ampersand"),
+            ("test\ttab", "tab"),
+        ];
 
-    #[test]
-    fn test_validate_name_at_sign_returns_validation_error() {
-        assert!(matches!(validate_name("name@org"), Err(CoreError::Validation { .. })));
-    }
-
-    #[test]
-    fn test_validate_name_hash_returns_validation_error() {
-        assert!(matches!(validate_name("name#1"), Err(CoreError::Validation { .. })));
-    }
-
-    #[test]
-    fn test_validate_name_ampersand_returns_validation_error() {
-        assert!(matches!(validate_name("name&co"), Err(CoreError::Validation { .. })));
-    }
-
-    #[test]
-    fn test_validate_name_tab_returns_validation_error() {
-        assert!(matches!(validate_name("test\ttab"), Err(CoreError::Validation { .. })));
+        for (input, label) in cases {
+            assert!(
+                matches!(validate_name(input), Err(CoreError::Validation { .. })),
+                "expected validation error for {label}: {input:?}"
+            );
+        }
     }
 
     // ── validate_description ───────────────────────────────────────
 
     #[test]
-    fn test_validate_description_none_returns_ok() {
-        assert!(validate_description(&None).is_ok());
+    fn test_validate_description_valid_inputs_return_ok() {
+        let cases: &[Option<String>] = &[
+            None,
+            Some(String::new()),
+            Some("short description".to_string()),
+            Some("line one\nline two\ttab".to_string()),
+            Some("line\r\nbreak".to_string()),
+            Some("x".repeat(1024)),
+        ];
+
+        for (i, input) in cases.iter().enumerate() {
+            assert!(validate_description(input).is_ok(), "expected ok for case {i}: {input:?}");
+        }
     }
 
     #[test]
-    fn test_validate_description_short_text_returns_ok() {
-        assert!(validate_description(&Some("short description".to_string())).is_ok());
-    }
-
-    #[test]
-    fn test_validate_description_newlines_and_tabs_returns_ok() {
-        assert!(validate_description(&Some("line one\nline two\ttab".to_string())).is_ok());
-    }
-
-    #[test]
-    fn test_validate_description_exactly_1024_chars_returns_ok() {
-        let desc = "x".repeat(1024);
-        assert!(validate_description(&Some(desc)).is_ok());
-    }
-
-    #[test]
-    fn test_validate_description_empty_string_returns_ok() {
-        assert!(validate_description(&Some(String::new())).is_ok());
-    }
-
-    #[test]
-    fn test_validate_description_carriage_return_returns_ok() {
-        assert!(validate_description(&Some("line\r\nbreak".to_string())).is_ok());
-    }
-
-    #[test]
-    fn test_validate_description_1025_chars_returns_validation_error() {
+    fn test_validate_description_over_max_length_returns_validation_error() {
         let long = "x".repeat(1025);
+
         let err = validate_description(&Some(long)).unwrap_err();
+
         assert!(matches!(err, CoreError::Validation { .. }));
     }
 
     #[test]
-    fn test_validate_description_null_byte_returns_validation_error() {
-        assert!(matches!(
-            validate_description(&Some("has null\x00byte".to_string())),
-            Err(CoreError::Validation { .. })
-        ));
-    }
+    fn test_validate_description_disallowed_characters_return_validation_error() {
+        let cases = [
+            ("has null\x00byte", "null byte"),
+            ("has \x01 soh", "SOH control char"),
+            ("bidi \u{202A} override", "bidi LRE"),
+            ("bidi \u{202E} override", "bidi RLO"),
+            ("bidi \u{2066} isolate", "bidi LRI"),
+        ];
 
-    #[test]
-    fn test_validate_description_soh_control_char_returns_validation_error() {
-        assert!(matches!(
-            validate_description(&Some("has \x01 soh".to_string())),
-            Err(CoreError::Validation { .. })
-        ));
-    }
-
-    #[test]
-    fn test_validate_description_bidi_lre_returns_validation_error() {
-        assert!(matches!(
-            validate_description(&Some("bidi \u{202A} override".to_string())),
-            Err(CoreError::Validation { .. })
-        ));
-    }
-
-    #[test]
-    fn test_validate_description_bidi_rlo_returns_validation_error() {
-        assert!(matches!(
-            validate_description(&Some("bidi \u{202E} override".to_string())),
-            Err(CoreError::Validation { .. })
-        ));
-    }
-
-    #[test]
-    fn test_validate_description_bidi_isolate_returns_validation_error() {
-        assert!(matches!(
-            validate_description(&Some("bidi \u{2066} isolate".to_string())),
-            Err(CoreError::Validation { .. })
-        ));
+        for (input, label) in cases {
+            assert!(
+                matches!(
+                    validate_description(&Some(input.to_string())),
+                    Err(CoreError::Validation { .. })
+                ),
+                "expected validation error for {label}: {input:?}"
+            );
+        }
     }
 
     // ── validate_email ─────────────────────────────────────────────
 
     #[test]
-    fn test_validate_email_standard_address_returns_ok() {
-        assert!(validate_email("user@example.com").is_ok());
+    fn test_validate_email_valid_addresses_return_ok() {
+        let cases = ["user@example.com", "test+tag@sub.domain.com"];
+
+        for input in cases {
+            assert!(validate_email(input).is_ok(), "expected ok for {input:?}");
+        }
     }
 
     #[test]
-    fn test_validate_email_tagged_address_returns_ok() {
-        assert!(validate_email("test+tag@sub.domain.com").is_ok());
+    fn test_validate_email_invalid_addresses_return_validation_error() {
+        let cases = [
+            ("", "empty"),
+            ("user", "no at sign"),
+            ("@domain.com", "empty local part"),
+            ("user@", "empty domain"),
+            ("user@domain", "domain without dot"),
+            ("user\x00@example.com", "null byte"),
+        ];
+
+        for (input, label) in cases {
+            assert!(
+                matches!(validate_email(input), Err(CoreError::Validation { .. })),
+                "expected validation error for {label}: {input:?}"
+            );
+        }
     }
 
     #[test]
-    fn test_validate_email_empty_returns_validation_error() {
-        assert!(matches!(validate_email(""), Err(CoreError::Validation { .. })));
-    }
-
-    #[test]
-    fn test_validate_email_no_at_sign_returns_validation_error() {
-        assert!(matches!(validate_email("user"), Err(CoreError::Validation { .. })));
-    }
-
-    #[test]
-    fn test_validate_email_empty_local_part_returns_validation_error() {
-        assert!(matches!(validate_email("@domain.com"), Err(CoreError::Validation { .. })));
-    }
-
-    #[test]
-    fn test_validate_email_empty_domain_returns_validation_error() {
-        assert!(matches!(validate_email("user@"), Err(CoreError::Validation { .. })));
-    }
-
-    #[test]
-    fn test_validate_email_domain_without_dot_returns_validation_error() {
-        assert!(matches!(validate_email("user@domain"), Err(CoreError::Validation { .. })));
-    }
-
-    #[test]
-    fn test_validate_email_exceeds_254_bytes_returns_validation_error() {
+    fn test_validate_email_exceeding_254_bytes_returns_validation_error() {
         let local = "a".repeat(64);
         let domain = format!("{}.com", "b".repeat(200));
         let email = format!("{local}@{domain}");
         assert!(email.len() > 254);
+
         let err = validate_email(&email).unwrap_err();
+
         assert!(matches!(err, CoreError::Validation { .. }));
-    }
-
-    #[test]
-    fn test_validate_email_null_byte_returns_validation_error() {
-        assert!(matches!(
-            validate_email("user\x00@example.com"),
-            Err(CoreError::Validation { .. })
-        ));
-    }
-
-    #[test]
-    fn test_validate_email_multiple_at_signs_returns_validation_error() {
-        assert!(matches!(validate_email("a@b@c.com"), Err(CoreError::Validation { .. })));
     }
 
     // ── CursorPaginationQuery ──────────────────────────────────────
 
     #[test]
-    fn test_validated_page_size_passthrough_50_returns_50() {
-        let q = CursorPaginationQuery { page_size: 50, page_token: None };
-        assert_eq!(q.validated_page_size(), 50);
-    }
+    fn test_validated_page_size_clamps_to_range() {
+        let cases: &[(u32, u32)] = &[
+            (0, 1),     // below min clamps to 1
+            (1, 1),     // at min boundary
+            (50, 50),   // mid-range passthrough
+            (100, 100), // at max boundary
+            (101, 100), // above max clamps to 100
+            (999, 100), // far above max clamps to 100
+        ];
 
-    #[test]
-    fn test_validated_page_size_zero_clamps_to_1() {
-        let q = CursorPaginationQuery { page_size: 0, page_token: None };
-        assert_eq!(q.validated_page_size(), 1);
-    }
+        for &(input, expected) in cases {
+            let q = CursorPaginationQuery { page_size: input, page_token: None };
 
-    #[test]
-    fn test_validated_page_size_1_returns_1() {
-        let q = CursorPaginationQuery { page_size: 1, page_token: None };
-        assert_eq!(q.validated_page_size(), 1);
-    }
-
-    #[test]
-    fn test_validated_page_size_100_returns_100() {
-        let q = CursorPaginationQuery { page_size: 100, page_token: None };
-        assert_eq!(q.validated_page_size(), 100);
-    }
-
-    #[test]
-    fn test_validated_page_size_101_clamps_to_100() {
-        let q = CursorPaginationQuery { page_size: 101, page_token: None };
-        assert_eq!(q.validated_page_size(), 100);
-    }
-
-    #[test]
-    fn test_validated_page_size_999_clamps_to_100() {
-        let q = CursorPaginationQuery { page_size: 999, page_token: None };
-        assert_eq!(q.validated_page_size(), 100);
+            assert_eq!(
+                q.validated_page_size(),
+                expected,
+                "page_size {input} should clamp to {expected}"
+            );
+        }
     }
 
     #[test]
     fn test_decoded_page_token_none_returns_none() {
         let q = CursorPaginationQuery { page_size: 50, page_token: None };
+
         assert!(q.decoded_page_token().is_none());
     }
 
@@ -528,20 +441,23 @@ mod tests {
         use base64::Engine;
         let encoded = base64::engine::general_purpose::STANDARD.encode(b"cursor_value");
         let q = CursorPaginationQuery { page_size: 50, page_token: Some(encoded) };
+
         assert_eq!(q.decoded_page_token().unwrap(), b"cursor_value");
     }
 
     #[test]
     fn test_decoded_page_token_invalid_base64_returns_none() {
         let q = CursorPaginationQuery { page_size: 50, page_token: Some("!!!invalid".to_string()) };
+
         assert!(q.decoded_page_token().is_none());
     }
 
     #[test]
-    fn test_decoded_page_token_empty_string_returns_empty_bytes() {
+    fn test_decoded_page_token_empty_payload_returns_empty_bytes() {
         use base64::Engine;
         let encoded = base64::engine::general_purpose::STANDARD.encode(b"");
         let q = CursorPaginationQuery { page_size: 50, page_token: Some(encoded) };
+
         assert_eq!(q.decoded_page_token().unwrap(), b"");
     }
 
@@ -555,8 +471,10 @@ mod tests {
     #[test]
     fn test_encode_page_token_bytes_returns_base64() {
         use base64::Engine;
-        let result = encode_page_token(&Some(b"hello".to_vec()));
         let expected = base64::engine::general_purpose::STANDARD.encode(b"hello");
+
+        let result = encode_page_token(&Some(b"hello".to_vec()));
+
         assert_eq!(result.unwrap(), expected);
     }
 
@@ -564,8 +482,10 @@ mod tests {
     fn test_encode_page_token_roundtrips_with_decode() {
         use base64::Engine;
         let original = b"cursor_data_123";
+
         let encoded = encode_page_token(&Some(original.to_vec())).unwrap();
         let decoded = base64::engine::general_purpose::STANDARD.decode(&encoded).unwrap();
+
         assert_eq!(decoded, original);
     }
 
@@ -577,54 +497,47 @@ mod tests {
     }
 
     #[test]
-    fn test_system_time_to_rfc3339_epoch_returns_1970() {
+    fn test_system_time_to_rfc3339_epoch_returns_1970_rfc3339() {
         let t = std::time::SystemTime::UNIX_EPOCH;
-        let result = system_time_to_rfc3339(&Some(t)).unwrap();
-        assert!(result.starts_with("1970-01-01T00:00:00"));
-    }
 
-    #[test]
-    fn test_system_time_to_rfc3339_contains_t_separator() {
-        let t = std::time::SystemTime::UNIX_EPOCH;
         let result = system_time_to_rfc3339(&Some(t)).unwrap();
-        assert!(result.contains('T'));
+
+        assert!(result.starts_with("1970-01-01T00:00:00"));
     }
 
     // ── safe_id_cast ───────────────────────────────────────────────
 
     #[test]
-    fn test_safe_id_cast_zero_returns_0u64() {
-        assert_eq!(safe_id_cast(0).unwrap(), 0u64);
+    fn test_safe_id_cast_valid_values_return_ok() {
+        let cases: &[(i64, u64)] = &[(0, 0), (42, 42), (i64::MAX, i64::MAX as u64)];
+
+        for &(input, expected) in cases {
+            assert_eq!(safe_id_cast(input).unwrap(), expected, "safe_id_cast({input})");
+        }
     }
 
     #[test]
-    fn test_safe_id_cast_positive_returns_same_value() {
-        assert_eq!(safe_id_cast(42).unwrap(), 42u64);
-    }
+    fn test_safe_id_cast_negative_values_return_internal_error() {
+        let cases = [-1i64, i64::MIN];
 
-    #[test]
-    fn test_safe_id_cast_i64_max_returns_ok() {
-        assert_eq!(safe_id_cast(i64::MAX).unwrap(), i64::MAX as u64);
-    }
+        for input in cases {
+            let err = safe_id_cast(input).unwrap_err();
 
-    #[test]
-    fn test_safe_id_cast_negative_returns_internal_error() {
-        let err = safe_id_cast(-1).unwrap_err();
-        assert!(matches!(err, CoreError::Internal { .. }));
-    }
-
-    #[test]
-    fn test_safe_id_cast_i64_min_returns_internal_error() {
-        let err = safe_id_cast(i64::MIN).unwrap_err();
-        assert!(matches!(err, CoreError::Internal { .. }));
+            assert!(
+                matches!(err, CoreError::Internal { .. }),
+                "safe_id_cast({input}) should return Internal error"
+            );
+        }
     }
 
     // ── require_ledger ─────────────────────────────────────────────
 
-    #[test]
-    fn test_require_ledger_no_ledger_returns_internal_error() {
+    #[tokio::test]
+    async fn test_require_ledger_no_ledger_returns_internal_error() {
         let state = AppState::new_test();
+
         let result = require_ledger(&state);
+
         assert!(matches!(result, Err(CoreError::Internal { .. })));
     }
 
@@ -633,63 +546,42 @@ mod tests {
     #[tokio::test]
     async fn test_org_membership_cache_invalidate_nonexistent_key_succeeds() {
         let cache = OrgMembershipCache::default();
+
         cache.invalidate(1, 2).await;
+        // No panic = success; invalidating a missing key is a no-op.
     }
 
     // ── is_disallowed_char ─────────────────────────────────────────
 
     #[test]
-    fn test_is_disallowed_char_newline_returns_false() {
-        assert!(!is_disallowed_char('\n'));
+    fn test_is_disallowed_char_allowed_characters_return_false() {
+        let cases = [
+            ('\n', "newline"),
+            ('\r', "carriage return"),
+            ('\t', "tab"),
+            ('a', "regular letter"),
+            (' ', "space"),
+        ];
+
+        for (ch, label) in cases {
+            assert!(!is_disallowed_char(ch), "expected allowed for {label} ({ch:?})");
+        }
     }
 
     #[test]
-    fn test_is_disallowed_char_carriage_return_returns_false() {
-        assert!(!is_disallowed_char('\r'));
-    }
+    fn test_is_disallowed_char_disallowed_characters_return_true() {
+        let cases = [
+            ('\x00', "null"),
+            ('\x01', "SOH"),
+            ('\u{202A}', "bidi LRE"),
+            ('\u{202C}', "bidi PDF"),
+            ('\u{202E}', "bidi RLO"),
+            ('\u{2066}', "bidi LRI"),
+            ('\u{2069}', "bidi PDI"),
+        ];
 
-    #[test]
-    fn test_is_disallowed_char_tab_returns_false() {
-        assert!(!is_disallowed_char('\t'));
-    }
-
-    #[test]
-    fn test_is_disallowed_char_null_returns_true() {
-        assert!(is_disallowed_char('\x00'));
-    }
-
-    #[test]
-    fn test_is_disallowed_char_soh_returns_true() {
-        assert!(is_disallowed_char('\x01'));
-    }
-
-    #[test]
-    fn test_is_disallowed_char_bidi_lre_returns_true() {
-        assert!(is_disallowed_char('\u{202A}'));
-    }
-
-    #[test]
-    fn test_is_disallowed_char_bidi_pdf_returns_true() {
-        assert!(is_disallowed_char('\u{202C}'));
-    }
-
-    #[test]
-    fn test_is_disallowed_char_bidi_lri_returns_true() {
-        assert!(is_disallowed_char('\u{2066}'));
-    }
-
-    #[test]
-    fn test_is_disallowed_char_bidi_pdi_returns_true() {
-        assert!(is_disallowed_char('\u{2069}'));
-    }
-
-    #[test]
-    fn test_is_disallowed_char_regular_letter_returns_false() {
-        assert!(!is_disallowed_char('a'));
-    }
-
-    #[test]
-    fn test_is_disallowed_char_space_returns_false() {
-        assert!(!is_disallowed_char(' '));
+        for (ch, label) in cases {
+            assert!(is_disallowed_char(ch), "expected disallowed for {label} ({ch:?})");
+        }
     }
 }

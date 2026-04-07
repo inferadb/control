@@ -211,8 +211,7 @@ mod tests {
 
     /// Encodes a JSON value as a URL-safe base64 JWT header segment.
     fn encode_header(header: &serde_json::Value) -> String {
-        base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(serde_json::to_vec(header).unwrap())
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(serde_json::to_vec(header).unwrap())
     }
 
     /// Builds a fake JWT string from a pre-encoded header.
@@ -223,28 +222,25 @@ mod tests {
     // ── extract_kid_from_header: malformed input ─────────────────
 
     #[test]
-    fn test_extract_kid_no_dots_returns_malformed_error() {
-        let err = extract_kid_from_header("nodots").unwrap_err();
-        assert!(err.to_string().contains("malformed JWT"), "expected 'malformed JWT', got: {err}");
-    }
+    fn test_extract_kid_malformed_input_returns_expected_error() {
+        let not_base64 = fake_token("!!!not-base64!!!");
+        let not_json_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"not-json");
+        let not_json = fake_token(&not_json_bytes);
 
-    #[test]
-    fn test_extract_kid_invalid_base64_returns_encoding_error() {
-        let err = extract_kid_from_header(&fake_token("!!!not-base64!!!")).unwrap_err();
-        assert!(
-            err.to_string().contains("invalid JWT header encoding"),
-            "expected encoding error, got: {err}"
-        );
-    }
+        let cases: &[(&str, &str, &str)] = &[
+            // "nodots" still has a first segment ("nodots"), which fails base64 decode
+            ("nodots", "invalid JWT header encoding", "no-dot token"),
+            (&not_base64, "invalid JWT header encoding", "invalid base64"),
+            (&not_json, "invalid JWT header", "valid base64 but invalid JSON"),
+        ];
 
-    #[test]
-    fn test_extract_kid_invalid_json_returns_header_error() {
-        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"not-json");
-        let err = extract_kid_from_header(&fake_token(&encoded)).unwrap_err();
-        assert!(
-            err.to_string().contains("invalid JWT header"),
-            "expected 'invalid JWT header', got: {err}"
-        );
+        for (input, expected_msg, label) in cases {
+            let err = extract_kid_from_header(input).unwrap_err();
+            assert!(
+                err.to_string().contains(expected_msg),
+                "{label}: expected '{expected_msg}', got: {err}"
+            );
+        }
     }
 
     // ── extract_kid_from_header: algorithm validation ────────────
@@ -252,7 +248,9 @@ mod tests {
     #[test]
     fn test_extract_kid_missing_alg_returns_error() {
         let header = serde_json::json!({"typ": "JWT", "kid": "k1"});
+
         let err = extract_kid_from_header(&fake_token(&encode_header(&header))).unwrap_err();
+
         assert!(
             err.to_string().contains("missing algorithm"),
             "expected 'missing algorithm', got: {err}"
@@ -262,9 +260,12 @@ mod tests {
     #[test]
     fn test_extract_kid_unsupported_algorithm_returns_error() {
         let cases = [("RS256", "RSA"), ("HS256", "HMAC"), ("ES256", "ECDSA")];
+
         for (alg, label) in cases {
             let header = serde_json::json!({"alg": alg, "typ": "JWT", "kid": "k1"});
+
             let err = extract_kid_from_header(&fake_token(&encode_header(&header))).unwrap_err();
+
             assert!(
                 err.to_string().contains("unsupported JWT algorithm"),
                 "{label} alg={alg} should be rejected, got: {err}"
@@ -277,41 +278,52 @@ mod tests {
     #[test]
     fn test_extract_kid_missing_kid_returns_error() {
         let header = serde_json::json!({"alg": "EdDSA", "typ": "JWT"});
+
         let err = extract_kid_from_header(&fake_token(&encode_header(&header))).unwrap_err();
+
         assert!(err.to_string().contains("missing kid"), "expected 'missing kid', got: {err}");
     }
 
     #[test]
     fn test_extract_kid_valid_header_returns_kid() {
         let header = serde_json::json!({"alg": "EdDSA", "typ": "JWT", "kid": "key-abc-123"});
+
         let kid = extract_kid_from_header(&fake_token(&encode_header(&header))).unwrap();
+
         assert_eq!(kid, "key-abc-123");
     }
 
     #[test]
     fn test_extract_kid_accepts_padded_base64() {
         let header = serde_json::json!({"alg": "EdDSA", "typ": "JWT", "kid": "padded-key"});
-        let encoded = base64::engine::general_purpose::URL_SAFE.encode(
-            serde_json::to_vec(&header).unwrap(),
-        );
+        let encoded =
+            base64::engine::general_purpose::URL_SAFE.encode(serde_json::to_vec(&header).unwrap());
+
         let kid = extract_kid_from_header(&fake_token(&encoded)).unwrap();
+
         assert_eq!(kid, "padded-key");
     }
 
     // ── JwksCache ────────────────────────────────────────────────
 
     #[tokio::test]
-    async fn test_jwks_cache_insert_and_retrieve() {
+    async fn test_jwks_cache_insert_key_is_retrievable() {
         let cache = JwksCache::new();
         let key = Arc::new(DecodingKey::from_ed_der(&[0u8; 32]));
+
         cache.insert_key("kid-1".to_string(), key.clone()).await;
-        assert_eq!(cache.inner.entry_count(), 1);
+
+        // moka is eventually consistent; run_pending_tasks ensures visibility
+        cache.inner.run_pending_tasks().await;
+        assert!(cache.inner.get("kid-1").await.is_some(), "inserted key should be retrievable");
     }
 
     #[test]
-    fn test_jwks_cache_debug_format() {
+    fn test_jwks_cache_debug_includes_struct_name_and_entry_count() {
         let cache = JwksCache::new();
+
         let debug = format!("{cache:?}");
+
         assert!(debug.contains("JwksCache"), "debug output should contain struct name");
         assert!(debug.contains("entry_count"), "debug output should contain entry_count");
     }
@@ -319,6 +331,7 @@ mod tests {
     #[test]
     fn test_jwks_cache_default_creates_empty_cache() {
         let cache = JwksCache::default();
+
         assert_eq!(cache.inner.entry_count(), 0);
     }
 }

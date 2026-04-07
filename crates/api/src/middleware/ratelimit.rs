@@ -105,6 +105,7 @@ mod tests {
 
         for &(secs, expected) in cases {
             let response = rate_limit_response(secs);
+
             assert_eq!(
                 response.status(),
                 StatusCode::TOO_MANY_REQUESTS,
@@ -122,8 +123,8 @@ mod tests {
     #[tokio::test]
     async fn test_rate_limit_response_body_contains_error_code() {
         let response = rate_limit_response(30);
-        let body_bytes =
-            axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
 
         assert_eq!(body["code"], "RATE_LIMIT_EXCEEDED");
@@ -133,7 +134,9 @@ mod tests {
     #[test]
     fn test_rate_limit_response_content_type_is_json() {
         let response = rate_limit_response(60);
+
         let content_type = response.headers().get("content-type").unwrap().to_str().unwrap();
+
         assert!(
             content_type.contains("application/json"),
             "expected JSON content type, got: {content_type}"
@@ -143,14 +146,10 @@ mod tests {
     // ── RateLimitConfig ──────────────────────────────────────────
 
     #[test]
-    fn test_rate_limit_config_default_login_limit() {
+    fn test_rate_limit_config_default_limits() {
         let config = RateLimitConfig::default();
-        assert_eq!(config.login.max_requests, 100);
-    }
 
-    #[test]
-    fn test_rate_limit_config_default_registration_limit() {
-        let config = RateLimitConfig::default();
-        assert_eq!(config.registration.max_requests, 5);
+        assert_eq!(config.login.max_requests, 100, "login limit");
+        assert_eq!(config.registration.max_requests, 5, "registration limit");
     }
 }

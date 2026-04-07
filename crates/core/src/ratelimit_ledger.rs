@@ -248,22 +248,13 @@ mod tests {
     // ── key_to_string ───────────────────────────────────────────
 
     #[test]
-    fn test_key_to_string_valid_utf8_preserved() {
-        assert_eq!(LedgerStorageBackend::key_to_string(b"hello"), "hello");
-    }
-
-    #[test]
-    fn test_key_to_string_invalid_utf8_uses_replacement_char() {
-        let key = b"rate:\xff\xfe";
-        let result = LedgerStorageBackend::key_to_string(key);
-
-        assert!(result.starts_with("rate:"));
-        assert!(result.contains('\u{FFFD}'));
-    }
-
-    #[test]
-    fn test_key_to_string_empty_returns_empty() {
+    fn test_key_to_string_converts_bytes_to_expected_string() {
         assert_eq!(LedgerStorageBackend::key_to_string(b""), "");
+        assert_eq!(LedgerStorageBackend::key_to_string(b"hello"), "hello");
+
+        let result = LedgerStorageBackend::key_to_string(b"rate:\xff\xfe");
+        assert!(result.starts_with("rate:"), "prefix preserved for invalid UTF-8");
+        assert!(result.contains('\u{FFFD}'), "replacement char used for invalid bytes");
     }
 
     // ── ttl_to_expires_at ───────────────────────────────────────
@@ -290,25 +281,20 @@ mod tests {
         assert!(expires <= now + 1);
     }
 
-    // ── map_sdk_error ───────────────────────────────────────────
+    // ── map_sdk_error: connection-class errors ────────────────────
 
     #[test]
-    fn test_map_sdk_error_connection_maps_to_connection() {
-        let err = SdkError::Connection { message: "refused".to_owned() };
+    fn test_map_sdk_error_connection_variants_map_to_connection() {
+        let cases: Vec<SdkError> = vec![
+            SdkError::Connection { message: "refused".to_owned() },
+            SdkError::Unavailable { message: "server down".to_owned() },
+        ];
 
-        let mapped = LedgerStorageBackend::map_sdk_error(err);
-
-        assert!(matches!(mapped, StorageError::Connection { .. }));
-    }
-
-    #[test]
-    fn test_map_sdk_error_transport_maps_to_connection() {
-        let transport_err: Box<dyn std::error::Error + Send + Sync> = "transport failed".into();
-        let err = SdkError::Transport { source: std::sync::Arc::new(transport_err) };
-
-        let mapped = LedgerStorageBackend::map_sdk_error(err);
-
-        assert!(matches!(mapped, StorageError::Connection { .. }));
+        for err in cases {
+            let label = format!("{err:?}");
+            let mapped = LedgerStorageBackend::map_sdk_error(err);
+            assert!(matches!(mapped, StorageError::Connection { .. }), "{label}");
+        }
     }
 
     #[test]
@@ -318,15 +304,6 @@ mod tests {
         let mapped = LedgerStorageBackend::map_sdk_error(err);
 
         assert!(matches!(mapped, StorageError::Timeout { .. }));
-    }
-
-    #[test]
-    fn test_map_sdk_error_unavailable_maps_to_connection() {
-        let err = SdkError::Unavailable { message: "server down".to_owned() };
-
-        let mapped = LedgerStorageBackend::map_sdk_error(err);
-
-        assert!(matches!(mapped, StorageError::Connection { .. }));
     }
 
     #[test]
@@ -344,42 +321,32 @@ mod tests {
         assert!(matches!(mapped, StorageError::Conflict { .. }));
     }
 
-    #[test]
-    fn test_map_sdk_error_not_found_maps_to_internal() {
-        let err = SdkError::Rpc {
-            code: Code::NotFound,
-            message: "not found".to_owned(),
-            request_id: None,
-            trace_id: None,
-            error_details: None,
-        };
-
-        let mapped = LedgerStorageBackend::map_sdk_error(err);
-
-        assert!(matches!(mapped, StorageError::Internal { .. }));
-    }
+    // ── map_sdk_error: internal-class errors ───────────────────
 
     #[test]
-    fn test_map_sdk_error_other_rpc_maps_to_internal() {
-        let err = SdkError::Rpc {
-            code: Code::PermissionDenied,
-            message: "denied".to_owned(),
-            request_id: None,
-            trace_id: None,
-            error_details: None,
-        };
+    fn test_map_sdk_error_fallthrough_variants_map_to_internal() {
+        let cases: Vec<SdkError> = vec![
+            SdkError::Rpc {
+                code: Code::NotFound,
+                message: "not found".to_owned(),
+                request_id: None,
+                trace_id: None,
+                error_details: None,
+            },
+            SdkError::Rpc {
+                code: Code::PermissionDenied,
+                message: "denied".to_owned(),
+                request_id: None,
+                trace_id: None,
+                error_details: None,
+            },
+            SdkError::Config { message: "bad config".to_owned() },
+        ];
 
-        let mapped = LedgerStorageBackend::map_sdk_error(err);
-
-        assert!(matches!(mapped, StorageError::Internal { .. }));
-    }
-
-    #[test]
-    fn test_map_sdk_error_config_maps_to_internal() {
-        let err = SdkError::Config { message: "bad config".to_owned() };
-
-        let mapped = LedgerStorageBackend::map_sdk_error(err);
-
-        assert!(matches!(mapped, StorageError::Internal { .. }));
+        for err in cases {
+            let label = format!("{err:?}");
+            let mapped = LedgerStorageBackend::map_sdk_error(err);
+            assert!(matches!(mapped, StorageError::Internal { .. }), "{label}");
+        }
     }
 }

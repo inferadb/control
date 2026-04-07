@@ -45,7 +45,7 @@ inferadb-control --storage memory
 
 # Or for Ledger (production)
 inferadb-control --storage ledger --ledger-endpoint https://ledger.example.com \
-  --ledger-client-id your-client-id --ledger-namespace-id 1
+  --ledger-client-id your-client-id --ledger-organization 1
 ```
 
 ### Port Conflicts
@@ -149,32 +149,12 @@ export INFERADB__CONTROL__KEY_FILE="./data/master.key"
 
 **Solutions**:
 
-1. Verify email is registered: Check with admin or use password reset
-2. Check for typos in email/password
-3. Ensure password meets minimum requirements (12+ characters by default)
-4. Try password reset flow:
-
-```bash
-# Request password reset
-curl -X POST http://localhost:9090/v1/auth/password-reset/request \
-  -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com"}'
-
-# Check email (or MailHog in dev)
-```
-
-#### Issue: Email not verified
-
-**Error**: `403 Forbidden: Email verification required`
-
-**Solution**:
-
-```bash
-# Resend verification email
-curl -X POST http://localhost:9090/v1/auth/email-verification/resend \
-  -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com"}'
-```
+1. Verify the email address is registered
+2. Check for typos in the email address
+3. Ensure the authentication flow is followed correctly:
+   - Initiate: `POST /control/v1/auth/email/initiate` with `{"email": "user@example.com"}`
+   - Verify: `POST /control/v1/auth/email/verify` with the verification code
+   - Complete: `POST /control/v1/auth/email/complete` to finish registration/login
 
 ### Session Issues
 
@@ -197,17 +177,17 @@ curl -H "Cookie: session_id=sess_abc123"    # Wrong cookie name
 
 **Step 2**: Check session expiration
 
+Sessions expire after 24 hours (session cookie max-age). Re-authenticate using the email auth flow:
+
 ```bash
-# Sessions expire after TTL (default: 24 hours for web, 7 days for CLI, 30 days for SDK)
-# Login again to get new session
-curl -X POST http://localhost:9090/v1/auth/login/password \
+curl -X POST http://localhost:9090/control/v1/auth/email/initiate \
   -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com", "password": "pass"}'
+  -d '{"email": "user@example.com"}'
 ```
 
-**Step 3**: Sessions have default TTLs
+**Step 3**: Check token expiration
 
-Sessions expire based on their type (Web, CLI, SDK). Check server logs for session expiration details.
+Access token cookies expire after 15 minutes. User session refresh tokens expire after 1 hour. Client refresh tokens expire after 7 days. Use the refresh endpoint to obtain new tokens.
 
 #### Issue: Too many sessions
 
@@ -216,12 +196,12 @@ Sessions expire based on their type (Web, CLI, SDK). Check server logs for sessi
 **Solution**:
 
 ```bash
-# Revoke old sessions
-curl -X POST http://localhost:9090/v1/auth/sessions/{session_id}/revoke \
-  -H "Cookie: infera_session={current_session_id}"
+# Revoke all sessions
+curl -X POST http://localhost:9090/control/v1/auth/revoke-all \
+  -H "Cookie: infera_session={session_id}"
 
-# Or revoke all sessions
-curl -X POST http://localhost:9090/v1/auth/sessions/revoke-all \
+# Or log out the current session
+curl -X POST http://localhost:9090/control/v1/auth/logout \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -246,8 +226,8 @@ import requests
 def login_with_retry(email, password, max_retries=5):
     for attempt in range(max_retries):
         response = requests.post(
-            "http://localhost:9090/v1/auth/login/password",
-            json={"email": email, "password": password}
+            "http://localhost:9090/control/v1/auth/email/initiate",
+            json={"email": email}
         )
 
         if response.status_code == 429:
@@ -321,7 +301,7 @@ curl -d '{"email": "user@example.com"}'  # ✅
 
 ```bash
 # List your organizations
-curl -X GET http://localhost:9090/v1/organizations \
+curl -X GET http://localhost:9090/control/v1/organizations \
   -H "Cookie: infera_session={session_id}"
 ```
 
@@ -337,7 +317,7 @@ curl -X GET http://localhost:9090/v1/organizations \
 
 ```bash
 # View recent logs
-tail -f /var/log/inferadb-control-api.log
+tail -f /var/log/inferadb-control.log
 
 # Or if running directly
 ./target/release/inferadb-control --log-level debug 2>&1 | tee api.log
@@ -370,14 +350,14 @@ export INFERADB__CONTROL__LOG_LEVEL=debug
 **Solution**:
 
 ```bash
-# Bad: Open-ended query
-GET /v1/organizations/{org}/audit-logs
+# Bad: Open-ended query with large page size
+GET /control/v1/organizations/{org}/audit-logs?page_size=100
 
-# Good: Time-bounded query
-GET /v1/organizations/{org}/audit-logs?start_date=2025-11-01T00:00:00Z&end_date=2025-11-18T23:59:59Z
+# Good: Filtered by event type prefix
+GET /control/v1/organizations/{org}/audit-logs?event_type=ledger.vault&page_size=50
 
-# Better: Add event type filter
-GET /v1/organizations/{org}/audit-logs?event_type=user_login&start_date=2025-11-01T00:00:00Z
+# Better: Add principal and outcome filters
+GET /control/v1/organizations/{org}/audit-logs?event_type=ledger.vault&principal=user:42&outcome=success
 ```
 
 ### High Memory Usage
@@ -392,14 +372,14 @@ GET /v1/organizations/{org}/audit-logs?event_type=user_login&start_date=2025-11-
 
 ```bash
 # Fetch in smaller batches
-GET /v1/organizations/{org}/vaults?limit=25
+GET /control/v1/organizations/{org}/vaults?page_size=25
 ```
 
 **Step 2**: Monitor memory usage
 
 ```bash
 # Check memory usage
-ps aux | grep inferadb-control-api
+ps aux | grep inferadb-control
 
 # Use Prometheus metrics
 curl http://localhost:9090/metrics | grep memory
@@ -424,24 +404,24 @@ load balancer or reverse proxy level.
 **Step 1**: Check container logs
 
 ```bash
-docker logs inferadb-control-api
+docker logs inferadb-control
 
 # Follow logs in real-time
-docker logs -f inferadb-control-api
+docker logs -f inferadb-control
 ```
 
 **Step 2**: Verify environment variables
 
 ```bash
 # List container environment
-docker inspect inferadb-control-api | jq '.[0].Config.Env'
+docker inspect inferadb-control | jq '.[0].Config.Env'
 ```
 
 **Step 3**: Check volume mounts for key file
 
 ```bash
 # Verify key file is accessible inside the container
-docker exec inferadb-control-api ls -la /data/master.key
+docker exec inferadb-control ls -la /data/master.key
 ```
 
 ### Kubernetes Deployment
@@ -455,10 +435,10 @@ docker exec inferadb-control-api ls -la /data/master.key
 **Step 1**: Check pod logs
 
 ```bash
-kubectl logs -n infera pod/inferadb-control-api-xxxxx
+kubectl logs -n infera pod/inferadb-control-xxxxx
 
 # Check previous crashed pod
-kubectl logs -n infera pod/inferadb-control-api-xxxxx --previous
+kubectl logs -n infera pod/inferadb-control-xxxxx --previous
 ```
 
 **Step 2**: Verify ConfigMap
@@ -485,14 +465,14 @@ kubectl get secret -n infera infera-secrets -o yaml
 kubectl get svc -n infera
 
 # Check endpoints
-kubectl get endpoints -n infera inferadb-control-api
+kubectl get endpoints -n infera inferadb-control
 ```
 
 **Step 2**: Test from within cluster
 
 ```bash
 kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
-  curl http://inferadb-control-api.inferadb.svc.cluster.local:9090/healthz
+  curl http://inferadb-control.inferadb.svc.cluster.local:9090/healthz
 ```
 
 ## Development & Testing
@@ -647,13 +627,13 @@ If these solutions don't resolve your issue:
    env | grep INFERADB__CONTROL__ | grep -Evi '(secret|password|token|key|pem|credential)'
 
    # Recent logs
-   tail -n 100 /var/log/inferadb-control-api.log
+   tail -n 100 /var/log/inferadb-control.log
    ```
 
 4. **File an issue**:
    - Include diagnostic information above
    - Provide steps to reproduce
    - Note expected vs actual behavior
-   - Link: [GitHub Issues](https://github.com/yourusername/inferadb/issues)
+   - Link: [GitHub Issues](https://github.com/inferadb/inferadb/issues)
 
 5. **Security issues**: Email <security@inferadb.com> (do not file public issues)

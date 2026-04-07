@@ -233,337 +233,233 @@ mod tests {
         }
     }
 
+    // ── sdk_error_to_control: RPC code mapping ────────────────────────
+
     #[test]
-    fn rpc_not_found_maps_to_404() {
-        let err = sdk_error_to_control(rpc(Code::NotFound));
-        assert_eq!(err.status_code(), 404);
+    fn test_sdk_error_to_control_rpc_codes_map_to_expected_http_status() {
+        let cases: Vec<(Code, u16, &str)> = vec![
+            (Code::NotFound, 404, "NotFound"),
+            (Code::AlreadyExists, 409, "AlreadyExists"),
+            (Code::InvalidArgument, 400, "InvalidArgument"),
+            (Code::FailedPrecondition, 400, "FailedPrecondition"),
+            (Code::PermissionDenied, 403, "PermissionDenied"),
+            (Code::Unauthenticated, 401, "Unauthenticated"),
+            (Code::ResourceExhausted, 402, "ResourceExhausted"),
+            (Code::Unavailable, 503, "Unavailable"),
+            (Code::DeadlineExceeded, 503, "DeadlineExceeded"),
+            (Code::Internal, 500, "Internal"),
+            (Code::Aborted, 503, "Aborted"),
+            (Code::Unimplemented, 500, "Unimplemented"),
+            (Code::DataLoss, 500, "DataLoss"),
+            (Code::OutOfRange, 500, "OutOfRange (fallback)"),
+        ];
+
+        for (code, expected_status, label) in cases {
+            let err = sdk_error_to_control(rpc(code));
+
+            assert_eq!(
+                err.status_code(),
+                expected_status,
+                "RPC code {label} should map to HTTP {expected_status}"
+            );
+        }
+    }
+
+    // ── sdk_error_to_control: non-RPC variant mapping ─────────────────
+
+    #[test]
+    fn test_sdk_error_to_control_non_rpc_variants_map_to_expected_http_status() {
+        let cases: Vec<(SdkError, u16, &str)> = vec![
+            (
+                SdkError::RateLimited {
+                    message: "slow down".into(),
+                    retry_after: std::time::Duration::from_secs(1),
+                    request_id: None,
+                    trace_id: None,
+                    error_details: None,
+                },
+                429,
+                "RateLimited",
+            ),
+            (SdkError::Validation { message: "bad input".into() }, 400, "Validation"),
+            (SdkError::Connection { message: "refused".into() }, 503, "Connection"),
+            (SdkError::Timeout { duration_ms: 5000 }, 503, "Timeout"),
+            (SdkError::Unavailable { message: "down".into() }, 503, "Unavailable"),
+            (
+                SdkError::RetryExhausted {
+                    attempts: 3,
+                    last_error: "failed".into(),
+                    attempt_history: vec![(1, "err1".into()), (2, "err2".into())],
+                },
+                503,
+                "RetryExhausted",
+            ),
+            (
+                SdkError::CircuitOpen {
+                    endpoint: "localhost:50051".into(),
+                    retry_after: std::time::Duration::from_secs(30),
+                },
+                503,
+                "CircuitOpen",
+            ),
+            (
+                SdkError::OrganizationMigrating {
+                    source_region: Region::US_EAST_VA,
+                    target_region: Region::US_WEST_OR,
+                    retry_after: std::time::Duration::from_secs(60),
+                },
+                503,
+                "OrganizationMigrating",
+            ),
+            (
+                SdkError::UserMigrating {
+                    source_region: Region::US_EAST_VA,
+                    target_region: Region::US_WEST_OR,
+                    retry_after: std::time::Duration::from_secs(60),
+                },
+                503,
+                "UserMigrating",
+            ),
+            (SdkError::Config { message: "bad config".into() }, 500, "Config"),
+            (SdkError::Shutdown, 500, "Shutdown"),
+            (SdkError::Cancelled, 500, "Cancelled"),
+            (
+                SdkError::Idempotency {
+                    message: "conflict".into(),
+                    conflict_key: None,
+                    original_tx_id: None,
+                },
+                500,
+                "Idempotency",
+            ),
+            (
+                SdkError::AlreadyCommitted { tx_id: "tx-1".into(), block_height: 42 },
+                500,
+                "AlreadyCommitted",
+            ),
+            (SdkError::StreamDisconnected { message: "gone".into() }, 503, "StreamDisconnected"),
+            (
+                SdkError::InvalidUrl { url: "not-a-url".into(), message: "bad scheme".into() },
+                500,
+                "InvalidUrl",
+            ),
+            (SdkError::ProofVerification { reason: "hash mismatch" }, 500, "ProofVerification"),
+        ];
+
+        for (sdk_err, expected_status, label) in cases {
+            let err = sdk_error_to_control(sdk_err);
+
+            assert_eq!(
+                err.status_code(),
+                expected_status,
+                "{label} should map to HTTP {expected_status}"
+            );
+        }
     }
 
     #[test]
-    fn rpc_already_exists_maps_to_409() {
-        let err = sdk_error_to_control(rpc(Code::AlreadyExists));
-        assert_eq!(err.status_code(), 409);
-    }
-
-    #[test]
-    fn rpc_invalid_argument_maps_to_400() {
-        let err = sdk_error_to_control(rpc(Code::InvalidArgument));
-        assert_eq!(err.status_code(), 400);
-    }
-
-    #[test]
-    fn rpc_failed_precondition_maps_to_400() {
-        let err = sdk_error_to_control(rpc(Code::FailedPrecondition));
-        assert_eq!(err.status_code(), 400);
-    }
-
-    #[test]
-    fn rpc_permission_denied_maps_to_403() {
-        let err = sdk_error_to_control(rpc(Code::PermissionDenied));
-        assert_eq!(err.status_code(), 403);
-    }
-
-    #[test]
-    fn rpc_unauthenticated_maps_to_401() {
-        let err = sdk_error_to_control(rpc(Code::Unauthenticated));
-        assert_eq!(err.status_code(), 401);
-    }
-
-    #[test]
-    fn rpc_resource_exhausted_maps_to_402() {
-        let err = sdk_error_to_control(rpc(Code::ResourceExhausted));
-        assert_eq!(err.status_code(), 402);
-    }
-
-    #[test]
-    fn rpc_unavailable_maps_to_503() {
-        let err = sdk_error_to_control(rpc(Code::Unavailable));
-        assert_eq!(err.status_code(), 503);
-    }
-
-    #[test]
-    fn rpc_deadline_exceeded_maps_to_503() {
-        let err = sdk_error_to_control(rpc(Code::DeadlineExceeded));
-        assert_eq!(err.status_code(), 503);
-    }
-
-    #[test]
-    fn rpc_internal_maps_to_500() {
-        let err = sdk_error_to_control(rpc(Code::Internal));
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn rpc_aborted_maps_to_503() {
-        let err = sdk_error_to_control(rpc(Code::Aborted));
-        assert_eq!(err.status_code(), 503);
-    }
-
-    #[test]
-    fn rpc_unimplemented_maps_to_500() {
-        let err = sdk_error_to_control(rpc(Code::Unimplemented));
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn rpc_data_loss_maps_to_500() {
-        let err = sdk_error_to_control(rpc(Code::DataLoss));
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn rate_limited_maps_to_429() {
-        let err = sdk_error_to_control(SdkError::RateLimited {
-            message: "slow down".into(),
-            retry_after: std::time::Duration::from_secs(1),
-            request_id: None,
-            trace_id: None,
-            error_details: None,
-        });
-        assert_eq!(err.status_code(), 429);
-    }
-
-    #[test]
-    fn validation_maps_to_400() {
-        let err = sdk_error_to_control(SdkError::Validation { message: "bad input".into() });
-        assert_eq!(err.status_code(), 400);
-    }
-
-    #[test]
-    fn connection_maps_to_503() {
-        let err = sdk_error_to_control(SdkError::Connection { message: "refused".into() });
-        assert_eq!(err.status_code(), 503);
-    }
-
-    #[test]
-    fn transport_maps_to_503() {
+    fn test_sdk_error_to_control_transport_error_maps_to_503() {
         let Err(transport_err) = tonic::transport::Endpoint::from_shared(vec![0xFF]) else {
             panic!("expected Endpoint::from_shared to fail on invalid UTF-8");
         };
+
         let err = sdk_error_to_control(SdkError::Transport { source: transport_err });
+
         assert_eq!(err.status_code(), 503);
     }
 
-    #[test]
-    fn timeout_maps_to_503() {
-        let err = sdk_error_to_control(SdkError::Timeout { duration_ms: 5000 });
-        assert_eq!(err.status_code(), 503);
-    }
+    // ── SdkResultExt ──────────────────────────────────────────────────
 
     #[test]
-    fn unavailable_maps_to_503() {
-        let err = sdk_error_to_control(SdkError::Unavailable { message: "down".into() });
-        assert_eq!(err.status_code(), 503);
-    }
-
-    #[test]
-    fn retry_exhausted_maps_to_503() {
-        let err = sdk_error_to_control(SdkError::RetryExhausted {
-            attempts: 3,
-            last_error: "failed".into(),
-            attempt_history: vec![(1, "err1".into()), (2, "err2".into())],
-        });
-        assert_eq!(err.status_code(), 503);
-    }
-
-    #[test]
-    fn circuit_open_maps_to_503() {
-        let err = sdk_error_to_control(SdkError::CircuitOpen {
-            endpoint: "localhost:50051".into(),
-            retry_after: std::time::Duration::from_secs(30),
-        });
-        assert_eq!(err.status_code(), 503);
-    }
-
-    #[test]
-    fn organization_migrating_maps_to_503() {
-        let err = sdk_error_to_control(SdkError::OrganizationMigrating {
-            source_region: Region::US_EAST_VA,
-            target_region: Region::US_WEST_OR,
-            retry_after: std::time::Duration::from_secs(60),
-        });
-        assert_eq!(err.status_code(), 503);
-    }
-
-    #[test]
-    fn user_migrating_maps_to_503() {
-        let err = sdk_error_to_control(SdkError::UserMigrating {
-            source_region: Region::US_EAST_VA,
-            target_region: Region::US_WEST_OR,
-            retry_after: std::time::Duration::from_secs(60),
-        });
-        assert_eq!(err.status_code(), 503);
-    }
-
-    #[test]
-    fn config_maps_to_500() {
-        let err = sdk_error_to_control(SdkError::Config { message: "bad config".into() });
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn shutdown_maps_to_500() {
-        let err = sdk_error_to_control(SdkError::Shutdown);
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn cancelled_maps_to_500() {
-        let err = sdk_error_to_control(SdkError::Cancelled);
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn idempotency_maps_to_500() {
-        let err = sdk_error_to_control(SdkError::Idempotency {
-            message: "conflict".into(),
-            conflict_key: None,
-            original_tx_id: None,
-        });
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn already_committed_maps_to_500() {
-        let err = sdk_error_to_control(SdkError::AlreadyCommitted {
-            tx_id: "tx-1".into(),
-            block_height: 42,
-        });
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn stream_disconnected_maps_to_503() {
-        let err = sdk_error_to_control(SdkError::StreamDisconnected { message: "gone".into() });
-        assert_eq!(err.status_code(), 503);
-    }
-
-    #[test]
-    fn invalid_url_maps_to_500() {
-        let err = sdk_error_to_control(SdkError::InvalidUrl {
-            url: "not-a-url".into(),
-            message: "bad scheme".into(),
-        });
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn proof_verification_maps_to_500() {
-        let err = sdk_error_to_control(SdkError::ProofVerification { reason: "hash mismatch" });
-        assert_eq!(err.status_code(), 500);
-    }
-
-    #[test]
-    fn map_sdk_err_preserves_ok() {
+    fn test_map_sdk_err_ok_value_passes_through() {
         let result: Result<i32, SdkError> = Ok(42);
+
         let mapped = result.map_sdk_err();
-        assert!(matches!(mapped, Ok(42)));
+
+        assert_eq!(mapped.unwrap(), 42);
     }
 
     #[test]
-    fn map_sdk_err_converts_err() {
+    fn test_map_sdk_err_error_converts_to_control_error() {
         let result: Result<i32, SdkError> = Err(SdkError::Validation { message: "bad".into() });
+
         let mapped = result.map_sdk_err();
-        let Err(err) = mapped else {
-            panic!("expected Err variant");
-        };
-        assert_eq!(err.status_code(), 400);
+
+        assert_eq!(mapped.unwrap_err().status_code(), 400);
     }
 
-    #[test]
-    fn status_label_rpc_not_found() {
-        assert_eq!(sdk_error_status_label(&rpc(Code::NotFound)), "NOT_FOUND");
-    }
+    // ── sdk_error_status_label: RPC codes ─────────────────────────────
 
     #[test]
-    fn status_label_rpc_already_exists() {
-        assert_eq!(sdk_error_status_label(&rpc(Code::AlreadyExists)), "ALREADY_EXISTS");
+    fn test_status_label_rpc_codes_return_expected_labels() {
+        let cases: Vec<(Code, &str)> = vec![
+            (Code::NotFound, "NOT_FOUND"),
+            (Code::AlreadyExists, "ALREADY_EXISTS"),
+            (Code::InvalidArgument, "INVALID_ARGUMENT"),
+            (Code::FailedPrecondition, "FAILED_PRECONDITION"),
+            (Code::PermissionDenied, "PERMISSION_DENIED"),
+            (Code::Unauthenticated, "UNAUTHENTICATED"),
+            (Code::ResourceExhausted, "RESOURCE_EXHAUSTED"),
+            (Code::Unavailable, "UNAVAILABLE"),
+            (Code::DeadlineExceeded, "DEADLINE_EXCEEDED"),
+            (Code::Internal, "INTERNAL"),
+            (Code::OutOfRange, "UNKNOWN"),
+        ];
+
+        for (code, expected_label) in cases {
+            assert_eq!(
+                sdk_error_status_label(&rpc(code)),
+                expected_label,
+                "RPC code {code:?} should produce label {expected_label}"
+            );
+        }
     }
 
-    #[test]
-    fn status_label_rpc_invalid_argument() {
-        assert_eq!(sdk_error_status_label(&rpc(Code::InvalidArgument)), "INVALID_ARGUMENT");
-    }
+    // ── sdk_error_status_label: non-RPC variants ──────────────────────
 
     #[test]
-    fn status_label_rpc_unavailable() {
-        assert_eq!(sdk_error_status_label(&rpc(Code::Unavailable)), "UNAVAILABLE");
-    }
+    fn test_status_label_non_rpc_variants_return_expected_labels() {
+        let cases: Vec<(SdkError, &str)> = vec![
+            (SdkError::Connection { message: "err".into() }, "CONNECTION_ERROR"),
+            (SdkError::Timeout { duration_ms: 1000 }, "TIMEOUT"),
+            (SdkError::Unavailable { message: "down".into() }, "UNAVAILABLE"),
+            (
+                SdkError::RetryExhausted {
+                    attempts: 3,
+                    last_error: "fail".into(),
+                    attempt_history: vec![],
+                },
+                "RETRY_EXHAUSTED",
+            ),
+            (
+                SdkError::CircuitOpen {
+                    endpoint: "host".into(),
+                    retry_after: std::time::Duration::from_secs(5),
+                },
+                "CIRCUIT_OPEN",
+            ),
+            (
+                SdkError::RateLimited {
+                    message: "slow".into(),
+                    retry_after: std::time::Duration::from_secs(1),
+                    request_id: None,
+                    trace_id: None,
+                    error_details: None,
+                },
+                "RATE_LIMITED",
+            ),
+            (SdkError::Validation { message: "bad".into() }, "VALIDATION"),
+            (SdkError::Shutdown, "OTHER"),
+            (SdkError::Cancelled, "OTHER"),
+            (SdkError::Config { message: "x".into() }, "OTHER"),
+        ];
 
-    #[test]
-    fn status_label_rpc_deadline_exceeded() {
-        assert_eq!(sdk_error_status_label(&rpc(Code::DeadlineExceeded)), "DEADLINE_EXCEEDED");
-    }
-
-    #[test]
-    fn status_label_rpc_internal() {
-        assert_eq!(sdk_error_status_label(&rpc(Code::Internal)), "INTERNAL");
-    }
-
-    #[test]
-    fn status_label_rpc_unknown_code() {
-        assert_eq!(sdk_error_status_label(&rpc(Code::OutOfRange)), "UNKNOWN");
-    }
-
-    #[test]
-    fn status_label_connection() {
-        let err = SdkError::Connection { message: "err".into() };
-        assert_eq!(sdk_error_status_label(&err), "CONNECTION_ERROR");
-    }
-
-    #[test]
-    fn status_label_timeout() {
-        let err = SdkError::Timeout { duration_ms: 1000 };
-        assert_eq!(sdk_error_status_label(&err), "TIMEOUT");
-    }
-
-    #[test]
-    fn status_label_unavailable() {
-        let err = SdkError::Unavailable { message: "down".into() };
-        assert_eq!(sdk_error_status_label(&err), "UNAVAILABLE");
-    }
-
-    #[test]
-    fn status_label_retry_exhausted() {
-        let err = SdkError::RetryExhausted {
-            attempts: 3,
-            last_error: "fail".into(),
-            attempt_history: vec![],
-        };
-        assert_eq!(sdk_error_status_label(&err), "RETRY_EXHAUSTED");
-    }
-
-    #[test]
-    fn status_label_circuit_open() {
-        let err = SdkError::CircuitOpen {
-            endpoint: "host".into(),
-            retry_after: std::time::Duration::from_secs(5),
-        };
-        assert_eq!(sdk_error_status_label(&err), "CIRCUIT_OPEN");
-    }
-
-    #[test]
-    fn status_label_rate_limited() {
-        let err = SdkError::RateLimited {
-            message: "slow".into(),
-            retry_after: std::time::Duration::from_secs(1),
-            request_id: None,
-            trace_id: None,
-            error_details: None,
-        };
-        assert_eq!(sdk_error_status_label(&err), "RATE_LIMITED");
-    }
-
-    #[test]
-    fn status_label_validation() {
-        let err = SdkError::Validation { message: "bad".into() };
-        assert_eq!(sdk_error_status_label(&err), "VALIDATION");
-    }
-
-    #[test]
-    fn status_label_other_variants() {
-        assert_eq!(sdk_error_status_label(&SdkError::Shutdown), "OTHER");
-        assert_eq!(sdk_error_status_label(&SdkError::Cancelled), "OTHER");
-        assert_eq!(sdk_error_status_label(&SdkError::Config { message: "x".into() }), "OTHER");
+        for (sdk_err, expected_label) in cases {
+            assert_eq!(
+                sdk_error_status_label(&sdk_err),
+                expected_label,
+                "{sdk_err:?} should produce label {expected_label}"
+            );
+        }
     }
 }

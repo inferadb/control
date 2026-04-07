@@ -2,29 +2,29 @@
 
 This document provides practical code examples for common workflows using InferaDB Control.
 
-> **Note**: Values like `{org_id}`, `{vault_id}`, and numeric IDs (e.g., `111222333`, `777888999`)
-> are placeholders. Replace them with actual IDs from your API responses.
+> **Note**: Numeric values like `111222333`, `777888999` are placeholder slugs.
+> Replace them with actual values from your API responses.
 
 ## Table of Contents
 
-- [User Registration](#user-registration)
+- [Authentication](#authentication)
 - [Organization Setup](#organization-setup)
 - [Vault Management](#vault-management)
-- [Client Credentials](#client-credentials)
+- [Client Management](#client-management)
 - [Token Generation](#token-generation)
 - [Team Management](#team-management)
 
-## User Registration
+## Authentication
 
-### Register a New User
+InferaDB Control uses a passwordless email verification flow. There are no username/password endpoints.
+
+### Step 1: Initiate Email Verification
 
 ```bash
-curl -X POST http://localhost:9090/control/v1/auth/register \
+curl -X POST http://localhost:9090/control/v1/auth/email/initiate \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "alice@example.com",
-    "password": "SecurePass123!",
-    "name": "Alice Smith"
+    "email": "alice@example.com"
   }'
 ```
 
@@ -32,59 +32,84 @@ curl -X POST http://localhost:9090/control/v1/auth/register \
 
 ```json
 {
-  "user": {
-    "id": "123456789",
+  "message": "verification code sent"
+}
+```
+
+A 6-character verification code is sent to the email address (if SMTP is configured).
+
+### Step 2: Verify Email Code
+
+```bash
+curl -X POST http://localhost:9090/control/v1/auth/email/verify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "alice@example.com",
+    "code": "123456"
+  }'
+```
+
+**Response (existing user, no TOTP):**
+
+```json
+{
+  "status": "authenticated",
+  "access_token": "eyJhbGciOiJFZERTQSIs...",
+  "refresh_token": "rt_abc123...",
+  "token_type": "Bearer"
+}
+```
+
+Session cookies `inferadb_access` and `inferadb_refresh` are also set automatically.
+
+**Response (new user):**
+
+```json
+{
+  "status": "registration_required",
+  "onboarding_token": "obt_xyz789..."
+}
+```
+
+**Response (existing user with TOTP):**
+
+```json
+{
+  "status": "totp_required",
+  "challenge_nonce": "base64-encoded-nonce"
+}
+```
+
+### Step 3: Complete Registration (New Users Only)
+
+```bash
+curl -X POST http://localhost:9090/control/v1/auth/email/complete \
+  -H "Content-Type: application/json" \
+  -d '{
+    "onboarding_token": "obt_xyz789...",
+    "email": "alice@example.com",
     "name": "Alice Smith",
-    "created_at": "2025-01-15T10:30:00Z",
-    "tos_accepted_at": null
-  },
-  "organization": {
-    "id": "987654321",
-    "name": "Alice Smith's Org",
-    "tier": "TIER_DEV_V1",
-    "created_at": "2025-01-15T10:30:00Z",
-    "role": "owner"
+    "organization_name": "ACME Corporation"
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "registration": {
+    "user": 123456789,
+    "organization": 987654321,
+    "access_token": "eyJhbGciOiJFZERTQSIs...",
+    "refresh_token": "rt_abc123...",
+    "token_type": "Bearer"
   }
 }
 ```
 
-**Note:** Session cookie `infera_session` is automatically set.
+Session cookies `inferadb_access` and `inferadb_refresh` are set automatically.
 
-### Login
-
-```bash
-curl -X POST http://localhost:9090/control/v1/auth/login/password \
-  -H "Content-Type: application/json" \
-  -c cookies.txt \
-  -d '{
-    "email": "alice@example.com",
-    "password": "SecurePass123!"
-  }'
-```
-
-**Response:**
-
-```json
-{
-  "user": {
-    "id": "123456789",
-    "name": "Alice Smith",
-    "created_at": "2025-01-15T10:30:00Z",
-    "tos_accepted_at": "2025-01-15T10:35:00Z"
-  },
-  "organizations": [
-    {
-      "id": "987654321",
-      "name": "Alice Smith's Org",
-      "tier": "TIER_DEV_V1",
-      "created_at": "2025-01-15T10:30:00Z",
-      "role": "owner"
-    }
-  ]
-}
-```
-
-### Verify Email
+### Verify Email Address
 
 ```bash
 curl -X POST http://localhost:9090/control/v1/auth/verify-email \
@@ -94,17 +119,54 @@ curl -X POST http://localhost:9090/control/v1/auth/verify-email \
   }'
 ```
 
+### Refresh Session Token
+
+```bash
+curl -X POST http://localhost:9090/control/v1/auth/refresh \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
+    "refresh_token": "rt_abc123..."
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "access_token": "eyJhbGciOiJFZERTQSIs...",
+  "refresh_token": "rt_newtoken...",
+  "token_type": "Bearer"
+}
+```
+
+The refresh token can also be provided via the `inferadb_refresh` cookie instead of the request body.
+
+### Logout
+
+```bash
+curl -X POST http://localhost:9090/control/v1/auth/logout \
+  -b cookies.txt
+```
+
+**Response:**
+
+```json
+{
+  "message": "logged out"
+}
+```
+
 ## Organization Setup
 
-### Create Additional Organization
+### Create an Organization
 
 ```bash
 curl -X POST http://localhost:9090/control/v1/organizations \
   -H "Content-Type: application/json" \
-  -b cookies.txt \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..." \
   -d '{
-    "name": "ACME Corporation",
-    "tier": "TIER_PRO_V1"
+    "name": "ACME Corporation"
   }'
 ```
 
@@ -113,12 +175,35 @@ curl -X POST http://localhost:9090/control/v1/organizations \
 ```json
 {
   "organization": {
-    "id": "111222333",
+    "slug": 111222333,
     "name": "ACME Corporation",
-    "tier": "TIER_PRO_V1",
-    "created_at": "2025-01-15T11:00:00Z",
-    "role": "owner"
+    "region": "us-east-va",
+    "status": "active",
+    "tier": "free"
   }
+}
+```
+
+### List Organizations
+
+```bash
+curl -X GET http://localhost:9090/control/v1/organizations \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..."
+```
+
+**Response:**
+
+```json
+{
+  "organizations": [
+    {
+      "slug": 111222333,
+      "name": "ACME Corporation",
+      "region": "us-east-va",
+      "status": "active",
+      "tier": "free"
+    }
+  ]
 }
 ```
 
@@ -127,7 +212,7 @@ curl -X POST http://localhost:9090/control/v1/organizations \
 ```bash
 curl -X POST http://localhost:9090/control/v1/organizations/111222333/invitations \
   -H "Content-Type: application/json" \
-  -b cookies.txt \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..." \
   -d '{
     "email": "bob@example.com",
     "role": "admin"
@@ -139,50 +224,42 @@ curl -X POST http://localhost:9090/control/v1/organizations/111222333/invitation
 ```json
 {
   "invitation": {
-    "id": "444555666",
-    "organization_id": "111222333",
-    "email": "bob@example.com",
+    "slug": 444555666,
+    "organization": 111222333,
+    "inviter": 123456789,
+    "invitee_email": "bob@example.com",
     "role": "admin",
-    "token": "inv_xyz789abc",
+    "status": "pending",
+    "created_at": "2025-01-15T11:00:00Z",
     "expires_at": "2025-01-22T11:00:00Z",
-    "created_at": "2025-01-15T11:00:00Z"
+    "token": "inv_xyz789abc"
   }
 }
 ```
 
-### Accept Invitation (as Bob)
+### Accept Invitation
 
 ```bash
-# Bob registers/logs in first
-curl -X POST http://localhost:9090/control/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -c bob_cookies.txt \
-  -d '{
-    "email": "bob@example.com",
-    "password": "BobSecure456!",
-    "name": "Bob Jones"
-  }'
+curl -X POST http://localhost:9090/control/v1/users/me/invitations/444555666/accept \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..."
+```
 
-# Bob accepts invitation
-curl -X POST http://localhost:9090/control/v1/organizations/invitations/accept \
-  -H "Content-Type: application/json" \
-  -b bob_cookies.txt \
-  -d '{
-    "token": "inv_xyz789abc"
-  }'
+### Decline Invitation
+
+```bash
+curl -X POST http://localhost:9090/control/v1/users/me/invitations/444555666/decline \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..."
 ```
 
 ## Vault Management
 
 ### Create a Vault
 
+Vaults are Ledger-managed Raft clusters. Creation takes no request body.
+
 ```bash
 curl -X POST http://localhost:9090/control/v1/organizations/111222333/vaults \
-  -H "Content-Type: application/json" \
-  -b cookies.txt \
-  -d '{
-    "name": "Production Policies"
-  }'
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..."
 ```
 
 **Response:**
@@ -190,39 +267,10 @@ curl -X POST http://localhost:9090/control/v1/organizations/111222333/vaults \
 ```json
 {
   "vault": {
-    "id": "777888999",
-    "organization_id": "111222333",
-    "name": "Production Policies",
-    "sync_status": "synced",
-    "created_at": "2025-01-15T11:30:00Z",
-    "updated_at": "2025-01-15T11:30:00Z"
-  }
-}
-```
-
-### Grant User Access to Vault
-
-```bash
-curl -X POST http://localhost:9090/control/v1/organizations/111222333/vaults/777888999/user-grants \
-  -H "Content-Type: application/json" \
-  -b cookies.txt \
-  -d '{
-    "user_id": "555666777",
-    "role": "WRITER"
-  }'
-```
-
-**Response:**
-
-```json
-{
-  "grant": {
-    "id": "888999000",
-    "vault_id": "777888999",
-    "user_id": "555666777",
-    "role": "WRITER",
-    "granted_by_user_id": "123456789",
-    "created_at": "2025-01-15T11:35:00Z"
+    "organization": 111222333,
+    "slug": 777888999,
+    "height": 0,
+    "status": "active"
   }
 }
 ```
@@ -230,9 +278,8 @@ curl -X POST http://localhost:9090/control/v1/organizations/111222333/vaults/777
 ### List Vaults
 
 ```bash
-curl -X GET "http://localhost:9090/control/v1/organizations/111222333/vaults?limit=10&offset=0" \
-  -H "Content-Type: application/json" \
-  -b cookies.txt
+curl -X GET "http://localhost:9090/control/v1/organizations/111222333/vaults?page_size=10" \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..."
 ```
 
 **Response:**
@@ -241,33 +288,35 @@ curl -X GET "http://localhost:9090/control/v1/organizations/111222333/vaults?lim
 {
   "vaults": [
     {
-      "id": "777888999",
-      "organization_id": "111222333",
-      "name": "Production Policies",
-      "sync_status": "synced",
-      "created_at": "2025-01-15T11:30:00Z",
-      "updated_at": "2025-01-15T11:30:00Z"
+      "organization": 111222333,
+      "slug": 777888999,
+      "height": 42,
+      "status": "active"
     }
-  ],
-  "pagination": {
-    "total": 1,
-    "count": 1,
-    "offset": 0,
-    "limit": 10
-  }
+  ]
 }
 ```
 
-## Client Credentials
+### Get a Vault
 
-### Create a Client (Backend Service)
+```bash
+curl -X GET http://localhost:9090/control/v1/organizations/111222333/vaults/777888999 \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..."
+```
+
+## Client Management
+
+Clients in Control map to "apps" in Ledger.
+
+### Create a Client
 
 ```bash
 curl -X POST http://localhost:9090/control/v1/organizations/111222333/clients \
   -H "Content-Type: application/json" \
-  -b cookies.txt \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..." \
   -d '{
-    "name": "Backend API Service"
+    "name": "Backend API Service",
+    "description": "Production backend service"
   }'
 ```
 
@@ -276,23 +325,42 @@ curl -X POST http://localhost:9090/control/v1/organizations/111222333/clients \
 ```json
 {
   "client": {
-    "id": "123123123",
-    "organization_id": "111222333",
+    "slug": 123123123,
     "name": "Backend API Service",
-    "is_active": true,
+    "description": "Production backend service",
+    "enabled": true,
     "created_at": "2025-01-15T12:00:00Z"
   }
 }
 ```
 
-### Generate Client Certificate
+### Create a Client Certificate
 
 ```bash
 curl -X POST http://localhost:9090/control/v1/organizations/111222333/clients/123123123/certificates \
   -H "Content-Type: application/json" \
-  -b cookies.txt \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..." \
   -d '{
-    "name": "Production Certificate"
+    "name": "Production Certificate",
+    "expires_at": "2026-01-15T00:00:00Z"
+  }'
+```
+
+**Important:** Save the private key from the response securely. It cannot be retrieved again.
+
+## Token Generation
+
+### Generate a Vault Token (User Session)
+
+Requires an authenticated session and an `app` slug to scope the token.
+
+```bash
+curl -X POST http://localhost:9090/control/v1/organizations/111222333/vaults/777888999/tokens \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..." \
+  -d '{
+    "app": 123123123,
+    "scopes": ["vault:read", "vault:write"]
   }'
 ```
 
@@ -300,49 +368,17 @@ curl -X POST http://localhost:9090/control/v1/organizations/111222333/clients/12
 
 ```json
 {
-  "certificate": {
-    "id": "456456456",
-    "client_id": "123123123",
-    "organization_id": "111222333",
-    "kid": "cert_prod_20250115",
-    "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA...\n-----END PUBLIC KEY-----",
-    "name": "Production Certificate",
-    "is_active": true,
-    "last_used_at": null,
-    "created_at": "2025-01-15T12:05:00Z"
-  },
-  "private_key_pem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIE...\n-----END PRIVATE KEY-----"
-}
-```
-
-**⚠️ IMPORTANT:** Save the `private_key_pem` securely. It cannot be retrieved again.
-
-## Token Generation
-
-### Generate Vault Token (User Session)
-
-```bash
-curl -X POST http://localhost:9090/control/v1/organizations/111222333/vaults/777888999/tokens \
-  -H "Content-Type: application/json" \
-  -b cookies.txt
-```
-
-**Response:**
-
-```json
-{
-  "access_token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImNlcnRfcHJvZF8yMDI1MDExNSJ9...",
+  "access_token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
   "refresh_token": "rt_abc123def456",
   "token_type": "Bearer",
-  "expires_in": 3600,
-  "scope": "inferadb.check inferadb.write inferadb.read"
+  "expires_in": 3600
 }
 ```
 
-### Refresh Access Token
+### Refresh a Vault Token
 
 ```bash
-curl -X POST http://localhost:9090/control/v1/organizations/111222333/vaults/777888999/tokens/refresh \
+curl -X POST http://localhost:9090/control/v1/tokens/refresh \
   -H "Content-Type: application/json" \
   -d '{
     "refresh_token": "rt_abc123def456"
@@ -353,11 +389,38 @@ curl -X POST http://localhost:9090/control/v1/organizations/111222333/vaults/777
 
 ```json
 {
-  "access_token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImNlcnRfcHJvZF8yMDI1MDExNSJ9...",
+  "access_token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
   "refresh_token": "rt_xyz789ghi012",
   "token_type": "Bearer",
-  "expires_in": 3600,
-  "scope": "inferadb.check inferadb.write inferadb.read"
+  "expires_in": 3600
+}
+```
+
+### Client Assertion Authentication (Machine-to-Machine)
+
+For machine clients using Ed25519 certificate authentication (OAuth 2.0 JWT Bearer, RFC 7523):
+
+```bash
+curl -X POST http://localhost:9090/control/v1/token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "grant_type": "client_credentials",
+    "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    "client_assertion": "eyJhbGciOiJFZERTQSIs...",
+    "organization": 111222333,
+    "vault": "777888999",
+    "scopes": ["vault:read", "vault:write"]
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "access_token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "rt_machine123...",
+  "token_type": "Bearer",
+  "expires_in": 3600
 }
 ```
 
@@ -366,7 +429,7 @@ curl -X POST http://localhost:9090/control/v1/organizations/111222333/vaults/777
 ```bash
 curl -X POST http://localhost:8080/v1/evaluate \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImNlcnRfcHJvZF8yMDI1MDExNSJ9..." \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9..." \
   -d '{
     "subject": {
       "type": "user",
@@ -387,23 +450,10 @@ curl -X POST http://localhost:8080/v1/evaluate \
 ```bash
 curl -X POST http://localhost:9090/control/v1/organizations/111222333/teams \
   -H "Content-Type: application/json" \
-  -b cookies.txt \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..." \
   -d '{
     "name": "Engineering"
   }'
-```
-
-**Response:**
-
-```json
-{
-  "team": {
-    "id": "321321321",
-    "organization_id": "111222333",
-    "name": "Engineering",
-    "created_at": "2025-01-15T13:00:00Z"
-  }
-}
 ```
 
 ### Add Member to Team
@@ -411,173 +461,24 @@ curl -X POST http://localhost:9090/control/v1/organizations/111222333/teams \
 ```bash
 curl -X POST http://localhost:9090/control/v1/organizations/111222333/teams/321321321/members \
   -H "Content-Type: application/json" \
-  -b cookies.txt \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..." \
   -d '{
-    "user_id": "555666777",
-    "is_manager": false
+    "user": 555666777,
+    "role": "member"
   }'
 ```
 
-**Response:**
+The `role` field accepts `"manager"` or `"member"` (default).
 
-```json
-{
-  "member": {
-    "id": "654654654",
-    "team_id": "321321321",
-    "user_id": "555666777",
-    "is_manager": false,
-    "created_at": "2025-01-15T13:05:00Z"
-  }
-}
-```
-
-### Grant Team Access to Vault
+### Update Team Member Role
 
 ```bash
-curl -X POST http://localhost:9090/control/v1/organizations/111222333/vaults/777888999/team-grants \
+curl -X PATCH http://localhost:9090/control/v1/organizations/111222333/teams/321321321/members/555666777 \
   -H "Content-Type: application/json" \
-  -b cookies.txt \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSIs..." \
   -d '{
-    "team_id": "321321321",
-    "role": "READER"
+    "role": "manager"
   }'
-```
-
-**Response:**
-
-```json
-{
-  "grant": {
-    "id": "789789789",
-    "vault_id": "777888999",
-    "team_id": "321321321",
-    "role": "READER",
-    "granted_by_user_id": "123456789",
-    "created_at": "2025-01-15T13:10:00Z"
-  }
-}
-```
-
-## Complete Workflow Example
-
-Here's a complete workflow showing user registration through token generation:
-
-### Step 1: Register User
-
-```bash
-# Register Alice
-curl -X POST http://localhost:9090/control/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -c alice_cookies.txt \
-  -d '{
-    "email": "alice@acme.com",
-    "password": "AliceSecure123!",
-    "name": "Alice Johnson"
-  }' | jq .
-
-# Extract organization ID from response: "987654321"
-```
-
-### Step 2: Create Production Vault
-
-```bash
-curl -X POST http://localhost:9090/control/v1/organizations/987654321/vaults \
-  -H "Content-Type: application/json" \
-  -b alice_cookies.txt \
-  -d '{
-    "name": "Production Authorization Policies"
-  }' | jq .
-
-# Extract vault ID from response: "555555555"
-```
-
-### Step 3: Create Backend Client
-
-```bash
-curl -X POST http://localhost:9090/control/v1/organizations/987654321/clients \
-  -H "Content-Type: application/json" \
-  -b alice_cookies.txt \
-  -d '{
-    "name": "API Gateway"
-  }' | jq .
-
-# Extract client ID from response: "666666666"
-```
-
-### Step 4: Generate Client Certificate
-
-```bash
-curl -X POST http://localhost:9090/control/v1/organizations/987654321/clients/666666666/certificates \
-  -H "Content-Type: application/json" \
-  -b alice_cookies.txt \
-  -d '{
-    "name": "Production Cert 2025"
-  }' | jq .
-
-# IMPORTANT: Save private_key_pem from response to a secure location
-# cat > api_gateway_private_key.pem <<EOF
-# -----BEGIN PRIVATE KEY-----
-# MC4CAQAwBQYDK2VwBCIEIE...
-# -----END PRIVATE KEY-----
-# EOF
-```
-
-### Step 5: Grant Client Access to Vault
-
-The client automatically has access to vaults in its organization. To explicitly grant:
-
-```bash
-curl -X POST http://localhost:9090/control/v1/organizations/987654321/vaults/555555555/team-grants \
-  -H "Content-Type: application/json" \
-  -b alice_cookies.txt \
-  -d '{
-    "team_id": "default_team_id",
-    "role": "ADMIN"
-  }' | jq .
-```
-
-### Step 6: Generate Vault Token (as Alice)
-
-```bash
-curl -X POST http://localhost:9090/control/v1/organizations/987654321/vaults/555555555/tokens \
-  -H "Content-Type: application/json" \
-  -b alice_cookies.txt \
-  -o token_response.json
-
-# Extract access_token
-cat token_response.json | jq -r '.access_token' > access_token.txt
-```
-
-### Step 7: Use Token with InferaDB Engine
-
-```bash
-curl -X POST http://localhost:8080/v1/evaluate \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $(cat access_token.txt)" \
-  -d '{
-    "subject": {
-      "type": "user",
-      "id": "user_alice"
-    },
-    "action": "read",
-    "resource": {
-      "type": "document",
-      "id": "doc_confidential_123"
-    }
-  }' | jq .
-```
-
-## Environment Variables for Scripts
-
-```bash
-# Save these in .env file
-export MGMT_API_URL="http://localhost:9090"      # InferaDB Control (public REST)
-export SERVER_API_URL="http://localhost:8080"    # InferaDB Engine (public REST)
-export ADMIN_EMAIL="alice@acme.com"
-export ADMIN_PASSWORD="AliceSecure123!"
-export ORG_ID="987654321"
-export VAULT_ID="555555555"
 ```
 
 ## Error Handling Examples
@@ -585,21 +486,16 @@ export VAULT_ID="555555555"
 ### Handling Authentication Errors
 
 ```bash
-# Attempt login with wrong password
-response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:9090/control/v1/auth/login/password \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "alice@acme.com",
-    "password": "WrongPassword"
-  }')
+# Attempt to access a protected endpoint without a token
+response=$(curl -s -w "\n%{http_code}" -X GET http://localhost:9090/control/v1/organizations)
 
 http_code=$(echo "$response" | tail -n1)
 body=$(echo "$response" | sed '$d')
 
 if [ "$http_code" -eq 401 ]; then
-  echo "Authentication failed: $body"
+  echo "Authentication required: $body"
 elif [ "$http_code" -eq 200 ]; then
-  echo "Login successful"
+  echo "Success"
   echo "$body" | jq .
 fi
 ```
@@ -607,91 +503,26 @@ fi
 ### Handling Rate Limiting
 
 ```bash
-# Check for rate limit response
-response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:9090/control/v1/auth/login/password \
+# Auth endpoints are rate-limited (100/hour per IP)
+response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:9090/control/v1/auth/email/initiate \
   -H "Content-Type: application/json" \
-  -d '{"email": "test@test.com", "password": "test"}')
+  -d '{"email": "test@test.com"}')
 
 http_code=$(echo "$response" | tail -n1)
 
 if [ "$http_code" -eq 429 ]; then
-  retry_after=$(echo "$response" | grep -i "retry-after" | cut -d: -f2 | tr -d ' \r')
-  echo "Rate limited. Retry after $retry_after seconds"
-  sleep "$retry_after"
-  # Retry request...
+  echo "Rate limited. Wait before retrying."
 fi
 ```
 
-## Python SDK Example
+## Environment Variables for Scripts
 
-> **Note**: This is conceptual example code to guide integration. InferaDB does not currently provide
-> an official Python SDK. For production use, we recommend using the REST API directly with your
-> preferred HTTP client library.
-
-```python
-import requests
-from typing import Dict, Optional
-
-class InferaManagementClient:
-    def __init__(self, base_url: str = "http://localhost:9090"):
-        self.base_url = base_url
-        self.session = requests.Session()
-
-    def register(self, email: str, password: str, name: str) -> Dict:
-        """Register a new user"""
-        response = self.session.post(
-            f"{self.base_url}/control/v1/auth/register",
-            json={"email": email, "password": password, "name": name}
-        )
-        response.raise_for_status()
-        return response.json()
-
-    def login(self, email: str, password: str) -> Dict:
-        """Login and get session cookie"""
-        response = self.session.post(
-            f"{self.base_url}/control/v1/auth/login/password",
-            json={"email": email, "password": password}
-        )
-        response.raise_for_status()
-        return response.json()
-
-    def create_vault(self, org_id: str, name: str) -> Dict:
-        """Create a new vault"""
-        response = self.session.post(
-            f"{self.base_url}/control/v1/organizations/{org_id}/vaults",
-            json={"name": name}
-        )
-        response.raise_for_status()
-        return response.json()
-
-    def generate_token(self, org_id: str, vault_id: str) -> Dict:
-        """Generate vault access token"""
-        response = self.session.post(
-            f"{self.base_url}/control/v1/organizations/{org_id}/vaults/{vault_id}/tokens"
-        )
-        response.raise_for_status()
-        return response.json()
-
-# Usage
-client = InferaManagementClient()
-
-# Register and login
-user_data = client.register(
-    email="alice@acme.com",
-    password="SecurePass123!",
-    name="Alice"
-)
-org_id = user_data["organization"]["id"]
-
-# Create vault
-vault_data = client.create_vault(org_id, "Production Policies")
-vault_id = vault_data["vault"]["id"]
-
-# Generate token
-token_data = client.generate_token(vault_id)
-access_token = token_data["access_token"]
-
-print(f"Access Token: {access_token}")
+```bash
+export CONTROL_API_URL="http://localhost:9090"
+export ENGINE_API_URL="http://localhost:8080"
+export ORG_SLUG="111222333"
+export VAULT_SLUG="777888999"
+export APP_SLUG="123123123"
 ```
 
 ## Further Reading

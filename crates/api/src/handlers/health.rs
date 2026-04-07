@@ -157,6 +157,7 @@ mod tests {
     #[tokio::test]
     async fn test_livez_handler_returns_200() {
         let response = livez_handler().await.into_response();
+
         assert_eq!(response.status(), StatusCode::OK);
     }
 
@@ -165,7 +166,9 @@ mod tests {
     #[tokio::test]
     async fn test_readyz_handler_no_ledger_returns_200() {
         let state = crate::handlers::AppState::new_test();
+
         let response = readyz_handler(State(state)).await.into_response();
+
         assert_eq!(response.status(), StatusCode::OK);
     }
 
@@ -174,23 +177,21 @@ mod tests {
     #[tokio::test]
     async fn test_startupz_handler_no_ledger_returns_200() {
         let state = crate::handlers::AppState::new_test();
+
         let response = startupz_handler(State(state)).await.into_response();
+
         assert_eq!(response.status(), StatusCode::OK);
     }
 
     // ── healthz_handler ────────────────────────────────────────────
 
     #[tokio::test]
-    async fn test_healthz_handler_no_ledger_returns_200() {
+    async fn test_healthz_handler_no_ledger_returns_healthy_json() {
         let state = crate::handlers::AppState::new_test();
-        let response = healthz_handler(State(state)).await.into_response();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
 
-    #[tokio::test]
-    async fn test_healthz_handler_no_ledger_response_is_healthy() {
-        let state = crate::handlers::AppState::new_test();
         let response = healthz_handler(State(state)).await.into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
         let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["status"], "healthy");
@@ -201,21 +202,19 @@ mod tests {
     // ── HealthCache ──────────────────────────────────────────────
 
     #[test]
-    fn test_health_cache_default_epoch_is_zero() {
+    fn test_health_cache_default_initializes_to_unchecked_state() {
         let cache = HealthCache::default();
-        assert_eq!(cache.last_check_epoch_secs.load(Ordering::Relaxed), 0);
-    }
 
-    #[test]
-    fn test_health_cache_default_result_is_false() {
-        let cache = HealthCache::default();
+        assert_eq!(cache.last_check_epoch_secs.load(Ordering::Relaxed), 0);
         assert!(!cache.last_result.load(Ordering::Relaxed));
     }
 
     #[test]
     fn test_health_cache_debug_contains_field_names() {
         let cache = HealthCache::default();
+
         let debug = format!("{cache:?}");
+
         assert!(debug.contains("HealthCache"));
         assert!(debug.contains("last_check_epoch_secs"));
         assert!(debug.contains("last_result"));
@@ -226,14 +225,18 @@ mod tests {
     #[tokio::test]
     async fn test_check_ledger_health_no_ledger_returns_true() {
         let state = crate::handlers::AppState::new_test();
+
         let result = check_ledger_health(&state).await;
+
         assert!(result);
     }
 
     #[tokio::test]
     async fn test_check_ledger_health_no_ledger_skips_cache() {
         let state = crate::handlers::AppState::new_test();
+
         check_ledger_health(&state).await;
+
         let cached_epoch = state.health_cache.last_check_epoch_secs.load(Ordering::Acquire);
         assert_eq!(cached_epoch, 0);
     }
@@ -241,47 +244,43 @@ mod tests {
     #[tokio::test]
     async fn test_check_ledger_health_no_ledger_stable_across_calls() {
         let state = crate::handlers::AppState::new_test();
+
         let result1 = check_ledger_health(&state).await;
         let result2 = check_ledger_health(&state).await;
+
         assert_eq!(result1, result2);
     }
 
     // ── HealthStatus serialization ───────────────────────────────
 
     #[test]
-    fn test_health_status_healthy_serializes_lowercase() {
-        let json = serde_json::to_value(HealthStatus::Healthy).unwrap();
-        assert_eq!(json, "healthy");
+    fn test_health_status_serializes_to_lowercase() {
+        let cases = [
+            (HealthStatus::Healthy, "healthy"),
+            (HealthStatus::Degraded, "degraded"),
+            (HealthStatus::Unhealthy, "unhealthy"),
+        ];
+
+        for (variant, expected) in cases {
+            let json = serde_json::to_value(&variant).unwrap();
+            assert_eq!(json, expected, "serialize {expected}");
+        }
     }
 
     #[test]
-    fn test_health_status_degraded_serializes_lowercase() {
-        let json = serde_json::to_value(HealthStatus::Degraded).unwrap();
-        assert_eq!(json, "degraded");
-    }
+    fn test_health_status_deserializes_from_lowercase() {
+        let cases = [
+            (r#""healthy""#, "Healthy"),
+            (r#""degraded""#, "Degraded"),
+            (r#""unhealthy""#, "Unhealthy"),
+        ];
 
-    #[test]
-    fn test_health_status_unhealthy_serializes_lowercase() {
-        let json = serde_json::to_value(HealthStatus::Unhealthy).unwrap();
-        assert_eq!(json, "unhealthy");
-    }
-
-    #[test]
-    fn test_health_status_healthy_deserializes() {
-        let status: HealthStatus = serde_json::from_str(r#""healthy""#).unwrap();
-        assert!(matches!(status, HealthStatus::Healthy));
-    }
-
-    #[test]
-    fn test_health_status_degraded_deserializes() {
-        let status: HealthStatus = serde_json::from_str(r#""degraded""#).unwrap();
-        assert!(matches!(status, HealthStatus::Degraded));
-    }
-
-    #[test]
-    fn test_health_status_unhealthy_deserializes() {
-        let status: HealthStatus = serde_json::from_str(r#""unhealthy""#).unwrap();
-        assert!(matches!(status, HealthStatus::Unhealthy));
+        for (json_str, label) in cases {
+            let status: HealthStatus = serde_json::from_str(json_str).unwrap();
+            // Verify round-trip: serialize back and compare
+            let reserialized = serde_json::to_value(&status).unwrap();
+            assert_eq!(reserialized, json_str.trim_matches('"'), "deserialize {label}");
+        }
     }
 
     // ── HealthResponse serialization ─────────────────────────────
@@ -297,7 +296,9 @@ mod tests {
             ledger_healthy: true,
             details: None,
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert!(json.get("details").is_none());
     }
 
@@ -312,7 +313,9 @@ mod tests {
             ledger_healthy: false,
             details: Some("connection refused".to_string()),
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["details"], "connection refused");
     }
 
@@ -327,7 +330,9 @@ mod tests {
             ledger_healthy: true,
             details: None,
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["status"], "healthy");
         assert_eq!(json["service"], "inferadb-control");
         assert_eq!(json["version"], "1.2.3");

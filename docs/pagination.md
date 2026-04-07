@@ -1,19 +1,19 @@
 # Pagination
 
-All list endpoints in InferaDB Control support offset-based pagination for efficient data retrieval.
+All list endpoints in InferaDB Control support cursor-based pagination for efficient data retrieval.
 
 ## Overview
 
-Pagination allows clients to retrieve large result sets in manageable chunks, reducing memory usage and network overhead. The API uses **offset-based pagination** with `limit` and `offset` query parameters.
+Pagination allows clients to retrieve large result sets in manageable chunks, reducing memory usage and network overhead. The API uses **cursor-based pagination** with `page_size` and `page_token` query parameters.
 
 ## Query Parameters
 
 All list endpoints accept these optional query parameters:
 
-| Parameter | Type    | Default | Range | Description                                      |
-| --------- | ------- | ------- | ----- | ------------------------------------------------ |
-| `limit`   | integer | 50      | 1-100 | Number of items to return per page               |
-| `offset`  | integer | 0       | 0+    | Number of items to skip before returning results |
+| Parameter    | Type    | Default | Range | Description                                           |
+| ------------ | ------- | ------- | ----- | ----------------------------------------------------- |
+| `page_size`  | integer | 50      | 1-100 | Number of items to return per page                    |
+| `page_token` | string  | --      | --    | Opaque cursor for the next page (from previous response) |
 
 ### Examples
 
@@ -22,102 +22,54 @@ All list endpoints accept these optional query parameters:
 GET /control/v1/organizations/{org}/vaults
 
 # Get 25 items per page
-GET /control/v1/organizations/{org}/vaults?limit=25
+GET /control/v1/organizations/{org}/vaults?page_size=25
 
-# Get second page (skip first 50 items)
-GET /control/v1/organizations/{org}/vaults?limit=50&offset=50
-
-# Get third page with 25 items per page
-GET /control/v1/organizations/{org}/vaults?limit=25&offset=50
+# Get next page using token from previous response
+GET /control/v1/organizations/{org}/vaults?page_token={next_page_token}
 ```
+
+## How Cursor-Based Pagination Works
+
+1. Make an initial request with `page_size` (and optional filters)
+2. The response includes a `next_page_token` if more pages exist
+3. Pass `next_page_token` as `page_token` in the next request
+4. When `next_page_token` is absent or null, you have reached the last page
+
+The page token is an opaque base64-encoded cursor. Do not construct or modify page tokens manually.
 
 ## Response Format
 
-All paginated responses include a `pagination` metadata object:
+Response format varies by endpoint. For audit logs, the response uses:
 
 ```json
 {
-  "data": [
-    { "id": 1, "name": "Vault 1" },
-    { "id": 2, "name": "Vault 2" }
+  "entries": [
+    { "event_id": "...", "event_type": "..." }
   ],
-  "pagination": {
-    "total": 150,
-    "count": 2,
-    "offset": 0,
-    "limit": 50,
-    "has_more": true
-  }
+  "next_page_token": "eyJjdXJzb3IiOiAiMTIzNDU2Nzg5MCJ9",
+  "total_estimate": 150
 }
 ```
 
-### Pagination Metadata Fields
+Other endpoints may use different field names for the data array. Check the OpenAPI specification for each endpoint's response schema.
 
-| Field      | Type     | Description                                            |
-| ---------- | -------- | ------------------------------------------------------ |
-| `total`    | integer? | Total number of items (may be omitted for performance) |
-| `count`    | integer  | Number of items in current page                        |
-| `offset`   | integer  | Current offset value                                   |
-| `limit`    | integer  | Current limit value                                    |
-| `has_more` | boolean  | Whether more items are available                       |
+### Pagination Fields
 
-## Pagination Modes
-
-The API supports two pagination modes:
-
-### 1. Count-Based Pagination (Default)
-
-When `total` is present in the response, the server knows the exact total count:
-
-```json
-{
-  "pagination": {
-    "total": 150,
-    "count": 50,
-    "offset": 0,
-    "limit": 50,
-    "has_more": true
-  }
-}
-```
-
-**Use case**: Small to medium datasets where counting is inexpensive.
-
-### 2. Streaming Pagination
-
-When `total` is omitted, the server doesn't compute the total count for performance:
-
-```json
-{
-  "pagination": {
-    "count": 50,
-    "offset": 0,
-    "limit": 50,
-    "has_more": true
-  }
-}
-```
-
-**Use case**: Large datasets where counting would be expensive (e.g., audit logs).
-
-The `has_more` field indicates whether additional pages exist:
-
-- `true`: More items are available (current page returned exactly `limit` items)
-- `false`: This is the last page (current page returned fewer than `limit` items)
+| Field             | Type     | Description                                                  |
+| ----------------- | -------- | ------------------------------------------------------------ |
+| `next_page_token` | string?  | Opaque cursor for the next page (null/absent = last page)    |
+| `total_estimate`  | integer? | Approximate total count (may be omitted for performance)     |
 
 ## Best Practices
 
 ### 1. Use Appropriate Page Sizes
 
 ```bash
-# Too small: excessive requests
-GET /control/v1/organizations/{org}/vaults?limit=5
-
 # Good: balanced performance
-GET /control/v1/organizations/{org}/vaults?limit=50
+GET /control/v1/organizations/{org}/vaults?page_size=50
 
 # Large batch: fewer requests, higher memory
-GET /control/v1/organizations/{org}/vaults?limit=100
+GET /control/v1/organizations/{org}/vaults?page_size=100
 ```
 
 **Recommendations**:
@@ -131,23 +83,26 @@ GET /control/v1/organizations/{org}/vaults?limit=100
 ```typescript
 async function fetchAllVaults(orgId: string): Promise<Vault[]> {
   const allVaults: Vault[] = [];
-  let offset = 0;
-  const limit = 100;
+  let pageToken: string | undefined;
 
   while (true) {
+    const params = new URLSearchParams({ page_size: "100" });
+    if (pageToken) {
+      params.set("page_token", pageToken);
+    }
+
     const response = await fetch(
-      `/control/v1/organizations/${orgId}/vaults?limit=${limit}&offset=${offset}`,
+      `/control/v1/organizations/${orgId}/vaults?${params}`,
     );
-    const { data, pagination } = await response.json();
+    const result = await response.json();
 
-    allVaults.push(...data);
+    allVaults.push(...result.entries);
 
-    // Check if there are more pages
-    if (!pagination.has_more) {
+    if (!result.next_page_token) {
       break;
     }
 
-    offset += limit;
+    pageToken = result.next_page_token;
   }
 
   return allVaults;
@@ -157,54 +112,40 @@ async function fetchAllVaults(orgId: string): Promise<Vault[]> {
 ### 3. Handle Edge Cases
 
 ```typescript
-function handlePaginatedResponse(response: PaginatedResponse) {
+function handlePaginatedResponse(response: any) {
   // Empty result set
-  if (response.data.length === 0) {
+  if (response.entries.length === 0) {
     console.log("No results found");
     return;
   }
 
-  // Last page (partial results)
-  if (response.pagination.count < response.pagination.limit) {
-    console.log("Last page");
-  }
-
   // More pages available
-  if (response.pagination.has_more) {
-    const nextOffset = response.pagination.offset + response.pagination.limit;
-    fetchNextPage(nextOffset);
+  if (response.next_page_token) {
+    fetchNextPage(response.next_page_token);
   }
 }
 ```
 
-### 4. Avoid Large Offsets
+## Page Size Clamping
 
-⚠️ **Performance Warning**: Large offset values can be inefficient in some storage backends.
+The `page_size` parameter is clamped to the range 1-100 by the server:
 
-```bash
-# Inefficient for large datasets
-GET /control/v1/organizations/{org}/audit-logs?limit=50&offset=100000
-```
-
-For large datasets, consider:
-
-- Using filters to reduce the result set
-- Implementing cursor-based pagination (future enhancement)
-- Exporting data in batches during off-peak hours
+- Values below 1 are clamped to 1
+- Values above 100 are clamped to 100
+- If omitted, defaults to 50
 
 ## Endpoints Supporting Pagination
 
-All list endpoints support pagination:
+All list endpoints support cursor-based pagination:
 
-| Endpoint                                         | Default Limit | Notes                       |
-| ------------------------------------------------ | ------------- | --------------------------- |
-| `GET /control/v1/organizations`                  | 50            | User's organizations        |
-| `GET /control/v1/organizations/{org}/vaults`     | 50            | Organization vaults         |
-| `GET /control/v1/organizations/{org}/teams`      | 50            | Organization teams          |
-| `GET /control/v1/organizations/{org}/clients`    | 50            | OAuth clients               |
-| `GET /control/v1/organizations/{org}/sessions`   | 50            | User sessions               |
-| `GET /control/v1/organizations/{org}/audit-logs` | 50            | Audit logs (streaming mode) |
-| `GET /control/v1/teams/{team}/members`           | 50            | Team members                |
+| Endpoint                                             | Default Page Size | Notes                |
+| ---------------------------------------------------- | ----------------- | -------------------- |
+| `GET /control/v1/organizations`                      | 50                | User's organizations |
+| `GET /control/v1/organizations/{org}/vaults`         | 50                | Organization vaults  |
+| `GET /control/v1/organizations/{org}/teams`          | 50                | Organization teams   |
+| `GET /control/v1/organizations/{org}/clients`        | 50                | OAuth clients        |
+| `GET /control/v1/organizations/{org}/audit-logs`     | 50                | Audit logs           |
+| `GET /control/v1/organizations/{org}/teams/{team}/members` | 50          | Team members         |
 
 ## Examples
 
@@ -214,25 +155,28 @@ All list endpoints support pagination:
 import requests
 
 def get_all_vaults(org_id: str, api_url: str) -> list:
-    """Fetch all vaults for an organization with pagination."""
+    """Fetch all vaults for an organization with cursor-based pagination."""
     vaults = []
-    offset = 0
-    limit = 100
+    page_token = None
 
     while True:
+        params = {"page_size": 100}
+        if page_token:
+            params["page_token"] = page_token
+
         response = requests.get(
             f"{api_url}/control/v1/organizations/{org_id}/vaults",
-            params={"limit": limit, "offset": offset}
+            params=params
         )
         response.raise_for_status()
         data = response.json()
 
-        vaults.extend(data["data"])
+        vaults.extend(data["entries"])
 
-        if not data["pagination"]["has_more"]:
+        if not data.get("next_page_token"):
             break
 
-        offset += limit
+        page_token = data["next_page_token"]
 
     return vaults
 ```
@@ -240,36 +184,30 @@ def get_all_vaults(org_id: str, api_url: str) -> list:
 ### TypeScript
 
 ```typescript
-interface PaginatedResponse<T> {
-  data: T[];
-  pagination: {
-    total?: number;
-    count: number;
-    offset: number;
-    limit: number;
-    has_more: boolean;
-  };
-}
-
 async function* fetchVaultsPaginated(
   orgId: string,
   pageSize: number = 50,
 ): AsyncGenerator<Vault[]> {
-  let offset = 0;
+  let pageToken: string | undefined;
 
   while (true) {
+    const params = new URLSearchParams({ page_size: String(pageSize) });
+    if (pageToken) {
+      params.set("page_token", pageToken);
+    }
+
     const response = await fetch(
-      `/control/v1/organizations/${orgId}/vaults?limit=${pageSize}&offset=${offset}`,
+      `/control/v1/organizations/${orgId}/vaults?${params}`,
     );
-    const page: PaginatedResponse<Vault> = await response.json();
+    const page = await response.json();
 
-    yield page.data;
+    yield page.entries;
 
-    if (!page.pagination.has_more) {
+    if (!page.next_page_token) {
       break;
     }
 
-    offset += pageSize;
+    pageToken = page.next_page_token;
   }
 }
 
@@ -284,28 +222,23 @@ for await (const vaults of fetchVaultsPaginated("org-123")) {
 
 ```go
 type PaginatedResponse[T any] struct {
-    Data       []T        `json:"data"`
-    Pagination Pagination `json:"pagination"`
-}
-
-type Pagination struct {
-    Total   *int `json:"total,omitempty"`
-    Count   int  `json:"count"`
-    Offset  int  `json:"offset"`
-    Limit   int  `json:"limit"`
-    HasMore bool `json:"has_more"`
+    Entries       []T     `json:"entries"`
+    NextPageToken *string `json:"next_page_token,omitempty"`
+    TotalEstimate *int    `json:"total_estimate,omitempty"`
 }
 
 func FetchAllVaults(orgID string) ([]Vault, error) {
     var allVaults []Vault
-    offset := 0
-    limit := 100
+    var pageToken string
 
     for {
         url := fmt.Sprintf(
-            "/control/v1/organizations/%s/vaults?limit=%d&offset=%d",
-            orgID, limit, offset,
+            "/control/v1/organizations/%s/vaults?page_size=100",
+            orgID,
         )
+        if pageToken != "" {
+            url += "&page_token=" + pageToken
+        }
 
         resp, err := http.Get(url)
         if err != nil {
@@ -318,13 +251,13 @@ func FetchAllVaults(orgID string) ([]Vault, error) {
             return nil, err
         }
 
-        allVaults = append(allVaults, page.Data...)
+        allVaults = append(allVaults, page.Entries...)
 
-        if !page.Pagination.HasMore {
+        if page.NextPageToken == nil {
             break
         }
 
-        offset += limit
+        pageToken = *page.NextPageToken
     }
 
     return allVaults, nil
@@ -333,36 +266,17 @@ func FetchAllVaults(orgID string) ([]Vault, error) {
 
 ## Troubleshooting
 
-### Issue: `has_more` is always `true`
+### Issue: Invalid page token
 
-**Cause**: Your offset and limit don't align properly, or you're not checking the correct field.
+**Cause**: The page token is malformed, expired, or from a different query.
 
-**Solution**: Always check `pagination.has_more` instead of comparing offsets manually.
+**Solution**: Page tokens are opaque and should only be used from the response that generated them. Start a new query from the beginning if a token fails.
 
 ### Issue: Duplicate items across pages
 
 **Cause**: Data modified between requests (items added/deleted).
 
-**Solution**: Use filters or sorting to maintain consistency, or consider implementing snapshot isolation for critical operations.
-
-### Issue: Performance degradation with large offsets
-
-**Cause**: Database scans entire offset range on each request.
-
-**Solution**:
-
-- Add filters to reduce result set
-- Use smaller page sizes for UI
-- Consider cursor-based pagination for very large datasets
-
-## Future Enhancements
-
-Planned improvements to pagination:
-
-- **Cursor-based pagination**: For more efficient large dataset traversal
-- **Stable pagination**: Snapshot isolation to prevent duplicates during data modifications
-- **Sorting parameters**: `sort_by` and `sort_order` query parameters
-- **Field filtering**: Select specific fields to reduce payload size
+**Solution**: Use filters to maintain consistency. Cursor-based pagination is more resilient to concurrent modifications than offset-based pagination.
 
 ## See Also
 

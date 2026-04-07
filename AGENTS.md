@@ -16,17 +16,19 @@ just ci  # all checks
 ## Architecture
 
 ```
-inferadb-control (bin) → api → core → storage → inferadb-common-storage → Ledger
+inferadb-control (bin) → api → core → Ledger SDK
 ```
 
-| Crate     | Purpose                              |
-| --------- | ------------------------------------ |
-| `control` | Binary entrypoint                    |
-| `api`     | HTTP/gRPC handlers, middleware       |
-| `core`    | Auth, crypto, JWT, repos, entities   |
-| `config`  | CLI configuration (clap::Parser)     |
-| `storage` | Storage factory, backend abstraction |
-| `types`   | `Error` enum, `Result` alias         |
+| Crate             | Purpose                              |
+| ----------------- | ------------------------------------ |
+| `control`         | Binary entrypoint                    |
+| `api`             | HTTP handlers, middleware, routes    |
+| `core`            | Auth, crypto, JWT, email, WebAuthn   |
+| `config`          | CLI configuration (clap::Parser)     |
+| `const`           | Constants (limits, durations, auth)  |
+| `types`           | `Error` enum, `Result` alias         |
+| `test-fixtures`   | Shared test utilities                |
+| `test-integration`| Integration tests                    |
 
 ## Critical Constraints
 
@@ -111,12 +113,14 @@ Activate at session start: `mcp__plugin_serena_serena__activate_project`
 
 ## Key Paths
 
-| Path                          | Contents                |
-| ----------------------------- | ----------------------- |
-| `crates/types/src/error.rs`   | Error enum              |
-| `crates/core/src/repository/` | Repository impls        |
-| `crates/storage/src/`         | Storage traits/backends |
-| `crates/api/src/handlers/`    | API handlers            |
+| Path                          | Contents                 |
+| ----------------------------- | ------------------------ |
+| `crates/types/src/error.rs`   | Error enum               |
+| `crates/core/src/`            | Auth, crypto, JWT, email |
+| `crates/api/src/handlers/`    | API handlers             |
+| `crates/api/src/routes.rs`    | Route definitions        |
+| `crates/config/src/lib.rs`    | CLI configuration        |
+| `crates/const/src/`           | Constants                |
 
 ## Dev
 
@@ -137,26 +141,31 @@ inferadb-control --dev-mode
 
 # Production
 inferadb-control --storage ledger --ledger-endpoint https://ledger:50051 \
-  --ledger-client-id ctrl-01 --ledger-namespace-id 1 --log-format json
+  --ledger-client-id ctrl-01 --ledger-organization 1 --log-format json
 ```
 
-| Variable                                 | Default                 | Notes                        |
-| ---------------------------------------- | ----------------------- | ---------------------------- |
-| `INFERADB__CONTROL__LISTEN`              | `127.0.0.1:9090`        | HTTP bind address            |
-| `INFERADB__CONTROL__LOG_LEVEL`           | `info`                  | tracing filter               |
-| `INFERADB__CONTROL__LOG_FORMAT`          | `auto`                  | auto/json/text               |
-| `INFERADB__CONTROL__PEM`                 | —                       | Ed25519 PEM (auto-gen)       |
-| `INFERADB__CONTROL__KEY_FILE`            | `./data/master.key`     | Master key path              |
-| `INFERADB__CONTROL__STORAGE`             | `ledger`                | memory/ledger                |
-| `INFERADB__CONTROL__LEDGER_ENDPOINT`     | —                       | Required when storage=ledger |
-| `INFERADB__CONTROL__LEDGER_CLIENT_ID`    | —                       | Required when storage=ledger |
-| `INFERADB__CONTROL__LEDGER_NAMESPACE_ID` | —                       | Required when storage=ledger |
-| `INFERADB__CONTROL__LEDGER_VAULT_ID`     | —                       | Optional                     |
-| `INFERADB__CONTROL__EMAIL_HOST`          | `""`                    | Empty = email disabled       |
-| `INFERADB__CONTROL__EMAIL_PORT`          | `587`                   |                              |
-| `INFERADB__CONTROL__EMAIL_USERNAME`      | —                       |                              |
-| `INFERADB__CONTROL__EMAIL_PASSWORD`      | —                       |                              |
-| `INFERADB__CONTROL__EMAIL_FROM_ADDRESS`  | `noreply@inferadb.com`  |                              |
-| `INFERADB__CONTROL__EMAIL_FROM_NAME`     | `InferaDB`              |                              |
-| `INFERADB__CONTROL__EMAIL_INSECURE`      | `false`                 | Skip TLS verification        |
-| `INFERADB__CONTROL__FRONTEND_URL`        | `http://localhost:3000` | Base URL for email links     |
+| Variable                                    | Default                 | Notes                        |
+| ------------------------------------------- | ----------------------- | ---------------------------- |
+| `INFERADB__CONTROL__LISTEN`                 | `127.0.0.1:9090`        | HTTP bind address            |
+| `INFERADB__CONTROL__LOG_LEVEL`              | `info`                  | tracing filter               |
+| `INFERADB__CONTROL__LOG_FORMAT`             | `auto`                  | auto/json/text               |
+| `INFERADB__CONTROL__PEM`                    | —                       | Ed25519 PEM (auto-gen)       |
+| `INFERADB__CONTROL__KEY_FILE`               | `./data/master.key`     | Master key path              |
+| `INFERADB__CONTROL__STORAGE`                | `ledger`                | memory/ledger                |
+| `INFERADB__CONTROL__LEDGER_ENDPOINT`        | —                       | Required when storage=ledger |
+| `INFERADB__CONTROL__LEDGER_CLIENT_ID`       | —                       | Required when storage=ledger |
+| `INFERADB__CONTROL__LEDGER_ORGANIZATION`    | —                       | Required when storage=ledger |
+| `INFERADB__CONTROL__LEDGER_VAULT`           | —                       | Optional                     |
+| `INFERADB__CONTROL__EMAIL_BLINDING_KEY`     | —                       | HMAC-SHA256 key (hex)        |
+| `INFERADB__CONTROL__EMAIL_HOST`             | `""`                    | Empty = email disabled       |
+| `INFERADB__CONTROL__EMAIL_PORT`             | `587`                   |                              |
+| `INFERADB__CONTROL__EMAIL_USERNAME`         | —                       |                              |
+| `INFERADB__CONTROL__EMAIL_PASSWORD`         | —                       |                              |
+| `INFERADB__CONTROL__EMAIL_FROM_ADDRESS`     | `noreply@inferadb.com`  |                              |
+| `INFERADB__CONTROL__EMAIL_FROM_NAME`        | `InferaDB`              |                              |
+| `INFERADB__CONTROL__EMAIL_INSECURE`         | `false`                 | Skip TLS verification        |
+| `INFERADB__CONTROL__FRONTEND_URL`           | `http://localhost:3000` | Base URL for email links     |
+| `INFERADB__CONTROL__WEBAUTHN_RP_ID`         | `localhost`             | WebAuthn Relying Party ID    |
+| `INFERADB__CONTROL__WEBAUTHN_ORIGIN`        | `http://localhost:3000` | WebAuthn origin URL          |
+| `INFERADB__CONTROL__TRUSTED_PROXY_DEPTH`    | —                       | Reverse proxy depth          |
+| `INFERADB__CONTROL__WORKER_ID`              | —                       | Snowflake worker ID (0-1023) |

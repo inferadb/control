@@ -34,7 +34,7 @@ pub async fn security_headers_middleware(request: Request, next: Next) -> Respon
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use axum::{
         Router,
@@ -82,11 +82,7 @@ mod tests {
                 .headers()
                 .get(*header)
                 .unwrap_or_else(|| panic!("missing header: {header}"));
-            assert_eq!(
-                actual.to_str().unwrap(),
-                *value,
-                "header {header} mismatch"
-            );
+            assert_eq!(actual.to_str().unwrap(), *value, "header {header} mismatch");
         }
     }
 
@@ -102,6 +98,7 @@ mod tests {
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
+
         assert_eq!(
             response.headers().get("strict-transport-security").unwrap().to_str().unwrap(),
             "max-age=31536000; includeSubDomains",
@@ -109,19 +106,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_security_headers_do_not_override_status() {
-        // Middleware should not alter the inner handler's status code.
+    async fn test_security_headers_preserved_on_error_status() {
         let app = Router::new()
-            .route(
-                "/err",
-                get(|| async { (StatusCode::NOT_FOUND, "nope") }),
-            )
+            .route("/err", get(|| async { (StatusCode::NOT_FOUND, "nope") }))
             .layer(middleware::from_fn(security_headers_middleware));
-
         let req = Request::builder().uri("/err").body(Body::empty()).unwrap();
+
         let response = app.oneshot(req).await.unwrap();
+
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        // Headers still applied even on error responses
         assert_eq!(response.headers().get("x-frame-options").unwrap(), "DENY");
     }
 }

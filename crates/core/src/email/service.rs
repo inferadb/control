@@ -279,82 +279,40 @@ mod tests {
     // ── SmtpEmailService construction ───────────────────────────
 
     #[test]
-    fn test_smtp_new_username_without_password_returns_error() {
-        let result = SmtpEmailService::new(
-            "smtp.example.com",
-            587,
-            "user",
-            "",
-            "from@example.com".to_string(),
-            "Test".to_string(),
-            false,
-        );
+    fn test_smtp_new_credential_combinations_return_expected() {
+        // (username, password, insecure, expect_ok)
+        let cases: &[(&str, &str, bool, bool)] = &[
+            ("user", "", false, false),     // username without password
+            ("", "password", false, false), // password without username
+            ("", "", false, true),          // no credentials
+            ("user", "pass", false, true),  // both credentials
+            ("", "", true, true),           // insecure mode, no credentials
+        ];
 
-        assert!(result.is_err());
+        for (username, password, insecure, expect_ok) in cases {
+            let host = if *insecure { "localhost" } else { "smtp.example.com" };
+            let port = if *insecure { 1025 } else { 587 };
+
+            let result = SmtpEmailService::new(
+                host,
+                port,
+                username,
+                password,
+                "from@example.com".to_string(),
+                "Sender".to_string(),
+                *insecure,
+            );
+
+            assert_eq!(
+                result.is_ok(),
+                *expect_ok,
+                "SmtpEmailService::new(username={username:?}, password={password:?}, insecure={insecure})"
+            );
+        }
     }
 
     #[test]
-    fn test_smtp_new_password_without_username_returns_error() {
-        let result = SmtpEmailService::new(
-            "smtp.example.com",
-            587,
-            "",
-            "password",
-            "from@example.com".to_string(),
-            "Test".to_string(),
-            false,
-        );
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_smtp_new_no_credentials_succeeds() {
-        let result = SmtpEmailService::new(
-            "smtp.example.com",
-            587,
-            "",
-            "",
-            "from@example.com".to_string(),
-            "Sender".to_string(),
-            false,
-        );
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_smtp_new_both_credentials_succeeds() {
-        let result = SmtpEmailService::new(
-            "smtp.example.com",
-            587,
-            "user",
-            "pass",
-            "from@example.com".to_string(),
-            "Sender".to_string(),
-            false,
-        );
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_smtp_new_insecure_mode_succeeds() {
-        let result = SmtpEmailService::new(
-            "localhost",
-            1025,
-            "",
-            "",
-            "dev@localhost".to_string(),
-            "Dev".to_string(),
-            true,
-        );
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_smtp_get_from_mailbox_valid_address_succeeds() {
+    fn test_smtp_get_from_mailbox_valid_address_returns_ok() {
         let service = SmtpEmailService::new(
             "smtp.example.com",
             587,

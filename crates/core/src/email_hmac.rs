@@ -32,28 +32,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_blinding_key_none_returns_ok_none() {
+    fn test_parse_blinding_key_none_returns_ok_none() {
         let result = parse_blinding_key(None);
+
         assert!(matches!(result, Ok(None)));
     }
 
     #[test]
-    fn parse_blinding_key_valid_hex_returns_ok_some() {
+    fn test_parse_blinding_key_valid_hex_returns_ok_some() {
         let hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
         let result = parse_blinding_key(Some(hex));
+
         assert!(matches!(result, Ok(Some(_))));
     }
 
     #[test]
-    fn parse_blinding_key_too_short_returns_err() {
-        let result = parse_blinding_key(Some("abcdef"));
-        assert!(matches!(result, Err(Error::Config { .. })));
-    }
+    fn test_parse_blinding_key_malformed_input_returns_config_error() {
+        let cases: &[&str] = &[
+            "abcdef", // too short
+            "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", /* invalid hex
+                       * chars */
+        ];
 
-    #[test]
-    fn parse_blinding_key_invalid_hex_returns_err() {
-        let hex = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";
-        let result = parse_blinding_key(Some(hex));
-        assert!(matches!(result, Err(Error::Config { .. })));
+        for hex in cases {
+            let result = parse_blinding_key(Some(hex));
+
+            assert!(matches!(result, Err(Error::Config { .. })), "parse_blinding_key({hex:?})");
+        }
     }
 }

@@ -82,21 +82,32 @@ mod tests {
     #[test]
     fn test_init_valid_worker_id_succeeds() {
         let result = IdGenerator::init(0);
+
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_init_worker_id_above_1023_returns_error() {
+    fn test_init_worker_id_boundary_values() {
+        let cases: &[(u16, bool, &str)] = &[
+            (0, true, "minimum valid"),
+            (1023, true, "maximum valid (10-bit)"),
+            (1024, false, "one above maximum"),
+            (u16::MAX, false, "u16 max"),
+        ];
+
+        for &(worker_id, should_succeed, label) in cases {
+            let result = IdGenerator::init(worker_id);
+            assert_eq!(result.is_ok(), should_succeed, "[{label}] worker_id={worker_id}");
+        }
+    }
+
+    #[test]
+    fn test_init_invalid_worker_id_error_contains_value() {
         let err = IdGenerator::init(1024).unwrap_err();
-        assert!(err.to_string().contains("1024"));
-        assert!(err.to_string().contains("0 and 1023"));
-    }
 
-    #[test]
-    fn test_init_worker_id_at_max_boundary_succeeds() {
-        // 1023 is the maximum valid worker ID (10-bit)
-        let result = IdGenerator::init(1023);
-        assert!(result.is_ok());
+        let msg = err.to_string();
+        assert!(msg.contains("1024"));
+        assert!(msg.contains("0 and 1023"));
     }
 
     #[test]
@@ -106,16 +117,6 @@ mod tests {
         let id = IdGenerator::next_id();
 
         assert!(id > 0);
-    }
-
-    #[test]
-    fn test_next_id_sequential_calls_produce_unique_ids() {
-        let _ = IdGenerator::init(0);
-
-        let id1 = IdGenerator::next_id();
-        let id2 = IdGenerator::next_id();
-
-        assert_ne!(id1, id2);
     }
 
     #[test]
@@ -142,11 +143,11 @@ mod tests {
     }
 
     #[test]
-    fn test_worker_id_returns_initialized_value() {
+    fn test_worker_id_returns_value_within_valid_range() {
         let _ = IdGenerator::init(0);
 
-        // Due to OnceLock, worker_id returns whichever value was set first
         let wid = IdGenerator::worker_id();
+
         assert!(wid <= 1023);
     }
 

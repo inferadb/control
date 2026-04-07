@@ -204,7 +204,7 @@ mod tests {
     // ── map_email_info ────────────────────────────────────────────
 
     #[test]
-    fn map_email_info_with_valid_info() {
+    fn test_map_email_info_valid_info_maps_all_fields() {
         let info = UserEmailInfo {
             id: UserEmailId::new(42),
             email: "test@example.com".to_string(),
@@ -212,7 +212,9 @@ mod tests {
             created_at: Some(std::time::SystemTime::UNIX_EPOCH),
             verified_at: Some(std::time::SystemTime::UNIX_EPOCH),
         };
+
         let result = map_email_info(&info).unwrap();
+
         assert_eq!(result.slug, 42);
         assert_eq!(result.email, "test@example.com");
         assert!(result.verified);
@@ -221,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn map_email_info_with_no_timestamps() {
+    fn test_map_email_info_no_timestamps_returns_none_fields() {
         let info = UserEmailInfo {
             id: UserEmailId::new(1),
             email: "user@domain.com".to_string(),
@@ -229,7 +231,9 @@ mod tests {
             created_at: None,
             verified_at: None,
         };
+
         let result = map_email_info(&info).unwrap();
+
         assert_eq!(result.slug, 1);
         assert!(!result.verified);
         assert!(result.created_at.is_none());
@@ -237,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn map_email_info_negative_id_returns_error() {
+    fn test_map_email_info_negative_id_returns_error() {
         let info = UserEmailInfo {
             id: UserEmailId::new(-1),
             email: "bad@id.com".to_string(),
@@ -245,25 +249,29 @@ mod tests {
             created_at: None,
             verified_at: None,
         };
+
         assert!(map_email_info(&info).is_err());
     }
 
     // ── require_blinding_key ──────────────────────────────────────
 
     #[tokio::test]
-    async fn require_blinding_key_returns_error_when_none() {
+    async fn test_require_blinding_key_none_returns_error() {
         let state = AppState::new_test();
-        assert!(state.blinding_key.is_none());
+
         let result = require_blinding_key(&state);
+
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn require_blinding_key_returns_key_when_present() {
+    async fn test_require_blinding_key_present_returns_key() {
         let mut state = AppState::new_test();
         let key = EmailBlindingKey::new([0u8; 32], 1);
         state.blinding_key = Some(Arc::new(key));
+
         let result = require_blinding_key(&state);
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap().version(), 1);
     }
@@ -271,14 +279,16 @@ mod tests {
     // ── Request/Response serialization ────────────────────────────
 
     #[test]
-    fn add_email_request_deserializes() {
+    fn test_add_email_request_deserializes() {
         let json = r#"{"email": "test@example.com"}"#;
+
         let req: AddEmailRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.email, "test@example.com");
     }
 
     #[test]
-    fn email_info_response_serializes() {
+    fn test_email_info_response_serializes_with_null_optional() {
         let resp = EmailInfoResponse {
             slug: 1,
             email: "a@b.com".to_string(),
@@ -286,14 +296,16 @@ mod tests {
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
             verified_at: None,
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["slug"], 1);
         assert_eq!(json["verified"], true);
         assert!(json["verified_at"].is_null());
     }
 
     #[test]
-    fn add_email_response_serializes() {
+    fn test_add_email_response_serializes_nested_email() {
         let resp = AddEmailResponse {
             email: EmailInfoResponse {
                 slug: 1,
@@ -304,36 +316,46 @@ mod tests {
             },
             message: "Email added.".to_string(),
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["message"], "Email added.");
         assert_eq!(json["email"]["slug"], 1);
     }
 
     #[test]
-    fn list_emails_response_serializes() {
+    fn test_list_emails_response_serializes_empty() {
         let resp = ListEmailsResponse { emails: vec![] };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert!(json["emails"].as_array().unwrap().is_empty());
     }
 
     #[test]
-    fn email_operation_response_serializes() {
+    fn test_email_operation_response_serializes() {
         let resp = EmailOperationResponse { message: "done".to_string() };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["message"], "done");
     }
 
     #[test]
-    fn verify_email_request_deserializes() {
+    fn test_verify_email_request_deserializes() {
         let json = r#"{"token": "abc123"}"#;
+
         let req: VerifyEmailRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.token, "abc123");
     }
 
     #[test]
-    fn verify_email_response_serializes() {
+    fn test_verify_email_response_serializes() {
         let resp = VerifyEmailResponse { message: "ok".to_string(), verified: true };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["verified"], true);
     }
 }

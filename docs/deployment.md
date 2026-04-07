@@ -44,8 +44,8 @@ inferadb-control \
   --email-from-name "Your Company" \
   --ledger-endpoint http://ledger:9200 \
   --ledger-client-id your-client-id \
-  --ledger-namespace-id your-namespace-id \
-  --ledger-vault-id your-vault-id
+  --ledger-organization your-organization-id \
+  --ledger-vault your-vault-id
 ```
 
 | Flag                    | Type                   | Default                 | Description                                                     |
@@ -53,7 +53,7 @@ inferadb-control \
 | `--listen`              | SocketAddr             | `127.0.0.1:9090`        | HTTP listen address (override to `0.0.0.0:9090` for production) |
 | `--storage`             | `memory`\|`ledger`     | `ledger`                | Storage backend                                                 |
 | `--dev-mode`            | flag                   | off                     | Forces memory storage, relaxes security                         |
-| `--key-file`            | PathBuf                | `./data/master.key`     | Path to Ed25519 master key file                                 |
+| `--key-file`            | PathBuf                | `./data/master.key`     | Path to AES-256-GCM master key file (auto-generated if missing) |
 | `--pem`                 | String                 | —                       | Ed25519 PEM string (alternative to `--key-file`)                |
 | `--frontend-url`        | String                 | `http://localhost:3000` | Frontend URL for email links                                    |
 | `--log-level`           | String                 | `info`                  | Log level: trace, debug, info, warn, error                      |
@@ -65,10 +65,15 @@ inferadb-control \
 | `--email-from-address`  | String                 | `noreply@inferadb.com`  | Sender email address                                            |
 | `--email-from-name`     | String                 | `InferaDB`              | Sender display name                                             |
 | `--email-insecure`      | flag                   | off                     | Disable SMTP TLS verification                                   |
-| `--ledger-endpoint`     | String                 | —                       | Ledger storage endpoint (required when storage=ledger)          |
-| `--ledger-client-id`    | String                 | —                       | Ledger client ID (required when storage=ledger)                 |
-| `--ledger-namespace-id` | String                 | —                       | Ledger namespace ID (required when storage=ledger)              |
-| `--ledger-vault-id`     | String                 | —                       | Ledger vault ID (optional)                                      |
+| `--ledger-endpoint`     | String                 | —                       | Ledger gRPC endpoint URL (required when storage=ledger)         |
+| `--ledger-client-id`    | String                 | —                       | Ledger client identifier (required when storage=ledger)         |
+| `--ledger-organization` | u64                    | —                       | Ledger organization for data scoping (required when storage=ledger) |
+| `--ledger-vault`        | u64                    | —                       | Ledger vault for finer-grained key scoping (optional)           |
+| `--email-blinding-key`  | String                 | —                       | Email blinding key for HMAC-SHA256 (64-char hex, 32 bytes)      |
+| `--webauthn-rp-id`      | String                 | `localhost`             | WebAuthn Relying Party ID (domain)                              |
+| `--webauthn-origin`     | String                 | `http://localhost:3000` | WebAuthn Relying Party origin URL                               |
+| `--trusted-proxy-depth` | NonZeroU8              | —                       | Number of trusted reverse proxies (for X-Forwarded-For)         |
+| `--worker-id`           | u16                    | random                  | Snowflake ID worker ID (0-1023, must be unique per instance)    |
 
 ### Environment Variables
 
@@ -97,8 +102,8 @@ export INFERADB__CONTROL__EMAIL_FROM_NAME="Your Company"
 # Ledger storage
 export INFERADB__CONTROL__LEDGER_ENDPOINT="http://ledger:9200"
 export INFERADB__CONTROL__LEDGER_CLIENT_ID="your-client-id"
-export INFERADB__CONTROL__LEDGER_NAMESPACE_ID="your-namespace-id"
-export INFERADB__CONTROL__LEDGER_VAULT_ID="your-vault-id"
+export INFERADB__CONTROL__LEDGER_ORGANIZATION="1"
+export INFERADB__CONTROL__LEDGER_VAULT="7"
 
 # Logging
 export INFERADB__CONTROL__LOG_LEVEL="info"
@@ -109,13 +114,20 @@ export INFERADB__CONTROL__LOG_FORMAT="json"
 
 ### Authentication Keys
 
-Generate an Ed25519 key pair for signing JWTs:
+**Ed25519 Identity Key** (for signing JWTs): Generate an Ed25519 private key and provide it via `--pem` (inline PEM string). If not provided, a new keypair is generated on each startup.
 
 ```bash
-openssl genpkey -algorithm Ed25519 -out master.key
+openssl genpkey -algorithm Ed25519 -out identity.pem
+inferadb-control --pem "$(cat identity.pem)"
 ```
 
-Provide the key via `--key-file` (path to the PEM file) or `--pem` (inline PEM string). The `--pem` flag is useful in containerized environments where mounting files is inconvenient.
+**AES-256-GCM Master Key** (for encrypting private keys at rest): The `--key-file` flag specifies the path to a 32-byte master key file. If the file does not exist, a new key is auto-generated and saved with restrictive permissions (0600).
+
+```bash
+# Key is auto-generated at the default path: ./data/master.key
+# Or specify a custom path:
+inferadb-control --key-file /etc/inferadb/master.key
+```
 
 ## Single-Instance Deployment
 
@@ -130,7 +142,7 @@ inferadb-control \
   --key-file /etc/inferadb/master.key \
   --ledger-endpoint http://ledger:9200 \
   --ledger-client-id control-prod-01 \
-  --ledger-namespace-id 1
+  --ledger-organization 1
 ```
 
 ### Load Balancer (Optional)
@@ -147,10 +159,10 @@ Example (Kubernetes Service):
 apiVersion: v1
 kind: Service
 metadata:
-  name: inferadb-control-api
+  name: inferadb-control
 spec:
   selector:
-    app: inferadb-control-api
+    app: inferadb-control
   ports:
     - name: http
       port: 80
@@ -161,7 +173,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: inferadb-control-api
+  name: inferadb-control
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
@@ -177,7 +189,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: inferadb-control-api
+                name: inferadb-control
                 port:
                   number: 80
 ```
@@ -239,7 +251,7 @@ Returns JSON with detailed health information:
   "version": "0.1.0",
   "instance_id": 0,
   "uptime_seconds": 3600,
-  "storage_healthy": true,
+  "ledger_healthy": true,
   "details": null
 }
 ```
@@ -313,12 +325,10 @@ Key metrics:
 
 Rate limits are built-in defaults enforced per IP:
 
-- Login: 100/hour
+- Login: 100/hour (applied to all auth endpoints)
 - Registration: 5/day
-- Email verification: 5/hour
-- Password reset: 3/hour
 
-These limits are not configurable via CLI flags or environment variables. Deploy behind a reverse proxy that sets `X-Forwarded-For` headers correctly.
+These limits are not configurable via CLI flags or environment variables. Deploy behind a reverse proxy that sets `X-Forwarded-For` headers correctly, and use the `--trusted-proxy-depth` flag to specify how many proxy hops to trust.
 
 ### 5. CORS
 

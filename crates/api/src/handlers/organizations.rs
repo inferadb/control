@@ -756,41 +756,14 @@ mod tests {
     // ── org_info_to_response ─────────────────────────────────────────
 
     #[test]
-    fn test_org_info_to_response_maps_slug() {
+    fn test_org_info_to_response_maps_all_fields() {
         let resp = org_info_to_response(&sample_org_info());
+
         assert_eq!(resp.slug, 100);
-    }
-
-    #[test]
-    fn test_org_info_to_response_maps_name() {
-        let resp = org_info_to_response(&sample_org_info());
         assert_eq!(resp.name, "Acme Corp");
-    }
-
-    #[test]
-    fn test_org_info_to_response_maps_region() {
-        let resp = org_info_to_response(&sample_org_info());
         assert_eq!(resp.region, "us-east-va");
-    }
-
-    #[test]
-    fn test_org_info_to_response_maps_status() {
-        let resp = org_info_to_response(&sample_org_info());
         assert_eq!(resp.status, "active");
-    }
-
-    #[test]
-    fn test_org_info_to_response_maps_tier() {
-        let resp = org_info_to_response(&sample_org_info());
         assert_eq!(resp.tier, "free");
-    }
-
-    #[test]
-    fn test_org_info_to_response_serializes_to_json() {
-        let resp = org_info_to_response(&sample_org_info());
-        let json = serde_json::to_value(&resp).unwrap();
-        assert_eq!(json["slug"], 100);
-        assert_eq!(json["name"], "Acme Corp");
     }
 
     // ── member_info_to_response ──────────────────────────────────────
@@ -864,29 +837,28 @@ mod tests {
     // ── OrganizationRoleInput ────────────────────────────────────────
 
     #[test]
-    fn test_role_input_admin_to_sdk_role_returns_admin() {
-        let input = OrganizationRoleInput::Admin;
-        assert!(matches!(input.to_sdk_role(), OrganizationMemberRole::Admin));
+    fn test_role_input_admin_to_sdk_role() {
+        assert!(matches!(
+            OrganizationRoleInput::Admin.to_sdk_role(),
+            OrganizationMemberRole::Admin
+        ));
     }
 
     #[test]
-    fn test_role_input_member_to_sdk_role_returns_member() {
-        let input = OrganizationRoleInput::Member;
-        assert!(matches!(input.to_sdk_role(), OrganizationMemberRole::Member));
+    fn test_role_input_member_to_sdk_role() {
+        assert!(matches!(
+            OrganizationRoleInput::Member.to_sdk_role(),
+            OrganizationMemberRole::Member
+        ));
     }
 
     #[test]
-    fn test_role_input_admin_deserializes_from_json() {
-        let json = r#""admin""#;
-        let role: OrganizationRoleInput = serde_json::from_str(json).unwrap();
-        assert!(matches!(role.to_sdk_role(), OrganizationMemberRole::Admin));
-    }
+    fn test_role_input_deserializes_from_json() {
+        let admin: OrganizationRoleInput = serde_json::from_str(r#""admin""#).unwrap();
+        assert!(matches!(admin.to_sdk_role(), OrganizationMemberRole::Admin));
 
-    #[test]
-    fn test_role_input_member_deserializes_from_json() {
-        let json = r#""member""#;
-        let role: OrganizationRoleInput = serde_json::from_str(json).unwrap();
-        assert!(matches!(role.to_sdk_role(), OrganizationMemberRole::Member));
+        let member: OrganizationRoleInput = serde_json::from_str(r#""member""#).unwrap();
+        assert!(matches!(member.to_sdk_role(), OrganizationMemberRole::Member));
     }
 
     // ── Request deserialization ──────────────────────────────────────

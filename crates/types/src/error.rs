@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn test_factory_creates_correct_variant_and_preserves_message() {
+    fn test_factory_variant_correct_and_message_preserved() {
         let cases = vec![
             ("config", Error::config("bad config"), Variant::Config, Some("bad config")),
             ("storage", Error::storage("disk full"), Variant::Storage, Some("disk full")),
@@ -295,6 +295,7 @@ mod tests {
                 Variant::TierLimit,
                 Some("plan exceeded"),
             ),
+            ("too_many_passkeys", Error::too_many_passkeys(10), Variant::TooManyPasskeys, None),
             (
                 "unavailable",
                 Error::unavailable("maintenance"),
@@ -317,38 +318,34 @@ mod tests {
     }
 
     #[test]
-    fn test_factory_too_many_passkeys_stores_max() {
+    fn test_factory_too_many_passkeys_stores_max_value() {
         let err = Error::too_many_passkeys(10);
 
-        assert_eq!(classify(&err), Variant::TooManyPasskeys);
         assert!(matches!(err, Error::TooManyPasskeys { max: 10, .. }));
     }
 
-    // ── Factory methods accept &str and String via Into<String> ─────
+    // ── Factory: Into<String> acceptance (table-driven) ─────────────
 
     #[test]
-    fn test_factory_accepts_str_ref() {
-        let msg: &str = "a message";
+    fn test_factory_accepts_str_ref_and_owned_and_empty() {
+        struct Case {
+            name: &'static str,
+            err: Error,
+            expected: &'static str,
+        }
+        let cases = vec![
+            Case { name: "str_ref", err: Error::validation("a message"), expected: "a message" },
+            Case {
+                name: "owned_string",
+                err: Error::validation(String::from("a message")),
+                expected: "a message",
+            },
+            Case { name: "empty_string", err: Error::validation(""), expected: "" },
+        ];
 
-        let err = Error::validation(msg);
-
-        assert_eq!(message_of(&err), Some("a message"));
-    }
-
-    #[test]
-    fn test_factory_accepts_owned_string() {
-        let msg = String::from("a message");
-
-        let err = Error::validation(msg);
-
-        assert_eq!(message_of(&err), Some("a message"));
-    }
-
-    #[test]
-    fn test_factory_accepts_empty_string() {
-        let err = Error::validation("");
-
-        assert_eq!(message_of(&err), Some(""));
+        for case in cases {
+            assert_eq!(message_of(&case.err), Some(case.expected), "mismatch for {}", case.name);
+        }
     }
 
     // ── status_code (table-driven) ──────────────────────────────────
@@ -404,31 +401,37 @@ mod tests {
     // ── Display impl (table-driven) ─────────────────────────────────
 
     #[test]
-    fn test_display_includes_prefix_and_message() {
+    fn test_display_format_matches_expected_string() {
         let cases = vec![
-            ("config", Error::config("missing key"), "Configuration error", "missing key"),
-            ("storage", Error::storage("io failure"), "Storage error", "io failure"),
-            ("auth", Error::auth("bad token"), "Authentication error", "bad token"),
-            ("authz", Error::authz("no access"), "Authorization error", "no access"),
-            ("validation", Error::validation("bad input"), "Validation error", "bad input"),
-            ("not_found", Error::not_found("item xyz"), "not found", "item xyz"),
-            ("already_exists", Error::already_exists("duplicate"), "already exists", "duplicate"),
-            ("rate_limit", Error::rate_limit("slow down"), "Rate limit", "slow down"),
-            ("tier_limit", Error::tier_limit("upgrade required"), "Tier limit", "upgrade required"),
+            ("config", Error::config("missing key"), "Configuration error: missing key"),
+            ("storage", Error::storage("io failure"), "Storage error: io failure"),
+            ("auth", Error::auth("bad token"), "Authentication error: bad token"),
+            ("authz", Error::authz("no access"), "Authorization error: no access"),
+            ("validation", Error::validation("bad input"), "Validation error: bad input"),
+            ("not_found", Error::not_found("item xyz"), "Resource not found: item xyz"),
+            (
+                "already_exists",
+                Error::already_exists("duplicate"),
+                "Resource already exists: duplicate",
+            ),
+            ("rate_limit", Error::rate_limit("slow down"), "Rate limit exceeded: slow down"),
+            (
+                "tier_limit",
+                Error::tier_limit("upgrade required"),
+                "Tier limit exceeded: upgrade required",
+            ),
             (
                 "unavailable",
                 Error::unavailable("down for maintenance"),
-                "unavailable",
-                "down for maintenance",
+                "Service unavailable: down for maintenance",
             ),
-            ("external", Error::external("api timeout"), "External", "api timeout"),
-            ("internal", Error::internal("oops"), "Internal error", "oops"),
+            ("external", Error::external("api timeout"), "External service error: api timeout"),
+            ("internal", Error::internal("oops"), "Internal error: oops"),
         ];
 
-        for (name, err, expected_prefix, expected_msg) in cases {
+        for (name, err, expected_display) in cases {
             let display = err.to_string();
-            assert!(display.contains(expected_prefix), "{name}: expected prefix '{expected_prefix}' in '{display}'");
-            assert!(display.contains(expected_msg), "{name}: expected message '{expected_msg}' in '{display}'");
+            assert_eq!(display, expected_display, "display mismatch for {name}");
         }
     }
 
@@ -438,8 +441,7 @@ mod tests {
 
         let display = err.to_string();
 
-        assert!(display.contains("10"), "got: {display}");
-        assert!(display.contains("passkeys"), "got: {display}");
+        assert_eq!(display, "Too many passkeys registered (max: 10)");
     }
 
     // ── std::error::Error impl ──────────────────────────────────────
@@ -463,7 +465,7 @@ mod tests {
     // ── From<StorageError> conversion (table-driven) ────────────────
 
     #[test]
-    fn test_from_storage_error_maps_to_correct_variant_and_status() {
+    fn test_from_storage_error_maps_variant_and_status() {
         let cases: Vec<(&str, StorageError, Variant, u16)> = vec![
             ("not_found", StorageError::not_found("test_key"), Variant::NotFound, 404),
             ("conflict", StorageError::conflict(), Variant::AlreadyExists, 409),
@@ -533,16 +535,8 @@ mod tests {
 
         for (name, storage_err, expected_variant, expected_status) in cases {
             let err = Error::from(storage_err);
-            assert_eq!(
-                classify(&err),
-                expected_variant,
-                "{name}: variant mismatch"
-            );
-            assert_eq!(
-                err.status_code(),
-                expected_status,
-                "{name}: status_code mismatch"
-            );
+            assert_eq!(classify(&err), expected_variant, "{name}: variant mismatch");
+            assert_eq!(err.status_code(), expected_status, "{name}: status_code mismatch");
         }
     }
 
@@ -561,8 +555,21 @@ mod tests {
     }
 
     #[test]
-    fn test_from_storage_unavailable_uses_fixed_message() {
+    fn test_from_storage_error_circuit_open_uses_fixed_message() {
         let se = StorageError::circuit_open();
+
+        let err = Error::from(se);
+
+        let display = err.to_string();
+        assert!(
+            display.contains("storage service temporarily unavailable"),
+            "unavailable mapping should use fixed message, got: {display}"
+        );
+    }
+
+    #[test]
+    fn test_from_storage_error_shutting_down_uses_fixed_message() {
+        let se = StorageError::shutting_down();
 
         let err = Error::from(se);
 

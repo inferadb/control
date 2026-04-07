@@ -110,32 +110,27 @@ mod tests {
     // ── Standard limit policies ─────────────────────────────────
 
     #[test]
-    fn test_login_ip_limit_is_100_per_hour() {
+    fn test_standard_limit_policies_return_expected_values() {
         let login = limits::login_ip();
-
         assert_eq!(login.max_requests, 100);
-        assert!(matches!(login.window, RateLimitWindow::Hour));
-    }
+        assert!(matches!(login.window, RateLimitWindow::Hour), "login_ip window");
 
-    #[test]
-    fn test_registration_ip_limit_is_5_per_day() {
         let reg = limits::registration_ip();
-
         assert_eq!(reg.max_requests, 5);
-        assert!(matches!(reg.window, RateLimitWindow::Day));
+        assert!(matches!(reg.window, RateLimitWindow::Day), "registration_ip window");
     }
 
     // ── AnyRateLimiter ──────────────────────────────────────────
 
-    #[test]
-    fn test_any_rate_limiter_default_is_in_memory() {
+    #[tokio::test]
+    async fn test_any_rate_limiter_default_is_in_memory() {
         let limiter = AnyRateLimiter::default();
 
         assert!(matches!(limiter, AnyRateLimiter::InMemory(_)));
     }
 
-    #[test]
-    fn test_any_rate_limiter_debug_shows_variant() {
+    #[tokio::test]
+    async fn test_any_rate_limiter_debug_shows_variant() {
         let limiter = AnyRateLimiter::default();
 
         assert_eq!(format!("{limiter:?}"), "AnyRateLimiter::InMemory");

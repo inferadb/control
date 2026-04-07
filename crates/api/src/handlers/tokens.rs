@@ -283,28 +283,45 @@ mod tests {
         }
     }
 
+    fn make_scopes_request(scopes: Vec<&str>, role: Option<&str>) -> ClientAssertionRequest {
+        ClientAssertionRequest {
+            grant_type: String::new(),
+            client_assertion_type: String::new(),
+            client_assertion: String::new(),
+            organization: 1,
+            vault: "1".to_string(),
+            scopes: scopes.into_iter().map(String::from).collect(),
+            requested_role: role.map(String::from),
+        }
+    }
+
     // ── validate_assertion_request ──────────────────────────────────────
 
     #[test]
-    fn validate_assertion_request_accepts_valid_inputs() {
+    fn test_validate_assertion_request_valid_inputs_returns_ok() {
         let req =
             make_assertion_request(EXPECTED_GRANT_TYPE, EXPECTED_ASSERTION_TYPE, "some.jwt.token");
+
         assert!(validate_assertion_request(&req).is_ok());
     }
 
     #[test]
-    fn validate_assertion_request_rejects_wrong_grant_type() {
+    fn test_validate_assertion_request_wrong_grant_type_returns_error() {
         let req =
             make_assertion_request("authorization_code", EXPECTED_ASSERTION_TYPE, "some.jwt.token");
+
         let err = validate_assertion_request(&req).unwrap_err();
+
         let msg = format!("{err}");
         assert!(msg.contains("grant_type"), "error should mention grant_type: {msg}");
     }
 
     #[test]
-    fn validate_assertion_request_rejects_wrong_assertion_type() {
+    fn test_validate_assertion_request_wrong_assertion_type_returns_error() {
         let req = make_assertion_request(EXPECTED_GRANT_TYPE, "urn:wrong:type", "some.jwt.token");
+
         let err = validate_assertion_request(&req).unwrap_err();
+
         let msg = format!("{err}");
         assert!(
             msg.contains("client_assertion_type"),
@@ -313,9 +330,11 @@ mod tests {
     }
 
     #[test]
-    fn validate_assertion_request_rejects_empty_assertion() {
+    fn test_validate_assertion_request_empty_assertion_returns_error() {
         let req = make_assertion_request(EXPECTED_GRANT_TYPE, EXPECTED_ASSERTION_TYPE, "");
+
         let err = validate_assertion_request(&req).unwrap_err();
+
         let msg = format!("{err}");
         assert!(msg.contains("client_assertion"), "error should mention client_assertion: {msg}");
     }
@@ -323,76 +342,54 @@ mod tests {
     // ── build_scopes ────────────────────────────────────────────────────
 
     #[test]
-    fn build_scopes_returns_scopes_unchanged_when_no_role() {
-        let req = ClientAssertionRequest {
-            grant_type: String::new(),
-            client_assertion_type: String::new(),
-            client_assertion: String::new(),
-            organization: 1,
-            vault: "1".to_string(),
-            scopes: vec!["vault:read".to_string(), "vault:write".to_string()],
-            requested_role: None,
-        };
+    fn test_build_scopes_no_role_returns_scopes_unchanged() {
+        let req = make_scopes_request(vec!["vault:read", "vault:write"], None);
+
         let scopes = build_scopes(&req);
+
         assert_eq!(scopes, vec!["vault:read", "vault:write"]);
     }
 
     #[test]
-    fn build_scopes_appends_role_when_not_already_present() {
-        let req = ClientAssertionRequest {
-            grant_type: String::new(),
-            client_assertion_type: String::new(),
-            client_assertion: String::new(),
-            organization: 1,
-            vault: "1".to_string(),
-            scopes: vec!["vault:read".to_string()],
-            requested_role: Some("admin".to_string()),
-        };
+    fn test_build_scopes_new_role_appended() {
+        let req = make_scopes_request(vec!["vault:read"], Some("admin"));
+
         let scopes = build_scopes(&req);
+
         assert_eq!(scopes, vec!["vault:read", "admin"]);
     }
 
     #[test]
-    fn build_scopes_does_not_duplicate_role_already_in_scopes() {
-        let req = ClientAssertionRequest {
-            grant_type: String::new(),
-            client_assertion_type: String::new(),
-            client_assertion: String::new(),
-            organization: 1,
-            vault: "1".to_string(),
-            scopes: vec!["vault:read".to_string(), "admin".to_string()],
-            requested_role: Some("admin".to_string()),
-        };
+    fn test_build_scopes_duplicate_role_not_appended() {
+        let req = make_scopes_request(vec!["vault:read", "admin"], Some("admin"));
+
         let scopes = build_scopes(&req);
+
         assert_eq!(scopes, vec!["vault:read", "admin"]);
     }
 
     #[test]
-    fn build_scopes_empty_scopes_with_role() {
-        let req = ClientAssertionRequest {
-            grant_type: String::new(),
-            client_assertion_type: String::new(),
-            client_assertion: String::new(),
-            organization: 1,
-            vault: "1".to_string(),
-            scopes: vec![],
-            requested_role: Some("reader".to_string()),
-        };
+    fn test_build_scopes_empty_scopes_with_role_returns_role() {
+        let req = make_scopes_request(vec![], Some("reader"));
+
         let scopes = build_scopes(&req);
+
         assert_eq!(scopes, vec!["reader"]);
     }
 
     // ── token_pair_to_response ──────────────────────────────────────────
 
     #[test]
-    fn token_pair_to_response_with_future_expiry() {
+    fn test_token_pair_to_response_future_expiry_returns_positive_ttl() {
         let pair = inferadb_ledger_sdk::token::TokenPair {
             access_token: "access".to_string(),
             refresh_token: "refresh".to_string(),
             access_expires_at: Some(SystemTime::now() + Duration::from_secs(3600)),
             refresh_expires_at: None,
         };
+
         let resp = token_pair_to_response(pair);
+
         assert_eq!(resp.access_token, "access");
         assert_eq!(resp.refresh_token, "refresh");
         assert_eq!(resp.token_type, "Bearer");
@@ -401,55 +398,65 @@ mod tests {
     }
 
     #[test]
-    fn token_pair_to_response_with_past_expiry_returns_zero() {
+    fn test_token_pair_to_response_past_expiry_returns_zero() {
         let pair = inferadb_ledger_sdk::token::TokenPair {
             access_token: "a".to_string(),
             refresh_token: "r".to_string(),
             access_expires_at: Some(SystemTime::now() - Duration::from_secs(60)),
             refresh_expires_at: None,
         };
+
         let resp = token_pair_to_response(pair);
+
         assert_eq!(resp.expires_in, 0);
     }
 
     #[test]
-    fn token_pair_to_response_with_no_expiry_returns_zero() {
+    fn test_token_pair_to_response_no_expiry_returns_zero() {
         let pair = inferadb_ledger_sdk::token::TokenPair {
             access_token: "a".to_string(),
             refresh_token: "r".to_string(),
             access_expires_at: None,
             refresh_expires_at: None,
         };
+
         let resp = token_pair_to_response(pair);
+
         assert_eq!(resp.expires_in, 0);
     }
 
     // ── Request type deserialization ────────────────────────────────────
 
     #[test]
-    fn generate_vault_token_request_deserializes() {
+    fn test_generate_vault_token_request_deserializes_with_scopes() {
         let json = r#"{"app": 42, "scopes": ["vault:read"]}"#;
+
         let req: GenerateVaultTokenRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.app, 42);
         assert_eq!(req.scopes, vec!["vault:read"]);
     }
 
     #[test]
-    fn generate_vault_token_request_default_scopes() {
+    fn test_generate_vault_token_request_defaults_scopes_to_empty() {
         let json = r#"{"app": 1}"#;
+
         let req: GenerateVaultTokenRequest = serde_json::from_str(json).unwrap();
+
         assert!(req.scopes.is_empty());
     }
 
     #[test]
-    fn refresh_token_request_deserializes() {
+    fn test_refresh_token_request_deserializes() {
         let json = r#"{"refresh_token": "tok"}"#;
+
         let req: RefreshTokenRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.refresh_token, "tok");
     }
 
     #[test]
-    fn client_assertion_request_default_scopes() {
+    fn test_client_assertion_request_defaults_optional_fields() {
         let json = r#"{
             "grant_type": "client_credentials",
             "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
@@ -457,37 +464,45 @@ mod tests {
             "organization": 1,
             "vault": "5"
         }"#;
+
         let req: ClientAssertionRequest = serde_json::from_str(json).unwrap();
+
         assert!(req.scopes.is_empty());
         assert!(req.requested_role.is_none());
     }
 
     #[test]
-    fn revoke_vault_tokens_request_deserializes() {
+    fn test_revoke_vault_tokens_request_deserializes() {
         let json = r#"{"app": 99}"#;
+
         let req: RevokeVaultTokensRequest = serde_json::from_str(json).unwrap();
+
         assert_eq!(req.app, 99);
     }
 
     // ── Response type serialization ────────────────────────────────────
 
     #[test]
-    fn token_pair_response_serializes() {
+    fn test_token_pair_response_serializes() {
         let resp = TokenPairResponse {
             access_token: "at".to_string(),
             refresh_token: "rt".to_string(),
             token_type: "Bearer".to_string(),
             expires_in: 3600,
         };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["access_token"], "at");
         assert_eq!(json["expires_in"], 3600);
     }
 
     #[test]
-    fn revoke_tokens_response_serializes() {
+    fn test_revoke_tokens_response_serializes() {
         let resp = RevokeTokensResponse { revoked_count: 7 };
+
         let json = serde_json::to_value(&resp).unwrap();
+
         assert_eq!(json["revoked_count"], 7);
     }
 }

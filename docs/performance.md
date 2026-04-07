@@ -34,15 +34,15 @@ Control is designed for high performance:
 
 | Operation    | Concurrent Users | RPS | p50   | p95   | p99   | Notes                                    |
 | ------------ | ---------------- | --- | ----- | ----- | ----- | ---------------------------------------- |
-| Registration | 100              | 150 | 180ms | 400ms | 800ms | Includes password hashing (Argon2)       |
+| Registration | 100              | 150 | 180ms | 400ms | 800ms | Includes password hashing (via Ledger)   |
 | Login        | 100              | 180 | 150ms | 350ms | 750ms | Password verification + session creation |
 | Get Profile  | 200              | 350 | 45ms  | 120ms | 250ms | Read-only, cached session                |
 | Logout       | 150              | 220 | 50ms  | 150ms | 300ms | Session revocation                       |
 
 **Key Characteristics:**
 
-- **Password Hashing**: Argon2id with tuned parameters (~150ms per hash)
-- **Session Management**: Cookie-based with 24-hour TTL (web), 7-day TTL (CLI), or 30-day TTL (SDK)
+- **Password Hashing**: Delegated to Ledger backend
+- **Session Management**: Cookie-based with 24-hour session cookie TTL
 - **Rate Limiting**: 100 login attempts/hour per IP prevents abuse
 
 ### Vault & Token Operations
@@ -57,9 +57,10 @@ Control is designed for high performance:
 
 **Key Characteristics:**
 
-- **Token Generation**: Ed25519 signature + 3600s TTL (configurable 60-86400s)
-- **Refresh Tokens**: 90-day TTL, single-use with automatic rotation
-- **JWT Size**: ~500-800 bytes depending on claims
+- **Token Generation**: Ed25519 signature
+- **Access Token Cookie**: 15-minute max-age
+- **User Session Refresh Token**: 1-hour TTL
+- **Client Refresh Token**: 7-day TTL
 
 ### Organization Management
 
@@ -73,9 +74,10 @@ Control is designed for high performance:
 
 **Key Characteristics:**
 
-- **Organization Limit**: 100,000 per user (global limit)
-- **Member Limit**: No hard limit, tested to 10,000+ members
-- **Tier Limits**: Free (5 vaults), Pro (50 vaults), Enterprise (unlimited)
+- **Global Organization Limit**: 100,000 total organizations
+- **Per-User Organization Limit**: 10 organizations per user
+- **Max Concurrent Sessions**: 10 per user
+- **Max Passkeys Per User**: 20
 
 ### Client & Certificate Operations
 
@@ -146,7 +148,7 @@ Resource recommendations per instance:
 
 **Bottlenecks:**
 
-- **CPU**: Password hashing (Argon2), Ed25519 signing
+- **CPU**: Ed25519 signing, AES-256-GCM encryption
 - **Memory**: Session cache, connection pools
 - **Storage**: Ledger transaction throughput
 - **Network**: Typically not a bottleneck
@@ -281,22 +283,9 @@ INFERADB__CONTROL__STORAGE=ledger
 - **Tokio worker threads**: Uses the default (number of CPU cores). Not configurable.
 - **Rate limits**: Built-in defaults. Not configurable.
 
-### Argon2 Tuning
+### Password Hashing
 
-Password hashing performance vs security tradeoff:
-
-```rust
-// Current settings (balanced)
-mem_cost: 65536,     // 64 MB
-time_cost: 3,        // 3 iterations
-parallelism: 4,      // 4 threads
-```
-
-Adjustments:
-
-- **Higher Security**: Increase `mem_cost` to 131072 (~300ms/hash)
-- **Higher Performance**: Decrease to `mem_cost: 32768` (~80ms/hash)
-- **Not Recommended**: Reducing `time_cost` below 3
+Password hashing is delegated to the Ledger backend and is not configurable at the Control layer.
 
 ## Troubleshooting Performance Issues
 
@@ -357,13 +346,11 @@ Adjustments:
 **Diagnosis:**
 
 1. Profile with `perf` or `flamegraph`
-2. Check Argon2 parameters
-3. Review request mix (write-heavy vs read-heavy)
+2. Review request mix (write-heavy vs read-heavy)
 
 **Solutions:**
 
 - Scale horizontally
-- Reduce Argon2 memory/time cost
 - Cache more aggressively
 - Optimize hot code paths
 

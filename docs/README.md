@@ -1,107 +1,67 @@
-# Control Documentation
+# InferaDB Control documentation
 
-Welcome to InferaDB Control documentation. This directory contains comprehensive guides for integrating, deploying, and operating Control.
+The Control Plane manages authentication, organizations, teams, vaults, clients, and access control for InferaDB.
 
-## New to Control?
+## Quickstart
 
-Start here: **[Getting Started Guide](getting-started.md)** - Step-by-step tutorial for setting up your first Control instance and making your first API calls.
+```bash
+# Development mode (in-memory storage, no dependencies)
+cargo run --bin inferadb-control -- --dev-mode
 
-## Quick Reference
+# Health check
+curl http://127.0.0.1:9090/healthz
+```
 
-- **[OpenAPI Specification](../openapi.yaml)** - Complete REST API reference with all endpoints, request/response schemas
-- **[Examples](examples.md)** - Real-world code examples and integration patterns
+Production deployment requires a Ledger backend:
 
-## Core Documentation
+```bash
+inferadb-control \
+  --storage ledger \
+  --ledger-endpoint https://ledger.inferadb.com \
+  --ledger-client-id ctrl-01 \
+  --ledger-organization 1 \
+  --frontend-url https://app.inferadb.com
+```
 
-### System Architecture
+## Documentation
 
-- **[Overview](overview.md)** - Complete entity definitions, data model, relationships, and behavioral rules
-  - _Note: This is a large file (5,000+ lines). Use your editor's search function or the table of contents to navigate._
-- **[Architecture](architecture.md)** - System architecture diagrams showing component layers and deployment topologies
-- **[Data Flows](flows.md)** - Detailed sequence diagrams for user registration, login, token generation, and org setup
+### Architecture and data model
 
-### Authentication & Security
+- **[Architecture](architecture.md)** -- System layers, deployment topologies, storage design, request lifecycle
+- **[Overview](overview.md)** -- Entity definitions, API reference, behavioral rules, error taxonomy (~4600 lines; use search or the table of contents)
 
-- **[Authentication](authentication.md)** - Complete authentication documentation covering:
-  - Two-token architecture (session tokens + vault JWTs)
-  - Authentication methods (password, passkey, OAuth, client assertion)
-  - JWT claims structure and token validation
-  - Security considerations and best practices
+### Authentication
 
-### API Features
+- **[Authentication](authentication.md)** -- Two-token architecture, email code flow, passkey/WebAuthn, TOTP, client assertion (JWT Bearer)
 
-- **[Pagination](pagination.md)** - List endpoint pagination specification
-  - Offset-based pagination
-  - Query parameters and response format
-  - Performance considerations
+### API reference
 
-- **[Audit Logs](audit-logs.md)** - Security audit trail and compliance
-  - Event types (auth, user mgmt, organization, vault, client)
-  - Event severity levels
-  - Querying and filtering
-  - Compliance reporting examples
+- **[Pagination](pagination.md)** -- Cursor-based pagination: query parameters, response shape, page size limits
+- **[Audit logs](audit-logs.md)** -- Event types, severity, querying, retention by tier
 
-## Operations
+### Operations
 
-### Deployment & Performance
+- **[Deployment](deployment.md)** -- Single-instance and HA setup, Kubernetes config, health probes, graceful shutdown
+- **[Data flows](flows.md)** -- Sequence diagrams for registration, login, token generation, organization setup
+- **[Troubleshooting](troubleshooting.md)** -- Common issues and fixes for storage, auth, rate limiting, and deployment
 
-- **[Deployment Guide](deployment.md)** - Production deployment guide
-  - Single-instance and multi-instance (HA) setup
-  - Kubernetes configuration examples
-  - Health checks and graceful shutdown
-  - Security best practices
+### Testing
 
-- **[Performance Benchmarks](performance.md)** - Performance and optimization
-  - Latency characteristics (p50/p95/p99)
-  - Throughput benchmarks (RPS)
-  - Scalability guidelines
-  - Tuning parameters
+- **[Load tests](../loadtests/)** -- k6 scenarios for auth, vaults, organizations, and spike testing
+- **[Ledger integration tests](../docker/ledger-integration-tests/)** -- Docker-based Ledger test environment
 
-### Troubleshooting
+## Health endpoints
 
-- **[Troubleshooting Guide](troubleshooting.md)** - Common issues and solutions
-  - Installation and setup issues
-  - Database/storage problems
-  - Authentication failures
-  - API errors
-  - Performance issues
-  - Deployment problems
+| Endpoint | Purpose |
+|---|---|
+| `GET /livez` | Liveness probe (process alive?) |
+| `GET /readyz` | Readiness probe (Ledger reachable?) |
+| `GET /startupz` | Startup probe (initialization complete?) |
+| `GET /healthz` | Detailed JSON status with version and uptime |
+| `GET /metrics` | Prometheus metrics (network-policy protected) |
 
-## Development
+## Links
 
-- **[Contributing Guide](../CONTRIBUTING.md)** - Development workflow and contribution guidelines
-  - Code style standards
-  - Testing practices
-  - Commit message format
-  - Pull request process
-
-## Additional Resources
-
-### Load Testing
-
-- **[Load Testing Suite](../loadtests/)** - k6-based load testing
-  - Test scenarios (auth, vaults, organizations, spike)
-  - Running tests and interpreting results
-  - CI/CD integration
-
-### Testing Infrastructure
-
-- **[Ledger Integration Tests](../docker/ledger-integration-tests/)** - Docker-based Ledger test environment
-  - Quick start and architecture
-  - Environment variables
-  - Troubleshooting
-
-## Documentation Roadmap
-
-Planned documentation (not yet available):
-
-- **Authorization Guide** - Vault access control, role-based permissions, and policy integration
-- **Migration Guide** - Database schema changes and upgrade procedures
-- **Backup & Restore** - Disaster recovery procedures
-- **SDK Documentation** - Language-specific client libraries (when available)
-
-## Need Help?
-
-- **Issues**: [github.com/inferadb/inferadb/issues](https://github.com/inferadb/inferadb/issues)
-- **Documentation**: [inferadb.com/docs](https://inferadb.com/docs)
-- **Security**: [security@inferadb.com](mailto:security@inferadb.com)
+- [Issues](https://github.com/inferadb/inferadb/issues)
+- [Docs](https://inferadb.com/docs)
+- [Security reports](mailto:security@inferadb.com)

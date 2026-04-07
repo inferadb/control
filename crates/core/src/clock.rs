@@ -357,7 +357,7 @@ mod tests {
     #[test]
     fn test_classify_skew_boundaries() {
         let cases = [
-            // (skew_ms, max_skew_ms, expected)
+            // (skew_ms, max_skew_ms, expected, label)
             (0, 1000, SkewSeverity::Normal, "zero skew"),
             (50, 1000, SkewSeverity::Normal, "well below warning"),
             (99, 1000, SkewSeverity::Normal, "just below warning threshold"),
@@ -366,6 +366,9 @@ mod tests {
             (999, 1000, SkewSeverity::Warning, "just below critical threshold"),
             (1000, 1000, SkewSeverity::Critical, "exactly at critical threshold"),
             (2000, 1000, SkewSeverity::Critical, "well above critical threshold"),
+            // Custom threshold: 5s
+            (2000, 5000, SkewSeverity::Warning, "custom threshold shifts boundary"),
+            (5000, 5000, SkewSeverity::Critical, "custom threshold at exact boundary"),
         ];
 
         for (skew_ms, max_skew_ms, expected, label) in cases {
@@ -377,18 +380,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_classify_skew_custom_threshold_shifts_boundaries() {
-        // With a 5s threshold, 2s is warning (not critical)
-        assert_eq!(classify_skew(2000, 5000), SkewSeverity::Warning);
-        // At 5s exactly, becomes critical
-        assert_eq!(classify_skew(5000, 5000), SkewSeverity::Critical);
-    }
-
     // ── evaluate_skew ──
 
     #[test]
-    fn test_evaluate_skew_zero_returns_normal() {
+    fn test_evaluate_skew_zero_offset_returns_normal() {
         let v = ClockValidator::new();
         let now = Utc::now();
 
@@ -401,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn test_evaluate_skew_small_offset_returns_normal() {
+    fn test_evaluate_skew_below_warning_returns_normal() {
         let v = ClockValidator::new();
         let now = Utc::now();
         let ntp_time = now + TimeDelta::milliseconds(50);
@@ -477,8 +472,8 @@ mod tests {
     // ── chronyc output parsing (table-driven) ──
 
     #[test]
-    fn test_parse_chrony_offset_fast_returns_positive() {
-        let output = "\
+    fn test_parse_chrony_offset_cases() {
+        let full_output = "\
 Reference ID    : A1B2C3D4 (ntp.example.com)
 Stratum         : 2
 Ref time (UTC)  : Thu Jan 01 00:00:00 2026
@@ -493,83 +488,71 @@ Root dispersion : 0.001234567 seconds
 Update interval : 64.0 seconds
 Leap status     : Normal";
 
-        let offset = parse_chrony_offset(output).unwrap();
+        let cases: &[(&str, Option<f64>, &str)] = &[
+            (full_output, Some(0.000123456), "fast in full output"),
+            (
+                "System time     : 0.005000000 seconds slow of NTP time",
+                Some(-0.005),
+                "slow returns negative",
+            ),
+            ("Reference ID    : A1B2C3D4\nStratum         : 2", None, "missing system time line"),
+            ("System time     : not_a_number seconds fast of NTP time", None, "malformed number"),
+            ("", None, "empty input"),
+        ];
 
-        assert!((offset - 0.000123456).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_parse_chrony_offset_slow_returns_negative() {
-        let output = "System time     : 0.005000000 seconds slow of NTP time";
-
-        let offset = parse_chrony_offset(output).unwrap();
-
-        assert!((offset - (-0.005)).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_parse_chrony_offset_missing_system_time_returns_none() {
-        let output = "Reference ID    : A1B2C3D4\nStratum         : 2";
-
-        assert!(parse_chrony_offset(output).is_none());
-    }
-
-    #[test]
-    fn test_parse_chrony_offset_malformed_number_returns_none() {
-        let output = "System time     : not_a_number seconds fast of NTP time";
-
-        assert!(parse_chrony_offset(output).is_none());
+        for (input, expected, label) in cases {
+            let result = parse_chrony_offset(input);
+            match expected {
+                Some(val) => {
+                    let actual = result.unwrap();
+                    assert!((actual - val).abs() < 1e-10, "[{label}] expected {val}, got {actual}");
+                },
+                None => {
+                    assert!(result.is_none(), "[{label}] expected None, got {result:?}");
+                },
+            }
+        }
     }
 
     // ── ntpdate output parsing (table-driven) ──
 
     #[test]
-    fn test_parse_ntpdate_offset_negative_value() {
-        let output = "server 192.168.1.1, stratum 2, offset -0.003163, delay 0.02567\n\
-                       21 Feb 14:30:00 ntpdate[12345]: adjust time server 192.168.1.1 offset -0.003163 sec";
+    fn test_parse_ntpdate_offset_cases() {
+        let cases: &[(&str, Option<f64>, &str)] = &[
+            (
+                "server 192.168.1.1, stratum 2, offset -0.003163, delay 0.02567\n\
+                 21 Feb 14:30:00 ntpdate[12345]: adjust time server 192.168.1.1 offset -0.003163 sec",
+                Some(-0.003163),
+                "negative offset",
+            ),
+            (
+                "server 10.0.0.1, stratum 1, offset 0.123456, delay 0.001",
+                Some(0.123456),
+                "positive offset",
+            ),
+            ("no server suitable for synchronization found", None, "no offset field"),
+            ("server 10.0.0.1, offset not_a_number, delay 0.001", None, "malformed number"),
+            ("", None, "empty input"),
+        ];
 
-        let offset = parse_ntpdate_offset(output).unwrap();
-
-        assert!((offset - (-0.003163)).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_parse_ntpdate_offset_positive_value() {
-        let output = "server 10.0.0.1, stratum 1, offset 0.123456, delay 0.001";
-
-        let offset = parse_ntpdate_offset(output).unwrap();
-
-        assert!((offset - 0.123456).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_parse_ntpdate_offset_no_offset_field_returns_none() {
-        let output = "no server suitable for synchronization found";
-
-        assert!(parse_ntpdate_offset(output).is_none());
-    }
-
-    #[test]
-    fn test_parse_ntpdate_offset_malformed_number_returns_none() {
-        let output = "server 10.0.0.1, offset not_a_number, delay 0.001";
-
-        assert!(parse_ntpdate_offset(output).is_none());
-    }
-
-    #[test]
-    fn test_parse_ntpdate_offset_empty_input_returns_none() {
-        assert!(parse_ntpdate_offset("").is_none());
-    }
-
-    #[test]
-    fn test_parse_chrony_offset_empty_input_returns_none() {
-        assert!(parse_chrony_offset("").is_none());
+        for (input, expected, label) in cases {
+            let result = parse_ntpdate_offset(input);
+            match expected {
+                Some(val) => {
+                    let actual = result.unwrap();
+                    assert!((actual - val).abs() < 1e-10, "[{label}] expected {val}, got {actual}");
+                },
+                None => {
+                    assert!(result.is_none(), "[{label}] expected None, got {result:?}");
+                },
+            }
+        }
     }
 
     // ── Async validation ──
 
     #[tokio::test]
-    async fn test_validate_unreachable_ntp_returns_ok_with_no_ntp_time() {
+    async fn test_validate_unreachable_ntp_returns_ok_with_normal_severity() {
         let v = ClockValidator {
             max_skew_ms: DEFAULT_MAX_SKEW_MS,
             ntp_servers: vec!["192.0.2.1".to_string()], // RFC 5737 TEST-NET, won't resolve
