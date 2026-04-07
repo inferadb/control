@@ -234,7 +234,7 @@ inferadb-control
 docker run -p 9090:9090 inferadb/control:latest --dev-mode
 ```
 
-### Docker Compose
+### Docker compose
 
 ```yaml
 services:

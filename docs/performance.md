@@ -1,12 +1,12 @@
-# Performance Characteristics
+# Performance characteristics
 
 InferaDB Control is designed for low-latency multi-tenant administration with built-in rate limiting and horizontal scaling via the Ledger backend.
 
-## Why It Matters
+## Why it matters
 
 Understanding token lifetimes, rate limits, and resource constraints helps you size deployments, configure clients, and debug unexpected 429 or timeout responses.
 
-## Token and Session Lifetimes
+## Token and session lifetimes
 
 These values are compile-time constants defined in `crates/const/src/duration.rs`:
 
@@ -22,7 +22,7 @@ These values are compile-time constants defined in `crates/const/src/duration.rs
 | Organization invitation        | 7 days     | `INVITATION_EXPIRY_DAYS` (7)                    |
 | Health check cache             | 5 seconds  | `HEALTH_CACHE_TTL_SECONDS` (5)                  |
 
-## Rate Limits
+## Rate limits
 
 Rate limits are enforced per IP and are not configurable at runtime. Defined in `crates/core/src/ratelimit.rs`:
 
@@ -42,7 +42,7 @@ When a rate limit is exceeded, the server returns HTTP 429 with a `Retry-After` 
 
 Unidentifiable clients (missing `X-Forwarded-For` when behind a proxy) share a single rate limit bucket.
 
-## Resource Limits
+## Resource limits
 
 Defined in `crates/const/src/limits.rs`:
 
@@ -55,11 +55,11 @@ Defined in `crates/const/src/limits.rs`:
 
 ## Scalability
 
-### Single Instance
+### Single instance
 
 The in-memory backend is limited to one instance. All data lives in RAM and is lost on restart. Use this for development and testing.
 
-### Horizontal Scaling (Ledger Backend)
+### Horizontal scaling (Ledger backend)
 
 With the Ledger backend, Control instances are stateless. Each instance needs a unique `--worker-id` (0-1023) for Snowflake ID generation.
 
@@ -70,19 +70,19 @@ Key properties:
 - **Rate Limits**: With the Ledger-backed rate limiter, limits are shared across instances.
 - **Session Affinity**: Not required.
 
-### Request Pipeline
+### Request pipeline
 
 The server uses the Tokio async runtime with a work-stealing scheduler. The concurrency limit is 10,000 simultaneous in-flight requests. A default body size limit of 256 KiB prevents memory exhaustion (schema deployment endpoints allow up to 1 MiB).
 
-## Optimization Guidelines
+## Optimization guidelines
 
-### Application Level
+### Application level
 
 - **Connection Pooling**: Maintain persistent connections to the Ledger backend.
 - **Org Membership Cache**: Successful membership checks are cached for 30 seconds (up to 4,096 entries) to avoid Ledger round-trips on every read request.
 - **Health Check Cache**: Ledger health probe results are cached for 5 seconds to absorb Kubernetes probe bursts.
 
-### Infrastructure Level
+### Infrastructure level
 
 - **Health Check Endpoint**: Use `GET /readyz` for load balancer health checks.
 - **Prometheus Metrics**: Scrape `GET /metrics` for request duration, storage latency, and rate limit counters.

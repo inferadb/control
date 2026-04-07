@@ -1,4 +1,4 @@
-# Getting Started
+# Getting started
 
 Set up InferaDB Control and make your first API calls in under five minutes.
 
@@ -257,12 +257,12 @@ All errors follow a consistent format:
 
 ```json
 {
-  "error": "VALIDATION_ERROR",
-  "message": "name must be between 1 and 128 characters"
+  "error": "name must be between 1 and 128 characters",
+  "code": "VALIDATION_ERROR"
 }
 ```
 
-| HTTP Status | Error Code             | Meaning                        |
+| HTTP Status | Code                   | Meaning                        |
 | ----------- | ---------------------- | ------------------------------ |
 | 400         | `VALIDATION_ERROR`     | Invalid request payload        |
 | 401         | `AUTHENTICATION_ERROR` | Missing or invalid credentials |
@@ -273,7 +273,7 @@ All errors follow a consistent format:
 
 ### Rate limits
 
-- Auth endpoints (login, verify, refresh): 100 requests/hour per IP
+- Login endpoints (initiate, verify, passkey, TOTP, recovery, refresh, token): 100 requests/hour per IP
 - Registration endpoint: 5 requests/day per IP
 
 ## Troubleshooting

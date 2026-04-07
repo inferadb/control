@@ -314,10 +314,8 @@ Immutable security event records. API path: `/control/v1/organizations/{org}/aud
 
 ```json
 {
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "name must be between 1 and 128 characters"
-  }
+  "error": "name must be between 1 and 128 characters",
+  "code": "VALIDATION_ERROR"
 }
 ```
 

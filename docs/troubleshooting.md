@@ -2,11 +2,11 @@
 
 Common issues and solutions for InferaDB Control.
 
-## Why It Matters
+## Why it matters
 
 Deployment and integration problems have patterns. This guide maps error messages to root causes so you can resolve issues without reading source code.
 
-## Quickstart Diagnostics
+## Quickstart diagnostics
 
 ```bash
 # Check if the server is running
@@ -22,7 +22,7 @@ env | grep INFERADB__CONTROL__ | grep -Evi '(secret|password|token|key|pem|crede
 inferadb-control --log-level debug
 ```
 
-## Build and Setup
+## Build and setup
 
 ### Compilation errors
 
@@ -46,7 +46,7 @@ For production with Ledger:
 
 ```bash
 inferadb-control --storage ledger \
-  --ledger-endpoint http://ledger:9200 \
+  --ledger-endpoint http://ledger:50051 \
   --ledger-client-id your-client-id
 ```
 
@@ -73,23 +73,20 @@ kill <PID>
 inferadb-control --key-file /etc/inferadb/master.key
 ```
 
-## Authentication and Sessions
+## Authentication and sessions
 
-### Session cookie not accepted
+### Authentication rejected
 
 `401 Unauthorized: Invalid session`
 
-Verify the cookie name and header format:
+Tokens are extracted from either the `Authorization: Bearer <token>` header or the `inferadb_access` cookie. The Bearer header takes precedence over cookies when both are present.
 
 ```bash
-# Correct
-curl -H "Cookie: infera_session=sess_abc123..."
+# Correct — Bearer token header (preferred)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:9090/control/v1/organizations
 
-# Wrong header (will fail)
-curl -H "Authorization: Bearer sess_abc123"
-
-# Wrong cookie name (will fail)
-curl -H "Cookie: session_id=sess_abc123"
+# Correct — inferadb_access cookie (browser clients)
+curl -H "Cookie: inferadb_access=$TOKEN" http://localhost:9090/control/v1/organizations
 ```
 
 ### Expired tokens
@@ -110,11 +107,11 @@ Each user can have up to 10 concurrent sessions. When the limit is reached, revo
 ```bash
 # Revoke all sessions
 curl -X POST http://localhost:9090/control/v1/auth/revoke-all \
-  -H "Cookie: infera_session={session_id}"
+  -H "Authorization: Bearer $TOKEN"
 
 # Log out the current session
 curl -X POST http://localhost:9090/control/v1/auth/logout \
-  -H "Cookie: infera_session={session_id}"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Rate limit exceeded
@@ -147,7 +144,7 @@ def auth_with_retry(url, payload, max_retries=5):
 
 If all users behind a proxy share the same rate limit bucket, verify that the proxy sets `X-Forwarded-For` and that `--trusted-proxy-depth` is configured correctly.
 
-## API Errors
+## API errors
 
 ### 400 Bad Request
 
@@ -180,7 +177,7 @@ Verify the resource ID is correct and that you have access to the resource:
 
 ```bash
 curl http://localhost:9090/control/v1/organizations \
-  -H "Cookie: infera_session={session_id}"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### 500 Internal Server Error
@@ -202,7 +199,7 @@ Use filters to narrow the result set:
 ```bash
 # Filtered by event type and outcome
 curl "http://localhost:9090/control/v1/organizations/{org}/audit-logs?event_type=ledger.vault&outcome=success&page_size=50" \
-  -H "Cookie: infera_session={session_id}"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### High memory usage
@@ -249,7 +246,7 @@ kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
   curl http://inferadb-control.infera.svc.cluster.local:9090/healthz
 ```
 
-## Email Delivery
+## Email delivery
 
 ### Verification emails not received
 
@@ -280,7 +277,7 @@ telnet smtp.example.com 587
 
 If email is not needed, leave `--email-host` empty (the default). The server runs without email capabilities when the host is empty.
 
-## Getting Help
+## Getting help
 
 1. Enable trace logging: `inferadb-control --log-level trace`
 2. Collect diagnostic info:

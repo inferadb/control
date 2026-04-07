@@ -1,8 +1,8 @@
-# Audit Logs
+# Audit logs
 
 The audit log API exposes immutable, per-organization event records from Ledger's append-only event system.
 
-## Why It Matters
+## Why it matters
 
 Audit logs provide the evidence trail for security compliance, incident response, and operational visibility. Every security-relevant action -- resource creation, modification, deletion, and access changes -- produces an immutable event record scoped to the organization where it occurred.
 
@@ -12,7 +12,7 @@ Fetch the 50 most recent audit events for an organization:
 
 ```bash
 curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs" \
-  -H "Cookie: infera_session={session_id}"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Endpoint
@@ -23,7 +23,7 @@ GET /control/v1/organizations/{org}/audit-logs
 
 Requires a valid JWT (local validation, no Ledger round-trip). The caller must be a member of the organization.
 
-### Query Parameters
+### Query parameters
 
 | Parameter    | Type    | Default | Description                                                |
 | ------------ | ------- | ------- | ---------------------------------------------------------- |
@@ -66,7 +66,7 @@ When you pass a `page_token`, the server uses the filters encoded in the origina
 
 Both `next_page_token` and `total_estimate` are omitted from the JSON when null.
 
-## Audit Log Entry Fields
+## Audit log entry fields
 
 | Field        | Type              | Description                                              |
 | ------------ | ----------------- | -------------------------------------------------------- |
@@ -79,7 +79,7 @@ Both `next_page_token` and `total_estimate` are omitted from the JSON when null.
 | `action`     | string            | Machine-readable action name (e.g., `vault_created`)     |
 | `details`    | object            | Key-value context; varies by event type                  |
 
-### Outcome Values
+### Outcome values
 
 | Outcome           | Meaning                                |
 | ----------------- | -------------------------------------- |
@@ -101,33 +101,33 @@ Filter by event type prefix:
 
 ```bash
 curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?event_type=ledger.vault" \
-  -H "Cookie: infera_session={session_id}"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 Filter by principal:
 
 ```bash
 curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?principal=user:456" \
-  -H "Cookie: infera_session={session_id}"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 Combine filters:
 
 ```bash
 curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?event_type=ledger.vault&outcome=success&page_size=100" \
-  -H "Cookie: infera_session={session_id}"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 Fetch the next page:
 
 ```bash
 curl -X GET "http://localhost:9090/control/v1/organizations/{org}/audit-logs?page_token={next_page_token}" \
-  -H "Cookie: infera_session={session_id}"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Permissions
 
-The handler calls `verify_org_membership_from_claims` before returning results. You must be a member of the organization to access its audit logs.
+You must be a member of the organization to view its audit logs.
 
 ## Troubleshooting
 

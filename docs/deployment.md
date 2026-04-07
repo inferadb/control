@@ -1,8 +1,8 @@
-# Deployment Guide
+# Deployment guide
 
 This guide covers production deployment of the `inferadb-control` binary.
 
-## Why It Matters
+## Why it matters
 
 A correct deployment requires matching CLI flags to your infrastructure, configuring health probes, and securing secrets. Mistakes here cause silent data loss (wrong storage backend) or authentication failures (wrong key configuration).
 
@@ -20,7 +20,7 @@ Production (Ledger backend):
 inferadb-control \
   --listen 0.0.0.0:9090 \
   --storage ledger \
-  --ledger-endpoint http://ledger:9200 \
+  --ledger-endpoint http://ledger:50051 \
   --ledger-client-id control-prod-01 \
   --key-file /etc/inferadb/master.key \
   --frontend-url https://dashboard.example.com \
@@ -34,7 +34,7 @@ All configuration uses CLI flags or environment variables. There are no config f
 
 Precedence: CLI flag > environment variable > default value.
 
-### CLI Flags
+### CLI flags
 
 | Flag                    | Type                   | Default                 | Description                                                     |
 | ----------------------- | ---------------------- | ----------------------- | --------------------------------------------------------------- |
@@ -61,7 +61,7 @@ Precedence: CLI flag > environment variable > default value.
 | `--trusted-proxy-depth` | NonZeroU8              | --                      | Number of trusted reverse proxies for `X-Forwarded-For`         |
 | `--worker-id`           | u16                    | random                  | Snowflake ID worker ID (0-1023, must be unique per instance)    |
 
-### Environment Variables
+### Environment variables
 
 Every CLI flag maps to an environment variable with the `INFERADB__CONTROL__` prefix. Hyphens in flag names become underscores:
 
@@ -69,7 +69,7 @@ Every CLI flag maps to an environment variable with the `INFERADB__CONTROL__` pr
 export INFERADB__CONTROL__LISTEN="0.0.0.0:9090"
 export INFERADB__CONTROL__STORAGE="ledger"
 export INFERADB__CONTROL__KEY_FILE="/etc/inferadb/master.key"
-export INFERADB__CONTROL__LEDGER_ENDPOINT="http://ledger:9200"
+export INFERADB__CONTROL__LEDGER_ENDPOINT="http://ledger:50051"
 export INFERADB__CONTROL__LEDGER_CLIENT_ID="control-prod-01"
 export INFERADB__CONTROL__LOG_LEVEL="info"
 export INFERADB__CONTROL__LOG_FORMAT="json"
@@ -79,7 +79,7 @@ Exception: `--dev-mode` has no environment variable. It must be an explicit CLI 
 
 Store secrets (`INFERADB__CONTROL__PEM`, `INFERADB__CONTROL__EMAIL_PASSWORD`, `INFERADB__CONTROL__EMAIL_BLINDING_KEY`) in a secrets manager. Do not commit them to version control.
 
-## Authentication Keys
+## Authentication keys
 
 **Ed25519 Identity Key** (JWT signing): Provide via `--pem`. If omitted, a new keypair is generated on each startup, invalidating all existing tokens.
 
@@ -90,7 +90,7 @@ inferadb-control --pem "$(cat identity.pem)"
 
 **AES-256-GCM Master Key** (encrypting private keys at rest): The `--key-file` path points to a 32-byte key file. If the file does not exist, a new key is auto-generated with restrictive permissions (0600).
 
-## Health Checks
+## Health checks
 
 Control exposes four health endpoints. None require authentication.
 
@@ -116,7 +116,7 @@ Control exposes four health endpoints. None require authentication.
 
 Health check results are cached for 5 seconds to protect Ledger from probe bursts.
 
-## Graceful Shutdown
+## Graceful shutdown
 
 Control handles `SIGTERM` and `SIGINT`:
 
@@ -147,11 +147,11 @@ Prometheus metrics are exposed at `GET /metrics` (no authentication). Key metric
 
 ## Security
 
-### TLS
+### TLS termination
 
 Control does not terminate TLS. Place it behind a reverse proxy or load balancer that handles TLS.
 
-### CORS
+### CORS configuration
 
 CORS is configured from `--frontend-url`. Set this to your web dashboard origin:
 
@@ -159,7 +159,7 @@ CORS is configured from `--frontend-url`. Set this to your web dashboard origin:
 inferadb-control --frontend-url https://dashboard.example.com
 ```
 
-### Rate Limiting
+### Rate limiting
 
 Built-in rate limits are enforced per IP and are not configurable:
 
@@ -168,13 +168,13 @@ Built-in rate limits are enforced per IP and are not configurable:
 
 Deploy behind a reverse proxy that sets `X-Forwarded-For`, and use `--trusted-proxy-depth` to specify how many proxy hops to trust.
 
-### Network Security
+### Network security
 
 - Use private networks for Ledger gRPC connections.
 - Restrict ingress to the load balancer.
 - The metrics endpoint (`/metrics`) has no authentication; protect it with network policy.
 
-## Kubernetes Example
+## Kubernetes example
 
 ```yaml
 apiVersion: v1
@@ -216,7 +216,7 @@ spec:
             periodSeconds: 2
 ```
 
-## Deployment Checklist
+## Deployment checklist
 
 - [ ] `--storage ledger` with `--ledger-endpoint` and `--ledger-client-id` configured
 - [ ] Ed25519 PEM key persisted (not auto-generated per restart)

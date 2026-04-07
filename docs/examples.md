@@ -958,8 +958,8 @@ curl -s -w "\nHTTP %{http_code}\n" http://localhost:9090/control/v1/organization
 
 ```json
 {
-  "error": "AUTHENTICATION_ERROR",
-  "message": "Authentication error: missing or invalid token"
+  "error": "missing or invalid token",
+  "code": "AUTHENTICATION_ERROR"
 }
 HTTP 401
 ```
@@ -975,8 +975,8 @@ curl -s -w "\nHTTP %{http_code}\n" -X POST http://localhost:9090/control/v1/orga
 
 ```json
 {
-  "error": "VALIDATION_ERROR",
-  "message": "Validation error: name must be between 1 and 128 characters"
+  "error": "name must be between 1 and 128 characters",
+  "code": "VALIDATION_ERROR"
 }
 HTTP 400
 ```
@@ -987,8 +987,8 @@ Auth endpoints are rate-limited at 100 requests/hour per IP. Registration is lim
 
 ```json
 {
-  "error": "RATE_LIMIT_EXCEEDED",
-  "message": "Rate limit exceeded: too many requests"
+  "error": "rate limit exceeded",
+  "code": "RATE_LIMIT_EXCEEDED"
 }
 HTTP 429
 ```
@@ -997,8 +997,8 @@ HTTP 429
 
 ```json
 {
-  "error": "NOT_FOUND",
-  "message": "Resource not found: organization 999"
+  "error": "organization not found",
+  "code": "NOT_FOUND"
 }
 HTTP 404
 ```
