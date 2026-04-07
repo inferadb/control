@@ -76,15 +76,15 @@ graph TB
 inferadb-control (bin) --> api --> core --> storage --> inferadb-common-storage --> Ledger
 ```
 
-| Crate | Purpose |
-|---|---|
-| `control` | Binary entrypoint |
-| `api` | HTTP handlers, middleware, route definitions |
-| `core` | Auth, crypto, JWT, email, rate limiting |
-| `config` | CLI configuration (`clap::Parser`) |
-| `storage` | Storage factory, backend abstraction |
-| `types` | `Error` enum, `Result` alias |
-| `const` | Compile-time constants (limits, durations, auth) |
+| Crate     | Purpose                                          |
+| --------- | ------------------------------------------------ |
+| `control` | Binary entrypoint                                |
+| `api`     | HTTP handlers, middleware, route definitions     |
+| `core`    | Auth, crypto, JWT, email, rate limiting          |
+| `config`  | CLI configuration (`clap::Parser`)               |
+| `storage` | Storage factory, backend abstraction             |
+| `types`   | `Error` enum, `Result` alias                     |
+| `const`   | Compile-time constants (limits, durations, auth) |
 
 ## Deployment topologies
 
@@ -257,28 +257,28 @@ sequenceDiagram
 
 ## Security layers
 
-| Layer | Mechanism |
-|---|---|
-| Transport | TLS 1.3 (terminated at load balancer) |
-| Rate limiting | Per-IP on auth endpoints, distributed via Ledger |
-| Authentication | JWT (Ed25519), cookie-based sessions, client assertions |
-| Authorization | Organization RBAC (Member/Admin/Owner), vault roles (Reader/Writer/Manager/Admin) |
-| Data protection | AES-256-GCM encryption at rest for private keys, Argon2id password hashing |
-| Audit | Immutable audit log per organization |
+| Layer           | Mechanism                                                                         |
+| --------------- | --------------------------------------------------------------------------------- |
+| Transport       | TLS 1.3 (terminated at load balancer)                                             |
+| Rate limiting   | Per-IP on auth endpoints, distributed via Ledger                                  |
+| Authentication  | JWT (Ed25519), cookie-based sessions, client assertions                           |
+| Authorization   | Organization RBAC (Member/Admin/Owner), vault roles (Reader/Writer/Manager/Admin) |
+| Data protection | AES-256-GCM encryption at rest for private keys, Argon2id password hashing        |
+| Audit           | Immutable audit log per organization                                              |
 
 ## Technology stack
 
-| Component | Technology |
-|---|---|
-| Language | Rust 1.92 (2024 edition) |
-| Async runtime | Tokio |
-| HTTP framework | Axum + Tower middleware |
-| Storage | InferaDB Ledger (Raft-based) / In-memory HashMap |
-| JWT signing | Ed25519 via `jsonwebtoken` |
-| Password hashing | Argon2id |
-| Encryption | AES-256-GCM |
-| WebAuthn | `webauthn-rs` |
-| Observability | `tracing` (structured logs), `metrics` (Prometheus) |
-| Configuration | `clap::Parser` with env var fallbacks |
-| Builder pattern | `bon` |
-| Error handling | `snafu` |
+| Component        | Technology                                          |
+| ---------------- | --------------------------------------------------- |
+| Language         | Rust 1.92 (2024 edition)                            |
+| Async runtime    | Tokio                                               |
+| HTTP framework   | Axum + Tower middleware                             |
+| Storage          | InferaDB Ledger (Raft-based) / In-memory HashMap    |
+| JWT signing      | Ed25519 via `jsonwebtoken`                          |
+| Password hashing | Argon2id                                            |
+| Encryption       | AES-256-GCM                                         |
+| WebAuthn         | `webauthn-rs`                                       |
+| Observability    | `tracing` (structured logs), `metrics` (Prometheus) |
+| Configuration    | `clap::Parser` with env var fallbacks               |
+| Builder pattern  | `bon`                                               |
+| Error handling   | `snafu`                                             |

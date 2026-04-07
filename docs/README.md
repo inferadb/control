@@ -52,13 +52,13 @@ inferadb-control \
 
 ## Health endpoints
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /livez` | Liveness probe (process alive?) |
-| `GET /readyz` | Readiness probe (Ledger reachable?) |
-| `GET /startupz` | Startup probe (initialization complete?) |
-| `GET /healthz` | Detailed JSON status with version and uptime |
-| `GET /metrics` | Prometheus metrics (network-policy protected) |
+| Endpoint        | Purpose                                       |
+| --------------- | --------------------------------------------- |
+| `GET /livez`    | Liveness probe (process alive?)               |
+| `GET /readyz`   | Readiness probe (Ledger reachable?)           |
+| `GET /startupz` | Startup probe (initialization complete?)      |
+| `GET /healthz`  | Detailed JSON status with version and uptime  |
+| `GET /metrics`  | Prometheus metrics (network-policy protected) |
 
 ## Links
 

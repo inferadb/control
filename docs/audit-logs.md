@@ -25,13 +25,13 @@ Requires a valid JWT (local validation, no Ledger round-trip). The caller must b
 
 ### Query Parameters
 
-| Parameter    | Type    | Default | Description                                              |
-| ------------ | ------- | ------- | -------------------------------------------------------- |
-| `page_size`  | integer | 50      | Items per page, clamped to 1-100                         |
+| Parameter    | Type    | Default | Description                                                |
+| ------------ | ------- | ------- | ---------------------------------------------------------- |
+| `page_size`  | integer | 50      | Items per page, clamped to 1-100                           |
 | `page_token` | string  | --      | Opaque cursor from a previous response's `next_page_token` |
-| `event_type` | string  | --      | Filter by event type prefix (e.g., `ledger.vault`)       |
-| `principal`  | string  | --      | Filter by principal (e.g., `user:42`)                    |
-| `outcome`    | string  | --      | Filter by outcome: `success`, `failed`, or `denied`      |
+| `event_type` | string  | --      | Filter by event type prefix (e.g., `ledger.vault`)         |
+| `principal`  | string  | --      | Filter by principal (e.g., `user:42`)                      |
+| `outcome`    | string  | --      | Filter by outcome: `success`, `failed`, or `denied`        |
 
 When you pass a `page_token`, the server uses the filters encoded in the original query. Do not combine `page_token` with other filter parameters.
 
@@ -58,34 +58,34 @@ When you pass a `page_token`, the server uses the filters encoded in the origina
 }
 ```
 
-| Field             | Type     | Description                                                   |
-| ----------------- | -------- | ------------------------------------------------------------- |
-| `entries`         | array    | Audit log entries for the current page                        |
-| `next_page_token` | string?  | Opaque token for the next page (absent when no more pages)    |
-| `total_estimate`  | integer? | Approximate total matching entries (may be absent)            |
+| Field             | Type     | Description                                                |
+| ----------------- | -------- | ---------------------------------------------------------- |
+| `entries`         | array    | Audit log entries for the current page                     |
+| `next_page_token` | string?  | Opaque token for the next page (absent when no more pages) |
+| `total_estimate`  | integer? | Approximate total matching entries (may be absent)         |
 
 Both `next_page_token` and `total_estimate` are omitted from the JSON when null.
 
 ## Audit Log Entry Fields
 
-| Field        | Type              | Description                                            |
-| ------------ | ----------------- | ------------------------------------------------------ |
-| `event_id`   | string (UUID)     | Unique event identifier                                |
-| `event_type` | string            | Hierarchical event type (e.g., `ledger.vault.created`) |
-| `principal`  | string            | Who performed the action (e.g., `user:42`)             |
+| Field        | Type              | Description                                              |
+| ------------ | ----------------- | -------------------------------------------------------- |
+| `event_id`   | string (UUID)     | Unique event identifier                                  |
+| `event_type` | string            | Hierarchical event type (e.g., `ledger.vault.created`)   |
+| `principal`  | string            | Who performed the action (e.g., `user:42`)               |
 | `outcome`    | string            | Result: `success`, `failed:{code}`, or `denied:{reason}` |
-| `timestamp`  | string (RFC 3339) | When the event occurred (UTC)                          |
-| `source`     | string            | Service that emitted the event (e.g., `control`)       |
-| `action`     | string            | Machine-readable action name (e.g., `vault_created`)   |
-| `details`    | object            | Key-value context; varies by event type                |
+| `timestamp`  | string (RFC 3339) | When the event occurred (UTC)                            |
+| `source`     | string            | Service that emitted the event (e.g., `control`)         |
+| `action`     | string            | Machine-readable action name (e.g., `vault_created`)     |
+| `details`    | object            | Key-value context; varies by event type                  |
 
 ### Outcome Values
 
-| Outcome           | Meaning                                 |
-| ----------------- | --------------------------------------- |
-| `success`         | Operation completed                     |
-| `failed:{code}`   | Operation failed with the given code    |
-| `denied:{reason}` | Operation denied with the given reason  |
+| Outcome           | Meaning                                |
+| ----------------- | -------------------------------------- |
+| `success`         | Operation completed                    |
+| `failed:{code}`   | Operation failed with the given code   |
+| `denied:{reason}` | Operation denied with the given reason |
 
 ## Pagination
 

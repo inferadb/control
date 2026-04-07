@@ -1,375 +1,111 @@
-# Control: Architecture & Entity Reference
+# Control: entity reference and API specification
 
-> **Developer Guide**: This document provides a comprehensive reference for InferaDB Control architecture, data model, and core entity definitions. Use this as your primary reference when implementing features or understanding system behavior.
+Complete reference for InferaDB Control's data model, REST API, behavioral rules, configuration, and error taxonomy. This is the authoritative source for building integrations and understanding system behavior.
 
-## Overview
-
-The **Control** is InferaDB's control plane, providing self-service capabilities for users to manage their accounts, organizations, teams, vaults, and access control. It serves as the orchestration layer between client applications (Dashboard, CLI, SDKs) and the InferaDB Engine (data plane).
-
-**Key Responsibilities**:
-
-- User authentication & session management (email code, passkey/WebAuthn, TOTP, client assertion)
-- Multi-tenant organization management with role-based access control (RBAC)
-- Vault lifecycle management (create, configure, sync with Engine, delete)
-- Client credential management for backend services (Ed25519 certificates, OAuth 2.0 JWT Bearer)
-- Token issuance for Engine API access (vault-scoped JWTs with refresh tokens)
-- Audit logging for security events and compliance
-
-**Architecture**:
-
-- **Storage**: Ledger (production) or in-memory (development)
-- **Engine Communication**: gRPC for real-time vault synchronization
-- **Client APIs**: REST (Dashboard, CLI, SDKs)
-- **Deployment**: Single-instance (dev/small deployments) or multi-instance HA (production)
-
-**Related Documentation**:
-
-- [architecture.md](architecture.md) - System architecture diagrams and deployment topologies
-- [flows.md](flows.md) - Sequence diagrams for key operations (registration, login, token generation)
-- [authentication.md](authentication.md) - Complete authentication and authorization guide
-- [getting-started.md](getting-started.md) - Step-by-step setup tutorial
-- [OpenAPI Specification](../openapi.yaml) - Complete REST API reference
+Control is the administration layer for InferaDB. It manages user authentication, multi-tenant organizations, teams, vaults, client credentials, schema deployment, and audit logging.
 
 ---
 
-## Table of Contents
+## Table of contents
 
-### Foundation
+### Entities
 
-- [Primary Keys](#primary-keys) - Snowflake ID generation and collision avoidance
+- [Primary keys](#primary-keys)
+- [Users](#users) -- User, UserEmail, UserPasskey, UserSession
+- [Organizations](#organizations) -- Organization, OrganizationMember, OrganizationRole, OrganizationInvitation, OrganizationTier
+- [Teams](#teams) -- OrganizationTeam, OrganizationTeamMember
+- [Clients](#clients) -- Client, ClientCertificate
+- [Vaults](#vaults) -- Vault, VaultRole
+- [Tokens](#tokens) -- VaultRefreshToken
+- [Audit](#audit) -- AuditLog
 
-### Core Entities
+### API reference
 
-- [User Management](#user-management)
-  - [User](#user) - User accounts
-  - [UserEmail](#useremail) - Email addresses and verification
-  - [UserEmailVerificationToken](#useremailverificationtoken) - Email ownership verification
-  - [UserPasswordResetToken](#userpasswordresettoken) - Password reset flow
-  - [UserPasskey](#userpasskey) - WebAuthn/FIDO2 credentials
-  - [UserSession](#usersession) - Authentication sessions
-  - [SessionType](#sessiontype) - Session type enumeration
+- [REST API conventions](#rest-api-conventions)
+- [Authentication endpoints](#authentication-endpoints)
+- [User endpoints](#user-endpoints)
+- [Email endpoints](#email-endpoints)
+- [Passkey endpoints](#passkey-endpoints)
+- [Organization endpoints](#organization-endpoints)
+- [Organization member endpoints](#organization-member-endpoints)
+- [Invitation endpoints](#invitation-endpoints)
+- [Team endpoints](#team-endpoints)
+- [Team member endpoints](#team-member-endpoints)
+- [Client endpoints](#client-endpoints)
+- [Certificate endpoints](#certificate-endpoints)
+- [Vault endpoints](#vault-endpoints)
+- [Vault token endpoints](#vault-token-endpoints)
+- [Schema endpoints](#schema-endpoints)
+- [Audit log endpoints](#audit-log-endpoints)
+- [Health endpoints](#health-endpoints)
+- [Metrics endpoint](#metrics-endpoint)
 
-- [Organizations](#organizations)
-  - [Organization](#organization) - Tenant/organization entities
-  - [OrganizationMember](#organizationmember) - User membership in organizations
-  - [OrganizationRole](#organizationrole) - Member, Admin, Owner roles
-  - [OrganizationInvitation](#organizationinvitation) - Invite users to join
-  - [OrganizationTier](#organizationtier) - Billing tiers and limits
+### Behavioral rules
 
-- [Teams](#teams)
-  - [OrganizationTeam](#organizationteam) - Groups of users within organizations
-  - [OrganizationTeamMember](#organizationteammember) - Team membership
-  - [OrganizationTeamPermission](#organizationteampermission) - Delegated permissions
-  - [OrganizationPermission](#organizationpermission) - Permission enumeration
+- [Registration flow](#registration-flow)
+- [Organization lifecycle](#organization-lifecycle)
+- [Team lifecycle](#team-lifecycle)
+- [Client and certificate management](#client-and-certificate-management)
+- [Vault lifecycle](#vault-lifecycle)
+- [Session management](#session-management)
+- [Rate limiting](#rate-limiting)
+- [Soft delete and cleanup](#soft-delete-and-cleanup)
 
-- [Clients](#clients)
-  - [Client](#client) - Service identities for backend applications
-  - [ClientCertificate](#clientcertificate) - Ed25519 key pairs for JWT signing
+### System
 
-- [Vaults](#vaults)
-  - [Vault](#vault) - Authorization policy containers
-  - [VaultSyncStatus](#vaultsyncstatus) - Synchronization status with Engine
-  - [VaultTeamGrant](#vaultteamgrant) - Team-based vault access
-  - [VaultUserGrant](#vaultusergrant) - Direct user vault access
-  - [VaultRole](#vaultrole) - Reader, Writer, Manager, Admin roles
-
-- [Tokens](#tokens)
-  - [VaultRefreshToken](#vaultrefreshtoken) - Long-lived refresh tokens for vault JWTs
-
-- [Audit](#audit)
-  - [AuditLog](#auditlog) - Security event logging
-  - [AuditEventType](#auditeventtype) - Event type enumeration
-
-### System Behavior
-
-- [Behavioral Rules](#behavioral-rules) - Entity lifecycle and business logic
-- [Authentication & Authorization](#authentication--authorization) - Login flows and token management
-- [Email Flows](#email-flows) - Email verification and password reset
-
-### System Design
-
-- [API Design](#api-design) - REST conventions and best practices
-- [Control → Engine Authentication](#control--engine-privileged-authentication) - Inter-service communication
-- [Engine API Integration](#engine-api-role-enforcement--tenant-isolation) - Role enforcement and tenant isolation
-- [Configuration](#configuration) - Environment variables and settings
-- [Multi-Instance Deployment](#multi-instance-deployment--distributed-coordination) - HA setup and worker coordination
-- [Multi-Tenancy & Data Isolation](#multi-tenancy--data-isolation) - Tenant separation guarantees
-- [Soft Delete & Cleanup](#soft-delete--cleanup) - Grace periods and TTL-based cleanup
-
-### Operations
-
-- [Testing Strategy](#testing-strategy) - Test coverage and approaches
-- [Error Response Taxonomy](#error-response-taxonomy) - Standardized error codes
-- [Enhanced Security Features](#enhanced-security-features) - Rate limiting and security hardening
-- [Observability & Monitoring](#observability--monitoring-day-1) - Logging, metrics, and tracing
-
-### Planning
-
-- [Future Considerations](#future-considerations) - Roadmap and enhancement ideas
+- [Error response taxonomy](#error-response-taxonomy)
+- [Configuration reference](#configuration-reference)
 
 ---
 
-## Primary Keys
+## Primary keys
 
-All entities use **Twitter Snowflake IDs** for primary keys to remain storage-layer agnostic. Snowflake IDs are:
+All entities use 64-bit Snowflake IDs: `timestamp (41 bits) | worker_id (10 bits) | sequence (12 bits)`.
 
-- 64-bit integers (sortable by creation time)
-- Globally unique across all entity types
-- Compatible with in-memory, Ledger, and future storage backends
-- Encoded as strings in JSON APIs to avoid JavaScript integer precision issues
-
-### Snowflake ID Implementation
-
-We use the [idgenerator](https://crates.io/crates/idgenerator) crate for Twitter Snowflake ID generation:
-
-**Format**: `timestamp (41 bits) | worker_id (10 bits) | sequence (12 bits)`
-
-**Configuration**:
-
-- **Worker ID**: Derived from server instance (0-1023)
-  - For single-instance deployments: 0
-  - For multi-instance deployments: assigned via environment variable or container orchestration (e.g., pod ordinal from StatefulSet)
-  - Worker IDs must be statically assigned and unique across all instances
-  - In Kubernetes: Use pod ordinal index from StatefulSet (e.g., `inferadb-control-0` → worker_id=0)
-  - In Docker/VM: Assign via environment variable in deployment configuration
-  - **Collision Detection**: On startup, register worker_id in storage with heartbeat timestamp:
-    - Create ephemeral key: `workers/active/<worker_id>` with TTL (30 seconds)
-    - If key already exists with recent heartbeat (< 30s ago), FAIL STARTUP with error: "Worker ID {worker_id} collision detected - another instance is running"
-    - Heartbeat updates every 10 seconds during runtime
-    - On graceful shutdown, delete worker key immediately
-    - Stale worker keys (> 30s old) are automatically cleaned up by TTL
-- **Epoch**: Custom epoch starting at `2024-01-01T00:00:00Z` (1704067200 seconds)
-- **Thread Safety**: Single global `IdInstance` protected by `Mutex` or use thread-local generators
-- **Uniqueness Guarantee**: Up to 4096 IDs per millisecond per worker
-- **Clock Synchronization**:
-  - All instances MUST use NTP or similar time synchronization (required)
-  - Maximum acceptable clock skew: 1 second (configurable via `config.id_generation.max_clock_skew_ms`)
-  - On startup, validate system clock against NTP server (fail-fast if skew exceeds threshold)
-  - Monitor clock skew via metrics and alert if approaching threshold
-  - If clock skew detected at runtime: Log warning and continue (IDs remain unique due to worker_id isolation)
-
-**Usage**:
-
-```rust
-use idgenerator::{IdInstance, IdGeneratorOptions};
-
-// Initialize once at startup
-let options = IdGeneratorOptions::new()
-    .worker_id(0)
-    .worker_id_bit_len(10);
-let mut id_gen = IdInstance::new(options);
-
-// Generate IDs
-let user_id = id_gen.next_id(); // Returns i64
-```
-
-**Storage**: IDs are stored as `i64` in Ledger and serialized as strings in JSON responses to avoid JavaScript's 53-bit integer precision limit.
+- Sortable by creation time
+- Globally unique across entity types
+- Serialized as strings in JSON (avoids JavaScript 53-bit precision loss)
+- Custom epoch: `2024-01-01T00:00:00Z`
+- Up to 4096 IDs per millisecond per worker (0--1023)
+- Worker ID collision detection via Ledger heartbeat (30s TTL, 10s interval)
 
 ---
 
-## Entity Definitions
-
-This section provides detailed specifications for all entities in Control data model. Each entity includes:
-
-- **Purpose**: What the entity represents
-- **Data**: Field definitions with types, constraints, and validation rules
-- **Constraints**: Uniqueness requirements and business rules
-- **Cascade Delete**: Behavior when parent entities are deleted
-- **API Path**: REST endpoint location
-
-> **Implementation Note**: All entities support soft deletion (90-day grace period) unless otherwise noted. See [Soft Delete & Cleanup](#soft-delete--cleanup) for details.
-
----
-
-## User Management
+## Users
 
 ### User
 
-Represents an individual user. Lives under the `/control/v1/users` API path.
+An individual user account. API path: `/control/v1/users/me`.
 
-**Registration**: Anyone CAN register a new User account.
+| Field        | Type              | Description                                                                                |
+| ------------ | ----------------- | ------------------------------------------------------------------------------------------ |
+| `slug`       | u64               | Snowflake ID                                                                               |
+| `name`       | string            | Display name (1--128 chars, alphanumeric + hyphens/underscores/spaces/periods/apostrophes) |
+| `status`     | string            | Account status (e.g., `"active"`, `"deleted"`)                                             |
+| `role`       | string            | Platform role (e.g., `"user"`)                                                             |
+| `created_at` | string (RFC 3339) | Account creation timestamp                                                                 |
 
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **name** (string, required): User's display name
-  - Max length: 100 characters
-  - Allowed characters: Unicode letters, spaces, hyphens, apostrophes (regex: `^[\p{L}\p{M}\s'-]+$`)
-  - No HTML/script tags allowed
-- **created_at** (DateTime UTC, required): When account was created
-- **tos_accepted_at** (DateTime UTC, optional): When user last accepted Terms of Service
-- **password_hash** (string, optional): Argon2id hash of password
-  - When unset, password-based authentication is disabled for this user
-  - Format: PHC string format (includes algorithm, parameters, salt, hash)
-- **deleted_at** (DateTime UTC, optional): Soft delete timestamp
-  - When set, account is considered deleted
-  - 90-day grace period before cleanup
-  - Users cannot be deleted if they are the only Owner of any Organization
-
-**Constraints**:
-
-- Users MUST have at least one verified email to perform sensitive operations
-- Users cannot be deleted if they are the only Owner of any Organization (must transfer ownership or delete organizations first)
-
-**Cascade Delete**: When soft-deleted, all associated UserSession, UserPasskey, UserEmail, and OrganizationMember entries are also soft-deleted. UserPasswordResetToken and UserEmailVerificationToken entries are immediately hard-deleted.
-
----
+Users must have at least one verified email for sensitive operations. Users cannot be deleted if they are the sole Owner of any organization.
 
 ### UserEmail
 
-Represents a unique email address for a User account. Lives under the `/control/v1/users/emails` API path.
+An email address belonging to a user. API path: `/control/v1/users/emails`.
 
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **user_id** (Snowflake ID, required): User this email belongs to
-- **email** (string, required): Email address
-  - Max length: 255 characters
-  - Case-insensitive (stored lowercase)
-  - Validation: RFC 5322 compliant, with common international characters
-  - No HTML/script tags allowed
-  - **MUST be globally unique** (one email cannot be used for multiple accounts)
-- **primary** (boolean, required): Whether this is the user's primary email
-  - Default: false
-  - Only one email per user can be primary
-  - First email added is automatically set as primary
-- **verified_at** (DateTime UTC, optional): When email was verified
-  - Unverified emails cannot be used for password reset or sensitive operations
-
-**Constraints**:
-
-- Each User can have multiple emails
-- Exactly one email per User must be marked as `primary`
-- Email addresses are globally unique (enforced at storage layer)
-
-**Cascade Delete**: When User is deleted, all UserEmail entries are soft-deleted.
-
----
-
-### UserEmailVerificationToken
-
-Represents a token for verifying email ownership. Not exposed via REST API (internal use only).
-
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **user_email_id** (Snowflake ID, required): Email being verified
-- **token** (string, required): Cryptographically secure random token (32 bytes, hex-encoded)
-  - Must be globally unique (enforced at storage layer via index)
-- **created_at** (DateTime UTC, required): When token was created
-- **expires_at** (DateTime UTC, required): When token expires (24 hours from creation)
-
-**Behavior**:
-
-- Tokens are single-use
-- Expired tokens are automatically cleaned up
-- When email is successfully verified, token is hard-deleted
-
----
-
-### UserPasswordResetToken
-
-Represents a token for password reset. Not exposed via REST API (internal use only).
-
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **user_id** (Snowflake ID, required): User requesting password reset
-- **token** (string, required): Cryptographically secure random token (32 bytes, hex-encoded)
-  - Must be globally unique (enforced at storage layer via index)
-- **created_at** (DateTime UTC, required): When token was created
-- **expires_at** (DateTime UTC, required): When token expires (1 hour from creation)
-
-**Behavior**:
-
-- Tokens are single-use
-- Expired tokens are automatically cleaned up
-- When password is successfully reset, all UserPasswordResetToken entries for that user are hard-deleted
-- All UserSession entries for that user are immediately invalidated (soft-deleted)
-
----
+| Field         | Type              | Description                                       |
+| ------------- | ----------------- | ------------------------------------------------- |
+| `slug`        | u64               | Snowflake ID                                      |
+| `email`       | string            | Email address (globally unique, case-insensitive) |
+| `verified`    | bool              | Whether the email has been verified               |
+| `created_at`  | string (RFC 3339) | Creation timestamp                                |
+| `verified_at` | string (RFC 3339) | Verification timestamp                            |
 
 ### UserPasskey
 
-Represents a WebAuthn passkey (FIDO2 credential). Lives under the `/control/v1/users/me/credentials/passkeys` API path.
-
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **user_id** (Snowflake ID, required): User this passkey belongs to
-- **name** (string, required): User-defined name for this passkey (e.g., "iPhone 15", "YubiKey 5")
-  - Max length: 100 characters
-  - Allowed characters: Unicode letters, numbers, spaces, hyphens (regex: `^[\p{L}\p{N}\s-]+$`)
-  - No HTML/script tags allowed
-- **credential_id** (bytes, required): WebAuthn credential ID (base64url-encoded in JSON)
-- **public_key** (bytes, required): COSE-encoded public key
-- **sign_count** (u32, required): Signature counter for replay attack prevention
-- **aaguid** (bytes, optional): Authenticator attestation GUID
-- **transports** (string array, optional): Supported transports (e.g., ["usb", "nfc", "ble", "internal"])
-- **created_at** (DateTime UTC, required): When passkey was registered
-- **last_used_at** (DateTime UTC, optional): Last successful authentication
-
-**Constraints**:
-
-- `credential_id` must be unique globally (enforced via index)
-- Users can have multiple passkeys (recommended for backup)
-- If a `credential_id` collision occurs during registration (extremely rare), reject the registration with error "Credential ID collision detected" and instruct the user to retry
-
-**Cascade Delete**: When User is deleted, all UserPasskey entries are soft-deleted.
-
----
+A WebAuthn/FIDO2 credential. Registration via `/control/v1/users/me/credentials/passkeys/begin` and `/finish`. Maximum 20 passkeys per user.
 
 ### UserSession
 
-Represents an authenticated user session. Sessions are managed through the auth endpoints (login, logout, revoke-all). No standalone session list/revoke endpoint exists.
-
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier (also used as session token)
-- **user_id** (Snowflake ID, required): User this session belongs to
-- **session_type** (SessionType enum, required): Type of session (WEB, CLI, SDK)
-  - Determines default expiry duration
-  - Used for auditing and session management
-- **created_at** (DateTime UTC, required): When session was created
-- **expires_at** (DateTime UTC, required): When session expires
-  - Default: 30 days from creation for WEB sessions
-  - Default: 90 days for CLI/SDK sessions
-  - Configurable per session type
-- **last_activity_at** (DateTime UTC, required): Last request using this session
-- **ip_address** (string, optional): IP address of session creation
-- **user_agent** (string, optional): User agent string
-  - Max length: 500 characters
-- **deleted_at** (DateTime UTC, optional): Soft delete timestamp
-  - Sessions can be explicitly revoked by setting this
-
-**Constraints**:
-
-- Max concurrent sessions per user: 10 (configurable)
-- Sessions are automatically expired based on `expires_at`
-- Sessions use sliding window: `last_activity_at` updates on each request
-
-**Cascade Delete**: When User is deleted, all UserSession entries are soft-deleted immediately.
-
----
-
-### SessionType
-
-Enum defining session types (hard-coded).
-
-**Values**:
-
-- **WEB**: Browser-based sessions
-  - Default TTL: 30 days
-  - Cookie-based authentication
-  - Stricter CORS policies
-- **CLI**: Command-line interface sessions
-  - Default TTL: 90 days
-  - Bearer token authentication
-  - Longer expiry for developer convenience
-- **SDK**: Programmatic SDK sessions
-  - Default TTL: 90 days
-  - Bearer token authentication
-  - Used by client libraries
+An authenticated session. Managed through auth endpoints (login, logout, revoke-all). Maximum 10 concurrent sessions per user; oldest session evicted when exceeded.
 
 ---
 
@@ -377,283 +113,60 @@ Enum defining session types (hard-coded).
 
 ### Organization
 
-Represents a single organization (tenant). Lives under the `/control/v1/organizations` API path.
+A tenant entity. API path: `/control/v1/organizations`.
 
-**Creation**: Any User can create a new Organization.
+| Field    | Type   | Description                                  |
+| -------- | ------ | -------------------------------------------- |
+| `slug`   | u64    | Snowflake ID                                 |
+| `name`   | string | Display name (not globally unique)           |
+| `region` | string | Data residency region (e.g., `"us-east-va"`) |
+| `status` | string | Status (e.g., `"active"`)                    |
+| `tier`   | string | Subscription tier (e.g., `"free"`, `"pro"`)  |
 
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier (also used as tenant ID in @engine)
-- **name** (string, required): Organization display name
-  - Max length: 100 characters
-  - Allowed characters: Unicode letters, numbers, spaces, hyphens (regex: `^[\p{L}\p{N}\s-]+$`)
-  - No HTML/script tags allowed
-  - **Not globally unique** (multiple organizations can have the same name)
-  - **UX Note**: When displaying organization names in user interfaces, always include the organization ID or another distinguishing identifier to help users differentiate between organizations with the same name
-- **tier** (OrganizationTier enum, required): Billing/feature tier
-- **created_at** (DateTime UTC, required): When organization was created
-- **deleted_at** (DateTime UTC, optional): Soft delete timestamp
-  - 90-day grace period before cleanup
-  - Organizations can only be deleted by Owners
-  - All associated entities are cascaded to soft-delete
-
-**Constraints**:
-
-- Every Organization MUST have at least one User with Owner role
-- Organizations cannot be deleted unless all Vaults are deleted first (or cascaded)
-
-**Cascade Delete**: When soft-deleted, all associated Vault, OrganizationTeam, OrganizationMember, and OrganizationInvitation entries are also soft-deleted.
-
----
+Every organization must have at least one Owner. Maximum 10 organizations per user. Global limit: 100,000 organizations.
 
 ### OrganizationMember
 
-Associates a User with an Organization. Lives under the `/control/v1/organizations/{org}/members` API path.
+Associates a user with an organization. API path: `/control/v1/organizations/{org}/members`.
 
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **organization_id** (Snowflake ID, required): Organization
-- **user_id** (Snowflake ID, required): User
-- **role** (OrganizationRole enum, required): Member's role (Member, Admin, Owner)
-  - Default: Member
-- **created_at** (DateTime UTC, required): When member was added
-
-**Constraints**:
-
-- Combination of `(organization_id, user_id)` must be unique
-- Users CANNOT delete their own OrganizationMember if they are the only Owner in the Organization
-- Users can leave an Organization by deleting their own OrganizationMember (if not the only Owner)
-- At least one Owner must exist per Organization at all times
-
-**Cascade Delete**: When Organization is deleted, all OrganizationMember entries are soft-deleted. When User is deleted, all their OrganizationMember entries are soft-deleted.
-
----
-
-## Clients
-
-### Client
-
-Represents a registered Client for an Organization using the Client Assertion pattern (OAuth 2.0 JWT Bearer, RFC 7523). A client is a logical service identity (e.g., "Production Backend", "CI/CD Pipeline") that can have multiple certificates for graceful rotation.
-
-Clients are used for backend services, SDKs, CLIs, and any non-interactive authentication scenarios. See [AUTHENTICATION.md](AUTHENTICATION.md#4-client-assertion-recommended-for-backend-services) for complete documentation.
-
-Lives under the `/control/v1/organizations/{org}/clients` API path.
-
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **organization_id** (Snowflake ID, required): Organization this client belongs to
-- **name** (string, required): User-defined name for this client (e.g., "Production Backend", "CI/CD Pipeline")
-  - Max length: 100 characters
-  - Allowed characters: Unicode letters, numbers, spaces, hyphens (regex: `^[\p{L}\p{N}\s-]+$`)
-  - No HTML/script tags allowed
-  - **Must be unique within the Organization**
-- **created_at** (DateTime UTC, required): When client was created
-- **created_by_user_id** (Snowflake ID, required): User who created this client
-- **deleted_at** (DateTime UTC, optional): Soft delete timestamp
-
-**Constraints**:
-
-- Each Organization can have multiple clients (for different services)
-- Max clients per organization: 50 (configurable via tier limits)
-- Client names must be unique within an Organization
-- Only users with `ORG_PERM_CLIENT_CREATE` permission can create clients
-- At least one Client with at least one active certificate must exist per Organization at all times
-
-**Cascade Delete**: When Organization is deleted, all Client entries are soft-deleted. When Client is deleted, all ClientCertificate entries are soft-deleted.
-
-**Certificate Management**: Clients can have multiple active certificates simultaneously for graceful rotation. See ClientCertificate entity for details.
-
----
-
-### ClientCertificate
-
-Represents a cryptographic certificate (Ed25519 key pair) for a Client. Multiple certificates can be active simultaneously to enable zero-downtime credential rotation.
-
-Lives under the `/control/v1/organizations/{org}/clients/{client}/certificates` API path.
-
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **client_id** (Snowflake ID, required): Client this certificate belongs to
-- **public_key** (bytes, required): Ed25519 public key (32 bytes)
-  - Used by @engine to verify JWTs
-- **private_key** (bytes, required): Ed25519 private key (64 bytes)
-  - **Exposed ONLY during creation** (one-time display for developer to save)
-  - After creation, never returned by any API endpoint
-  - Stored by the **client application** (backend service, SDK, CLI) to sign client assertions
-  - Encrypted at rest in Ledger using AES-256-GCM
-- **kid** (string, required): Key ID (used in JWT header)
-  - Format: `org-<org_id>-client-<client_id>-cert-<cert_id>` (e.g., `org-123-client-456-cert-789`)
-  - Globally unique across all organizations
-- **name** (string, optional): User-defined name for this certificate (e.g., "Production US-East", "Rollout Phase 1")
-  - Max length: 100 characters
-  - Helps developers track which certificate is deployed where
-- **created_at** (DateTime UTC, required): When certificate was created
-- **created_by_user_id** (Snowflake ID, required): User who created this certificate
-- **last_used_at** (DateTime UTC, optional): Last time this certificate signed a valid JWT
-  - Updated when Control validates a client assertion signed with this certificate
-- **revoked_at** (DateTime UTC, optional): When certificate was revoked
-  - Revoked certificates cannot sign new JWTs
-  - Existing JWTs signed with revoked certificates are immediately invalid
-  - Revoked certificates remain visible for 90 days for audit purposes
-- **revoked_by_user_id** (Snowflake ID, optional): User who revoked this certificate
-- **deleted_at** (DateTime UTC, optional): Soft delete timestamp (90-day grace period)
-
-**Constraints**:
-
-- Each Client can have multiple certificates
-- Max active (non-revoked) certificates per client: 5 (allows graceful rotation with overlap)
-- Max total certificates (including revoked) per client: 20 (older revoked certs auto-deleted)
-- Only users with `ORG_PERM_CLIENT_CREATE` or `ORG_PERM_CLIENT_MANAGE` can create certificates
-- Only users with `ORG_PERM_CLIENT_REVOKE` or `ORG_PERM_CLIENT_MANAGE` can revoke certificates
-- At least one active (non-revoked) certificate must exist per Client at all times
-- Cannot delete a certificate if it's the last active certificate for the client
-
-**Cascade Delete**: When Client is deleted, all ClientCertificate entries are soft-deleted.
-
-**Cleanup**: Revoked certificates are automatically expired after 90 days by Ledger's TTL garbage collector.
-
-**Security**:
-
-- Private keys are encrypted at rest using AES-256-GCM with a master key provided via `--key-file` (CLI flag) or `INFERADB__CONTROL__KEY_FILE` (env var)
-- Private keys should be stored securely by client applications (e.g., HashiCorp Vault, AWS Secrets Manager)
-- Client applications use private keys to sign short-lived JWT assertions (max 60 seconds TTL)
-- Control validates client assertions using the certificate's public_key
-- Certificate rotation is recommended every 90 days (logged warnings but not enforced)
-- All active (non-revoked) certificates are available for JWT verification
-
----
+| Field       | Type              | Description                         |
+| ----------- | ----------------- | ----------------------------------- |
+| `user`      | u64               | User slug                           |
+| `role`      | string            | `"member"`, `"admin"`, or `"owner"` |
+| `joined_at` | string (RFC 3339) | When the user joined                |
 
 ### OrganizationRole
 
-Enum defining Organization membership roles (hard-coded).
-
-**Values**:
-
-- **MEMBER**: Basic member
-  - Can view organization details
-  - Can view teams they are a member of
-  - Can view vaults they have access to
-  - Can use vaults they have access to via @engine API
-- **ADMIN**: Administrator
-  - All Member permissions, plus:
-  - Can create and manage Teams
-  - Can invite users to the Organization
-  - Can create Vaults
-  - Can manage Vault access for teams and members
-  - Can update Organization details (name)
-  - Cannot delete Organization or manage billing
-- **OWNER**: Owner
-  - All Admin permissions, plus:
-  - Can delete the Organization
-  - Can manage billing and change OrganizationTier
-  - Can promote/demote members to/from Admin or Owner roles
-  - Can remove other Owners (if not the last Owner)
-
-**Promotion Rules**:
-
-- Members can be promoted to Admin by Owners
-- Admins can be promoted to Owner by Owners
-- Owners can demote other Owners (if multiple Owners exist)
-
----
+| Role     | Capabilities                                                                                                        |
+| -------- | ------------------------------------------------------------------------------------------------------------------- |
+| `member` | View org details, view accessible teams and vaults                                                                  |
+| `admin`  | All member capabilities + create/manage teams, invite users, create vaults, manage vault access, update org details |
+| `owner`  | All admin capabilities + delete org, manage billing/tier, promote/demote to any role                                |
 
 ### OrganizationInvitation
 
-Represents an invitation for a User to join an Organization. Lives under the `/control/v1/organizations/{org}/invitations` API path.
+An invitation for a user to join an organization. Expires after 7 days.
 
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **organization_id** (Snowflake ID, required): Organization extending the invitation
-- **invited_by_user_id** (Snowflake ID, required): User who sent the invitation
-- **email** (string, required): Email address being invited
-  - Case-insensitive
-  - Can invite existing users or users who haven't registered yet
-- **role** (OrganizationRole enum, required): Role the invitee will receive
-  - Default: Member
-  - Can be Member or Admin (not Owner - Owners must be promoted by existing Owners)
-- **token** (string, required): Cryptographically secure random token (32 bytes, hex-encoded)
-  - Must be globally unique across all invitations (enforced at storage layer)
-  - Used as the acceptance link parameter
-- **created_at** (DateTime UTC, required): When invitation was sent
-- **expires_at** (DateTime UTC, required): When invitation expires (7 days from creation)
-
-**Behavior**:
-
-- Invitations are **single-use**
-- When accepted, an OrganizationMember is created and the invitation is hard-deleted
-- Invitations can be **revoked** (hard-deleted) by Admins or Owners before acceptance
-- Expired invitations are automatically cleaned up
-- Invitations can be sent via:
-  - **Email**: Automated email with acceptance link
-  - **Link**: Share invitation link directly (contains token)
-
-**Constraints**:
-
-- Only Admins and Owners can create invitations
-- Cannot invite a user who is already a member
-- Max pending invitations per organization: 100 (configurable per tier)
-
-**Cascade Delete**: When Organization is deleted, all OrganizationInvitation entries are hard-deleted immediately.
-
----
+| Field           | Type              | Description                            |
+| --------------- | ----------------- | -------------------------------------- |
+| `slug`          | u64               | Snowflake ID                           |
+| `organization`  | u64               | Organization slug                      |
+| `inviter`       | u64               | Inviter user slug                      |
+| `invitee_email` | string            | Email of invitee                       |
+| `role`          | string            | Role to assign on acceptance           |
+| `status`        | string            | `"pending"`, `"accepted"`, `"revoked"` |
+| `created_at`    | string (RFC 3339) | Creation timestamp                     |
+| `expires_at`    | string (RFC 3339) | Expiration timestamp                   |
 
 ### OrganizationTier
 
-Enum defining Organization billing/feature tiers (hard-coded).
+Tiers control resource limits per organization.
 
-**Values**:
-
-#### TIER_DEV_V1 (Free tier for experimentation)
-
-- **Max users**: 5
-- **Max teams**: 3
-- **Max vaults**: 5
-- **Control rate limits** (per org, per hour):
-  - User operations: 1,000 requests
-  - Organization operations: 500 requests
-  - Vault operations: 2,000 requests
-- **Engine API rate limits** (per org, per hour):
-  - Relationship writes: 10,000 requests
-  - Evaluation checks: 100,000 requests
-
-#### TIER_PRO_V1 (Subscription tier for startups)
-
-- **Max users**: 50
-- **Max teams**: 20
-- **Max vaults**: 50
-- **Control rate limits** (per org, per hour):
-  - User operations: 10,000 requests
-  - Organization operations: 5,000 requests
-  - Vault operations: 20,000 requests
-- **Engine API rate limits** (per org, per hour):
-  - Relationship writes: 100,000 requests
-  - Evaluation checks: 1,000,000 requests
-- **Overage billing**: Available for Engine API usage beyond base limits
-
-#### TIER_MAX_V1 (Subscription tier for enterprises)
-
-- **Max users**: 500
-- **Max teams**: 100
-- **Max vaults**: 200
-- **Control rate limits** (per org, per hour):
-  - User operations: 50,000 requests
-  - Organization operations: 25,000 requests
-  - Vault operations: 100,000 requests
-- **Engine API rate limits** (per org, per hour):
-  - Relationship writes: 1,000,000 requests
-  - Evaluation checks: 10,000,000 requests
-- **Overage billing**: Available with higher baselines before charges begin
-
-**Notes**:
-
-- Rate limits are enforced at the @engine data plane API layer
-- Limits are measured per organization per hour (rolling window)
-- These values are initial estimates and should be easily configurable for future adjustments
-- Billing integration hooks will be added in the future
+| Tier   | Max users | Max teams | Max vaults |
+| ------ | --------- | --------- | ---------- |
+| `free` | 5         | 3         | 5          |
+| `pro`  | 50        | 20        | 50         |
+| `max`  | 500       | 100       | 200        |
 
 ---
 
@@ -661,178 +174,67 @@ Enum defining Organization billing/feature tiers (hard-coded).
 
 ### OrganizationTeam
 
-Represents a team (group of users) within an Organization. Lives under the `/control/v1/organizations/{org}/teams` API path.
+A group of users within an organization. API path: `/control/v1/organizations/{org}/teams`.
 
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **organization_id** (Snowflake ID, required): Organization this team belongs to
-- **name** (string, required): Team display name
-  - Max length: 100 characters
-  - Allowed characters: Unicode letters, numbers, spaces, hyphens (regex: `^[\p{L}\p{N}\s-]+$`)
-  - No HTML/script tags allowed
-  - **Must be unique within the Organization**
-- **created_at** (DateTime UTC, required): When team was created
-
-**Constraints**:
-
-- Team names must be unique within an Organization (but can be duplicated across different Organizations)
-- Teams cannot be nested (flat structure only)
-- Only Admins and Owners can create teams
-
-**Cascade Delete**: When Organization is deleted, all OrganizationTeam entries are soft-deleted.
-
----
+| Field          | Type              | Description                               |
+| -------------- | ----------------- | ----------------------------------------- |
+| `slug`         | u64               | Snowflake ID                              |
+| `organization` | u64               | Organization slug                         |
+| `name`         | string            | Display name (unique within organization) |
+| `members`      | array             | Team members (inline)                     |
+| `created_at`   | string (RFC 3339) | Creation timestamp                        |
+| `updated_at`   | string (RFC 3339) | Last update timestamp                     |
 
 ### OrganizationTeamMember
 
-Associates a User with a Team. Lives under the `/control/v1/organizations/{org}/teams/{team}/members` API path.
+| Field       | Type              | Description               |
+| ----------- | ----------------- | ------------------------- |
+| `user`      | u64               | User slug                 |
+| `role`      | string            | `"member"` or `"manager"` |
+| `joined_at` | string (RFC 3339) | When the user joined      |
 
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **team_id** (Snowflake ID, required): Team
-- **user_id** (Snowflake ID, required): User (must be an OrganizationMember of the parent Organization)
-- **manager** (boolean, required): Whether user is a team manager
-  - Default: false
-  - Team managers can add/remove team members
-
-**Constraints**:
-
-- Combination of `(team_id, user_id)` must be unique
-- User must already be an OrganizationMember of the team's Organization
-- Only team managers, Admins, and Owners can modify team membership
-
-**Cascade Delete**: When Team or User is deleted, OrganizationTeamMember entries are soft-deleted.
+Team managers can add/remove members but cannot delete the team.
 
 ---
 
-### OrganizationTeamPermission
+## Clients
 
-Grants a Team specific administrative permissions within an Organization. Lives under the `/control/v1/organizations/{org}/teams/{team}/permissions` API path.
+### Client
 
-**Purpose**: Enables delegating administrative capabilities to teams without granting full Admin or Owner roles. This allows organizations to implement least-privilege access control for sensitive operations like Client management.
+A service identity for backend applications (maps to "app" in Ledger). API path: `/control/v1/organizations/{org}/clients`.
 
-**Data**:
+| Field         | Type              | Description                               |
+| ------------- | ----------------- | ----------------------------------------- |
+| `slug`        | u64               | Snowflake ID                              |
+| `name`        | string            | Display name (unique within organization) |
+| `description` | string?           | Human-readable description                |
+| `enabled`     | bool              | Whether the client is active              |
+| `credentials` | object?           | Credential methods (see below)            |
+| `created_at`  | string (RFC 3339) | Creation timestamp                        |
+| `updated_at`  | string (RFC 3339) | Last update timestamp                     |
 
-- **id** (Snowflake ID, required): Unique identifier
-- **team_id** (Snowflake ID, required): Team receiving these permissions
-- **permission** (OrganizationPermission enum, required): Specific permission granted to this team
-- **granted_by_user_id** (Snowflake ID, required): User who granted this permission (must be Owner)
-- **granted_at** (DateTime UTC, required): When permission was granted
+Credentials object:
 
-**Constraints**:
+| Field                      | Type | Description                     |
+| -------------------------- | ---- | ------------------------------- |
+| `client_secret_enabled`    | bool | Client secret auth              |
+| `mtls_ca_enabled`          | bool | mTLS with CA certs              |
+| `mtls_self_signed_enabled` | bool | mTLS with self-signed certs     |
+| `client_assertion_enabled` | bool | JWT client assertion (RFC 7523) |
 
-- Combination of `(team_id, permission)` must be unique (each permission can only be granted once per team)
-- Team must belong to the same Organization
-- Only Owners can grant or revoke organization-level team permissions
-- Granting `ORG_PERM_OWNER_ACTIONS` requires special confirmation (high-risk permission)
+### ClientCertificate
 
-**Cascade Delete**: When Team is deleted, all OrganizationTeamPermission entries are hard-deleted.
+An Ed25519 key pair for JWT client assertion. API path: `/control/v1/organizations/{org}/clients/{client}/certificates`.
 
-**Permission Precedence**:
+| Field        | Type              | Description                       |
+| ------------ | ----------------- | --------------------------------- |
+| `slug`       | u64               | Snowflake ID                      |
+| `name`       | string            | Friendly name                     |
+| `enabled`    | bool              | Whether the certificate is active |
+| `expires_at` | string (RFC 3339) | Expiration timestamp              |
+| `created_at` | string (RFC 3339) | Creation timestamp                |
 
-- If a User has direct OrganizationMember role of Admin or Owner, they have all permissions regardless of team permissions
-- If a User is a Member but belongs to a team with specific permissions, they gain those permissions
-- Multiple teams: User gains the union of all permissions from all their teams
-
----
-
-### OrganizationPermission
-
-Enum defining organization-level permissions that can be delegated to teams (hard-coded).
-
-**Client Management Permissions**:
-
-- **ORG_PERM_CLIENT_READ**: View existing Clients (list, read details, view public keys)
-  - **Allows**: `GET /control/v1/organizations/{org}/clients`, `GET /control/v1/organizations/{org}/clients/{client}`
-  - **Denies**: Cannot view private keys (never returned by API anyway)
-  - **Use case**: Security audit, monitoring which clients exist
-
-- **ORG_PERM_CLIENT_CREATE**: Create new Clients
-  - **Allows**: `POST /control/v1/organizations/{org}/clients`
-  - **Grants**: Private key is shown once on creation (team member must save securely)
-  - **Use case**: DevOps teams provisioning new service accounts
-
-- **ORG_PERM_CLIENT_ROTATE**: Rotate Client credentials (create new, revoke old)
-  - **Allows**: `POST /control/v1/organizations/{org}/clients/{client}/secret/rotate`
-  - **Security**: Atomic operation (both create new and revoke old succeed or both fail)
-  - **Use case**: Security team enforcing credential rotation policies
-
-- **ORG_PERM_CLIENT_REVOKE**: Revoke existing Clients (non-destructive, can be reversed by creating new client)
-  - **Allows**: `DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}`
-  - **Note**: Cannot un-revoke, but can create new client to restore access
-  - **Use case**: Security incident response team
-
-- **ORG_PERM_CLIENT_DELETE**: Permanently delete Clients (destructive, cannot be undone)
-  - **Allows**: `DELETE /control/v1/organizations/{org}/clients/{client}`
-  - **Security**: Requires confirmation parameter to prevent accidental deletion
-  - **Use case**: Cleanup of deprecated service accounts
-
-- **ORG_PERM_CLIENT_MANAGE**: Full Client management (combination of all above)
-  - **Grants**: All Client-related permissions (READ, CREATE, ROTATE, REVOKE, DELETE)
-  - **Use case**: Dedicated security/platform team managing all service accounts
-
-**Vault Management Permissions**:
-
-- **ORG_PERM_VAULT_CREATE**: Create new Vaults
-  - **Allows**: `POST /control/v1/organizations/{org}/vaults` (with organization_id matching the team's org)
-  - **Automatically grants**: Creator receives VAULT_ROLE_ADMIN on created vault
-  - **Use case**: Engineering teams creating vaults for new projects
-
-- **ORG_PERM_VAULT_DELETE**: Delete Vaults
-  - **Allows**: `DELETE /control/v1/organizations/{org}/vaults/{vault}` (vault must belong to same org)
-  - **Requires**: User must also have VAULT_ROLE_ADMIN on the specific vault
-  - **Use case**: Engineering leads cleaning up obsolete vaults
-
-**Team Management Permissions**:
-
-- **ORG_PERM_TEAM_CREATE**: Create new Teams
-  - **Allows**: `POST /control/v1/organizations/{org}/teams`
-  - **Use case**: HR or team leads organizing people
-
-- **ORG_PERM_TEAM_DELETE**: Delete Teams
-  - **Allows**: `DELETE /control/v1/organizations/{org}/teams/{team}`
-  - **Restriction**: Cannot delete team with active VaultTeamGrant entries (must revoke vault access first)
-  - **Use case**: Cleanup of dissolved teams
-
-- **ORG_PERM_TEAM_MANAGE_MEMBERS**: Add/remove members from Teams
-  - **Allows**: `POST /control/v1/organizations/{org}/teams/{team}/members`, `DELETE /control/v1/organizations/{org}/teams/{team}/members/{member}`
-  - **Use case**: Team leads managing their team membership
-
-**Invitation Permissions**:
-
-- **ORG_PERM_INVITE_USERS**: Send invitations to join the Organization
-  - **Allows**: `POST /control/v1/organizations/{org}/invitations`
-  - **Restriction**: Can only invite as Member role (not Admin or Owner)
-  - **Use case**: Team leads onboarding new team members
-
-- **ORG_PERM_REVOKE_INVITATIONS**: Revoke pending invitations
-  - **Allows**: `DELETE /control/v1/organizations/{org}/invitations/{invitation}`
-  - **Use case**: Revoking invitations for candidates who declined
-
-**High-Privilege Permissions** (Require Owner role to grant):
-
-- **ORG_PERM_OWNER_ACTIONS**: Perform Owner-level actions (billing, tier changes, organization deletion)
-  - **Allows**: Update OrganizationTier, delete Organization, manage billing settings
-  - **Security**: Requires explicit confirmation when granting (displays warning about scope)
-  - **Use case**: Finance team managing billing, very rare delegation
-
-**Permission Hierarchy**:
-
-Permissions do NOT inherit - each must be explicitly granted. However, role-based permissions override:
-
-- **Owner**: Has all permissions automatically (cannot be restricted)
-- **Admin**: Has all permissions except `ORG_PERM_OWNER_ACTIONS`
-- **Member**: Has no permissions by default (must be granted via team)
-
-**Combining Permissions**:
-
-Users can accumulate permissions from multiple sources:
-
-1. Direct OrganizationMember role (Member, Admin, Owner)
-2. OrganizationTeamPermission grants from all teams they belong to
-3. Final permission set = Union of all sources
+The private key PEM is returned only on creation and cannot be retrieved later.
 
 ---
 
@@ -840,120 +242,25 @@ Users can accumulate permissions from multiple sources:
 
 ### Vault
 
-Represents an authorization vault (tenant in @engine). Lives under the `/control/v1/organizations/{org}/vaults` API path.
+An authorization policy container. API path: `/control/v1/organizations/{org}/vaults`.
 
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier (also used as tenant/vault ID in @engine)
-- **organization_id** (Snowflake ID, required): Organization this vault belongs to
-- **name** (string, required): Vault display name
-  - Max length: 100 characters
-  - Allowed characters: Unicode letters, numbers, spaces, hyphens, underscores (regex: `^[\p{L}\p{N}\s_-]+$`)
-  - No HTML/script tags allowed
-  - **Must be unique within the Organization**
-- **created_at** (DateTime UTC, required): When vault was created
-- **updated_at** (DateTime UTC, required): Last time vault metadata was updated
-- **sync_status** (VaultSyncStatus enum, required): Synchronization status with @engine
-  - Values: PENDING, SYNCED, FAILED
-- **deleted_at** (DateTime UTC, optional): Soft delete timestamp
-  - 90-day grace period before cleanup
-
-**Constraints**:
-
-- Vault names must be unique within an Organization (but can be duplicated across different Organizations)
-- Only Admins and Owners can create vaults
-- Vaults must be synchronized with @engine in real-time upon creation
-
-**Cascade Delete**: When Organization is deleted, all Vault entries are soft-deleted. When Vault is deleted, all VaultTeamGrant and VaultUserGrant entries are soft-deleted.
-
----
-
-### VaultSyncStatus
-
-Enum for vault synchronization status with @engine (hard-coded).
-
-**Values**:
-
-- **PENDING**: Vault created in Control, awaiting @engine sync
-- **SYNCED**: Vault successfully created in @engine
-- **FAILED**: @engine sync failed (requires retry or manual intervention)
-
----
-
-### VaultTeamGrant
-
-Grants a Team access to a Vault. Team-based vault access is managed at the vault level.
-
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **vault_id** (Snowflake ID, required): Vault
-- **team_id** (Snowflake ID, required): Team (must belong to same Organization as Vault)
-- **role** (VaultRole enum, required): Access role granted to team
-- **granted_at** (DateTime UTC, required): When access was granted
-
-**Constraints**:
-
-- Combination of `(vault_id, team_id)` must be unique
-- Team must belong to the same Organization as the Vault
-- Only Admins and Owners can grant team access
-
-**Cascade Delete**: When Vault or Team is deleted, VaultTeamGrant entries are soft-deleted.
-
----
-
-### VaultUserGrant
-
-Grants a User direct access to a Vault. User-based vault access is managed at the vault level.
-
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **vault_id** (Snowflake ID, required): Vault
-- **user_id** (Snowflake ID, required): User (must be a member of the Vault's Organization)
-- **role** (VaultRole enum, required): Access role granted to user
-- **granted_at** (DateTime UTC, required): When access was granted
-
-**Constraints**:
-
-- Combination of `(vault_id, user_id)` must be unique
-- User must be a member of the Vault's Organization
-- Only Admins and Owners can grant user access
-
-**Permission Precedence**: If a User has both VaultTeamGrant (via team membership) and VaultUserGrant (direct), the **highest permission** is granted.
-
-**Cascade Delete**: When Vault or User is deleted, VaultUserGrant entries are soft-deleted.
-
----
+| Field          | Type     | Description                             |
+| -------------- | -------- | --------------------------------------- |
+| `organization` | u64      | Organization slug                       |
+| `slug`         | u64      | Snowflake ID                            |
+| `height`       | u64      | Raft log height (block count)           |
+| `status`       | string   | Status (e.g., `"active"`, `"deleting"`) |
+| `nodes`        | string[] | Raft cluster node IDs                   |
+| `leader`       | string?  | Current Raft leader                     |
 
 ### VaultRole
 
-Enum defining Vault access roles (hard-coded).
-
-**Values**:
-
-- **VAULT_ROLE_READER**: Read-only access
-  - Can query relationships via @engine API
-  - Can perform authorization checks via @engine API
-  - Cannot modify anything
-
-- **VAULT_ROLE_WRITER**: Read and write access
-  - All Reader permissions, plus:
-  - Can write relationships via @engine API
-  - Can delete relationships via @engine API
-  - Cannot modify vault schema/policy or manage access
-
-- **VAULT_ROLE_MANAGER**: Policy management access
-  - All Writer permissions, plus:
-  - Can read and write vault policy/schema
-  - Can view vault access grants
-  - Cannot perform destructive operations (clear all relationships, delete vault)
-
-- **VAULT_ROLE_ADMIN**: Full administrative access
-  - All Manager permissions, plus:
-  - Can clear all relationships in vault (destructive)
-  - Can delete the vault
-  - Can manage vault access for users and teams
+| Role      | Capabilities                                                   |
+| --------- | -------------------------------------------------------------- |
+| `reader`  | Query relationships, authorization checks                      |
+| `writer`  | Reader + write/delete relationships                            |
+| `manager` | Writer + read/write schema, view access grants                 |
+| `admin`   | Manager + clear all relationships, delete vault, manage access |
 
 ---
 
@@ -961,67 +268,12 @@ Enum defining Vault access roles (hard-coded).
 
 ### VaultRefreshToken
 
-Represents a refresh token for vault-scoped JWTs. Enables long-running operations and automation to refresh their Engine API access tokens without re-authenticating. Not exposed via REST API (internal use only).
+Enables refreshing vault-scoped JWTs without re-authenticating. Single-use with automatic rotation.
 
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **token** (string, required): Cryptographically secure random token (32 bytes, hex-encoded)
-  - Must be globally unique (enforced at storage layer via index)
-  - Used to refresh expired vault JWTs
-- **vault_id** (Snowflake ID, required): Vault this refresh token grants access to
-- **organization_id** (Snowflake ID, required): Organization (for efficient queries)
-- **vault_role** (VaultRole enum, required): Permission level cached at issuance time
-  - Determines permissions in refreshed JWTs
-  - Should match user's current vault access at token issuance
-- **user_session_id** (Snowflake ID, optional): User session if issued via user authentication
-  - Mutually exclusive with `org_api_key_id`
-  - Set when refresh token is issued to an authenticated user
-- **org_api_key_id** (Snowflake ID, optional): API key if issued via organization API key
-  - Mutually exclusive with `user_session_id`
-  - Set when refresh token is issued to a CI/CD or automation client
-- **created_at** (DateTime UTC, required): When refresh token was created
-- **expires_at** (DateTime UTC, required): When refresh token expires
-  - 24 hours for user session tokens
-  - 7 days for API key tokens (supports periodic automation)
-- **used_at** (DateTime UTC, optional): When refresh token was used (single-use)
-  - Set on first successful refresh
-  - Subsequent refresh attempts with same token are rejected
-- **revoked_at** (DateTime UTC, optional): When refresh token was revoked
-  - Set when parent auth context is invalidated
-  - Revoked tokens cannot be used for refresh
-
-**Constraints**:
-
-- Exactly one of `user_session_id` or `org_api_key_id` must be set (not both, not neither)
-- Token must be globally unique across all refresh tokens
-- Single-use: Once `used_at` is set, token cannot be used again
-- Revocation cascades from parent authentication context
-
-**Behavior**:
-
-- **Token Rotation**: Each successful refresh generates a new refresh token and invalidates the old one
-- **Binding to Auth Context**: Refresh tokens are bound to their parent authentication:
-  - User session tokens: Revoked when UserSession is revoked or expires
-  - Client tokens: Revoked when Client is revoked
-- **Permission Changes**: Refresh tokens do NOT automatically reflect permission changes
-  - If user's vault access is revoked, refresh token remains valid until expiry
-  - Clients should handle 403 errors and re-authenticate to get updated permissions
-- **Cleanup**: Expired and used refresh tokens are automatically cleaned up by Ledger's TTL garbage collector
-
-**Security Properties**:
-
-- Single-use with automatic rotation prevents replay attacks
-- Short expiry (24 hours for users, 7 days for API keys) limits exposure window
-- Bound to parent authentication context (cannot outlive parent)
-- Cryptographically random token (32 bytes) prevents guessing attacks
-
-**Cascade Delete**:
-
-- When UserSession is deleted: All refresh tokens with matching `user_session_id` are revoked
-- When Client is deleted: All refresh tokens with matching `org_api_key_id` are revoked
-- When Vault is deleted: All refresh tokens for that vault are revoked
-- When VaultUserGrant/VaultTeamGrant is removed: Refresh tokens remain valid (permission changes require re-authentication)
+- User session tokens: 1-hour TTL
+- Client tokens: 7-day TTL
+- Bound to parent authentication context (session or client)
+- Replay detection: reusing a consumed token revokes all tokens for that auth context
 
 ---
 
@@ -1029,2472 +281,2047 @@ Represents a refresh token for vault-scoped JWTs. Enables long-running operation
 
 ### AuditLog
 
-Represents a security audit event for tracking authentication events, permission changes, and sensitive operations. Accessible via `GET /control/v1/organizations/{org}/audit-logs`.
+Immutable security event records. API path: `/control/v1/organizations/{org}/audit-logs`.
 
-**Data**:
-
-- **id** (Snowflake ID, required): Unique identifier
-- **organization_id** (Snowflake ID, optional): Organization this event belongs to (null for user-level events)
-- **user_id** (Snowflake ID, optional): User who performed the action (null for system/automated events)
-- **client_id** (Snowflake ID, optional): Client (API key) that performed the action (mutually exclusive with user_id for client-initiated events)
-- **event_type** (AuditEventType enum, required): Type of event being logged
-- **resource_type** (string, optional): Type of resource affected (e.g., "vault", "organization", "user")
-- **resource_id** (Snowflake ID, optional): ID of affected resource
-- **event_data** (JSON, optional): Additional event-specific data
-  - Flexible JSON field for storing context-specific information
-  - Examples: {"old_role": "MEMBER", "new_role": "ADMIN"}, {"ip_address": "203.0.113.1"}
-- **ip_address** (string, optional): IP address of request that triggered this event
-- **user_agent** (string, optional): User agent string
-  - Max length: 500 characters
-- **created_at** (DateTime UTC, required): When event occurred
-
-**Constraints**:
-
-- Events are immutable (no updates or deletes after creation)
-- Retention: 90 days for free tier, 1 year for paid tiers (configurable)
-- At most one of `user_id` or `client_id` should be set (events are either user-initiated or client-initiated)
-
-**Indexes**:
-
-- `organization_id` + `created_at` (for organization audit queries)
-- `user_id` + `created_at` (for user activity queries)
-- `event_type` + `created_at` (for event filtering)
-
-**Cascade Delete**: When Organization is deleted, all AuditLog entries for that organization are retained (not deleted) for audit trail compliance.
+| Field        | Type              | Description                                            |
+| ------------ | ----------------- | ------------------------------------------------------ |
+| `event_id`   | string            | UUID                                                   |
+| `event_type` | string            | Hierarchical type (e.g., `"ledger.vault.created"`)     |
+| `principal`  | string            | Who performed the action (e.g., `"user:42"`)           |
+| `outcome`    | string            | `"success"`, `"failed:<code>"`, or `"denied:<reason>"` |
+| `timestamp`  | string (RFC 3339) | When the event occurred                                |
+| `source`     | string            | Service that emitted the event                         |
+| `action`     | string            | Machine-readable action name                           |
+| `details`    | object            | Key-value context                                      |
 
 ---
 
-### AuditEventType
-
-Enum defining types of audit events (hard-coded).
-
-**Authentication Events**:
-
-- **USER_LOGIN_SUCCESS**: User successfully authenticated
-- **USER_LOGIN_FAILED**: User authentication attempt failed
-- **USER_LOGOUT**: User explicitly logged out
-- **SESSION_EXPIRED**: User session expired
-- **SESSION_REVOKED**: User session manually revoked
-- **PASSKEY_ADDED**: User registered a new passkey
-- **PASSKEY_REMOVED**: User removed a passkey
-- **PASSWORD_CHANGED**: User changed their password
-- **PASSWORD_RESET_REQUESTED**: User requested password reset
-- **PASSWORD_RESET_COMPLETED**: User completed password reset
-
-**Permission Change Events**:
-
-- **VAULT_ACCESS_GRANTED**: User or team granted access to vault (VaultUserGrant/VaultTeamGrant created)
-- **VAULT_ACCESS_REVOKED**: User or team access to vault revoked
-- **VAULT_ACCESS_ROLE_CHANGED**: User or team vault access role updated
-- **ORG_MEMBER_ADDED**: User added to organization
-- **ORG_MEMBER_REMOVED**: User removed from organization
-- **ORG_MEMBER_ROLE_CHANGED**: Organization member role updated
-- **TEAM_MEMBER_ADDED**: User added to team
-- **TEAM_MEMBER_REMOVED**: User removed from team
-- **TEAM_PERMISSION_GRANTED**: Organization permission granted to team
-- **TEAM_PERMISSION_REVOKED**: Organization permission revoked from team
-
-**Resource Management Events**:
-
-- **VAULT_CREATED**: New vault created
-- **VAULT_DELETED**: Vault deleted
-- **ORGANIZATION_CREATED**: New organization created
-- **ORGANIZATION_DELETED**: Organization deleted
-- **CLIENT_CREATED**: New client created
-- **CLIENT_DELETED**: Client deleted
-- **CLIENT_CERTIFICATE_CREATED**: New certificate generated for client
-- **CLIENT_CERTIFICATE_REVOKED**: Certificate revoked
-- **CLIENT_CERTIFICATE_DELETED**: Certificate deleted
-
-**Security Events**:
-
-- **REFRESH_TOKEN_REUSE_DETECTED**: Attempted reuse of single-use refresh token (possible token theft)
-- **INVALID_JWT_SIGNATURE**: JWT with invalid signature rejected
-- **EXPIRED_TOKEN_USED**: Attempt to use expired token
-- **RATE_LIMIT_EXCEEDED**: Rate limit threshold exceeded
-- **SUSPICIOUS_LOGIN_BLOCKED**: Login attempt blocked due to suspicious activity
-
----
-
-## Behavioral Rules
-
-### When a new User is registered
-
-1. Create the User entity
-2. Create UserEmail (unverified, primary=true)
-3. Generate UserEmailVerificationToken and send verification email
-4. Create a new Organization with:
-   - Name: Same as User's name
-   - Tier: TIER_DEV_V1
-5. Create an OrganizationMember linking User to Organization with role=OWNER
-6. Generate first Client for the organization (name="Default Client")
-7. Create UserSession and return session_id for immediate use
-
-### When a new Organization is created
-
-1. Create an OrganizationMember for the creating User with role=OWNER
-2. Generate first Client for the organization (name="Default Client")
-3. User must have at least one verified email (enforced)
-
-### When a new OrganizationTeam is created
-
-1. Must be bound to an Organization (from URL path: `/control/v1/organizations/{org}/teams`)
-2. Validate that team name is unique within the Organization
-3. Only Admins and Owners can create teams (or Members with `ORG_PERM_TEAM_CREATE` via team grant)
-
-### When OrganizationTeamPermission is granted
-
-1. Validate requesting user is an Owner (only Owners can grant organization-level permissions)
-2. Validate team belongs to the same Organization
-3. Check if permission already granted (unique constraint on `(team_id, permission)`)
-4. **Special handling for ORG_PERM_OWNER_ACTIONS**:
-   - Require explicit confirmation parameter (e.g., `confirm_owner_delegation=true`)
-   - Display warning in Dashboard: "This grants full Owner privileges including billing and organization deletion"
-   - Log AuditEventType::TEAM_PERMISSION_GRANTED with high-severity flag
-5. Create OrganizationTeamPermission entry
-6. Log audit event for security tracking
-
-### When checking if user has organization permission
-
-**Permission Resolution Algorithm**:
-
-```rust
-fn user_has_org_permission(
-    user_id: UserId,
-    org_id: OrgId,
-    permission: OrganizationPermission
-) -> Result<bool> {
-    // 1. Check direct role (Owner/Admin bypass team permissions)
-    let member = get_org_member(user_id, org_id)?;
-
-    if member.role == OrganizationRole::OWNER {
-        return Ok(true); // Owners have all permissions
-    }
-
-    if member.role == OrganizationRole::ADMIN {
-        // Admins have all permissions EXCEPT ORG_PERM_OWNER_ACTIONS
-        if permission == OrganizationPermission::ORG_PERM_OWNER_ACTIONS {
-            return Ok(false);
-        }
-        return Ok(true);
-    }
-
-    // 2. Member role - check team permissions
-    // Get all teams user belongs to in this organization
-    let user_teams = get_user_teams_in_org(user_id, org_id)?;
-
-    // Check if any team has the requested permission
-    for team in user_teams {
-        let team_perms = get_team_permissions(team.id)?;
-
-        // Check exact permission match
-        if team_perms.contains(&permission) {
-            return Ok(true);
-        }
-
-        // Check for composite permissions (e.g., ORG_PERM_CLIENT_MANAGE grants all client perms)
-        if permission.is_client_permission() && team_perms.contains(&OrganizationPermission::ORG_PERM_CLIENT_MANAGE) {
-            return Ok(true);
-        }
-    }
-
-    Ok(false) // No permission found
-}
-```
-
-### When Client operations are requested
-
-**Authorization checks** (before performing operation):
-
-- **List Clients** (`GET /control/v1/organizations/{org}/clients`):
-  - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_READ`
-
-- **Get Client details** (`GET /control/v1/organizations/{org}/clients/{client}`):
-  - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_READ`
-
-- **Create Client** (`POST /control/v1/organizations/{org}/clients`):
-  - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_CREATE` OR `ORG_PERM_CLIENT_MANAGE`
-  - Log AuditEventType::CLIENT_CREATED with creating user
-
-- **Create certificate** (`POST /control/v1/organizations/{org}/clients/{client}/certificates`):
-  - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_CREATE` OR `ORG_PERM_CLIENT_MANAGE`
-  - Enables graceful zero-downtime rotation
-
-- **Revoke certificate** (`DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}`):
-  - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_REVOKE` OR `ORG_PERM_CLIENT_MANAGE`
-  - Cannot revoke last active certificate (must generate new one first)
-
-- **Delete Client** (`DELETE /control/v1/organizations/{org}/clients/{client}`):
-  - Requires: Owner, Admin, OR `ORG_PERM_CLIENT_DELETE` OR `ORG_PERM_CLIENT_MANAGE`
-  - Require confirmation parameter: `?confirm_delete=<client_id>`
-  - Log AuditEventType::CLIENT_DELETED
-
-### When a new Vault is created
-
-1. Must be bound to an Organization
-2. Validate that vault name is unique within the Organization
-3. Set `sync_status = PENDING`
-4. Initiate real-time gRPC call to @engine to create vault there
-5. On success: Update `sync_status = SYNCED`
-6. On failure: Update `sync_status = FAILED` and return error to client
-7. Grant the creating User VAULT_ROLE_ADMIN access automatically via VaultUserGrant
-8. Only Admins and Owners can create vaults
-
-### When a new VaultTeamGrant is created
-
-1. Must reference a Vault and Team from the same Organization
-2. Validate uniqueness of (vault_id, team_id) pair
-3. Only Admins and Owners can grant team access
-
-### When a new VaultUserGrant is created
-
-1. Must reference a Vault and User where User is a member of Vault's Organization
-2. Validate uniqueness of (vault_id, user_id) pair
-3. Only Admins and Owners can grant user access
-
-### When a Vault is deleted
-
-1. Soft-delete Vault entity (set deleted_at)
-2. Initiate real-time gRPC call to @engine to delete vault data
-3. On success:
-   - Mark all relationships and data as deleted in @engine
-   - Cascade soft-delete all VaultTeamGrant and VaultUserGrant entries
-4. On failure:
-   - Log error with vault_id and error details
-   - Keep Vault in deleted state (manual cleanup required)
-   - Set sync_status = FAILED
-   - Cascade soft-delete all VaultTeamGrant and VaultUserGrant entries anyway
-   - Vault name remains unavailable for reuse until hard-deleted (90-day grace period)
-5. Only users with VAULT_ROLE_ADMIN can delete vaults
-
-**Note on name reuse**: Vault names are scoped to (organization_id, name) uniqueness. Soft-deleted vaults in grace period still occupy their name slot. After 90-day hard deletion, the name becomes available for reuse.
-
-**Important**: If an Admin wants to immediately reuse a vault name, they cannot do so while the old vault is in the 90-day grace period. This is intentional to prevent accidental data access confusion during recovery. If immediate name reuse is critical, the Admin must either:
-
-- Wait for the 90-day grace period to expire, OR
-- Contact support to manually hard-delete the vault (only after confirming no recovery is needed)
-
-### When an OrganizationInvitation is accepted
-
-1. Validate token is not expired
-2. Lookup or create User account if email doesn't exist yet:
-   - If User doesn't exist:
-     - Create User entity (with password_hash=null if no password provided)
-     - Create UserEmail (unverified, primary=true) with the invited email
-     - Generate and send UserEmailVerificationToken for email verification
-   - If User exists: Validate email matches an existing UserEmail (verified or unverified)
-3. Create OrganizationMember with the role specified in invitation
-4. Hard-delete the OrganizationInvitation (single-use)
-5. Send notification email to user confirming they joined the organization
-
-**Note**: UserEmailVerificationToken is used ONLY for verifying ownership of email addresses for existing users. When accepting an invitation creates a new User, the verification token is sent separately and is not part of the invitation flow itself.
-
-### When OrganizationMember role is updated
-
-1. Only Owners can promote to Owner role
-2. Only Owners can demote from Owner role
-3. Cannot demote the last Owner (must have at least 1 Owner)
-4. Admins can promote Members to Admin
-5. Owners can promote Members or Admins to Owner
-
-### When Organization ownership is transferred
-
-Ownership transfer is handled through role updates on organization members. Owners can promote other members to Owner via `PATCH /control/v1/organizations/{org}/members/{member}`.
-
-**Behavior**:
-
-1. Validate that the requesting user is an Owner of the organization
-2. Validate that the target user is already an OrganizationMember
-3. Update the target member's role to OWNER
-4. The original Owner retains their Owner role (multiple Owners are allowed)
-5. Owners can optionally demote themselves afterward or leave the organization
-
-### When an OrganizationMember is removed
-
-1. User cannot remove themselves if they are the only Owner
-2. When a user leaves: Remove all VaultUserGrant for vaults in that organization
-3. When a user is removed from a team: Remove all VaultTeamGrant indirectly granted
-4. Soft-delete the OrganizationMember entry
-
-### When a User tries to login with email
-
-1. Lookup UserEmail by email address (case-insensitive)
-2. If multiple UserEmail entries exist with same email (should be impossible due to uniqueness constraint), return error
-3. For password login: Verify User.password_hash exists
-4. For passkey login: Return all UserPasskey entries for that user's email
-
-### When VaultUserGrant and VaultTeamGrant conflict
-
-1. Grant the **highest permission level** to the user
-2. Example: User has VAULT_ROLE_READER via team, but VAULT_ROLE_WRITER via direct access → User gets VAULT_ROLE_WRITER
-3. Permission precedence (highest to lowest): VAULT_ROLE_ADMIN > VAULT_ROLE_MANAGER > VAULT_ROLE_WRITER > VAULT_ROLE_READER
-
-### When soft-deleted entities should become visible
-
-1. Soft-deleted entities are **never visible** via API endpoints (treated as non-existent)
-2. Soft-deleted entities are only accessible via admin/debug endpoints (not exposed to users)
-3. After 90-day grace period, Ledger's TTL garbage collector automatically removes the entity
-
-### When a UserEmail is set as primary
-
-1. Unset primary flag on all other UserEmail entries for that user (only one can be primary)
-2. User can change primary email at any time
-3. Primary email is used for all outgoing notifications and password reset emails
-
-### When a UserEmail is deleted
-
-1. **Cannot delete the last verified email**: If user has only one verified email, deletion is rejected with error: "Cannot delete your only verified email. Add and verify another email first."
-2. **Can delete unverified emails** at any time (no minimum required)
-3. **If deleting primary email**: Automatically promote another verified email to primary (if available)
-   - Selection priority: Most recently verified email becomes primary
-   - If no other verified emails exist, user must verify another email before deletion
-4. **Account security**: Users with no verified emails have limited functionality (see User Registration Flow)
-5. Log email deletion as AuditEventType for security monitoring
-
-### Token generation rate limiting
-
-1. UserEmailVerificationToken: Max 5 tokens per email per hour
-2. UserPasswordResetToken: Max 3 tokens per user per hour
-3. Prevents abuse of email sending infrastructure
-
-### Login attempt rate limiting
-
-**When a login attempt occurs**:
-
-1. Track login attempts by IP address (rolling 1-hour window)
-2. If attempts >= 100 per hour (configurable via `config.rate_limiting.login_attempts_per_ip_per_hour`):
-   - Return HTTP 429 Too Many Requests
-   - Include `Retry-After` header with seconds until rate limit resets
-   - Include error message: "Too many login attempts from this IP address. Please try again later."
-3. Rate limit applies to all authentication methods (password, passkey)
-
-### Registration rate limiting
-
-**When a registration attempt occurs**:
-
-1. Track registrations by IP address (rolling 24-hour window)
-2. If registrations >= 5 per day (configurable via `config.rate_limiting.registrations_per_ip_per_day`):
-   - Return HTTP 429 Too Many Requests
-   - Include `Retry-After` header with seconds until rate limit resets
-   - Include error message: "Too many registration attempts from this IP address. Please try again later."
-3. Successful registrations and failed registrations both count toward limit
-
-### Organization creation limits
-
-1. Users with no verified email: Can only have the default organization created during registration
-2. Users with verified email: Can create organizations (subject to per-user and global limits)
-3. **Per-user limit**: Maximum 10 organizations per user (configurable via `config.limits.max_orgs_per_user`)
-   - Prevents individual user abuse
-   - Soft-deleted organizations count toward limit until hard-deleted (90-day grace period)
-   - Users can request limit increase via support for legitimate use cases
-4. **Global system limit**: Maximum 100,000 total organizations (configurable via `config.limits.max_total_orgs`)
-   - Prevents platform resource exhaustion
-   - Soft-deleted organizations count toward limit until hard-deleted
-   - Monitoring alert when approaching 80% of limit
-5. Concurrent organization creation by same user: Serialize requests (no race conditions)
-
-### Passkey-only account recovery
-
-1. Users with no password (passkey-only) who lose all passkeys: Must contact support
-2. Recovery requires identity verification (email verification + additional proof)
-3. After identity verification, support can add a temporary password to allow account recovery
-4. User should add new passkey and remove temporary password
-
-### Team manager permissions
-
-1. Team managers can add/remove OrganizationTeamMember entries for their team
-2. Team managers CANNOT delete the team itself (only Admins/Owners can delete teams)
-3. Team managers CANNOT grant themselves additional permissions outside the team
-
-### Organization member visibility
-
-1. **Members**: Can view list of all organization members (names, roles, emails)
-   - Required for collaboration features (mentioning users, assigning access, etc.)
-   - Cannot view members of organizations they don't belong to
-2. **Admins**: Same visibility as Members, plus can see pending invitations
-3. **Owners**: Full visibility of all members, invitations, and audit logs
-
-### Vault access propagation when teams/users change
-
-1. When a user is added to a team:
-   - User immediately gains access to all vaults that team has access to
-   - Permission level determined by VaultTeamGrant role
-2. When a user is removed from a team:
-   - User loses team-based vault access immediately
-   - If user has direct VaultUserGrant, they retain that access
-3. When VaultTeamGrant is deleted:
-   - All team members lose access unless they have direct VaultUserGrant
-4. When VaultTeamGrant role is updated:
-   - All team members' effective permissions update immediately (if team access is their highest permission)
-
-### Refresh token lifecycle management
-
-**When a UserSession is revoked or deleted**:
-
-1. Find all VaultRefreshToken entries where `user_session_id` matches
-2. Set `revoked_at = now()` on all matching refresh tokens
-3. These tokens can no longer be used for refresh (validation fails)
-
-**When a Client is revoked or deleted**:
-
-1. Find all VaultRefreshToken entries where `org_api_key_id` matches
-2. Set `revoked_at = now()` on all matching refresh tokens
-3. These tokens can no longer be used for refresh (validation fails)
-
-**When a Vault is deleted**:
-
-1. Find all VaultRefreshToken entries where `vault_id` matches
-2. Set `revoked_at = now()` on all matching refresh tokens
-3. Prevents refresh tokens from being used for deleted vaults
-
-**When VaultUserGrant or VaultTeamGrant is removed**:
-
-1. **Do NOT revoke refresh tokens** (permission changes are not reflected in existing refresh tokens)
-2. Refresh tokens continue to work with cached `vault_role` until expiry
-3. When client uses refreshed JWT to access @engine:
-   - @engine checks current permissions independently
-   - @engine returns 403 if permissions were revoked
-   - Client should handle 403 by re-authenticating to get updated permissions
-
-**When a used refresh token is presented again** (replay attack detection):
-
-1. Detect that `used_at IS NOT NULL`
-2. This indicates possible token theft
-3. Response: Return error `REFRESH_TOKEN_USED`
-4. **Security action**: Revoke ALL refresh tokens for that authentication context:
-   - If user session: Revoke all refresh tokens with same `user_session_id`
-   - If API key: Revoke all refresh tokens with same `org_api_key_id`
-   - **Emergency revocation retry**: If revocation fails (storage unavailable, network error):
-     - Queue revocation for background retry (up to 3 attempts with exponential backoff)
-     - Log critical security alert for immediate operator attention
-     - Continue to return `REFRESH_TOKEN_USED` error to client (fail closed)
-     - Until revocation succeeds, all refresh attempts for that context will fail with `REFRESH_TOKEN_USED`
-5. Force client to re-authenticate with Control
-6. Log security event (AuditEventType::REFRESH_TOKEN_REUSE_DETECTED) for monitoring and incident response
-
-### VaultRole permission hierarchy
-
-Permissions are hierarchical - higher roles include all lower role permissions:
-
-- **VAULT_ROLE_ADMIN** includes VAULT_ROLE_MANAGER + delete/clear operations
-- **VAULT_ROLE_MANAGER** includes VAULT_ROLE_WRITER + schema/policy management + view access grants
-- **VAULT_ROLE_WRITER** includes VAULT_ROLE_READER + write/delete relationships
-- **VAULT_ROLE_READER** base level: read-only access
-
-### Organization tier limit enforcement
-
-**When adding an OrganizationMember**:
-
-1. Count current non-deleted OrganizationMember entries for the organization
-2. If count >= tier.max_users, reject with error: "Organization has reached maximum user limit for tier {tier}"
-3. Otherwise, proceed with creation
-
-**When creating an OrganizationTeam**:
-
-1. Count current non-deleted OrganizationTeam entries for the organization
-2. If count >= tier.max_teams, reject with error: "Organization has reached maximum team limit for tier {tier}"
-3. Otherwise, proceed with creation
-
-**When creating a Vault**:
-
-1. Count current non-deleted Vault entries for the organization
-2. If count >= tier.max_vaults, reject with error: "Organization has reached maximum vault limit for tier {tier}"
-3. Otherwise, proceed with creation
-
-**When downgrading OrganizationTier**:
-
-1. Check if current usage exceeds new tier limits:
-   - Count active users, teams, and vaults
-   - If any count > new_tier limits, reject downgrade
-   - Return error listing which limits are exceeded
-2. Example: "Cannot downgrade to TIER_DEV_V1: organization has 8 users (limit: 5), 6 teams (limit: 3)"
-3. User must remove excess entities before downgrade is allowed
-4. Soft-deleted entities do NOT count toward limits (grace period allows recovery)
-
-### Client certificate management behavioral rules
-
-**When creating a new Client**:
-
-1. Validate requesting user has `ORG_PERM_CLIENT_CREATE` or `ORG_PERM_CLIENT_MANAGE` permission
-2. Validate client name is unique within Organization
-3. Create Client entity
-4. Automatically create first ClientCertificate (name="Default Certificate")
-5. Return Client details with private key (one-time display)
-6. Log AuditEventType::CLIENT_CREATED with creating user
-
-**When creating a new certificate for existing Client** (`POST /control/v1/organizations/{org}/clients/{client}/certificates`):
-
-1. Validate requesting user has `ORG_PERM_CLIENT_CREATE` or `ORG_PERM_CLIENT_MANAGE` permission
-2. Validate client has < 5 active (non-revoked) certificates
-3. Validate client has < 20 total certificates (including revoked)
-4. Generate new Ed25519 key pair
-5. Create ClientCertificate entity with optional user-provided name
-6. **Return private key ONLY ONCE** (never stored in readable form after this response)
-7. Log AuditEventType::CLIENT_CERTIFICATE_CREATED with client_id and certificate_id
-8. Display warning in Dashboard: "Save this private key securely - it will not be shown again"
-
-**Developer workflow for graceful certificate rotation**:
-
-```text
-Phase 1: Generate new certificate
-1. User clicks "Generate New Certificate" in Dashboard
-2. User provides optional name: "Rollout 2024-11"
-3. System creates new certificate, returns private key
-4. User saves private key to secure storage
-
-Phase 2: Deploy new certificate (zero downtime)
-5. User updates deployment configuration with new private key
-6. User deploys application update (gradual rollout: 10% → 50% → 100%)
-7. Both old and new certificates remain active during rollout
-8. Applications use whichever certificate they have configured
-
-Phase 3: Verify new certificate usage
-9. User monitors `last_used_at` timestamp on both certificates
-10. When old certificate `last_used_at` stops updating → all apps migrated
-
-Phase 4: Revoke old certificate (when convenient)
-11. User clicks "Revoke" on old certificate
-12. System sets `revoked_at = now()` on old certificate
-13. Old certificate remains visible for 90 days for audit purposes
-14. Ledger's TTL garbage collector auto-deletes after 90 days
-```
-
-**When revoking a certificate** (`DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}`):
-
-1. Validate requesting user has `ORG_PERM_CLIENT_REVOKE` or `ORG_PERM_CLIENT_MANAGE` permission
-2. **Check if last active certificate**: Count non-revoked certificates for this client
-3. If this is the last active certificate: Reject with error "Cannot revoke last active certificate. Generate a new certificate first."
-4. Set `revoked_at = now()` and `revoked_by_user_id = <current_user>`
-5. Revoke all VaultRefreshToken entries that were issued using JWTs signed with this certificate
-6. Log AuditEventType::CLIENT_CERTIFICATE_REVOKED
-7. Return success with message: "Certificate revoked. It will remain visible for 90 days for audit purposes."
-
-**When listing certificates** (`GET /control/v1/organizations/{org}/clients/{client}/certificates`):
-
-Response includes:
-
-```json
-{
-  "certificates": [
-    {
-      "id": "cert_active_123",
-      "kid": "org-123-client-456-cert-789",
-      "name": "Rollout 2024-11",
-      "created_at": "2024-11-01T10:00:00Z",
-      "created_by_user_id": "user_abc",
-      "last_used_at": "2024-11-17T14:30:22Z",
-      "revoked_at": null,
-      "status": "active",
-      "age_days": 16
-    },
-    {
-      "id": "cert_active_456",
-      "kid": "org-123-client-456-cert-012",
-      "name": "Default Certificate",
-      "created_at": "2024-08-15T09:00:00Z",
-      "created_by_user_id": "user_xyz",
-      "last_used_at": "2024-11-17T14:29:58Z",
-      "revoked_at": null,
-      "status": "active",
-      "age_days": 94,
-      "warning": "Certificate is over 90 days old - rotation recommended"
-    },
-    {
-      "id": "cert_revoked_789",
-      "kid": "org-123-client-456-cert-345",
-      "name": "Legacy Production",
-      "created_at": "2024-05-01T10:00:00Z",
-      "created_by_user_id": "user_xyz",
-      "last_used_at": "2024-10-31T23:59:59Z",
-      "revoked_at": "2024-11-01T00:00:00Z",
-      "revoked_by_user_id": "user_abc",
-      "status": "revoked",
-      "days_until_deletion": 74
-    }
-  ],
-  "summary": {
-    "active_count": 2,
-    "revoked_count": 1,
-    "oldest_active_age_days": 94
-  }
-}
-```
-
-**When deleting a certificate** (`DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}`):
-
-1. Validate requesting user has `ORG_PERM_CLIENT_DELETE` or `ORG_PERM_CLIENT_MANAGE` permission
-2. Require confirmation parameter: `?confirm_delete=<cert_id>`
-3. **Check if last active certificate**: If not revoked and is last active cert, reject with error
-4. Set `deleted_at = now()` (soft delete with 90-day grace period)
-5. Log AuditEventType::CLIENT_CERTIFICATE_DELETED
-
-### Email re-verification behavioral rules
-
-**When a UserEmail is modified** (email address changed):
-
-1. **Cannot modify email address**: UserEmail entities are immutable
-2. To change email: Delete old UserEmail, create new UserEmail (unverified)
-3. New UserEmail automatically generates UserEmailVerificationToken
-4. User must verify new email before it can be used for sensitive operations
-
-**When re-verifying an already verified email** (user requests new verification token):
-
-1. Allow re-verification at any time (e.g., user suspects compromise)
-2. Generate new UserEmailVerificationToken
-3. **Do NOT unset verified_at** (email remains verified during re-verification process)
-4. When new token is successfully verified:
-   - Update `verified_at = now()` (refresh verification timestamp)
-   - Delete all other UserEmailVerificationToken entries for this email
-5. If user never completes re-verification, email remains verified with original timestamp
-
-### Session revocation cascading
-
-**When UserSession is explicitly revoked** (user logs out or revokes session):
-
-1. Set UserSession.deleted_at = now()
-2. Find all VaultRefreshToken entries with matching user_session_id
-3. Set VaultRefreshToken.revoked_at = now() for all matches
-4. Log AuditEventType::SESSION_REVOKED
-5. If user revokes "all sessions except current":
-   - Soft-delete all other UserSession entries for that user
-   - Keep current session active
-   - Revoke all refresh tokens for deleted sessions
-
-**When Client is revoked**:
-
-1. Set Client.revoked_at = now()
-2. Find all VaultRefreshToken entries with matching org_api_key_id
-3. Set VaultRefreshToken.revoked_at = now() for all matches
-4. Client cannot be un-revoked (permanent action)
-5. Log AuditEventType::CLIENT_REVOKED
-6. Notify organization Owners via email
-
-### Vault sync failure recovery
-
-**When vault creation fails at @engine**:
-
-1. Set Vault.sync_status = FAILED
-2. Keep Vault entity in Control (do not delete)
-3. **Manual retry**: Admin can trigger retry via `POST /control/v1/organizations/{org}/vaults/{vault}/retry-sync`
-4. **Automatic retry**: Failed syncs can be retried via the admin endpoint (up to 3 attempts)
-5. After 3 failed attempts:
-   - Send alert to organization Owners
-   - Vault remains in FAILED state until manual intervention
-6. User can delete failed vault and recreate (vault name becomes available after deletion)
-
-**When vault deletion fails at @engine**:
-
-1. Set Vault.sync_status = FAILED
-2. Set Vault.deleted_at = now() (vault marked as deleted in Control)
-3. Cascade soft-delete all VaultTeamGrant and VaultUserGrant entries
-4. **Orphaned data**: @engine vault data remains until cleanup succeeds
-5. **Automatic retry**: Failed deletions can be retried via the admin endpoint
-6. Vault name remains reserved (cannot reuse) until deletion succeeds at @engine
-7. Alert operators after 24 hours of failed deletion attempts
-
----
-
-## Authentication & Authorization
-
-### User Registration Flow
-
-Registration uses a 3-step passwordless email verification flow:
-
-**Step 1: Initiate email verification**
-
-**Endpoint**: `POST /control/v1/auth/email/initiate`
-
-**Request**:
-
-```json
-{
-  "email": "john@example.com",
-  "region": "US_EAST_VA"
-}
-```
-
-Sends a verification code to the email address. The `region` field specifies data residency and defaults to `US_EAST_VA` if omitted.
-
-**Step 2: Verify email code**
-
-**Endpoint**: `POST /control/v1/auth/email/verify`
-
-**Request**:
-
-```json
-{
-  "email": "john@example.com",
-  "code": "123456",
-  "region": "US_EAST_VA"
-}
-```
-
-For existing users, returns a session token pair. For new users, returns an onboarding token.
-
-**Step 3: Complete registration (new users only)**
-
-**Endpoint**: `POST /control/v1/auth/email/complete` (rate-limited: 5/day per IP)
-
-**Request**:
-
-```json
-{
-  "onboarding_token": "<token_from_step_2>",
-  "email": "john@example.com",
-  "name": "John Doe"
-}
-```
-
-Creates the user account and returns a session token pair.
-
----
-
-### Authentication Flow
-
-Control supports **four authentication methods**:
-
-#### 1. Email Code Authentication (Passwordless)
-
-The primary authentication method. Uses Ledger's 3-step email verification flow:
-
-1. `POST /control/v1/auth/email/initiate` -- sends a verification code to the email
-2. `POST /control/v1/auth/email/verify` -- verifies the code and returns session tokens (existing users) or an onboarding token (new users)
-3. `POST /control/v1/auth/email/complete` -- completes registration for new users (rate-limited: 5/day per IP)
-
-If the user has TOTP enabled, step 2 returns a challenge nonce instead of tokens. The user must then complete MFA via one of:
-
-- `POST /control/v1/auth/totp/verify` -- verify TOTP code from authenticator app
-- `POST /control/v1/auth/recovery` -- consume a recovery code (TOTP bypass)
-
-#### 2. Passkey Authentication (WebAuthn)
-
-- `POST /control/v1/auth/passkey/begin` -- generate WebAuthn challenge
-- `POST /control/v1/auth/passkey/finish` -- verify signature, return session tokens
-
-#### 3. Client Assertion Authentication (for @engine access)
-
-Backend applications authenticate to @engine using **Client Assertion** (OAuth 2.0 JWT Bearer, RFC 7523). See [AUTHENTICATION.md](AUTHENTICATION.md#4-client-assertion-recommended-for-backend-services) for the complete flow.
-
-**Token Claims**:
-
-```json
-{
-  "iss": "org:<organization_id>",
-  "sub": "org:<organization_id>",
-  "aud": "https://engine.inferadb.com",
-  "exp": 1234567890,
-  "iat": 1234567800,
-  "jti": "<unique_id>",
-  "scope": "vault:<vault_id>",
-  "vault_role": "VAULT_ROLE_WRITER"
-}
-```
-
-**Client Key Management**:
-
-- Organizations create Clients via Dashboard or CLI
-- Each Client receives an Ed25519 key pair (client stores private key, Control stores public key)
-- Private keys shown only once during creation (developer saves securely)
-- Public keys stored by Control for @engine JWT verification
-- Clients can be created, rotated, and revoked by organization Owners
-
-**Client Assertion Flow**:
-
-1. Backend application creates a short-lived JWT assertion (max 60 seconds)
-2. Signs assertion with its private key (Ed25519)
-3. Sends assertion to Control `/control/v1/token` endpoint
-4. Control verifies signature using stored public key
-5. Control issues vault-scoped JWT for @engine requests
-6. Backend uses vault JWT to call @engine API
-
-**Token Scoping**:
-
-- Clients have scopes defining allowed vaults + roles (e.g., `vault:vault_123:WRITER`)
-- Control only issues tokens for vaults the Client has access to
-- Tokens scoped to specific vaults based on Client's configured VaultScope entries
-
----
-
-### Session Management
-
-**Best Practices**:
-
-- Sessions use **secure, httpOnly cookies** for web clients
-- Sessions use **Bearer tokens** for CLI/SDK clients
-- Session IDs are Snowflake IDs (cryptographically unpredictable)
-- **Sliding window expiry**: `last_activity_at` updates on each request
-  - Web sessions: 30-day expiry, extends on activity
-  - CLI sessions: 90-day expiry, extends on activity
-- **Max concurrent sessions**: 10 per user (configurable via `config.authentication.max_sessions_per_user`)
-  - When exceeded, the least recently active session is revoked (oldest `last_activity_at` timestamp)
-  - Expired sessions (where `expires_at < now`) are not counted toward the limit
-- **Session revocation**: Users can manually revoke sessions via `/users/sessions/:id` DELETE
-- **Password reset invalidates all sessions** for that user
-
-**Security**:
-
-- Session tokens treated as bearer credentials
-- Transmitted only over HTTPS in production
-- Cookie settings: `Secure; HttpOnly; SameSite=Lax`
-
----
-
-### Passkey Management
-
-Users can register and manage multiple passkeys for their account.
-
-**Endpoint**: `POST /control/v1/users/me/credentials/passkeys/begin` (Start passkey registration, requires JWT)
-
-**Endpoint**: `POST /control/v1/users/me/credentials/passkeys/finish` (Complete passkey registration, requires JWT)
-
-**Request**:
-
-```json
-{
-  "name": "iPhone 15 Pro",
-  "credential": {
-    "id": "<base64url>",
-    "rawId": "<base64url>",
-    "type": "public-key",
-    "response": {
-      "attestationObject": "<base64url>",
-      "clientDataJSON": "<base64url>"
-    }
-  }
-}
-```
-
-**Response**:
-
-```json
-{
-  "passkey_id": "<snowflake_id>",
-  "name": "iPhone 15 Pro",
-  "created_at": "2024-01-15T10:30:00Z"
-}
-```
-
-**Behavior**:
-
-1. Verify WebAuthn credential is valid
-2. Extract public key and credential_id
-3. Create UserPasskey entity
-4. Return passkey details
-
-Passkey listing and deletion are not yet exposed as standalone REST endpoints. Passkeys are managed through the registration flow above and through the Ledger SDK credential management.
-
----
-
-### Client Authentication for @engine API
-
-**Flow**:
-
-1. Client authenticates to Control (password, passkey, or existing session)
-2. Client requests a vault-scoped JWT: `POST /control/v1/organizations/{org}/vaults/{vault}/tokens`
-3. Control validates:
-   - User has active session (or valid API key client assertion)
-   - User has access to vault (via VaultUserGrant or VaultTeamGrant)
-   - Determines highest VaultRole the user has
-4. Control generates private key JWT signed with Organization's key
-5. Control generates refresh token
-6. Client uses JWT as Bearer token for @engine API calls
-7. @engine validates JWT signature against Organization's public keys
-8. When JWT expires, client can use refresh token to get new JWT without re-authenticating
-
-**Endpoint**: `POST /control/v1/organizations/{org}/vaults/{vault}/tokens`
-
-**Request**: (authenticated via JWT)
-
-```json
-{
-  "app": 12345,
-  "scopes": ["vault:read", "vault:write"]
-}
-```
-
-**Response**:
-
-```json
-{
-  "access_token": "<jwt>",
-  "refresh_token": "<opaque_token>",
-  "token_type": "Bearer",
-  "expires_in": 3600
-}
-```
-
-**Behavior**:
-
-1. Validate authentication context (UserSession or Client)
-2. Check user/org has access to vault
-3. Determine highest VaultRole
-4. Generate vault-scoped JWT (1 hour expiry)
-5. Generate VaultRefreshToken:
-   - Set expiry: 24 hours (user session) or 7 days (client)
-   - Bind to authentication context (user_session_id or org_api_key_id)
-   - Store vault_role at time of issuance
-6. Return both tokens to client
-
-**Note**: Refresh tokens are always included. Clients can choose to use them or ignore them based on their use case.
-
----
-
-### Refresh Token Flow
-
-**Endpoint**: `POST /control/v1/tokens/refresh`
-
-**Request**:
-
-```json
-{
-  "refresh_token": "<refresh_token>"
-}
-```
-
-**Response**:
-
-```json
-{
-  "access_token": "<new_jwt>",
-  "refresh_token": "<new_refresh_token>",
-  "token_type": "Bearer",
-  "expires_in": 3600
-}
-```
-
-**Behavior**:
-
-1. Validate authentication context (UserSession or Client)
-2. Lookup VaultRefreshToken by token
-3. Validate refresh token:
-   - Token exists and matches
-   - Not expired (`expires_at > now`)
-   - Not already used (`used_at IS NULL`)
-   - Not revoked (`revoked_at IS NULL`)
-   - Bound to current authentication context:
-     - If user session: `user_session_id` matches current session
-     - If client: `org_api_key_id` matches current client
-4. Mark old refresh token as used (`used_at = now`)
-5. Generate new vault-scoped JWT (1 hour expiry) with cached `vault_role`
-6. Generate new VaultRefreshToken (rotated):
-   - New random token
-   - Same vault_id, organization_id, vault_role
-   - Same authentication context binding
-   - New expiry (24 hours or 7 days from now)
-7. Return new tokens to client
-
-**Error Cases**:
-
-- `REFRESH_TOKEN_INVALID`: Token doesn't exist or doesn't match authentication context
-- `REFRESH_TOKEN_EXPIRED`: Token has expired
-- `REFRESH_TOKEN_USED`: Token already used (possible replay attack, revoke immediately)
-- `REFRESH_TOKEN_REVOKED`: Token was revoked due to permission changes
-- `AUTH_SESSION_EXPIRED`: Parent UserSession has expired
-- `AUTH_CLIENT_REVOKED`: Parent Client was revoked
-
-**Security Notes**:
-
-- Refresh tokens are single-use and automatically rotated
-- Detecting a used refresh token indicates possible token theft → revoke all refresh tokens for that auth context
-- Refresh tokens do NOT check current permissions (uses cached vault_role)
-- If permissions change, client will receive 403 from @engine and must re-authenticate
-
----
-
-### Refresh Token Usage Guidelines
-
-**When to Use Refresh Tokens**:
-
-Refresh tokens are always provided by Control. Clients should use them when:
-
-✅ **Recommended use cases**:
-
-- Long-running batch operations (data imports, exports, migrations)
-- Background workers that run periodically (every few hours)
-- Mobile applications that may be backgrounded for extended periods
-- CI/CD pipelines with jobs lasting multiple hours
-- Scheduled tasks and cron jobs
-
-⚠️ **Optional for**:
-
-- Short-lived web requests (operations completing in under 30 minutes)
-- Interactive web UI operations (can rely on 1-hour JWT being sufficient)
-
-Clients can simply ignore the refresh token if they don't need it - there's no overhead to receiving it.
-
-**Client Implementation Pattern**:
-
-```python
-class VaultClient:
-    def __init__(self, control_url, session_token):
-        self.control_url = control_url
-        self.session_token = session_token
-        self.access_token = None
-        self.refresh_token = None
-        self.access_token_expires_at = None
-
-    def get_vault_access_token(self, vault_id, use_refresh=False):
-        """Get or refresh vault access token"""
-
-        # Check if current token is still valid (with 5-minute buffer)
-        if self.access_token and self.access_token_expires_at:
-            if time.time() < (self.access_token_expires_at - 300):
-                return self.access_token
-
-        # Try refresh if we have a refresh token
-        if self.refresh_token and use_refresh:
-            try:
-                response = requests.post(
-                    f"{self.control_url}/tokens/refresh",
-                    headers={"Authorization": f"Bearer {self.session_token}"},
-                    json={"refresh_token": self.refresh_token}
-                )
-
-                if response.status_code == 200:
-                    data = response.json()
-                    self.access_token = data["access_token"]
-                    self.refresh_token = data["refresh_token"]  # Rotated
-                    self.access_token_expires_at = time.time() + data["expires_in"]
-                    return self.access_token
-
-                # Refresh failed, fall through to request new tokens
-
-            except Exception as e:
-                # Log error, fall through to request new tokens
-                logger.warning(f"Token refresh failed: {e}")
-
-        # Request new access token (always returns refresh token too)
-        response = requests.post(
-            f"{self.control_url}/tokens/vault/{vault_id}",
-            headers={"Authorization": f"Bearer {self.session_token}"}
-        )
-
-        response.raise_for_status()
-        data = response.json()
-
-        self.access_token = data["access_token"]
-        self.refresh_token = data["refresh_token"]  # Always provided
-        self.access_token_expires_at = time.time() + data["expires_in"]
-
-        return self.access_token
-
-    def call_engine_api(self, vault_id, operation):
-        """Call @engine API with automatic token refresh"""
-
-        # Get valid access token
-        access_token = self.get_vault_access_token(vault_id, use_refresh=True)
-
-        # Call @engine API
-        try:
-            response = requests.post(
-                f"{self.engine_url}/check",
-                headers={"Authorization": f"Bearer {access_token}"},
-                json=operation
-            )
-
-            # Handle 401 (expired token) with one retry
-            if response.status_code == 401:
-                # Force token refresh
-                self.access_token = None
-                access_token = self.get_vault_access_token(vault_id, use_refresh=True)
-
-                # Retry request
-                response = requests.post(
-                    f"{self.engine_url}/check",
-                    headers={"Authorization": f"Bearer {access_token}"},
-                    json=operation
-                )
-
-            # Handle 403 (permissions revoked)
-            if response.status_code == 403:
-                # Clear tokens and re-authenticate
-                self.access_token = None
-                self.refresh_token = None
-                raise PermissionDeniedError("Vault access revoked, please re-authenticate")
-
-            response.raise_for_status()
-            return response.json()
-
-        except requests.exceptions.HTTPError as e:
-            # Handle errors appropriately
-            raise
-```
-
-**Error Handling Best Practices**:
-
-1. **401 Unauthorized**: Token expired
-   - Attempt refresh if refresh token available
-   - Otherwise, request new tokens from Control
-   - Retry original request once
-
-2. **403 Forbidden**: Permissions changed
-   - Clear all cached tokens (access + refresh)
-   - Re-authenticate with Control to get updated permissions
-   - Do NOT retry automatically
-
-3. **`REFRESH_TOKEN_USED`**: Possible token theft
-   - All refresh tokens for auth context have been revoked
-   - User/API key must re-authenticate completely
-   - Log security event
-
-4. **`REFRESH_TOKEN_EXPIRED`**: Refresh token expired
-   - Request new tokens from Control
-   - For API keys (7-day expiry), this indicates job ran longer than expected
-
-**Token Expiry Timeline**:
-
-```text
-Time:     0min        55min        60min        24hr         7d
-          |           |            |            |            |
-Access:   [========= JWT valid =========][expired]
-
-Refresh:  [============ Valid (user session) ==============][expired]
-(user)
-
-Refresh:  [==================== Valid (API key) ====================][expired]
-(API key)
-
-Strategy: |<-- Use JWT -->|<- Refresh ->|<-- Use new JWT -->
-```
-
-**Recommended Refresh Strategy**:
-
-- **Proactive refresh**: Refresh when JWT has 5 minutes remaining (don't wait for 401)
-- **Lazy refresh**: Only refresh on 401 error (simpler, but causes one failed request)
-- **Background refresh**: Refresh in background thread before expiry (best for long operations)
-
----
-
-### CLI & SDK Authentication Methods
-
-Control supports multiple authentication methods for command-line tools (CLI) and SDKs to accommodate different deployment scenarios and security requirements.
-
-#### CLI Authentication Methods
-
-##### Method 1: Browser-Based OAuth Flow (Recommended for Interactive CLI)
-
-This method provides the best user experience for interactive CLI usage by leveraging the web-based Dashboard for authentication.
-
-**Flow Overview**:
-
-1. User runs CLI command requiring authentication (e.g., `inferadb login`)
-2. CLI starts local HTTP server on `localhost:<random_port>` to receive callback
-3. CLI generates PKCE code verifier and challenge
-4. CLI opens user's default browser to Dashboard login URL with PKCE challenge
-5. User authenticates via Dashboard (password or passkey)
-6. Dashboard redirects back to CLI's localhost callback URL with authorization code
-7. CLI exchanges authorization code + PKCE verifier for session token
-8. CLI stores session token securely for future requests
-
-**Detailed Implementation**:
-
-#### Step 1: CLI initiates auth flow
-
-```bash
-inferadb login
-```
-
-CLI behavior:
-
-```rust
-// Generate PKCE parameters
-let code_verifier = generate_random_string(128);  // 128-char random string
-let code_challenge = base64url(sha256(code_verifier));  // S256 challenge
-
-// Start local callback server
-let callback_port = find_available_port();  // Random port 8000-9000
-let callback_url = format!("http://localhost:{}/callback", callback_port);
-
-// Construct authorization URL
-let auth_url = format!(
-    "https://app.inferadb.com/cli-login?code_challenge={}&code_challenge_method=S256&callback_url={}&state={}",
-    code_challenge,
-    urlencoded(callback_url),
-    random_state
-);
-
-// Open browser
-println!("Opening browser for authentication...");
-println!("If browser doesn't open, visit: {}", auth_url);
-open_browser(&auth_url);
-
-// Wait for callback
-start_callback_server(callback_port).await;
-```
-
-#### Step 2: Dashboard authenticates user and redirects
-
-Dashboard UI (`https://app.inferadb.com/cli-login`):
-
-- Displays "InferaDB CLI Login" page
-- Shows login form (password or passkey)
-- User authenticates (creates UserSession with type=CLI)
-- Dashboard generates authorization code (single-use, 5-minute expiry)
-- Redirects to callback URL
-
-**Control Endpoint**: `POST /control/v1/auth/cli/authorize` (called by Dashboard)
-
-**Request**:
-
-```json
-{
-  "session_id": "<user_session_id>",
-  "code_challenge": "<pkce_challenge>",
-  "code_challenge_method": "S256",
-  "callback_url": "http://localhost:8432/callback"
-}
-```
-
-**Response**:
-
-```json
-{
-  "authorization_code": "<single_use_code>",
-  "expires_in": 300
-}
-```
-
-**Behavior**:
-
-1. Validate user has active session
-2. Generate authorization code (random 32-byte string, base64url-encoded)
-3. Store authorization code with associated data:
-   - `code_challenge` (for PKCE verification)
-   - `session_id` (to link to user session)
-   - `expires_at` (5 minutes from now)
-4. Return authorization code to Dashboard
-
-#### Step 3: Dashboard redirects to CLI callback
-
-```http
-HTTP/1.1 302 Found
-Location: http://localhost:8432/callback?code=<authorization_code>&state=<state>
-```
-
-#### Step 4: CLI receives callback and exchanges code for token
-
-CLI callback handler receives:
-
-```http
-GET /callback?code=<authorization_code>&state=<state>
-```
-
-CLI calls Control to exchange code for session token:
-
-**Control Endpoint**: `POST /control/v1/auth/cli/token`
-
-**Request**:
-
-```json
-{
-  "authorization_code": "<code_from_callback>",
-  "code_verifier": "<original_pkce_verifier>"
-}
-```
-
-**Response**:
-
-```json
-{
-  "session_token": "<session_id>",
-  "user_id": "<user_id>",
-  "expires_at": "2024-04-15T10:30:00Z",
-  "expires_in": 7776000
-}
-```
-
-**Behavior**:
-
-1. Lookup authorization code (validate not expired, not already used)
-2. Verify PKCE: `base64url(sha256(code_verifier)) == stored_code_challenge`
-3. Mark authorization code as used (single-use)
-4. Return the session token associated with the authorization code
-5. CLI stores session token in secure storage
-
-#### Step 5: CLI uses session token for API requests
-
-```bash
-inferadb vaults list
-```
-
-CLI includes session token in requests:
-
-```http
-GET /control/v1/organizations
-Authorization: Bearer <jwt_access_token>
-```
-
-**Security Properties**:
-
-- ✅ No credentials stored on CLI (only session token)
-- ✅ PKCE prevents authorization code interception
-- ✅ Single-use authorization codes (no replay attacks)
-- ✅ 5-minute code expiry limits exposure window
-- ✅ Localhost-only callback (no external redirect)
-- ✅ User authenticates via familiar Dashboard UI
-
-**Storage Location**:
-
-CLI stores session token securely:
-
-- **macOS**: Keychain (`security` command)
-- **Linux**: Secret Service API or `~/.config/inferadb/credentials` (chmod 600)
-- **Windows**: Credential Manager
-
----
-
-##### Method 2: Client Assertion (Recommended for CI/CD & Automation)
-
-For non-interactive environments (CI/CD pipelines, automation scripts, backend services), users can create Clients using the Client Assertion pattern. See [AUTHENTICATION.md](AUTHENTICATION.md#4-client-assertion-recommended-for-backend-services) for complete documentation.
-
-**Client Creation Flow**:
-
-1. User logs into Dashboard
-2. User navigates to Organization Settings → Clients
-3. User creates new Client with a descriptive name (e.g., "GitHub Actions CI")
-4. Dashboard displays the **private key** ONCE (user must copy and store securely)
-5. User sets environment variable in CI/CD: `INFERADB_CLIENT_ID=<client_id>` and `INFERADB_PRIVATE_KEY=<private_key>`
-6. CLI/SDK uses private key to generate and sign client assertion JWTs
-
-**Control Endpoint**: `POST /control/v1/organizations/{org}/clients`
-
-**Request**:
-
-```json
-{
-  "name": "GitHub Actions CI"
-}
-```
-
-**Response**:
-
-```json
-{
-  "client_id": "client_<snowflake_id>",
-  "kid": "org-acme-key-20250116",
-  "name": "GitHub Actions CI",
-  "public_key": "<Ed25519_public_key_pem>",
-  "private_key": "<Ed25519_private_key_pem>",
-  "created_at": "2025-01-16T10:00:00Z"
-}
-```
-
-**⚠️ Security Warning**: The `private_key` is returned ONLY on creation. If lost, user must create a new Client.
-
-**CLI Usage**:
-
-```bash
-# Set environment variables
-export INFERADB_CLIENT_ID="client_123456789"
-export INFERADB_PRIVATE_KEY="<private_key_pem>"
-
-# CLI automatically detects and uses Client Assertion
-$ inferadb vaults list
-```
-
-**Client Assertion Generation**:
-
-CLI/SDK generates a JWT client assertion signed with the private key:
-
-```rust
-use jsonwebtoken::{encode, Algorithm, Header, EncodingKey};
-use serde::{Serialize, Deserialize};
-
-#[derive(Serialize, Deserialize)]
-struct ClientAssertion {
-    iss: String,  // "org:<org_id>"
-    sub: String,  // "org:<org_id>"
-    aud: String,  // "https://control.inferadb.com"
-    exp: i64,     // Current time + 5 minutes
-    iat: i64,     // Current time
-    jti: String,  // Random UUID
-}
-
-fn generate_client_assertion(client_id: &str, private_key_pem: &str) -> Result<String> {
-    let claims = ClientAssertion {
-        iss: client_id.to_string(),  // e.g., "client_123456789"
-        sub: client_id.to_string(),
-        aud: "https://control.inferadb.com/v1/token".to_string(),
-        exp: Utc::now().timestamp() + 60,  // 60 seconds (short-lived)
-        iat: Utc::now().timestamp(),
-        jti: Uuid::new_v4().to_string(),
-    };
-
-    let header = Header::new(Algorithm::EdDSA);
-    let key = EncodingKey::from_ed_pem(private_key_pem.as_bytes())?;
-
-    encode(&header, &claims, &key)
-}
-```
-
-**Token Exchange Flow**:
-
-CLI/SDK exchanges client assertion for vault-scoped JWT:
-
-```http
-POST /control/v1/token
-Content-Type: application/json
-
-{
-  "grant_type": "client_credentials",
-  "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-  "client_assertion": "<signed_jwt>",
-  "organization": 12345,
-  "vault": "vault_123",
-  "scopes": ["vault:read", "vault:write"]
-}
-```
-
-**Control Token Endpoint**: `/control/v1/token`
-
-**Validation**:
-
-1. Decode JWT header to extract `kid`
-2. Lookup Client by `kid` (via `org_api_key_kid` index)
-3. Verify JWT signature using public key from Client
-4. Validate claims: `iss`, `sub`, `aud`, `exp`, `iat`
-5. Check `jti` not previously used (replay protection)
-6. Verify Client has permission for requested scope (vault + role)
-7. Issue vault-scoped JWT signed with Control's key
-
-**Authorization Scope**:
-
-- Client Assertion provides **client-level access** scoped to specific vaults
-- Operations are performed on behalf of the Client (not a specific user)
-- Audit logs record actions as "via Client: <client_name>"
-- Clients can only access vaults configured in their VaultScope list
-
-**Security Properties**:
-
-- ✅ Long-lived credentials for automation
-- ✅ No interactive authentication required
-- ✅ Scoped to organization (not user)
-- ✅ Can be revoked without affecting user accounts
-- ✅ Private key never transmitted (only signatures)
-- ✅ JWT signatures verify key ownership
-
----
-
-##### Method 3: Session Token (Programmatic Access)
-
-For programmatic scenarios where browser-based auth is not feasible but API keys are too broad, users can generate short-lived session tokens via the API.
-
-**Use Case**: Temporary access for scripts, testing, or applications that need user-scoped permissions.
-
-**Flow**:
-
-1. User authenticates to Control via password or passkey
-2. User receives session token (30-day or 90-day depending on SessionType)
-3. User stores token in environment variable or config file
-4. CLI/SDK uses session token for API requests
-
-**CLI Usage**:
-
-```bash
-# Login interactively (browser-based flow)
-$ inferadb login
-Session token saved to keychain.
-
-# Or: Login programmatically (password)
-$ inferadb login --email user@example.com --password <password>
-Session token saved to keychain.
-
-# Or: Use explicit token
-$ export INFERADB_SESSION_TOKEN="<session_token>"
-$ inferadb vaults list
-```
-
-**Control Request**:
-
-```http
-GET /control/v1/organizations
-Authorization: Bearer <jwt_access_token>
-```
-
-**Validation**:
-
-1. Lookup UserSession by session_id
-2. Validate session not expired (`expires_at > now`)
-3. Validate session not soft-deleted (`deleted_at IS NULL`)
-4. Update `last_activity_at` (sliding window expiry)
-5. Attach user authorization context
-
-**Security Properties**:
-
-- ✅ User-scoped permissions (respects VaultUserGrant, OrganizationMember roles)
-- ✅ Time-limited (30 or 90 days with sliding window)
-- ✅ Can be revoked by user
-- ✅ Audit trail links actions to specific user
-
----
-
-#### SDK Authentication Methods
-
-SDKs (Python, Node.js, Go, Rust) support the same authentication methods as CLI:
-
-1. **Client Assertion (Recommended)**: Use Client for server-side applications
-2. **Session Token**: Use user session tokens for user-facing applications
-
-**Python SDK Example**:
-
-```python
-from inferadb import InferaDB
-
-# Method 1: Client assertion (API key)
-client = InferaDB(
-    org_id="org_123",
-    api_key=os.environ["INFERADB_API_KEY"]  # Private key PEM
-)
-
-# Method 2: Session token
-client = InferaDB(
-    session_token=os.environ["INFERADB_SESSION_TOKEN"]
-)
-
-# SDK automatically handles JWT generation and authentication
-vaults = client.vaults.list()
-```
-
-**SDK Implementation**:
-
-SDKs automatically:
-
-- Generate client assertion JWTs from API keys (signs with Ed25519)
-- Include `Authorization: Bearer <token>` header in all requests
-- Handle token refresh if needed
-- Provide clear error messages for auth failures
-
----
-
-#### Authentication Method Comparison
-
-| Method            | Use Case          | Credential Type | Scope        | Lifetime      | Revocation       |
-| ----------------- | ----------------- | --------------- | ------------ | ------------- | ---------------- |
-| **Browser OAuth** | Interactive CLI   | Session token   | User         | 90 days       | User can revoke  |
-| **API Key**       | CI/CD, automation | Private key     | Organization | Until revoked | Owner can revoke |
-| **Session Token** | Scripts, testing  | Session token   | User         | 30-90 days    | User can revoke  |
-
-**Recommendations**:
-
-- **Interactive CLI**: Browser-based OAuth (best UX)
-- **CI/CD Pipelines**: API Key with client assertion
-- **Development/Testing**: Session token
-- **Production SDKs**: API Key with client assertion
-- **User-Facing Apps**: Session token (user-scoped)
-
----
-
-## Email Flows
-
-### Email Verification
-
-**Endpoint**: `POST /control/v1/users/emails` (Add new email, requires JWT)
-
-**Request**:
-
-```json
-{
-  "email": "newemail@example.com"
-}
-```
-
-**Endpoint**: `POST /control/v1/auth/verify-email` (Confirm verification, public rate-limited)
-
-**Request**:
-
-```json
-{
-  "token": "<token>"
-}
-```
-
----
-
-### Password Reset
-
-Password reset is not implemented as a standalone flow. The passwordless email code authentication (`/control/v1/auth/email/initiate` + `/control/v1/auth/email/verify`) serves as the primary account recovery mechanism. Users authenticate via email code to regain access.
-
----
-
-## API Design
-
-### REST API
+## REST API conventions
 
 **Route prefix**: `/control/v1/`
 
-**Authentication**: JWT access token in `Authorization` header or `inferadb_access` cookie
+**Authentication**: JWT access token in `Authorization: Bearer <token>` header or `inferadb_access` cookie.
 
-**Common Headers**:
+**JWT validation split**: Read operations (GET) use local JWT validation (cached Ed25519 public keys, no Ledger round-trip). Write operations (POST/PATCH/DELETE) use Ledger-validated JWT.
 
-- `Authorization: Bearer <jwt_access_token>`
-- `Content-Type: application/json`
+**Pagination**: Cursor-based. Query parameters: `page_size` (1--100, default 50), `page_token` (opaque base64 cursor). Response includes `next_page_token` when more results exist.
 
-**Error Response Format**:
+**Body size limits**: 256 KiB default. Schema deployment allows 1 MiB.
+
+**Concurrency limit**: 10,000 concurrent requests.
+
+**Error response format**:
 
 ```json
 {
   "error": {
     "code": "VALIDATION_ERROR",
-    "message": "Email address is already in use",
-    "details": {
-      "field": "email"
-    }
+    "message": "name must be between 1 and 128 characters"
   }
 }
 ```
 
-**Pagination** (cursor-based):
-
-- Query params: `?cursor=<snowflake_id>&limit=50`
-- Response includes: `data`, `next_cursor`, `has_more`
-
-**Filtering**:
-
-- Query params: `?name=<search>` (case-insensitive substring match)
-- Example: `GET /organizations?name=acme`
-
-**Sorting**:
-
-- Default: by `id` (creation order, descending)
-- Query params: `?sort=name` (ascending), `?sort=-name` (descending)
-
 ---
 
-### REST API Endpoints
+## Authentication endpoints
 
-All `/control/v1/` routes require JWT authentication unless noted otherwise. Read operations (GET) use local JWT validation; write operations (POST/PATCH/DELETE) use Ledger-validated JWT.
+All authentication endpoints are public with rate limiting.
 
-#### Authentication Endpoints (Public, Rate-Limited)
+### Initiate email verification
 
-These endpoints are rate-limited at 100 requests/hour per IP for brute-force protection:
-
-- `POST /control/v1/auth/email/initiate` - Send email verification code (passwordless login step 1)
-- `POST /control/v1/auth/email/verify` - Verify email code (returns session or onboarding token)
-- `POST /control/v1/auth/totp/verify` - Verify TOTP code (second-factor authentication)
-- `POST /control/v1/auth/recovery` - Consume recovery code (TOTP bypass)
-- `POST /control/v1/auth/passkey/begin` - Begin passkey authentication
-- `POST /control/v1/auth/passkey/finish` - Complete passkey authentication
-- `POST /control/v1/token` - Client assertion authentication (OAuth 2.0 JWT Bearer, RFC 7523)
-- `POST /control/v1/auth/refresh` - Refresh session token pair
-- `POST /control/v1/auth/verify-email` - Verify email ownership with token
-
-Registration endpoint (rate-limited at 5 requests/day per IP):
-
-- `POST /control/v1/auth/email/complete` - Complete new-user registration
-
-Session endpoints (no rate limiting):
-
-- `POST /control/v1/auth/logout` - Logout (revoke current session)
-- `POST /control/v1/tokens/refresh` - Refresh vault token
-
-#### Authenticated Write Endpoints (JWT Required, Ledger-Validated)
-
-- `POST /control/v1/auth/revoke-all` - Revoke all sessions
-
-#### User Endpoints
-
-- `GET /control/v1/users/me` - Get current user profile
-- `PATCH /control/v1/users/me` - Update current user profile
-- `DELETE /control/v1/users/me` - Delete current user account
-- `GET /control/v1/users/emails` - List user's emails
-- `POST /control/v1/users/emails` - Add new email
-- `DELETE /control/v1/users/emails/{id}` - Remove email
-- `GET /control/v1/users/me/invitations` - List received invitations
-- `POST /control/v1/users/me/invitations/{invitation}/accept` - Accept invitation
-- `POST /control/v1/users/me/invitations/{invitation}/decline` - Decline invitation
-
-#### Passkey Credential Management (JWT Required)
-
-- `POST /control/v1/users/me/credentials/passkeys/begin` - Begin passkey registration
-- `POST /control/v1/users/me/credentials/passkeys/finish` - Complete passkey registration
-
-#### Organization Endpoints
-
-- `GET /control/v1/organizations` - List user's organizations
-- `POST /control/v1/organizations` - Create new organization
-- `GET /control/v1/organizations/{org}` - Get organization details
-- `PATCH /control/v1/organizations/{org}` - Update organization
-- `DELETE /control/v1/organizations/{org}` - Delete organization
-- `GET /control/v1/organizations/{org}/members` - List organization members
-- `PATCH /control/v1/organizations/{org}/members/{member}` - Update member role
-- `DELETE /control/v1/organizations/{org}/members/{member}` - Remove member
-- `DELETE /control/v1/organizations/{org}/members/me` - Leave organization
-- `POST /control/v1/organizations/{org}/invitations` - Create invitation
-- `GET /control/v1/organizations/{org}/invitations` - List pending invitations
-- `DELETE /control/v1/organizations/{org}/invitations/{invitation}` - Revoke invitation
-
-#### Client Endpoints
-
-- `GET /control/v1/organizations/{org}/clients` - List organization clients
-- `POST /control/v1/organizations/{org}/clients` - Create new client
-- `GET /control/v1/organizations/{org}/clients/{client}` - Get client details
-- `PATCH /control/v1/organizations/{org}/clients/{client}` - Update client
-- `DELETE /control/v1/organizations/{org}/clients/{client}` - Delete client
-
-#### Certificate Endpoints
-
-- `GET /control/v1/organizations/{org}/clients/{client}/certificates` - List client certificates
-- `GET /control/v1/organizations/{org}/clients/{client}/certificates/{cert}` - Get certificate details
-- `POST /control/v1/organizations/{org}/clients/{client}/certificates` - Create new certificate
-- `DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}` - Revoke certificate
-- `POST /control/v1/organizations/{org}/clients/{client}/secret/rotate` - Rotate client secret
-
-#### Team Endpoints
-
-- `GET /control/v1/organizations/{org}/teams` - List teams in organization
-- `POST /control/v1/organizations/{org}/teams` - Create new team
-- `GET /control/v1/organizations/{org}/teams/{team}` - Get team details
-- `PATCH /control/v1/organizations/{org}/teams/{team}` - Update team
-- `DELETE /control/v1/organizations/{org}/teams/{team}` - Delete team
-- `GET /control/v1/organizations/{org}/teams/{team}/members` - List team members
-- `POST /control/v1/organizations/{org}/teams/{team}/members` - Add team member
-- `PATCH /control/v1/organizations/{org}/teams/{team}/members/{member}` - Update team member
-- `DELETE /control/v1/organizations/{org}/teams/{team}/members/{member}` - Remove team member
-
-#### Vault Endpoints
-
-- `GET /control/v1/organizations/{org}/vaults` - List vaults in organization
-- `POST /control/v1/organizations/{org}/vaults` - Create new vault
-- `GET /control/v1/organizations/{org}/vaults/{vault}` - Get vault details
-- `PATCH /control/v1/organizations/{org}/vaults/{vault}` - Update vault metadata
-- `DELETE /control/v1/organizations/{org}/vaults/{vault}` - Delete vault
-- `POST /control/v1/organizations/{org}/vaults/{vault}/tokens` - Generate vault-scoped JWT
-- `DELETE /control/v1/organizations/{org}/vaults/{vault}/tokens` - Revoke vault tokens
-
-#### Schema Endpoints
-
-- `GET /control/v1/organizations/{org}/vaults/{vault}/schemas` - List schema versions
-- `GET /control/v1/organizations/{org}/vaults/{vault}/schemas/current` - Get current active schema
-- `GET /control/v1/organizations/{org}/vaults/{vault}/schemas/diff` - Diff between schema versions
-- `GET /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}` - Get specific schema version
-- `POST /control/v1/organizations/{org}/vaults/{vault}/schemas` - Deploy new schema (1 MiB body limit)
-- `POST /control/v1/organizations/{org}/vaults/{vault}/schemas/rollback` - Rollback schema
-- `POST /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate` - Activate schema version
-
-#### Audit Log Endpoints
-
-- `GET /control/v1/organizations/{org}/audit-logs` - List audit logs for organization
-
-#### Health Endpoints (Public, No Authentication)
-
-- `GET /livez` - Liveness probe (is the process alive?)
-- `GET /readyz` - Readiness probe (can it accept traffic?)
-- `GET /startupz` - Startup probe (has initialization completed?)
-- `GET /healthz` - Detailed health status
-
-#### Metrics Endpoint (Network-Policy Protected)
-
-- `GET /metrics` - Prometheus metrics
-
----
-
-## Control → Engine Privileged Authentication
-
-Control requires privileged access to the Engine API to perform administrative operations on behalf of organizations and users. This section defines how Control authenticates with the Engine API for these privileged operations.
-
-### Authentication Mechanism: Client Assertion JWT/JWKS
-
-**Approach**: Use **Client Assertion JWT with JWKS** for Control → Engine authentication, mirroring the same pattern used for Client authentication.
-
-**Why JWT/JWKS**:
-
-- **Consistent authentication pattern**: Same JWT/JWKS flow as organization clients (reduces implementation complexity)
-- **No certificate management overhead**: No CA setup, certificate rotation, or certificate distribution
-- **Cryptographically strong**: Ed25519 signatures provide strong authentication
-- **Simple key rotation**: Publish new keys to JWKS endpoint, no orchestrated certificate rollout
-- **Excellent developer experience**: Works seamlessly in all environments (local, cloud, Kubernetes)
-- **Stateless verification**: Engine validates JWTs using public keys from JWKS endpoint
-
-### System API Key
-
-Control uses a special **System Client** to authenticate with the Engine API. This is distinct from organization clients:
-
-**Key Properties**:
-
-- **Type**: `system` (vs. `organization` for org-level clients)
-- **Audience**: `inferadb-engine`
-- **Scope**: Privileged operations only (`vault.create`, `vault.delete`, `vault.configure`)
-- **Lifecycle**: Generated once during initial deployment, rotated periodically (recommended: every 90 days)
-- **Storage**: Stored securely in Control configuration (environment variable or secret management system)
-
-**System API Key Record** (stored in Control database):
-
-```rust
-pub struct SystemApiKey {
-    pub id: i64,
-    pub key_id: String,  // UUID, exposed in JWKS as "kid"
-    pub public_key: Vec<u8>,  // Ed25519 public key (32 bytes)
-    pub private_key_encrypted: Vec<u8>,  // Encrypted Ed25519 private key
-    pub created_at: SystemTime,
-    pub rotated_at: Option<SystemTime>,
-    pub expires_at: SystemTime,  // Recommended: 90 days from creation
-    pub revoked_at: Option<SystemTime>,
-    pub scope: String,  // "vault.create vault.delete vault.configure"
-}
+```
+POST /control/v1/auth/email/initiate
 ```
 
-### JWT Client Assertion Flow
+Rate limit: 100/hour per IP.
 
-#### Step 1: Control generates client assertion JWT
-
-When Control needs to call the Engine API, it generates a short-lived JWT (client assertion) signed with its System API Key:
-
-```rust
-use jsonwebtoken::{encode, Algorithm, Header, EncodingKey};
-use serde::{Serialize, Deserialize};
-
-#[derive(Serialize, Deserialize)]
-struct ClientAssertion {
-    iss: String,  // "inferadb-control"
-    sub: String,  // "inferadb-control"
-    aud: String,  // "inferadb-engine"
-    exp: i64,     // Current time + 60 seconds (short-lived)
-    iat: i64,     // Current time
-    jti: String,  // Unique JWT ID (UUID) to prevent replay attacks
-    scope: String,  // "vault.create vault.delete vault.configure"
-}
-
-async fn generate_client_assertion(system_key: &SystemApiKey) -> Result<String> {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
-
-    let claims = ClientAssertion {
-        iss: "inferadb-control".to_string(),
-        sub: "inferadb-control".to_string(),
-        aud: "inferadb-engine".to_string(),
-        exp: now + 60,  // Expires in 60 seconds
-        iat: now,
-        jti: Uuid::new_v4().to_string(),
-        scope: "vault.create vault.delete vault.configure".to_string(),
-    };
-
-    let private_key = decrypt_private_key(&system_key.private_key_encrypted)?;
-
-    let mut header = Header::new(Algorithm::EdDSA);
-    header.kid = Some(system_key.key_id.clone());
-
-    let token = encode(
-        &header,
-        &claims,
-        &EncodingKey::from_ed_der(&private_key),
-    )?;
-
-    Ok(token)
-}
-```
-
-#### Step 2: Include JWT in gRPC metadata
-
-```rust
-use tonic::{metadata::MetadataValue, Request};
-
-async fn create_engine_client() -> Result<VaultManagementServiceClient<Channel>> {
-    let engine_endpoint = env::var("INFERADB_ENGINE_GRPC_ENDPOINT")?;
-
-    let channel = Channel::from_shared(engine_endpoint)?
-        .tls_config(ClientTlsConfig::new())?  // TLS for transport encryption
-        .connect()
-        .await?;
-
-    Ok(VaultManagementServiceClient::with_interceptor(
-        channel,
-        move |mut req: Request<()>| {
-            // Generate fresh client assertion JWT for each request
-            let token = generate_client_assertion(&system_key)?;
-            let bearer_token = format!("Bearer {}", token);
-            req.metadata_mut().insert(
-                "authorization",
-                MetadataValue::try_from(&bearer_token)?,
-            );
-            Ok(req)
-        },
-    ))
-}
-```
-
-#### Step 3: Engine validates JWT using JWKS
-
-The Engine API fetches Control's JWKS endpoint to retrieve public keys:
-
-```rust
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-
-pub async fn validate_management_jwt(token: &str) -> Result<ClientAssertion> {
-    // Fetch JWKS from Control
-    let jwks_url = env::var("INFERADB_MANAGEMENT_JWKS_URL")?;
-    let jwks = fetch_jwks(&jwks_url).await?;
-
-    // Decode header to get "kid"
-    let header = jsonwebtoken::decode_header(token)?;
-    let kid = header.kid.ok_or(anyhow!("Missing kid in JWT header"))?;
-
-    // Find matching key in JWKS
-    let jwk = jwks.keys.iter()
-        .find(|k| k.kid.as_ref() == Some(&kid))
-        .ok_or(anyhow!("Unknown key ID: {}", kid))?;
-
-    // Validate JWT
-    let mut validation = Validation::new(Algorithm::EdDSA);
-    validation.set_audience(&["inferadb-engine"]);
-    validation.set_issuer(&["inferadb-control"]);
-
-    let token_data = decode::<ClientAssertion>(
-        token,
-        &DecodingKey::from_jwk(jwk)?,
-        &validation,
-    )?;
-
-    // Additional validation: Check scope
-    if !token_data.claims.scope.contains("vault.create") {
-        return Err(anyhow!("Insufficient scope"));
-    }
-
-    // Check JTI for replay attack prevention (MANDATORY in production, cache recent JTIs in Redis/Ledger)
-    // In development mode with in-memory storage, JTI checking can be disabled via config flag
-    if config.jti_replay_protection_enabled {
-        check_jti_not_replayed(&token_data.claims.jti).await?;
-    }
-
-    Ok(token_data.claims)
-}
-```
-
-### JWKS Endpoint (Control)
-
-Control exposes a JWKS endpoint for the Engine to fetch system public keys:
-
-**Endpoint**: `GET /.well-known/system-jwks.json`
-
-**Response**:
+**Request**:
 
 ```json
 {
-  "keys": [
+  "email": "user@example.com",
+  "region": "US_EAST_VA"
+}
+```
+
+`region` is optional (defaults to `US_EAST_VA`).
+
+**Response** (200):
+
+```json
+{
+  "message": "verification code sent"
+}
+```
+
+### Verify email code
+
+```
+POST /control/v1/auth/email/verify
+```
+
+Rate limit: 100/hour per IP.
+
+**Request**:
+
+```json
+{
+  "email": "user@example.com",
+  "code": "123456",
+  "region": "US_EAST_VA"
+}
+```
+
+**Response** varies by user state:
+
+Existing user (no TOTP):
+
+```json
+{
+  "status": "authenticated",
+  "access_token": "<jwt>",
+  "refresh_token": "<token>",
+  "token_type": "Bearer"
+}
+```
+
+Existing user (TOTP enabled):
+
+```json
+{
+  "status": "totp_required",
+  "challenge_nonce": "<base64>"
+}
+```
+
+New user:
+
+```json
+{
+  "status": "registration_required",
+  "onboarding_token": "<token>"
+}
+```
+
+### Complete registration
+
+```
+POST /control/v1/auth/email/complete
+```
+
+Rate limit: 5/day per IP.
+
+**Request**:
+
+```json
+{
+  "onboarding_token": "<token>",
+  "email": "user@example.com",
+  "name": "Jane Doe",
+  "organization_name": "Acme Corp",
+  "region": "US_EAST_VA"
+}
+```
+
+**Response** (201):
+
+```json
+{
+  "registration": {
+    "user": 12345,
+    "organization": 67890,
+    "access_token": "<jwt>",
+    "refresh_token": "<token>",
+    "token_type": "Bearer"
+  }
+}
+```
+
+### Verify TOTP code
+
+```
+POST /control/v1/auth/totp/verify
+```
+
+Rate limit: 100/hour per IP.
+
+**Request**:
+
+```json
+{
+  "user_slug": 12345,
+  "totp_code": "123456",
+  "challenge_nonce": "<base64>"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<token>",
+  "token_type": "Bearer"
+}
+```
+
+### Consume recovery code
+
+```
+POST /control/v1/auth/recovery
+```
+
+Rate limit: 100/hour per IP.
+
+**Request**:
+
+```json
+{
+  "user_slug": 12345,
+  "code": "ABC12345",
+  "challenge_nonce": "<base64>"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<token>",
+  "token_type": "Bearer",
+  "remaining_codes": 4
+}
+```
+
+### Begin passkey authentication
+
+```
+POST /control/v1/auth/passkey/begin
+```
+
+Rate limit: 100/hour per IP.
+
+**Request**:
+
+```json
+{
+  "user_slug": 12345
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "challenge_id": "<uuid>",
+  "challenge": { ... }
+}
+```
+
+The `challenge` field is a WebAuthn `RequestChallengeResponse`.
+
+### Finish passkey authentication
+
+```
+POST /control/v1/auth/passkey/finish
+```
+
+Rate limit: 100/hour per IP.
+
+**Request**:
+
+```json
+{
+  "challenge_id": "<uuid>",
+  "credential": { ... }
+}
+```
+
+The `credential` field is a WebAuthn `PublicKeyCredential`.
+
+**Response** varies:
+
+Authenticated (no TOTP):
+
+```json
+{
+  "status": "authenticated",
+  "access_token": "<jwt>",
+  "refresh_token": "<token>",
+  "token_type": "Bearer"
+}
+```
+
+TOTP required:
+
+```json
+{
+  "status": "totp_required",
+  "challenge_nonce": "<base64>"
+}
+```
+
+### Client assertion authentication
+
+```
+POST /control/v1/token
+```
+
+Rate limit: 100/hour per IP. OAuth 2.0 JWT Bearer (RFC 7523).
+
+**Request**:
+
+```json
+{
+  "grant_type": "client_credentials",
+  "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+  "client_assertion": "<signed_jwt>",
+  "organization": 12345,
+  "vault": "67890",
+  "scopes": ["vault:read", "vault:write"],
+  "requested_role": "writer"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<token>",
+  "token_type": "Bearer",
+  "expires_in": 900
+}
+```
+
+### Refresh session tokens
+
+```
+POST /control/v1/auth/refresh
+```
+
+Rate limit: 100/hour per IP.
+
+**Request** (body or `inferadb_refresh` cookie):
+
+```json
+{
+  "refresh_token": "<token>"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<new_token>",
+  "token_type": "Bearer"
+}
+```
+
+Sets `inferadb_access` and `inferadb_refresh` cookies.
+
+### Verify email ownership
+
+```
+POST /control/v1/auth/verify-email
+```
+
+Rate limit: 100/hour per IP.
+
+**Request**:
+
+```json
+{
+  "token": "<verification_token>"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "message": "email verified",
+  "verified": true
+}
+```
+
+### Logout
+
+```
+POST /control/v1/auth/logout
+```
+
+No rate limiting. Best-effort revocation of refresh token. Clears cookies.
+
+**Response** (200):
+
+```json
+{
+  "message": "logged out"
+}
+```
+
+### Revoke all sessions
+
+```
+POST /control/v1/auth/revoke-all
+```
+
+Requires JWT. Revokes all sessions for the authenticated user.
+
+**Response** (200):
+
+```json
+{
+  "revoked_count": 3
+}
+```
+
+---
+
+## User endpoints
+
+All require JWT authentication.
+
+### Get profile
+
+```
+GET /control/v1/users/me
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "user": {
+    "slug": 12345,
+    "name": "Jane Doe",
+    "status": "active",
+    "role": "user",
+    "created_at": "2025-01-15T10:30:00+00:00"
+  }
+}
+```
+
+### Update profile
+
+```
+PATCH /control/v1/users/me
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "name": "Jane Smith"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "user": { ... }
+}
+```
+
+### Delete user
+
+```
+DELETE /control/v1/users/me
+```
+
+Auth: Ledger-validated JWT (write). Fails if the user is the sole Owner of any organization.
+
+**Response** (200):
+
+```json
+{
+  "message": "user account deleted"
+}
+```
+
+---
+
+## Email endpoints
+
+### List emails
+
+```
+GET /control/v1/users/emails
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "emails": [
     {
-      "kty": "OKP",
-      "use": "sig",
-      "kid": "sys_abc123",
-      "crv": "Ed25519",
-      "x": "base64url-encoded-public-key"
+      "slug": 100,
+      "email": "jane@example.com",
+      "verified": true,
+      "created_at": "2025-01-15T10:30:00+00:00",
+      "verified_at": "2025-01-15T10:35:00+00:00"
     }
   ]
 }
 ```
 
-**Caching Strategy** (Engine-side):
+### Add email
 
-- Cache JWKS for 5 minutes (same as organization API keys)
-- Invalidate cache on JWT validation failure with unknown `kid`
-- No active cache invalidation needed (keys rotate slowly, 90-day expiry)
-
-### System API Key Rotation
-
-**Rotation Process**:
-
-1. Generate new System API Key (new key pair, new `key_id`)
-2. Publish both old and new keys to JWKS endpoint (overlap period: 24 hours)
-3. Update Control configuration to use new key for signing JWTs
-4. Wait 24 hours (allow all Engine instances to refresh JWKS cache)
-5. Revoke old key (remove from JWKS endpoint)
-
-**Automation**:
-
-- Recommended: Rotate every 90 days
-- Alert when key is within 30 days of expiry
-- Support emergency rotation endpoint: `POST /control/v1/system/api-keys/rotate`
-
-### Privileged Operations Authorization
-
-Once authenticated, the Engine API must authorize Control requests based on the JWT scope:
-
-**Engine gRPC Interceptor**:
-
-```rust
-use tonic::{Request, Status};
-
-pub async fn management_auth_interceptor(
-    req: Request<()>,
-) -> Result<Request<()>, Status> {
-    // Extract JWT from Authorization header
-    let token = req.metadata()
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .ok_or(Status::unauthenticated("Missing Authorization header"))?;
-
-    // Validate JWT and extract claims
-    let claims = validate_management_jwt(token).await
-        .map_err(|e| Status::unauthenticated(format!("Invalid token: {}", e)))?;
-
-    // Verify audience
-    if claims.aud != "inferadb-engine" {
-        return Err(Status::unauthenticated("Invalid audience"));
-    }
-
-    // Verify issuer
-    if claims.iss != "inferadb-control" {
-        return Err(Status::unauthenticated("Invalid issuer"));
-    }
-
-    // Token is valid, proceed with request
-    Ok(req)
-}
-
-impl VaultManagementService for VaultService {
-    async fn create_vault(
-        &self,
-        request: Request<CreateVaultRequest>,
-    ) -> Result<Response<VaultStatus>, Status> {
-        // Auth already validated by interceptor
-        let req = request.into_inner();
-
-        // Verify scope for this operation
-        let claims = request.extensions().get::<ClientAssertion>()
-            .ok_or(Status::internal("Missing claims"))?;
-
-        if !claims.scope.contains("vault.create") {
-            return Err(Status::permission_denied("Insufficient scope"));
-        }
-
-        // Proceed with vault creation
-        let vault_id = req.vault_id;
-        let org_id = req.organization_id;
-
-        self.storage.create_vault_namespace(vault_id, org_id).await
-            .map_err(|e| Status::internal(format!("Failed to create vault: {}", e)))?;
-
-        Ok(Response::new(VaultStatus { created: true }))
-    }
-}
+```
+POST /control/v1/users/emails
 ```
 
-### Configuration
+Auth: Ledger-validated JWT (write).
 
-**Control Configuration**:
-
-```yaml
-system_api_key:
-  key_id: "sys_abc123"
-  private_key_path: "/var/run/secrets/inferadb/system-key.pem" # Or from env variable
-  scope: "vault.create vault.delete vault.configure"
-  jwt_ttl_seconds: 60 # Short-lived tokens
-
-engine_api:
-  grpc_endpoint: "https://engine.inferadb.com:8081"
-```
-
-**Engine API Configuration**:
-
-```yaml
-management_auth:
-  jwks_url: "https://control.inferadb.com/.well-known/system-jwks.json"
-  jwks_cache_ttl: 300 # 5 minutes
-  allowed_issuers: ["inferadb-control"]
-  required_audience: "inferadb-engine"
-
-  # JTI replay attack prevention (MANDATORY in production)
-  jti_replay_protection:
-    enabled: true # MUST be true in production deployments
-    ttl_seconds: 120 # Must be > max JWT TTL (60s)
-    backend: "ledger" # Production: "ledger" or "redis", Dev: "memory"
-    # Emergency mode: If backend is unavailable, fail closed (reject all JWTs) to prevent replay attacks
-```
-
-### Development Mode
-
-For local development, use the same JWT/JWKS flow but with relaxed validation:
-
-**Control (Development)**:
-
-```yaml
-system_api_key:
-  key_id: "dev_key"
-  private_key_path: "./dev/system-key.pem" # Local development key
-  scope: "vault.create vault.delete vault.configure"
-
-engine_api:
-  grpc_endpoint: "http://localhost:8081" # Plain HTTP is acceptable in dev
-```
-
-**Engine API (Development)**:
-
-```yaml
-management_auth:
-  jwks_url: "http://localhost:9090/.well-known/system-jwks.json"
-  jwks_cache_ttl: 60 # Shorter cache for faster development iteration
-  jti_replay_protection:
-    enabled: false # Can be disabled in dev for faster iteration (NOT SAFE for production)
-```
-
-⚠️ **Note**: Development keys should NEVER be used in production. Generate production keys using secure random generation.
-
----
-
-## Engine API: Role Enforcement & Tenant Isolation
-
-This section defines how the @engine API enforces VaultRole-based authorization and tenant isolation when processing requests from client applications (via vault-scoped JWTs issued by Control).
-
-### Overview
-
-The Engine API receives requests in two categories:
-
-1. **Privileged requests from Control**: Administrative operations (CreateVault, DeleteVault) authenticated via mTLS
-2. **Tenant requests from client applications**: Data plane operations (Check, Write, etc.) authenticated via vault-scoped JWTs
-
-This section focuses on **tenant requests** and how the Engine enforces VaultRole permissions and vault isolation.
-
-### Vault-Scoped JWT Authentication
-
-**JWT Issuance**: Control issues vault-scoped JWTs via the `POST /control/v1/organizations/{org}/vaults/{vault}/tokens` endpoint.
-
-**JWT Claims**:
+**Request**:
 
 ```json
 {
-  "iss": "tenant:acme",
-  "sub": "tenant:acme",
-  "aud": "https://api.inferadb.com/evaluate",
-  "exp": 1730000060,
-  "iat": 1730000000,
-  "vault_id": "vault_a1b2c3d4e5f6",
-  "vault_role": "WRITER",
-  "scope": "inferadb.check inferadb.write"
+  "email": "new@example.com"
 }
 ```
 
-**Key Claims**:
+**Response** (200):
 
-- **vault_id**: Unique identifier for the vault (enforces tenant isolation)
-- **vault_role**: Role for this vault (READER, WRITER, MANAGER, ADMIN)
-- **scope**: Space-separated list of allowed operations (derived from vault_role)
-
-### VaultRole Hierarchy
-
-VaultRoles define what operations are permitted within a vault:
-
-```text
-READER < WRITER < MANAGER < ADMIN
-```
-
-**Permission Mapping**:
-
-| VaultRole   | Scopes                                                                                     | Allowed Operations                                  |
-| ----------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------- |
-| **READER**  | `inferadb.check`, `inferadb.expand`                                                        | Read-only operations: Check, Expand, ListRelations  |
-| **WRITER**  | `inferadb.check`, `inferadb.expand`, `inferadb.write`                                      | READER + Write, Delete (data mutations)             |
-| **MANAGER** | `inferadb.check`, `inferadb.expand`, `inferadb.write`, `inferadb.schema`                   | WRITER + WriteSchema, DeleteSchema (schema changes) |
-| **ADMIN**   | `inferadb.check`, `inferadb.expand`, `inferadb.write`, `inferadb.schema`, `inferadb.admin` | MANAGER + administrative operations (if any)        |
-
-**Inheritance**: Higher roles include all permissions of lower roles (ADMIN has all READER/WRITER/MANAGER permissions).
-
-### Engine gRPC Interceptor for JWT Validation
-
-The Engine API uses a gRPC interceptor to validate JWTs and extract authorization context.
-
-**Implementation**:
-
-```rust
-use tonic::{Request, Status, metadata::MetadataMap};
-use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
-
-#[derive(Debug, Clone)]
-pub struct VaultAuthContext {
-    pub vault_id: String,
-    pub vault_role: VaultRole,
-    pub scopes: Vec<String>,
-    pub tenant_id: String,
-}
-
-pub async fn vault_auth_interceptor(
-    mut req: Request<()>,
-    jwks_cache: Arc<JwksCache>,
-) -> Result<Request<()>, Status> {
-    // Extract Authorization header
-    let token = extract_bearer_token(req.metadata())?;
-
-    // Decode JWT header to get 'kid' and 'iss'
-    let header = decode_header(&token)
-        .map_err(|_| Status::unauthenticated("Invalid JWT format"))?;
-
-    let kid = header.kid.ok_or(Status::unauthenticated("Missing 'kid' in JWT"))?;
-
-    // Decode to get issuer (tenant_id)
-    let unverified_claims: Claims = decode_unverified(&token)?;
-    let tenant_id = unverified_claims.iss
-        .strip_prefix("tenant:")
-        .ok_or(Status::unauthenticated("Invalid issuer format"))?;
-
-    // Fetch public key from JWKS cache (via Control JWKS endpoint)
-    let public_key = jwks_cache.get_key(tenant_id, &kid).await
-        .map_err(|_| Status::unauthenticated("Unable to fetch JWKS"))?;
-
-    // Verify JWT signature and claims
-    let mut validation = Validation::new(Algorithm::EdDSA);
-    validation.set_audience(&["https://api.inferadb.com/evaluate"]);
-    validation.set_issuer(&[format!("tenant:{}", tenant_id)]);
-
-    let token_data = decode::<Claims>(&token, &DecodingKey::from_ed_pem(&public_key)?, &validation)
-        .map_err(|e| Status::unauthenticated(format!("JWT validation failed: {}", e)))?;
-
-    let claims = token_data.claims;
-
-    // Extract authorization context
-    let vault_id = claims.vault_id
-        .ok_or(Status::unauthenticated("Missing 'vault_id' claim"))?;
-
-    let vault_role = claims.vault_role
-        .ok_or(Status::unauthenticated("Missing 'vault_role' claim"))?;
-
-    let scopes: Vec<String> = claims.scope
-        .unwrap_or_default()
-        .split_whitespace()
-        .map(|s| s.to_string())
-        .collect();
-
-    // Attach auth context to request extensions
-    let auth_ctx = VaultAuthContext {
-        vault_id,
-        vault_role: VaultRole::from_str(&vault_role)?,
-        scopes,
-        tenant_id: tenant_id.to_string(),
-    };
-
-    req.extensions_mut().insert(auth_ctx);
-
-    Ok(req)
+```json
+{
+  "email": {
+    "slug": 101,
+    "email": "new@example.com",
+    "verified": false,
+    "created_at": "2025-06-01T12:00:00+00:00",
+    "verified_at": null
+  },
+  "message": "verification email sent"
 }
 ```
 
-### Role-Based Authorization in Handlers
+### Delete email
 
-Each gRPC handler enforces role requirements using the `VaultAuthContext`:
-
-```rust
-impl CheckService for CheckServiceImpl {
-    async fn check(&self, request: Request<CheckRequest>)
-        -> Result<Response<CheckResponse>, Status> {
-        // Extract auth context from request extensions
-        let auth_ctx = request.extensions().get::<VaultAuthContext>()
-            .ok_or(Status::unauthenticated("Missing auth context"))?;
-
-        // Require 'inferadb.check' scope
-        require_scope(&auth_ctx, "inferadb.check")?;
-
-        // Validate vault_id matches the request
-        let req = request.into_inner();
-        validate_vault_isolation(&auth_ctx.vault_id, &req.vault_id)?;
-
-        // Authorization passed - proceed with check operation
-        let result = self.engine.check(
-            &auth_ctx.vault_id,  // Use vault_id from JWT (not from request body)
-            &req.resource,
-            &req.relation,
-            &req.subject,
-        ).await?;
-
-        Ok(Response::new(CheckResponse { allowed: result }))
-    }
-}
-
-impl WriteService for WriteServiceImpl {
-    async fn write(&self, request: Request<WriteRequest>)
-        -> Result<Response<WriteResponse>, Status> {
-        let auth_ctx = request.extensions().get::<VaultAuthContext>()
-            .ok_or(Status::unauthenticated("Missing auth context"))?;
-
-        // Require 'inferadb.write' scope (WRITER or higher)
-        require_scope(&auth_ctx, "inferadb.write")?;
-
-        let req = request.into_inner();
-        validate_vault_isolation(&auth_ctx.vault_id, &req.vault_id)?;
-
-        // Proceed with write operation
-        self.engine.write(&auth_ctx.vault_id, req.tuples).await?;
-
-        Ok(Response::new(WriteResponse { success: true }))
-    }
-}
-
-impl SchemaService for SchemaServiceImpl {
-    async fn write_schema(&self, request: Request<WriteSchemaRequest>)
-        -> Result<Response<WriteSchemaResponse>, Status> {
-        let auth_ctx = request.extensions().get::<VaultAuthContext>()
-            .ok_or(Status::unauthenticated("Missing auth context"))?;
-
-        // Require 'inferadb.schema' scope (MANAGER or ADMIN only)
-        require_scope(&auth_ctx, "inferadb.schema")?;
-
-        let req = request.into_inner();
-        validate_vault_isolation(&auth_ctx.vault_id, &req.vault_id)?;
-
-        // Proceed with schema write
-        self.engine.write_schema(&auth_ctx.vault_id, &req.schema).await?;
-
-        Ok(Response::new(WriteSchemaResponse { success: true }))
-    }
-}
+```
+DELETE /control/v1/users/emails/{id}
 ```
 
-### Helper Functions
+Auth: Ledger-validated JWT (write). Cannot delete the last verified email.
 
-```rust
-pub fn require_scope(auth_ctx: &VaultAuthContext, required_scope: &str) -> Result<(), Status> {
-    if !auth_ctx.scopes.contains(&required_scope.to_string()) {
-        return Err(Status::permission_denied(
-            format!("Missing required scope: {}", required_scope)
-        ));
-    }
-    Ok(())
-}
+**Response** (200):
 
-pub fn validate_vault_isolation(jwt_vault_id: &str, request_vault_id: &str) -> Result<(), Status> {
-    if jwt_vault_id != request_vault_id {
-        return Err(Status::permission_denied(
-            "Vault ID mismatch: JWT vault_id does not match request vault_id"
-        ));
-    }
-    Ok(())
+```json
+{
+  "message": "email removed"
 }
 ```
-
-### Tenant Isolation at Storage Layer
-
-The Engine API enforces tenant isolation by prefixing all storage operations with the `vault_id` from the JWT:
-
-**Storage Keyspace** (Engine side):
-
-```text
-vault_<vault_id>/
-  tuples/
-    <namespace>/<object>/<relation>/<subject>
-  schema/
-    <schema_version>
-```
-
-**Example**:
-
-```rust
-impl StorageEngine {
-    pub async fn write_tuple(
-        &self,
-        vault_id: &str,  // From JWT (trusted)
-        tuple: &RelationTuple,
-    ) -> Result<()> {
-        // Construct key with vault_id prefix for isolation
-        let key = format!(
-            "vault_{}/tuples/{}/{}#{}/{}#{}",
-            vault_id,
-            tuple.resource.namespace,
-            tuple.resource.object_type,
-            tuple.resource.object_id,
-            tuple.relation,
-            tuple.subject
-        );
-
-        self.storage.set(key.as_bytes(), &serialize(tuple)?).await?;
-        Ok(())
-    }
-
-    pub async fn check(
-        &self,
-        vault_id: &str,  // From JWT (trusted)
-        resource: &str,
-        relation: &str,
-        subject: &str,
-    ) -> Result<bool> {
-        // All queries scoped to vault_id prefix
-        let prefix = format!("vault_{}/tuples/", vault_id);
-
-        // Query only within this vault's keyspace
-        let results = self.storage.get_range(prefix.as_bytes()).await?;
-
-        // Process results...
-        Ok(true)
-    }
-}
-```
-
-**Security Guarantee**: Since `vault_id` comes from the **JWT (signed by Control)** and not from the client request body, clients cannot access other vaults' data by tampering with request parameters.
-
-### JWT Validation with Key Cache
-
-The Engine API caches public keys from Control to avoid fetching them on every request:
-
-**Engine Key Cache**:
-
-```rust
-use moka::future::Cache;
-use std::time::Duration;
-
-pub struct JwksCache {
-    management_api_url: String,
-    cache: Cache<String, Vec<Jwk>>,  // Key: tenant_id, Value: JWKS keys
-    ttl: Duration,
-}
-
-impl JwksCache {
-    pub async fn get_key(&self, tenant_id: &str, kid: &str) -> Result<Vec<u8>> {
-        // Check cache first
-        if let Some(keys) = self.cache.get(tenant_id).await {
-            if let Some(key) = keys.iter().find(|k| k.kid == kid) {
-                return Ok(key.to_pem());
-            }
-        }
-
-        // Cache miss - fetch from Control
-        let url = format!("{}/.well-known/jwks.json", self.management_api_url);
-        let keys: JwksResponse = reqwest::get(&url).await?.json().await?;
-
-        // Cache for TTL (5 minutes)
-        self.cache.insert(tenant_id.to_string(), keys.keys.clone()).await;
-
-        // Find requested key
-        keys.keys.iter()
-            .find(|k| k.kid == kid)
-            .map(|k| k.to_pem())
-            .ok_or_else(|| anyhow!("Key not found: {}", kid))
-    }
-}
-```
-
-**Engine Configuration**:
-
-```yaml
-auth:
-  management_api_url: "https://control.inferadb.com"
-  jwks_cache_ttl: 300 # 5 minutes (matches Control's grace period)
-```
-
-### Authorization Flow Summary
-
-1. **Client request**: Includes `Authorization: Bearer <vault-scoped-jwt>` header
-2. **Engine interceptor**:
-   - Extracts JWT and validates signature using JWKS from Control
-   - Extracts `vault_id`, `vault_role`, `scopes` from JWT claims
-   - Attaches `VaultAuthContext` to request extensions
-3. **Handler authorization**:
-   - Checks required scope (e.g., `inferadb.write` for write operations)
-   - Validates `vault_id` in JWT matches `vault_id` in request (if present)
-   - Uses `vault_id` from JWT for all storage operations (not from request body)
-4. **Storage layer**:
-   - All operations prefixed with `vault_{vault_id}/`
-   - Complete tenant isolation at keyspace level
-
-### Security Properties
-
-✅ **Tenant Isolation**: Enforced at storage layer using `vault_id` prefix from trusted JWT
-✅ **Role-Based Access Control**: VaultRole hierarchy enforced via scope validation
-✅ **No Cross-Vault Access**: Clients cannot access other vaults' data (vault_id from JWT, not request)
-✅ **JWT Integrity**: All JWTs signed by Control's Client (Ed25519)
-✅ **Key Rotation Support**: JWKS cache automatically picks up new keys within TTL window
-✅ **Defense in Depth**: Multiple layers of validation (JWT signature, scope, vault isolation)
 
 ---
 
-## Configuration
+## Passkey endpoints
 
-Control uses CLI-first configuration with environment variable overrides. There are no config files. See [`docs/guides/configuration.md`](guides/configuration.md) for the full reference.
+### Begin passkey registration
 
-**CLI example** (production):
+```
+POST /control/v1/users/me/credentials/passkeys/begin
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "name": "MacBook Pro"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "challenge_id": "<uuid>",
+  "challenge": { ... }
+}
+```
+
+The `challenge` field is a WebAuthn `CreationChallengeResponse`.
+
+### Finish passkey registration
+
+```
+POST /control/v1/users/me/credentials/passkeys/finish
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "challenge_id": "<uuid>",
+  "name": "MacBook Pro",
+  "credential": { ... }
+}
+```
+
+The `credential` field is a WebAuthn `RegisterPublicKeyCredential`.
+
+**Response** (200):
+
+```json
+{
+  "slug": 200,
+  "name": "MacBook Pro"
+}
+```
+
+---
+
+## Organization endpoints
+
+### List organizations
+
+```
+GET /control/v1/organizations
+```
+
+Auth: local JWT (read). Returns organizations the user belongs to.
+
+**Query parameters**: `page_size`, `page_token`.
+
+**Response** (200):
+
+```json
+{
+  "organizations": [
+    {
+      "slug": 1000,
+      "name": "Acme Corp",
+      "region": "us-east-va",
+      "status": "active",
+      "tier": "free"
+    }
+  ],
+  "next_page_token": null
+}
+```
+
+### Create organization
+
+```
+POST /control/v1/organizations
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "name": "Acme Corp"
+}
+```
+
+**Response** (201):
+
+```json
+{
+  "organization": {
+    "slug": 1001,
+    "name": "Acme Corp",
+    "region": "us-east-va",
+    "status": "active",
+    "tier": "free"
+  }
+}
+```
+
+### Get organization
+
+```
+GET /control/v1/organizations/{org}
+```
+
+Auth: local JWT (read). User must be a member.
+
+**Response** (200):
+
+```json
+{
+  "organization": { ... }
+}
+```
+
+### Update organization
+
+```
+PATCH /control/v1/organizations/{org}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "name": "Acme Inc"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "organization": { ... }
+}
+```
+
+### Delete organization
+
+```
+DELETE /control/v1/organizations/{org}
+```
+
+Auth: Ledger-validated JWT (write). Owner only.
+
+**Response** (200):
+
+```json
+{
+  "message": "organization deleted",
+  "retention_days": 90
+}
+```
+
+---
+
+## Organization member endpoints
+
+### List members
+
+```
+GET /control/v1/organizations/{org}/members
+```
+
+Auth: local JWT (read). User must be a member.
+
+**Query parameters**: `page_size`, `page_token`.
+
+**Response** (200):
+
+```json
+{
+  "members": [
+    {
+      "user": 12345,
+      "role": "owner",
+      "joined_at": "2025-01-01T00:00:00+00:00"
+    }
+  ],
+  "next_page_token": null
+}
+```
+
+### Update member role
+
+```
+PATCH /control/v1/organizations/{org}/members/{member}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "role": "admin"
+}
+```
+
+Accepted values: `"admin"`, `"member"`. Promotion to Owner is handled separately.
+
+**Response** (200):
+
+```json
+{
+  "member": {
+    "user": 12345,
+    "role": "admin",
+    "joined_at": "2025-01-01T00:00:00+00:00"
+  }
+}
+```
+
+### Remove member
+
+```
+DELETE /control/v1/organizations/{org}/members/{member}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (200):
+
+```json
+{
+  "message": "member removed"
+}
+```
+
+### Leave organization
+
+```
+DELETE /control/v1/organizations/{org}/members/me
+```
+
+Auth: Ledger-validated JWT (write). Fails if the user is the sole Owner.
+
+**Response** (200):
+
+```json
+{
+  "message": "left organization"
+}
+```
+
+---
+
+## Invitation endpoints
+
+### List invitations (admin view)
+
+```
+GET /control/v1/organizations/{org}/invitations
+```
+
+Auth: local JWT (read).
+
+**Query parameters**: `page_size`, `page_token`.
+
+**Response** (200):
+
+```json
+{
+  "invitations": [
+    {
+      "slug": 500,
+      "organization": 1000,
+      "inviter": 12345,
+      "invitee_email": "new@example.com",
+      "role": "member",
+      "status": "pending",
+      "created_at": "2025-06-01T00:00:00+00:00",
+      "expires_at": "2025-06-08T00:00:00+00:00"
+    }
+  ],
+  "next_page_token": null
+}
+```
+
+### Create invitation
+
+```
+POST /control/v1/organizations/{org}/invitations
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "email": "new@example.com",
+  "role": "member"
+}
+```
+
+`role` is optional (defaults to `"member"`). Accepted values: `"admin"`, `"member"`.
+
+**Response** (201):
+
+```json
+{
+  "invitation": { ... }
+}
+```
+
+### Delete invitation
+
+```
+DELETE /control/v1/organizations/{org}/invitations/{invitation}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (200):
+
+```json
+{
+  "message": "invitation revoked"
+}
+```
+
+### List received invitations
+
+```
+GET /control/v1/users/me/invitations
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "invitations": [
+    {
+      "slug": 500,
+      "organization": 1000,
+      "organization_name": "Acme Corp",
+      "role": "member",
+      "status": "pending",
+      "created_at": "2025-06-01T00:00:00+00:00",
+      "expires_at": "2025-06-08T00:00:00+00:00"
+    }
+  ],
+  "next_page_token": null
+}
+```
+
+### Accept invitation
+
+```
+POST /control/v1/users/me/invitations/{invitation}/accept
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (200):
+
+```json
+{
+  "message": "invitation accepted"
+}
+```
+
+### Decline invitation
+
+```
+POST /control/v1/users/me/invitations/{invitation}/decline
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (200):
+
+```json
+{
+  "message": "invitation declined"
+}
+```
+
+---
+
+## Team endpoints
+
+### List teams
+
+```
+GET /control/v1/organizations/{org}/teams
+```
+
+Auth: local JWT (read).
+
+**Query parameters**: `page_size`, `page_token`.
+
+**Response** (200):
+
+```json
+{
+  "teams": [
+    {
+      "slug": 300,
+      "organization": 1000,
+      "name": "Engineering",
+      "members": [
+        {
+          "user": 12345,
+          "role": "manager",
+          "joined_at": "2025-01-01T00:00:00+00:00"
+        }
+      ],
+      "created_at": "2025-01-01T00:00:00+00:00",
+      "updated_at": "2025-03-15T08:00:00+00:00"
+    }
+  ],
+  "next_page_token": null
+}
+```
+
+### Create team
+
+```
+POST /control/v1/organizations/{org}/teams
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "name": "Engineering"
+}
+```
+
+**Response** (201):
+
+```json
+{
+  "team": { ... }
+}
+```
+
+### Get team
+
+```
+GET /control/v1/organizations/{org}/teams/{team}
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "team": { ... }
+}
+```
+
+### Update team
+
+```
+PATCH /control/v1/organizations/{org}/teams/{team}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "name": "Platform Engineering"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "team": { ... }
+}
+```
+
+### Delete team
+
+```
+DELETE /control/v1/organizations/{org}/teams/{team}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request** (optional body):
+
+```json
+{
+  "move_members_to": 301
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "message": "team deleted"
+}
+```
+
+---
+
+## Team member endpoints
+
+### List team members
+
+```
+GET /control/v1/organizations/{org}/teams/{team}/members
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "members": [
+    {
+      "user": 12345,
+      "role": "manager",
+      "joined_at": "2025-01-01T00:00:00+00:00"
+    }
+  ]
+}
+```
+
+### Add team member
+
+```
+POST /control/v1/organizations/{org}/teams/{team}/members
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "user": 12345,
+  "role": "member"
+}
+```
+
+`role` defaults to `"member"`. Accepted values: `"manager"`, `"member"`.
+
+**Response** (201):
+
+```json
+{
+  "message": "member added"
+}
+```
+
+### Update team member
+
+```
+PATCH /control/v1/organizations/{org}/teams/{team}/members/{member}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "role": "manager"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "message": "member updated"
+}
+```
+
+### Remove team member
+
+```
+DELETE /control/v1/organizations/{org}/teams/{team}/members/{member}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (200):
+
+```json
+{
+  "message": "member removed"
+}
+```
+
+---
+
+## Client endpoints
+
+### List clients
+
+```
+GET /control/v1/organizations/{org}/clients
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "clients": [
+    {
+      "slug": 400,
+      "name": "Production Backend",
+      "description": "Main API server",
+      "enabled": true,
+      "credentials": {
+        "client_secret_enabled": false,
+        "mtls_ca_enabled": false,
+        "mtls_self_signed_enabled": false,
+        "client_assertion_enabled": true
+      },
+      "created_at": "2025-01-15T10:00:00+00:00",
+      "updated_at": "2025-01-15T10:00:00+00:00"
+    }
+  ]
+}
+```
+
+### Create client
+
+```
+POST /control/v1/organizations/{org}/clients
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "name": "CI Pipeline",
+  "description": "GitHub Actions deployment"
+}
+```
+
+`description` is optional (max 1024 chars).
+
+**Response** (201):
+
+```json
+{
+  "client": { ... }
+}
+```
+
+### Get client
+
+```
+GET /control/v1/organizations/{org}/clients/{client}
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "client": { ... }
+}
+```
+
+### Update client
+
+```
+PATCH /control/v1/organizations/{org}/clients/{client}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "name": "Staging Backend",
+  "description": "Updated description"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "client": { ... }
+}
+```
+
+### Delete client
+
+```
+DELETE /control/v1/organizations/{org}/clients/{client}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (200):
+
+```json
+{
+  "message": "client deleted"
+}
+```
+
+---
+
+## Certificate endpoints
+
+### List certificates
+
+```
+GET /control/v1/organizations/{org}/clients/{client}/certificates
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "certificates": [
+    {
+      "slug": 600,
+      "name": "prod-cert-2025",
+      "enabled": true,
+      "expires_at": "2026-01-15T10:00:00+00:00",
+      "created_at": "2025-01-15T10:00:00+00:00"
+    }
+  ]
+}
+```
+
+### Get certificate
+
+```
+GET /control/v1/organizations/{org}/clients/{client}/certificates/{cert}
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "certificate": { ... }
+}
+```
+
+### Create certificate
+
+```
+POST /control/v1/organizations/{org}/clients/{client}/certificates
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "name": "prod-cert-2025",
+  "expires_at": "2026-01-15T10:00:00Z"
+}
+```
+
+**Response** (201):
+
+```json
+{
+  "certificate": {
+    "slug": 601,
+    "name": "prod-cert-2025",
+    "enabled": true,
+    "expires_at": "2026-01-15T10:00:00+00:00",
+    "created_at": "2025-06-01T12:00:00+00:00"
+  },
+  "private_key_pem": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+}
+```
+
+The `private_key_pem` is returned only in this response. Store it securely.
+
+### Revoke certificate
+
+```
+DELETE /control/v1/organizations/{org}/clients/{client}/certificates/{cert}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (200):
+
+```json
+{
+  "message": "certificate revoked"
+}
+```
+
+### Rotate client secret
+
+```
+POST /control/v1/organizations/{org}/clients/{client}/secret/rotate
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (200):
+
+```json
+{
+  "secret": "<new_client_secret>"
+}
+```
+
+---
+
+## Vault endpoints
+
+### List vaults
+
+```
+GET /control/v1/organizations/{org}/vaults
+```
+
+Auth: local JWT (read).
+
+**Query parameters**: `page_size`, `page_token`.
+
+**Response** (200):
+
+```json
+{
+  "vaults": [
+    {
+      "organization": 1000,
+      "slug": 2000,
+      "height": 42,
+      "status": "active",
+      "nodes": ["node-1", "node-2", "node-3"],
+      "leader": "node-1"
+    }
+  ],
+  "next_page_token": null
+}
+```
+
+### Create vault
+
+```
+POST /control/v1/organizations/{org}/vaults
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (201):
+
+```json
+{
+  "vault": { ... }
+}
+```
+
+### Get vault
+
+```
+GET /control/v1/organizations/{org}/vaults/{vault}
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "vault": { ... }
+}
+```
+
+### Update vault
+
+```
+PATCH /control/v1/organizations/{org}/vaults/{vault}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "retention_policy": null
+}
+```
+
+`retention_policy` is not yet supported. Providing a value returns a validation error.
+
+**Response** (200):
+
+```json
+{
+  "vault": { ... }
+}
+```
+
+### Delete vault
+
+```
+DELETE /control/v1/organizations/{org}/vaults/{vault}
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (200):
+
+```json
+{
+  "message": "vault deleted"
+}
+```
+
+---
+
+## Vault token endpoints
+
+### Generate vault token
+
+```
+POST /control/v1/organizations/{org}/vaults/{vault}/tokens
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "app": 400,
+  "scopes": ["vault:read", "vault:write"]
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<token>",
+  "token_type": "Bearer",
+  "expires_in": 900
+}
+```
+
+### Revoke vault tokens
+
+```
+DELETE /control/v1/organizations/{org}/vaults/{vault}/tokens
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Request**:
+
+```json
+{
+  "app": 400
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "revoked_count": 2
+}
+```
+
+### Refresh vault token
+
+```
+POST /control/v1/tokens/refresh
+```
+
+No rate limiting.
+
+**Request**:
+
+```json
+{
+  "refresh_token": "<token>"
+}
+```
+
+**Response** (200):
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<new_token>",
+  "token_type": "Bearer",
+  "expires_in": 900
+}
+```
+
+---
+
+## Schema endpoints
+
+### List schemas
+
+```
+GET /control/v1/organizations/{org}/vaults/{vault}/schemas
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "schemas": [
+    { "version": 1, "has_definition": true, "is_active": false },
+    { "version": 2, "has_definition": true, "is_active": true }
+  ]
+}
+```
+
+### Get current schema
+
+```
+GET /control/v1/organizations/{org}/vaults/{vault}/schemas/current
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "version": 2,
+  "definition": { ... },
+  "description": "Added user roles"
+}
+```
+
+### Get schema by version
+
+```
+GET /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}
+```
+
+Auth: local JWT (read).
+
+**Response** (200):
+
+```json
+{
+  "version": 1,
+  "definition": { ... },
+  "description": "Initial schema"
+}
+```
+
+### Diff schemas
+
+```
+GET /control/v1/organizations/{org}/vaults/{vault}/schemas/diff?from=1&to=2
+```
+
+Auth: local JWT (read).
+
+**Query parameters**: `from` (version), `to` (version).
+
+**Response** (200):
+
+```json
+{
+  "from": 1,
+  "to": 2,
+  "changes": [
+    { "field": "users.role", "change_type": "added" },
+    { "field": "documents.status", "change_type": "modified" }
+  ]
+}
+```
+
+### Deploy schema
+
+```
+POST /control/v1/organizations/{org}/vaults/{vault}/schemas
+```
+
+Auth: Ledger-validated JWT (write). Body limit: 1 MiB.
+
+**Request**:
+
+```json
+{
+  "definition": { ... },
+  "version": 3,
+  "description": "Added document permissions"
+}
+```
+
+`version` is optional (auto-increments). `description` is optional.
+
+**Response** (201):
+
+```json
+{
+  "version": 3,
+  "status": "deployed"
+}
+```
+
+### Rollback schema
+
+```
+POST /control/v1/organizations/{org}/vaults/{vault}/schemas/rollback
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (200):
+
+```json
+{
+  "version": 1,
+  "status": "active"
+}
+```
+
+### Activate schema version
+
+```
+POST /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate
+```
+
+Auth: Ledger-validated JWT (write).
+
+**Response** (200):
+
+```json
+{
+  "version": 2,
+  "status": "active"
+}
+```
+
+---
+
+## Audit log endpoints
+
+### List audit logs
+
+```
+GET /control/v1/organizations/{org}/audit-logs
+```
+
+Auth: local JWT (read). User must be an organization member.
+
+**Query parameters**:
+
+| Parameter    | Type   | Description                                               |
+| ------------ | ------ | --------------------------------------------------------- |
+| `page_size`  | u32    | Items per page (1--100, default 50)                       |
+| `page_token` | string | Cursor for next page                                      |
+| `event_type` | string | Filter by event type prefix (e.g., `"ledger.vault"`)      |
+| `principal`  | string | Filter by principal (e.g., `"user:42"`)                   |
+| `outcome`    | string | Filter by outcome: `"success"`, `"failed"`, or `"denied"` |
+
+**Response** (200):
+
+```json
+{
+  "entries": [
+    {
+      "event_id": "550e8400-e29b-41d4-a716-446655440000",
+      "event_type": "ledger.vault.created",
+      "principal": "user:12345",
+      "outcome": "success",
+      "timestamp": "2025-06-01T12:00:00+00:00",
+      "source": "control",
+      "action": "vault_created",
+      "details": { "vault_slug": "2000" }
+    }
+  ],
+  "next_page_token": null,
+  "total_estimate": 1
+}
+```
+
+---
+
+## Health endpoints
+
+No authentication required.
+
+### Liveness
+
+```
+GET /livez
+```
+
+Returns 200 if the process is running.
+
+### Readiness
+
+```
+GET /readyz
+```
+
+Returns 200 if Ledger is reachable. Returns 503 otherwise. Results cached for 5 seconds.
+
+### Startup
+
+```
+GET /startupz
+```
+
+Same behavior as `/readyz`. Returns 200 after initialization completes.
+
+### Detailed health
+
+```
+GET /healthz
+```
+
+**Response** (200):
+
+```json
+{
+  "status": "healthy",
+  "service": "inferadb-control",
+  "version": "0.1.0",
+  "instance_id": 0,
+  "uptime_seconds": 3600,
+  "ledger_healthy": true
+}
+```
+
+`status` is `"healthy"` when Ledger is reachable, `"unhealthy"` otherwise.
+
+---
+
+## Metrics endpoint
+
+```
+GET /metrics
+```
+
+Prometheus-format metrics. Protected by network policy (no application-level auth).
+
+---
+
+## Registration flow
+
+1. `POST /control/v1/auth/email/initiate` -- send verification code
+2. `POST /control/v1/auth/email/verify` -- verify code, receive `onboarding_token`
+3. `POST /control/v1/auth/email/complete` -- create user, organization, and session
+
+On completion:
+
+- User is created with status `"active"`
+- Organization is created with `tier: "free"`, `region` as specified (default `US_EAST_VA`)
+- User becomes organization Owner
+- Session tokens are returned for immediate use
+
+---
+
+## Organization lifecycle
+
+**Creation**: Any authenticated user with a verified email can create organizations (up to 10 per user).
+
+**Role updates**: Only Owners can promote members to Owner. Admins can promote Members to Admin. The last Owner cannot be demoted or removed.
+
+**Invitations**: Admins and Owners can invite users. Invitations expire after 7 days. Cannot invite existing members.
+
+**Deletion**: Owner-only. Cascades soft-delete to all members, teams, clients, and vaults. 90-day retention.
+
+---
+
+## Team lifecycle
+
+**Creation**: Admins and Owners can create teams. Team names must be unique within the organization.
+
+**Members**: Team managers can add/remove members. The user must already be an organization member.
+
+**Deletion**: Admins and Owners only. Optionally moves members to another team via `move_members_to`.
+
+---
+
+## Client and certificate management
+
+**Creating a client**: Creates a service identity (maps to a Ledger "app"). Returns the client with credential configuration.
+
+**Certificates**: Ed25519 key pairs for JWT client assertion. The private key PEM is returned only at creation time. Multiple certificates can be active simultaneously for zero-downtime rotation.
+
+**Rotation workflow**:
+
+1. Create a new certificate
+2. Deploy the new private key alongside the old one
+3. Monitor `last_used_at` (not yet exposed in the API) to confirm migration
+4. Revoke the old certificate
+
+---
+
+## Vault lifecycle
+
+**Creation**: Returns vault with Raft cluster metadata (nodes, leader, height).
+
+**Tokens**: Generate vault-scoped JWTs via `POST .../tokens`. Access tokens expire in ~15 minutes. Refresh via `POST /control/v1/tokens/refresh`.
+
+**Schemas**: Deploy, rollback, activate, diff, and list schema versions. Schema deployment allows up to 1 MiB bodies.
+
+**Deletion**: Soft-delete with cascading revocation of all associated tokens.
+
+---
+
+## Session management
+
+- Access token cookie: 15-minute max-age, path `/`, HttpOnly, Secure, SameSite=Lax
+- Refresh token cookie: 30-day max-age, path `/control/v1/auth`, HttpOnly, Secure, SameSite=Lax
+- Maximum 10 concurrent sessions per user (oldest evicted)
+- User session refresh token TTL: 1 hour
+- Client refresh token TTL: 7 days
+- `POST /control/v1/auth/revoke-all` revokes all sessions for the user
+
+---
+
+## Rate limiting
+
+| Endpoint group                                        | Limit        | Window          |
+| ----------------------------------------------------- | ------------ | --------------- |
+| Auth endpoints (`/auth/*`, `/token`)                  | 100 requests | Per hour per IP |
+| Registration (`/auth/email/complete`)                 | 5 requests   | Per day per IP  |
+| Session endpoints (`/auth/logout`, `/tokens/refresh`) | No limit     | --              |
+
+Rate-limited responses return HTTP 429 with a `Retry-After` header.
+
+---
+
+## Soft delete and cleanup
+
+- Grace period: 90 days for all soft-deleted entities
+- Ledger's TTL garbage collector handles automatic cleanup
+- Soft-deleted entities are invisible via the API
+- Cascade: deleting a user cascades to emails, sessions, passkeys, and memberships; deleting an organization cascades to teams, members, clients, and vaults
+
+---
+
+## Error response taxonomy
+
+| Error code               | HTTP | Factory method                  | When                           |
+| ------------------------ | ---- | ------------------------------- | ------------------------------ |
+| `CONFIGURATION_ERROR`    | 500  | `Error::config(msg)`            | Invalid server configuration   |
+| `STORAGE_ERROR`          | 500  | `Error::storage(msg)`           | Storage backend failure        |
+| `AUTHENTICATION_ERROR`   | 401  | `Error::auth(msg)`              | Invalid or missing credentials |
+| `AUTHORIZATION_ERROR`    | 403  | `Error::authz(msg)`             | Insufficient permissions       |
+| `VALIDATION_ERROR`       | 400  | `Error::validation(msg)`        | Invalid request payload        |
+| `NOT_FOUND`              | 404  | `Error::not_found(msg)`         | Resource does not exist        |
+| `ALREADY_EXISTS`         | 409  | `Error::already_exists(msg)`    | Duplicate resource             |
+| `RATE_LIMIT_EXCEEDED`    | 429  | `Error::rate_limit(msg)`        | Too many requests              |
+| `TIER_LIMIT_EXCEEDED`    | 402  | `Error::tier_limit(msg)`        | Subscription limit reached     |
+| `TOO_MANY_PASSKEYS`      | 400  | `Error::too_many_passkeys(max)` | Max passkeys registered        |
+| `SERVICE_UNAVAILABLE`    | 503  | `Error::unavailable(msg)`       | Upstream temporarily down      |
+| `EXTERNAL_SERVICE_ERROR` | 502  | `Error::external(msg)`          | External dependency error      |
+| `INTERNAL_ERROR`         | 500  | `Error::internal(msg)`          | Unexpected failure             |
+
+**StorageError mapping**:
+
+| Storage error                      | Maps to               | HTTP |
+| ---------------------------------- | --------------------- | ---- |
+| `NotFound`                         | `NOT_FOUND`           | 404  |
+| `Conflict` / `CasRetriesExhausted` | `ALREADY_EXISTS`      | 409  |
+| `RateLimitExceeded`                | `RATE_LIMIT_EXCEEDED` | 429  |
+| `RangeLimitExceeded`               | `VALIDATION_ERROR`    | 400  |
+| `CircuitOpen` / `ShuttingDown`     | `SERVICE_UNAVAILABLE` | 503  |
+| All others                         | `INTERNAL_ERROR`      | 500  |
+
+---
+
+## Configuration reference
+
+CLI-first configuration with environment variable fallbacks. Precedence: CLI flag > env var > default.
+
+Env var prefix: `INFERADB__CONTROL__`.
+
+### Server
+
+| Flag           | Env var                         | Default          | Description                               |
+| -------------- | ------------------------------- | ---------------- | ----------------------------------------- |
+| `--listen`     | `INFERADB__CONTROL__LISTEN`     | `127.0.0.1:9090` | HTTP bind address                         |
+| `--log-level`  | `INFERADB__CONTROL__LOG_LEVEL`  | `info`           | Tracing filter (`info`, `debug`, `trace`) |
+| `--log-format` | `INFERADB__CONTROL__LOG_FORMAT` | `auto`           | `auto` (detect TTY), `json`, `text`       |
+| `--dev-mode`   | --                              | `false`          | Forces in-memory storage (CLI-only flag)  |
+
+### Identity and encryption
+
+| Flag         | Env var                       | Default             | Description                                                 |
+| ------------ | ----------------------------- | ------------------- | ----------------------------------------------------------- |
+| `--pem`      | `INFERADB__CONTROL__PEM`      | --                  | Ed25519 PEM for control identity (auto-generated if absent) |
+| `--key-file` | `INFERADB__CONTROL__KEY_FILE` | `./data/master.key` | AES-256-GCM master key path                                 |
+
+### Storage
+
+| Flag                    | Env var                                  | Default  | Description                                              |
+| ----------------------- | ---------------------------------------- | -------- | -------------------------------------------------------- |
+| `--storage`             | `INFERADB__CONTROL__STORAGE`             | `ledger` | `memory` or `ledger`                                     |
+| `--ledger-endpoint`     | `INFERADB__CONTROL__LEDGER_ENDPOINT`     | --       | Ledger gRPC URL (required for `ledger`)                  |
+| `--ledger-client-id`    | `INFERADB__CONTROL__LEDGER_CLIENT_ID`    | --       | Idempotency tracking ID (required for `ledger`)          |
+| `--ledger-organization` | `INFERADB__CONTROL__LEDGER_ORGANIZATION` | --       | Organization ID for data scoping (required for `ledger`) |
+| `--ledger-vault`        | `INFERADB__CONTROL__LEDGER_VAULT`        | --       | Optional vault for finer-grained scoping                 |
+
+### Email blinding
+
+| Flag                   | Env var                                 | Default | Description                                            |
+| ---------------------- | --------------------------------------- | ------- | ------------------------------------------------------ |
+| `--email-blinding-key` | `INFERADB__CONTROL__EMAIL_BLINDING_KEY` | --      | 64-char hex HMAC-SHA256 key (must match Ledger config) |
+
+### Email (SMTP)
+
+| Flag                   | Env var                                 | Default                | Description                        |
+| ---------------------- | --------------------------------------- | ---------------------- | ---------------------------------- |
+| `--email-host`         | `INFERADB__CONTROL__EMAIL_HOST`         | `""`                   | SMTP host (empty = email disabled) |
+| `--email-port`         | `INFERADB__CONTROL__EMAIL_PORT`         | `587`                  | SMTP port                          |
+| `--email-username`     | `INFERADB__CONTROL__EMAIL_USERNAME`     | --                     | SMTP username                      |
+| `--email-password`     | `INFERADB__CONTROL__EMAIL_PASSWORD`     | --                     | SMTP password                      |
+| `--email-from-address` | `INFERADB__CONTROL__EMAIL_FROM_ADDRESS` | `noreply@inferadb.com` | Sender address                     |
+| `--email-from-name`    | `INFERADB__CONTROL__EMAIL_FROM_NAME`    | `InferaDB`             | Sender display name                |
+| `--email-insecure`     | `INFERADB__CONTROL__EMAIL_INSECURE`     | `false`                | Skip TLS verification (dev only)   |
+
+### Frontend and WebAuthn
+
+| Flag                | Env var                              | Default                 | Description                                  |
+| ------------------- | ------------------------------------ | ----------------------- | -------------------------------------------- |
+| `--frontend-url`    | `INFERADB__CONTROL__FRONTEND_URL`    | `http://localhost:3000` | Base URL for email links (no trailing slash) |
+| `--webauthn-rp-id`  | `INFERADB__CONTROL__WEBAUTHN_RP_ID`  | `localhost`             | WebAuthn Relying Party domain                |
+| `--webauthn-origin` | `INFERADB__CONTROL__WEBAUTHN_ORIGIN` | `http://localhost:3000` | WebAuthn origin URL (must include scheme)    |
+
+### Infrastructure
+
+| Flag                    | Env var                                  | Default | Description                                                |
+| ----------------------- | ---------------------------------------- | ------- | ---------------------------------------------------------- |
+| `--trusted-proxy-depth` | `INFERADB__CONTROL__TRUSTED_PROXY_DEPTH` | --      | Nth-from-right entry in `X-Forwarded-For`                  |
+| `--worker-id`           | `INFERADB__CONTROL__WORKER_ID`           | random  | Snowflake worker ID (0--1023, must be unique per instance) |
+
+### Validation rules
+
+- `--ledger-endpoint` must start with `http://` or `https://`
+- `--frontend-url` must start with `http://` or `https://` and must not end with `/`
+- `--worker-id` must be in range 0--1023
+- When `--storage=ledger`, all three `--ledger-*` required fields must be set
+
+### Development quickstart
+
+```bash
+inferadb-control --dev-mode
+```
+
+### Production example
 
 ```bash
 inferadb-control \
@@ -3509,1124 +2336,8 @@ inferadb-control \
   --email-port 587 \
   --email-username apikey \
   --email-password "$SMTP_PASSWORD" \
-  --email-from-address noreply@inferadb.com \
-  --email-from-name InferaDB \
-  --log-level info \
   --webauthn-rp-id app.inferadb.com \
-  --webauthn-origin https://app.inferadb.com
+  --webauthn-origin https://app.inferadb.com \
+  --worker-id 0 \
+  --log-format json
 ```
-
-**Environment variable example** (prefix `INFERADB__CONTROL__`, flat structure):
-
-```bash
-INFERADB__CONTROL__LISTEN=0.0.0.0:9090
-INFERADB__CONTROL__STORAGE=ledger
-INFERADB__CONTROL__LEDGER_ENDPOINT=https://ledger.inferadb.com
-INFERADB__CONTROL__LEDGER_CLIENT_ID=ctrl-01
-INFERADB__CONTROL__LEDGER_ORGANIZATION=1
-INFERADB__CONTROL__KEY_FILE=/run/secrets/master.key
-INFERADB__CONTROL__FRONTEND_URL=https://app.inferadb.com
-INFERADB__CONTROL__EMAIL_HOST=smtp.sendgrid.net
-INFERADB__CONTROL__EMAIL_PASSWORD=<secret>
-INFERADB__CONTROL__WEBAUTHN_RP_ID=app.inferadb.com
-INFERADB__CONTROL__WEBAUTHN_ORIGIN=https://app.inferadb.com
-```
-
-**Dev mode** (in-memory storage, no external dependencies):
-
-```bash
-inferadb-control --dev-mode
-```
-
----
-
-## Multi-Instance Deployment & Distributed Coordination
-
-Control is designed to run as multiple instances for high availability and horizontal scalability. This section defines how instances coordinate without requiring external coordination services like etcd or Consul.
-
-### Architecture Overview
-
-**Deployment Models**:
-
-1. **Single-instance** (development, small deployments)
-   - Worker ID: 0 (static)
-   - No coordination needed
-   - Simpler configuration
-
-2. **Multi-instance** (production, high availability)
-   - Worker IDs: 0-1023 (statically assigned)
-   - Coordination via Ledger (no external dependencies)
-   - Horizontal scalability
-
-### Worker ID Assignment Strategy
-
-**Static Assignment (Recommended)**:
-
-- Each instance is assigned a unique worker ID via container orchestration or an entrypoint script
-- Worker IDs are static and must be unique across all running instances
-- Configuration examples:
-  - Kubernetes StatefulSet: Use pod ordinal index
-  - Docker Compose: Assign explicitly in docker-compose.yml
-  - VM/bare metal: Configure in systemd unit files or environment
-
-**Kubernetes Example** (StatefulSet):
-
-```yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: inferadb-control
-spec:
-  replicas: 3
-  serviceName: inferadb-control
-  template:
-    spec:
-      containers:
-        - name: control
-          image: inferadb/control:latest
-          env:
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-          # Worker ID is derived automatically from POD_NAME
-          # (e.g., inferadb-control-0 → worker_id=0)
-```
-
-**Docker Compose Example**:
-
-```yaml
-version: "3.8"
-services:
-  control-0:
-    image: inferadb/control:latest
-    environment:
-      WORKER_ID: 0
-
-  control-1:
-    image: inferadb/control:latest
-    environment:
-      WORKER_ID: 1
-
-  control-2:
-    image: inferadb/control:latest
-    environment:
-      WORKER_ID: 2
-```
-
-### Data Lifecycle
-
-Data lifecycle (expiry, retention, cleanup) is fully delegated to Ledger's native TTL garbage collector. All time-sensitive entities have `expires_at` set at write time:
-
-- **Sessions**: TTL matches session type duration (24h web, 7d CLI, 30d SDK); reset on activity
-- **Refresh tokens**: TTL matches token lifetime; short residual TTL on use/revocation
-- **Secure tokens**: TTL matches token expiry (24h email verification, 1h password reset)
-- **Audit logs**: 90-day TTL set at creation
-- **Revoked certificates**: 90-day TTL set at revocation; active certificates are permanent
-
-Ledger's `TtlGarbageCollector` runs every 60 seconds on the Raft leader, automatically expiring entities where `expires_at < now()`. Ledger's read service additionally filters expired entities at query time, so callers never see stale data even between GC cycles.
-
-No application-level background jobs, leader election, or cleanup infrastructure is required.
-
-### Rate Limiting in Multi-Instance Deployments
-
-Rate limiting must be enforced globally across all instances, not per-instance.
-
-**Distributed Rate Limiting via Ledger**:
-
-Use Ledger atomic operations for distributed counters.
-
-**Implementation**:
-
-```rust
-use ledger_client::*;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-pub struct DistributedRateLimiter {
-    db: Database,
-}
-
-impl DistributedRateLimiter {
-    /// Check and increment rate limit counter
-    /// Returns Ok(()) if allowed, Err if rate limit exceeded
-    pub async fn check_and_increment(
-        &self,
-        key: &str,           // e.g., "rate_limit:login:192.168.1.100"
-        limit: u32,          // e.g., 100 requests per hour
-        window_secs: u64,    // e.g., 3600 seconds (1 hour)
-    ) -> Result<()> {
-        let db = &self.db;
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let window_start = now - (now % window_secs);  // Start of current window
-
-        let counter_key = format!("mgmt/rate_limits/{}/{}", key, window_start);
-
-        db.run(|tx, _| async move {
-            // Read current count
-            let current_count_bytes = tx.get(counter_key.as_bytes(), false).await?;
-            let current_count: u32 = match current_count_bytes {
-                Some(bytes) => u32::from_be_bytes(bytes.try_into().unwrap_or([0u8; 4])),
-                None => 0,
-            };
-
-            if current_count >= limit {
-                return Err(anyhow!("Rate limit exceeded: {}/{}", current_count, limit));
-            }
-
-            // Increment counter
-            let new_count = current_count + 1;
-            tx.set(counter_key.as_bytes(), &new_count.to_be_bytes());
-
-            // Set TTL for automatic cleanup (window duration + buffer)
-            let ttl_key = format!("{}/ttl", counter_key);
-            let expires_at = window_start + window_secs + 3600;  // +1 hour buffer
-            tx.set(ttl_key.as_bytes(), &expires_at.to_be_bytes());
-
-            Ok(())
-        }).await
-    }
-
-    /// Get current count for a rate limit key (for monitoring)
-    pub async fn get_current_count(&self, key: &str, window_secs: u64) -> Result<u32> {
-        let db = &self.db;
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let window_start = now - (now % window_secs);
-
-        let counter_key = format!("mgmt/rate_limits/{}/{}", key, window_start);
-
-        let count_bytes = db.run(|tx, _| async move {
-            tx.get(counter_key.as_bytes(), false).await
-        }).await?;
-
-        Ok(match count_bytes {
-            Some(bytes) => u32::from_be_bytes(bytes.try_into().unwrap_or([0u8; 4])),
-            None => 0,
-        })
-    }
-
-    /// Background cleanup of expired rate limit counters
-    pub async fn cleanup_expired_counters(&self) -> Result<()> {
-        let db = &self.db;
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-
-        db.run(|tx, _| async move {
-            let prefix = b"mgmt/rate_limits/";
-            let range = Range::starts_with(prefix);
-
-            let kvs = tx.get_range(&range, 1000, false).await?;
-
-            for kv in kvs {
-                if kv.key().ends_with(b"/ttl") {
-                    let expires_at = u64::from_be_bytes(
-                        kv.value().try_into().unwrap_or([0u8; 8])
-                    );
-
-                    if expires_at < now {
-                        // Delete expired counter and its TTL marker
-                        let counter_key = &kv.key()[0..kv.key().len()-4];  // Remove "/ttl"
-                        tx.clear(counter_key);
-                        tx.clear(kv.key());
-                    }
-                }
-            }
-
-            Ok(())
-        }).await
-    }
-}
-```
-
-**Usage Example**:
-
-```rust
-// In request handler
-let rate_limiter = DistributedRateLimiter::new(db.clone());
-
-// Check login rate limit (100 per hour per IP)
-let client_ip = request.client_ip();
-rate_limiter.check_and_increment(
-    &format!("login:{}", client_ip),
-    100,   // limit
-    3600,  // 1 hour window
-).await.map_err(|_| {
-    StatusCode::TOO_MANY_REQUESTS
-})?;
-```
-
-**Properties**:
-
-- ✅ Global rate limiting across all instances
-- ✅ Atomic increment operations (no race conditions)
-- ✅ Automatic cleanup of expired counters
-- ✅ Sliding/fixed window support
-- ✅ No external Redis/Memcached required
-
-### Session Limit Enforcement in Multi-Instance
-
-When enforcing max concurrent sessions (10 per user), we must handle race conditions where multiple instances create sessions simultaneously.
-
-**Strategy**: Use Ledger transactions to atomically count and enforce limits.
-
-**Implementation**:
-
-```rust
-pub async fn create_session_with_limit(
-    db: &Database,
-    user_id: i64,
-    session_type: SessionType,
-    max_sessions: u32,
-) -> Result<UserSession> {
-    db.run(|tx, _| async move {
-        // Count active sessions for this user
-        let sessions_prefix = format!("mgmt/users/{}/sessions/", user_id);
-        let range = Range::starts_with(sessions_prefix.as_bytes());
-
-        let sessions = tx.get_range(&range, 0, false).await?;
-
-        // Filter out expired sessions
-        let now = SystemTime::now();
-        let active_sessions: Vec<_> = sessions.iter()
-            .filter_map(|kv| bincode::deserialize::<UserSession>(kv.value()).ok())
-            .filter(|s| s.expires_at > now && s.deleted_at.is_none())
-            .collect();
-
-        if active_sessions.len() >= max_sessions as usize {
-            // Find oldest session (by last_activity_at)
-            let oldest_session = active_sessions.iter()
-                .min_by_key(|s| s.last_activity_at)
-                .ok_or_else(|| anyhow!("No sessions to revoke"))?;
-
-            // Soft-delete oldest session
-            let mut revoked_session = oldest_session.clone();
-            revoked_session.deleted_at = Some(now);
-
-            let session_key = format!(
-                "mgmt/users/{}/sessions/{}",
-                user_id,
-                revoked_session.id
-            );
-            tx.set(session_key.as_bytes(), &bincode::serialize(&revoked_session)?);
-
-            info!("Revoked oldest session {} for user {}", revoked_session.id, user_id);
-        }
-
-        // Create new session
-        let new_session = UserSession {
-            id: generate_snowflake_id(),
-            user_id,
-            session_type,
-            created_at: now,
-            expires_at: now + session_type.default_ttl(),
-            last_activity_at: now,
-            ip_address: None,
-            user_agent: None,
-            deleted_at: None,
-        };
-
-        let session_key = format!("mgmt/users/{}/sessions/{}", user_id, new_session.id);
-        tx.set(session_key.as_bytes(), &bincode::serialize(&new_session)?);
-
-        Ok(new_session)
-    }).await
-}
-```
-
-**Properties**:
-
-- ✅ Atomic enforcement across all instances
-- ✅ No race conditions (transaction ensures consistency)
-- ✅ Automatic eviction of oldest session when limit reached
-- ✅ Expired sessions don't count toward limit
-
-### Instance Health Monitoring
-
-Each instance should expose health and readiness endpoints for load balancer integration.
-
-**Health Endpoint** (`GET /healthz`):
-
-```rust
-#[derive(Serialize)]
-struct HealthStatus {
-    status: String,           // "healthy" | "unhealthy"
-    version: String,          // Application version
-    instance_id: String,      // Unique instance identifier
-    worker_id: u16,           // Snowflake worker ID
-    uptime_seconds: u64,      // Time since startup
-    storage_healthy: bool,    // Ledger connection status
-}
-
-async fn health_check(state: AppState) -> Json<HealthStatus> {
-    let storage_healthy = state.db.check_health().await.is_ok();
-
-    Json(HealthStatus {
-        status: if storage_healthy { "healthy" } else { "unhealthy" },
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        instance_id: state.instance_id.clone(),
-        worker_id: state.worker_id,
-        uptime_seconds: state.started_at.elapsed().as_secs(),
-        storage_healthy,
-    })
-}
-```
-
-**Readiness Endpoint** (`GET /readyz`):
-
-Returns 200 OK only when the instance is ready to accept traffic (storage initialized and healthy).
-
-### Graceful Shutdown
-
-Instances must gracefully shut down to avoid dropping in-flight requests.
-
-**Implementation**:
-
-```rust
-use tokio::signal;
-use std::time::Duration;
-
-pub async fn run_with_graceful_shutdown<F>(
-    server_future: F,
-    shutdown_timeout: Duration,
-) where
-    F: std::future::Future<Output = Result<()>>,
-{
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-
-    // Spawn shutdown signal handler
-    tokio::spawn(async move {
-        signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
-        info!("Received shutdown signal, starting graceful shutdown...");
-        shutdown_tx.send(()).ok();
-    });
-
-    // Run server until shutdown signal
-    tokio::select! {
-        result = server_future => {
-            if let Err(e) = result {
-                error!("Server error: {}", e);
-            }
-        }
-        _ = shutdown_rx => {
-            info!("Shutdown signal received, waiting for in-flight requests...");
-
-            // Wait for in-flight requests to complete (up to timeout)
-            tokio::time::sleep(shutdown_timeout).await;
-
-            info!("Graceful shutdown complete");
-        }
-    }
-}
-```
-
-**Usage**:
-
-```rust
-#[tokio::main]
-async fn main() -> Result<()> {
-    let app = create_app().await?;
-    let listener = TcpListener::bind("0.0.0.0:8090").await?;
-
-    let server = axum::serve(listener, app);
-
-    run_with_graceful_shutdown(
-        server.into_future(),
-        Duration::from_secs(30),  // 30-second graceful shutdown timeout
-    ).await;
-
-    Ok(())
-}
-```
-
-### Deployment Recommendations
-
-**Minimum Production Configuration**:
-
-- 3 instances for high availability
-- Worker IDs: 0, 1, 2 (statically assigned)
-- Load balancer: Round-robin or least-connections
-- Health checks: `/healthz` endpoint every 10 seconds
-- Graceful shutdown timeout: 30 seconds
-
-**Scaling Guidelines**:
-
-- Up to 10 instances: Assign worker IDs 0-9
-- Up to 100 instances: Assign worker IDs 0-99
-- Maximum: 1024 instances (worker IDs 0-1023)
-
-**Zero-Downtime Deployment**:
-
-1. Deploy new version to subset of instances (e.g., 1 out of 3)
-2. Wait for health check to pass
-3. Monitor error rates and latency
-4. If healthy, continue rolling out to remaining instances
-5. If issues detected, roll back immediately
-
----
-
-## Multi-Tenancy & Data Isolation
-
-### Ledger Keyspace Design
-
-All data is isolated by entity type and organization to ensure security:
-
-```text
-mgmt/                                    # Namespace prefix
-  users/
-    <user_id>/                           # User data
-      profile                            # User entity
-      emails/<email_id>                  # UserEmail entities
-      passkeys/<passkey_id>              # UserPasskey entities
-      sessions/<session_id>              # UserSession entities
-
-  orgs/
-    <org_id>/                            # Organization data
-      profile                            # Organization entity
-      members/<member_id>                # OrganizationMember entities
-      clients/<client_id>/               # Client entities
-        profile                          # Client entity
-        certificates/<cert_id>           # ClientCertificate entities
-      teams/<team_id>/                   # OrganizationTeam entities
-        profile                          # Team entity
-        members/<team_member_id>         # OrganizationTeamMember entities
-        permissions/<permission_id>      # OrganizationTeamPermission entities
-      invitations/<invitation_id>        # OrganizationInvitation entities
-
-  vaults/
-    <vault_id>/                          # Vault data
-      profile                            # Vault entity
-      team_grants/<team_id>              # VaultTeamGrant entities
-      user_grants/<user_id>              # VaultUserGrant entities
-
-  tokens/
-    email_verification/<token>           # UserEmailVerificationToken lookup
-    password_reset/<token>               # UserPasswordResetToken lookup
-    invitation/<token>                   # OrganizationInvitation lookup (for global uniqueness enforcement)
-
-  indexes/
-    email_to_user/<email_lowercase>      # Email uniqueness + lookup (key = lowercase email, value = user_id)
-    credential_to_passkey/<cred_id>      # Passkey credential lookup (key = credential_id, value = passkey_id)
-    certificate_kid/<kid>                # Certificate lookup by kid (key = kid, value = (org_id, client_id, cert_id))
-```
-
-**Key Changes from Initial Design**:
-
-1. **Client**: Added to orgs keyspace
-2. **Vaults**: Moved to top-level (vaults are uniquely identified by vault_id, no need to nest under org)
-3. **OrganizationInvitation**: Moved under orgs/<org_id> for better isolation
-4. **Indexes**: Clarified that email index uses lowercase email directly (no cryptographic hash needed for uniqueness)
-5. **Indexes**: Added client_kid index for JWKS endpoint lookups
-
-**Security Guarantees**:
-
-- Organization data strictly isolated by `<org_id>` prefix
-- No cross-organization queries possible
-- Indexes use cryptographic hashes where needed for privacy
-- All queries scoped to authenticated user's organizations
-
-### Multi-Tenancy Isolation Guarantees
-
-Control is designed as a **true multi-tenant SaaS platform** supporting thousands of organizations with complete isolation:
-
-**1. Data Isolation (Storage Layer)**:
-
-- **Ledger keyspace partitioning**: All organization data prefixed with `orgs/<org_id>/`
-- **Vault data isolation**: Each vault has independent keyspace at `vaults/<vault_id>/`
-- **@engine isolation**: Engine API enforces vault-level isolation with `vault_id` prefix on all operations
-- **No shared data**: Organizations cannot access or enumerate other organizations' data
-- **Index isolation**: Global indexes (email, passkey credentials) use opaque identifiers with no organization leakage
-
-**2. Authentication Isolation**:
-
-- **User sessions**: UserSession scoped to user, no cross-user session access
-- **Client assertions**: Client JWTs scoped to specific organization and vault
-- **JWT validation**: @engine validates vault_id in JWT matches request vault_id
-- **JWKS per-tenant**: Each organization's clients use separate key IDs (kid)
-
-**3. Authorization Isolation**:
-
-- **Role-based access**: OrganizationMember roles (Member, Admin, Owner) scoped to single organization
-- **Vault permissions**: VaultUserGrant and VaultTeamGrant scoped to vault + organization
-- **API endpoints**: All mutation endpoints require organization context (`/control/v1/organizations/{org}/...`)
-- **Permission queries**: Cannot check permissions across organization boundaries
-
-**4. Rate Limiting Isolation**:
-
-- **Per-organization limits**: Each organization has independent rate limit buckets
-- **Tier-based limits**: Organizations on higher tiers (PRO, MAX) don't affect DEV tier orgs
-- **Engine API limits**: @engine enforces per-organization rate limits for Check/Write operations
-- **No noisy neighbor**: One organization's traffic cannot exhaust another's quota
-
-**5. Audit Logging Isolation**:
-
-- **Per-organization logs**: AuditLog entries indexed by organization_id
-- **No cross-org visibility**: Organizations cannot view other organizations' audit logs
-- **Retention per-tier**: Free tier (90 days), paid tiers (1 year), isolated per organization
-
-**6. Resource Limits (Multi-Tenant Safeguards)**:
-
-- **Per-user limits**: Max 10 organizations per user (prevents individual abuse)
-- **Per-organization limits**: Tier-based limits on users, teams, vaults
-- **Global system limits**: Max 100,000 total organizations (prevents platform exhaustion)
-- **Monitoring**: Alerts when approaching global limits (80% threshold)
-
-**7. Failure Isolation**:
-
-- **Vault sync failures**: Failed vault creation in one org doesn't affect other orgs
-- **Data lifecycle**: TTL-based expiry via Ledger GC, no cross-tenant impact
-- **Storage transactions**: Ledger ACID transactions ensure partial failures rollback cleanly
-- **Worker ID collision**: Independent worker IDs prevent cross-instance data corruption
-
-**8. Billing Isolation** (Future):
-
-- **Tier enforcement**: Organizations on different tiers have independent resource pools
-- **Usage tracking**: Per-organization metrics for billing (Check count, Write count, storage)
-- **Overage billing**: PRO/MAX tiers support overage billing without affecting other orgs
-- **Downgrade enforcement**: Organizations cannot downgrade if exceeding new tier limits
-
-**Testing Multi-Tenancy Isolation**:
-
-The test suite includes dedicated multi-tenant scenarios:
-
-- **Cross-organization access attempts**: Verify org A cannot access org B's resources
-- **Concurrent operations**: Multiple organizations creating vaults simultaneously
-- **Rate limit independence**: Org A hitting rate limit doesn't affect org B
-- **Vault isolation**: JWT for vault_123 cannot access vault_456 data
-- **Audit log isolation**: Org A cannot query org B's audit events
-
-### In-Memory Storage
-
-- Use Rust `HashMap` with same keyspace structure
-- Mutex/RwLock for thread safety
-- Not suitable for production (data loss on restart)
-
----
-
-## Soft Delete & Cleanup
-
-**Grace Period**: 90 days
-
-**Background Cleanup Task**:
-
-Runs daily (cron-like scheduler) and performs the following:
-
-1. **Soft-deleted entity cleanup** (90-day grace period):
-   - Identifies entities where `deleted_at < (now - 90 days)`
-   - Hard-deletes entities and all descendants
-   - Logs all deletions for audit purposes
-
-2. **Expired session cleanup**:
-   - Identifies UserSession entries where `expires_at < now`
-   - Hard-deletes expired sessions immediately (no grace period needed)
-   - Logs cleanup statistics (sessions deleted per run)
-
-3. **Expired token cleanup**:
-   - Hard-delete UserEmailVerificationToken entries where `expires_at < now`
-   - Hard-delete UserPasswordResetToken entries where `expires_at < now`
-   - These are already cleaned up on use, but this catches abandoned tokens
-
-**Cascade Behavior**:
-
-- When User soft-deleted: UserEmail, UserPasskey, UserSession, OrganizationMember cascaded
-- When Organization soft-deleted: Vault, OrganizationTeam, OrganizationMember, OrganizationInvitation cascaded
-- When Vault soft-deleted: VaultTeamGrant, VaultUserGrant cascaded
-- When Team soft-deleted: OrganizationTeamMember, VaultTeamGrant cascaded
-
-**Immediate Hard Deletes** (no soft delete):
-
-- UserEmailVerificationToken (single-use, no recovery needed)
-- UserPasswordResetToken (single-use, no recovery needed)
-- OrganizationInvitation (after acceptance or revocation)
-
----
-
-## Testing Strategy
-
-Follow @engine patterns:
-
-- **Unit tests**: In `src/` files (`#[cfg(test)] mod tests`)
-- **Integration tests**: In `tests/` directory
-- **Use cargo-nextest** for test execution
-- **Test fixtures**: Shared utilities in `inferadb-control-test-fixtures` crate
-- **Storage tests**: Run against both in-memory and Ledger backends
-
-**Key Test Coverage**:
-
-- Authentication flows (password, passkey)
-- Authorization rules (who can do what)
-- Email verification and password reset flows
-- Organization role enforcement
-- Vault access permission precedence
-- Cascade delete behavior
-- Soft delete and cleanup
-- Rate limiting enforcement
-- Multi-tenancy isolation
-
----
-
-## Error Response Taxonomy
-
-Comprehensive error codes for consistent client handling and debugging.
-
-**Error Response Format** (as defined earlier):
-
-```json
-{
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Human-readable error message",
-    "details": {
-      "field": "optional field name",
-      "additional_context": "..."
-    }
-  }
-}
-```
-
-**Error Codes** (from `Error::error_code()`):
-
-| Error Code | HTTP Status | Factory Method | Description |
-|---|---|---|---|
-| `CONFIGURATION_ERROR` | 500 | `Error::config(msg)` | Invalid or missing configuration |
-| `STORAGE_ERROR` | 500 | `Error::storage(msg)` | Storage backend failure |
-| `AUTHENTICATION_ERROR` | 401 | `Error::auth(msg)` | Caller identity could not be verified |
-| `AUTHORIZATION_ERROR` | 403 | `Error::authz(msg)` | Caller lacks permission |
-| `VALIDATION_ERROR` | 400 | `Error::validation(msg)` | Request payload failed validation |
-| `NOT_FOUND` | 404 | `Error::not_found(msg)` | Requested resource does not exist |
-| `ALREADY_EXISTS` | 409 | `Error::already_exists(msg)` | Resource conflicts with existing one |
-| `RATE_LIMIT_EXCEEDED` | 429 | `Error::rate_limit(msg)` | Request rate exceeded allowed limit |
-| `TIER_LIMIT_EXCEEDED` | 402 | `Error::tier_limit(msg)` | Subscription tier limit reached |
-| `TOO_MANY_PASSKEYS` | 400 | `Error::too_many_passkeys(max)` | Maximum passkeys registered |
-| `SERVICE_UNAVAILABLE` | 503 | `Error::unavailable(msg)` | Upstream service temporarily unavailable |
-| `EXTERNAL_SERVICE_ERROR` | 502 | `Error::external(msg)` | External dependency returned an error |
-| `INTERNAL_ERROR` | 500 | `Error::internal(msg)` | Unexpected internal failure |
-
-**StorageError conversion**: Storage layer errors are automatically converted:
-
-- `StorageError::NotFound` → `NOT_FOUND` (404)
-- `StorageError::Conflict` / `CasRetriesExhausted` → `ALREADY_EXISTS` (409)
-- `StorageError::RateLimitExceeded` → `RATE_LIMIT_EXCEEDED` (429)
-- `StorageError::RangeLimitExceeded` → `VALIDATION_ERROR` (400)
-- `StorageError::CircuitOpen` / `ShuttingDown` → `SERVICE_UNAVAILABLE` (503)
-- All others → `INTERNAL_ERROR` (500)
-
----
-
-## Enhanced Security Features
-
-### Client Emergency Revocation
-
-When a Client's private key is compromised, immediate revocation with propagation to @engine is critical. Client deletion via `DELETE /control/v1/organizations/{org}/clients/{client}` serves as the revocation mechanism.
-
-**Request**:
-
-```json
-{
-  "reason": "Security incident: private key exposed in public repository"
-}
-```
-
-**Behavior**:
-
-1. Validate requester is an Owner
-2. Set `revoked_at` on Client - immediate revocation
-3. **Do NOT wait for 5-minute JWKS grace period**
-4. Immediately notify @engine instances via webhook or gRPC:
-   - Send `InvalidateJWKS` gRPC call to all known @engine instances
-   - @engine instances immediately clear their JWKS cache
-   - Next JWT validation will fetch fresh JWKS (without revoked Client key)
-5. Log emergency revocation in audit trail with reason
-6. Send notification email to all organization Owners
-7. Return success with estimated propagation time
-
-**Implementation**:
-
-```rust
-pub async fn emergency_revoke_client(
-    org_id: i64,
-    client_id: i64,
-    reason: String,
-) -> Result<EmergencyRevocationResponse> {
-    // Revoke Client in database
-    let revoked_at = SystemTime::now();
-    db.revoke_client(org_id, client_id, revoked_at).await?;
-
-    // Notify all @engine instances (via gRPC or webhook)
-    let engine_instances = discover_engine_instances().await?;
-
-    for engine_url in engine_instances {
-        tokio::spawn(async move {
-            let client = EngineManagementClient::connect(engine_url.clone()).await?;
-            client.invalidate_jwks(InvalidateJwksRequest {
-                organization_id: org_id,
-                reason: format!("Emergency Client revocation: {}", reason),
-            }).await?;
-
-            info!("Notified @engine instance {} of emergency Client revocation", engine_url);
-            Ok::<(), anyhow::Error>(())
-        });
-    }
-
-    // Log to audit trail
-    audit_log(AuditEvent::ClientEmergencyRevocation {
-        org_id,
-        client_id,
-        reason: reason.clone(),
-        revoked_at,
-    }).await?;
-
-    // Send notification to all Owners
-    notify_organization_owners(org_id, EmailTemplate::ClientEmergencyRevoked {
-        reason,
-        revoked_at,
-    }).await?;
-
-    Ok(EmergencyRevocationResponse {
-        revoked_at,
-        propagation_status: "in_progress",
-        estimated_propagation_seconds: 5,  // Optimistic estimate
-    })
-}
-```
-
-**Properties**:
-
-- ✅ Immediate revocation (no grace period for compromised keys)
-- ✅ Proactive notification to @engine (don't wait for cache expiry)
-- ✅ Audit trail for security incidents
-- ✅ Owner notifications for transparency
-
-### JWKS Cache Invalidation Strategy
-
-Enhanced JWKS caching with active invalidation support.
-
-**@engine JWKS Cache** (updated implementation):
-
-```rust
-pub struct JwksCache {
-    management_api_url: String,
-    cache: Arc<RwLock<HashMap<String, CachedJwks>>>,
-    ttl: Duration,
-    invalidation_receiver: mpsc::Receiver<JwksInvalidationEvent>,
-}
-
-#[derive(Clone)]
-struct CachedJwks {
-    keys: Vec<Jwk>,
-    cached_at: SystemTime,
-    expires_at: SystemTime,
-}
-
-impl JwksCache {
-    pub async fn get_key(&self, org_id: &str, kid: &str) -> Result<Vec<u8>> {
-        // Check cache first
-        {
-            let cache = self.cache.read().await;
-            if let Some(cached) = cache.get(org_id) {
-                if cached.expires_at > SystemTime::now() {
-                    if let Some(key) = cached.keys.iter().find(|k| k.kid == kid) {
-                        return Ok(key.to_pem());
-                    }
-                }
-            }
-        }
-
-        // Cache miss or expired - fetch from Control
-        self.refresh_jwks(org_id).await?;
-
-        // Retry lookup after refresh
-        let cache = self.cache.read().await;
-        cache.get(org_id)
-            .and_then(|cached| cached.keys.iter().find(|k| k.kid == kid))
-            .map(|k| k.to_pem())
-            .ok_or_else(|| anyhow!("Key not found after refresh: {}", kid))
-    }
-
-    async fn refresh_jwks(&self, org_id: &str) -> Result<()> {
-        let url = format!("{}/organizations/{}/jwks.json", self.management_api_url, org_id);
-        let keys: JwksResponse = reqwest::get(&url).await?.json().await?;
-
-        let now = SystemTime::now();
-        let cached = CachedJwks {
-            keys: keys.keys,
-            cached_at: now,
-            expires_at: now + self.ttl,
-        };
-
-        let mut cache = self.cache.write().await;
-        cache.insert(org_id.to_string(), cached);
-
-        Ok(())
-    }
-
-    /// Handle invalidation events from Control
-    pub async fn run_invalidation_handler(&mut self) {
-        while let Some(event) = self.invalidation_receiver.recv().await {
-            match event {
-                JwksInvalidationEvent::OrganizationRevocation { org_id } => {
-                    info!("Received JWKS invalidation for organization {}", org_id);
-
-                    // Immediately remove from cache (force refresh on next request)
-                    let mut cache = self.cache.write().await;
-                    cache.remove(&org_id);
-                }
-                JwksInvalidationEvent::GlobalRefresh => {
-                    info!("Received global JWKS refresh signal");
-
-                    // Clear entire cache (force refresh for all organizations)
-                    let mut cache = self.cache.write().await;
-                    cache.clear();
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-enum JwksInvalidationEvent {
-    OrganizationRevocation { org_id: String },
-    GlobalRefresh,
-}
-```
-
-**Properties**:
-
-- ✅ Stale-while-revalidate pattern (serve cached while refreshing)
-- ✅ Active invalidation via gRPC notifications
-- ✅ Graceful degradation (use cached keys if Control unavailable)
-- ✅ Per-organization and global invalidation support
-
-### Session Revocation
-
-Users can revoke all active sessions via `POST /control/v1/auth/revoke-all` (requires JWT). This invalidates all sessions except the current one.
-
-### Vault Deletion Failure Recovery
-
-Enhanced vault deletion with automatic retry and admin intervention.
-
-**Vault Deletion States**:
-
-- `ACTIVE`: Vault is active and operational
-- `DELETE_PENDING`: Soft-deleted, awaiting @engine sync
-- `DELETE_FAILED`: @engine sync failed, requires intervention
-- `DELETED`: Successfully deleted from both Control and @engine
-
-**Enhanced Vault Entity**:
-
-```rust
-pub struct Vault {
-    pub id: i64,
-    pub organization_id: i64,
-    pub name: String,
-    pub created_at: SystemTime,
-    pub updated_at: SystemTime,
-    pub sync_status: VaultSyncStatus,
-    pub deletion_status: Option<VaultDeletionStatus>,  // New field
-    pub deleted_at: Option<SystemTime>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub enum VaultDeletionStatus {
-    DeletePending { retry_count: u32, last_attempt_at: SystemTime },
-    DeleteFailed { error: String, retry_count: u32, last_attempt_at: SystemTime },
-    Deleted,
-}
-```
-
-**Enhanced Deletion Flow**:
-
-```rust
-pub async fn delete_vault_with_retry(vault_id: i64) -> Result<()> {
-    // 1. Soft-delete vault in Control
-    let now = SystemTime::now();
-    db.update_vault(vault_id, |vault| {
-        vault.deleted_at = Some(now);
-        vault.deletion_status = Some(VaultDeletionStatus::DeletePending {
-            retry_count: 0,
-            last_attempt_at: now,
-        });
-    }).await?;
-
-    // 2. Cascade soft-delete access grants immediately
-    db.soft_delete_vault_access_grants(vault_id).await?;
-
-    // 3. Attempt @engine deletion (with retries)
-    for attempt in 1..=3 {
-        match delete_vault_in_server(vault_id).await {
-            Ok(()) => {
-                // Success - mark as fully deleted
-                db.update_vault(vault_id, |vault| {
-                    vault.sync_status = VaultSyncStatus::Synced;
-                    vault.deletion_status = Some(VaultDeletionStatus::Deleted);
-                }).await?;
-
-                info!("Vault {} successfully deleted from @engine", vault_id);
-                return Ok(());
-            }
-            Err(e) if attempt < 3 => {
-                // Retry with exponential backoff
-                let backoff = Duration::from_secs(2u64.pow(attempt));
-                warn!("Vault {} deletion attempt {} failed: {}. Retrying in {:?}",
-                      vault_id, attempt, e, backoff);
-
-                db.update_vault(vault_id, |vault| {
-                    vault.deletion_status = Some(VaultDeletionStatus::DeletePending {
-                        retry_count: attempt,
-                        last_attempt_at: SystemTime::now(),
-                    });
-                }).await?;
-
-                tokio::time::sleep(backoff).await;
-            }
-            Err(e) => {
-                // Final attempt failed - mark as failed
-                error!("Vault {} deletion failed after {} attempts: {}", vault_id, attempt, e);
-
-                db.update_vault(vault_id, |vault| {
-                    vault.sync_status = VaultSyncStatus::Failed;
-                    vault.deletion_status = Some(VaultDeletionStatus::DeleteFailed {
-                        error: e.to_string(),
-                        retry_count: attempt,
-                        last_attempt_at: SystemTime::now(),
-                    });
-                }).await?;
-
-                // Notify organization owners
-                notify_vault_deletion_failed(vault_id, e.to_string()).await?;
-
-                return Err(e);
-            }
-        }
-    }
-
-    unreachable!()
-}
-```
-
-**Admin Intervention Endpoint**: `POST /control/v1/organizations/{org}/vaults/{vault}/retry-deletion`
-
-**Behavior**:
-
-- Only accessible to organization Owners
-- Manually triggers deletion retry with fresh attempt
-- Logs admin intervention in audit trail
-- Returns current deletion status
-
-**Properties**:
-
-- ✅ Manual admin intervention available via retry endpoint
-- ✅ Owner notifications for failures
-- ✅ Audit trail for all deletion attempts
-
----
-
-## Observability & Monitoring (Day 1)
-
-Basic observability features included from initial implementation.
-
-### Structured Logging
-
-Use `tracing` crate for structured logging:
-
-```rust
-use tracing::{info, warn, error, instrument};
-
-#[instrument(skip(db), fields(user_id, email))]
-pub async fn register_user(
-    db: &Database,
-    name: String,
-    email: String,
-    password: String,
-) -> Result<UserRegistrationResponse> {
-    info!(user_name = %name, email = %email, "Starting user registration");
-
-    // Registration logic...
-
-    info!(user_id, "User registered successfully");
-    Ok(response)
-}
-```
-
-**Log Levels**:
-
-- **ERROR**: Unrecoverable errors, system failures
-- **WARN**: Recoverable errors, degraded performance, rate limits
-- **INFO**: Significant events (logins, registrations, key rotations)
-- **DEBUG**: Detailed diagnostic information (development only)
-- **TRACE**: Very verbose logging (development only)
-
-### Metrics
-
-Expose Prometheus metrics on `/metrics` endpoint:
-
-**Counter Metrics**:
-
-- `inferadb_ctrl_requests_total{method, path, status}`: Total HTTP requests
-- `inferadb_ctrl_auth_attempts_total{method, result}`: Authentication attempts (password/passkey, success/failure)
-- `inferadb_ctrl_registrations_total{result}`: User registrations (success/failure)
-- `inferadb_ctrl_rate_limits_exceeded_total{limit_type}`: Rate limit violations
-
-**Histogram Metrics**:
-
-- `inferadb_ctrl_request_duration_seconds{method, path}`: Request latency
-- `inferadb_ctrl_db_query_duration_seconds{operation}`: Database query latency
-- `inferadb_ctrl_grpc_request_duration_seconds{service, method}`: gRPC request latency (to @engine)
-
-**Gauge Metrics**:
-
-- `inferadb_ctrl_active_sessions{session_type}`: Current active sessions
-- `inferadb_ctrl_organizations_total`: Total organizations
-- `inferadb_ctrl_vaults_total{status}`: Total vaults by sync status
-
-### Health Checks
-
-**Liveness Probe** (`GET /livez`):
-
-- Returns 200 OK if process is running
-- Used by Kubernetes liveness probe
-- Never fails (unless process is dead)
-
-**Readiness Probe** (`GET /readyz`):
-
-```rust
-async fn readiness_check(state: AppState) -> Result<StatusCode> {
-    // Check Ledger connectivity
-    if !state.db.is_healthy().await {
-        return Ok(StatusCode::SERVICE_UNAVAILABLE);
-    }
-
-    Ok(StatusCode::OK)
-}
-```
-
-**Startup Probe** (`GET /startupz`):
-
-- Returns 200 OK only after initialization complete
-- Used by Kubernetes startup probe
-- Includes:
-  - Database connection established
-  - JWKS cache initialized
-  - Worker ID acquired
-
-### Tracing (Optional, Production Recommended)
-
-OpenTelemetry integration for distributed tracing:
-
-```yaml
-observability:
-  tracing_enabled: true # Enable in production
-  otlp_endpoint: "http://otel-collector:4317"
-  service_name: "inferadb-control"
-  trace_sampling_rate: 0.1 # Sample 10% of requests
-```
-
----
-
-## Future Considerations
-
-Items deferred for later implementation:
-
-1. **Billing Integration**: Webhooks for tier changes, usage tracking
-2. **Account Recovery**: Additional recovery mechanisms beyond email
-3. **JWT Token Exchange**: For truly serverless SPAs
-4. **Webhooks**: Organization-level webhooks for events
-5. **SSO Integration**: SAML, OIDC for enterprise authentication
-6. **Advanced Search**: Full-text search across entities

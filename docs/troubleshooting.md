@@ -1,639 +1,296 @@
-# Troubleshooting Guide
+# Troubleshooting
 
-This guide covers common issues and their solutions when working with InferaDB Control.
+Common issues and solutions for InferaDB Control.
 
-## Table of Contents
+## Why It Matters
 
-- [Installation & Setup](#installation--setup)
-- [Database & Storage](#database--storage)
-- [Authentication & Sessions](#authentication--sessions)
-- [API Errors](#api-errors)
-- [Performance Issues](#performance-issues)
-- [Deployment Issues](#deployment-issues)
-- [Development & Testing](#development--testing)
+Deployment and integration problems have patterns. This guide maps error messages to root causes so you can resolve issues without reading source code.
 
-## Installation & Setup
-
-### Rust Build Failures
-
-#### Issue: Compilation errors with missing dependencies
-
-**Error**: `error: failed to compile ...`
-
-**Solution**:
+## Quickstart Diagnostics
 
 ```bash
-# Update Rust toolchain
+# Check if the server is running
+curl http://localhost:9090/livez
+
+# Detailed health status
+curl http://localhost:9090/healthz
+
+# View configuration (redact secrets)
+env | grep INFERADB__CONTROL__ | grep -Evi '(secret|password|token|key|pem|credential|blinding)'
+
+# Enable debug logging
+inferadb-control --log-level debug
+```
+
+## Build and Setup
+
+### Compilation errors
+
+```bash
 rustup update
-
-# Clean build artifacts
 cargo clean
-
-# Rebuild
 cargo build --release
 ```
 
-#### Issue: Storage backend configuration error
+### Storage backend configuration error
 
-**Error**: `Failed to initialize storage backend`
+`Failed to initialize storage backend` means the storage configuration is incomplete.
 
-**Solution**:
+For development:
 
 ```bash
-# Use in-memory backend (development)
-inferadb-control --storage memory
-
-# Or for Ledger (production)
-inferadb-control --storage ledger --ledger-endpoint https://ledger.example.com \
-  --ledger-client-id your-client-id --ledger-organization 1
+inferadb-control --dev-mode
 ```
 
-### Port Conflicts
-
-#### Issue: Address already in use
-
-**Error**: `Address already in use (os error 48)` or `Address already in use (os error 98)`
-
-**Solutions**:
-
-**Option 1**: Change listen address via CLI flag
+For production with Ledger:
 
 ```bash
+inferadb-control --storage ledger \
+  --ledger-endpoint http://ledger:9200 \
+  --ledger-client-id your-client-id \
+  --ledger-organization 1
+```
+
+All three Ledger flags (`--ledger-endpoint`, `--ledger-client-id`, `--ledger-organization`) are required when `--storage ledger`.
+
+### Port conflict
+
+`Address already in use (os error 48)` or `(os error 98)`:
+
+```bash
+# Change port
 inferadb-control --listen 127.0.0.1:8080
-```
 
-**Option 2**: Use environment variable
-
-```bash
-export INFERADB__CONTROL__LISTEN="127.0.0.1:8080"
-inferadb-control
-```
-
-**Option 3**: Kill conflicting process
-
-```bash
-# macOS/Linux: Find process using port
+# Or find and kill the conflicting process
 lsof -i :9090
-
-# Kill the process
-kill -9 <PID>
+kill <PID>
 ```
 
-### Configuration Issues
+### Master key file not found
 
-#### Issue: Master key file not found
-
-**Error**: `Failed to load master key from file`
-
-**Solution**:
+`Failed to load master key from file`: Specify a writable path. The file is auto-generated if it does not exist.
 
 ```bash
-# Specify a key file path via CLI flag
-inferadb-control --key-file ./data/master.key
-
-# Or via environment variable
-export INFERADB__CONTROL__KEY_FILE="./data/master.key"
-
-# The key file will be auto-generated if it doesn't exist
+inferadb-control --key-file /etc/inferadb/master.key
 ```
 
-## Database & Storage
+## Authentication and Sessions
 
-### Memory Backend Issues
+### Session cookie not accepted
 
-#### Issue: Out of memory errors
+`401 Unauthorized: Invalid session`
 
-**Error**: `Cannot allocate memory` or application crashes
-
-**Solutions**:
-
-1. Check available RAM: `free -h` (Linux) or Activity Monitor (macOS)
-2. Increase memory allocation for the process
-3. Reduce concurrent users/sessions
-4. Consider implementing data cleanup/archival procedures
-
-#### Issue: Data lost after restart
-
-**Symptom**: All users, sessions, vaults disappeared after server restart
-
-**Explanation**: This is expected behavior with in-memory backend
-
-**Solutions**:
-
-1. Implement regular data export procedures
-2. Document this limitation for your team
-3. Use Ledger backend for production deployments
-
-### Data Migration Issues
-
-#### Issue: Schema version mismatch
-
-**Error**: `Incompatible schema version`
-
-**Solution**:
+Verify the cookie name and header format:
 
 ```bash
-# With memory backend, simply restart the server to reset
-# All data will be cleared
-
-# For persistent data, use Ledger backend
-```
-
-## Authentication & Sessions
-
-### Login Failures
-
-#### Issue: Invalid credentials
-
-**Error**: `401 Unauthorized: Invalid email or password`
-
-**Solutions**:
-
-1. Verify the email address is registered
-2. Check for typos in the email address
-3. Ensure the authentication flow is followed correctly:
-   - Initiate: `POST /control/v1/auth/email/initiate` with `{"email": "user@example.com"}`
-   - Verify: `POST /control/v1/auth/email/verify` with the verification code
-   - Complete: `POST /control/v1/auth/email/complete` to finish registration/login
-
-### Session Issues
-
-#### Issue: Session cookie not working
-
-**Error**: `401 Unauthorized: Invalid session`
-
-**Solutions**:
-
-**Step 1**: Verify cookie format
-
-```bash
-# Correct format
+# Correct
 curl -H "Cookie: infera_session=sess_abc123..."
 
-# Incorrect (will fail)
-curl -H "Authorization: Bearer sess_abc123"  # Wrong header
-curl -H "Cookie: session_id=sess_abc123"    # Wrong cookie name
+# Wrong header (will fail)
+curl -H "Authorization: Bearer sess_abc123"
+
+# Wrong cookie name (will fail)
+curl -H "Cookie: session_id=sess_abc123"
 ```
 
-**Step 2**: Check session expiration
+### Expired tokens
 
-Sessions expire after 24 hours (session cookie max-age). Re-authenticate using the email auth flow:
+| Token Type                 | Lifetime   |
+| -------------------------- | ---------- |
+| Access token cookie        | 15 minutes |
+| User session refresh token | 1 hour     |
+| Client refresh token       | 7 days     |
+| Session cookie             | 24 hours   |
 
-```bash
-curl -X POST http://localhost:9090/control/v1/auth/email/initiate \
-  -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com"}'
-```
+Use the refresh endpoint (`POST /control/v1/auth/refresh`) to obtain new access tokens before they expire.
 
-**Step 3**: Check token expiration
+### Session limit exceeded
 
-Access token cookies expire after 15 minutes. User session refresh tokens expire after 1 hour. Client refresh tokens expire after 7 days. Use the refresh endpoint to obtain new tokens.
-
-#### Issue: Too many sessions
-
-**Error**: `429 Too Many Requests: Maximum sessions exceeded`
-
-**Solution**:
+Each user can have up to 10 concurrent sessions. When the limit is reached, revoke old sessions:
 
 ```bash
 # Revoke all sessions
 curl -X POST http://localhost:9090/control/v1/auth/revoke-all \
   -H "Cookie: infera_session={session_id}"
 
-# Or log out the current session
+# Log out the current session
 curl -X POST http://localhost:9090/control/v1/auth/logout \
   -H "Cookie: infera_session={session_id}"
 ```
 
-### Rate Limiting
+### Rate limit exceeded
 
-#### Issue: Rate limit exceeded
+`429 Too Many Requests` with a `Retry-After` header.
 
-**Error**: `429 Too Many Requests: Rate limit exceeded`
+Rate limits are built-in and not configurable:
 
-**Solutions**:
+- **Auth endpoints**: 100 requests/hour per IP
+- **Registration**: 5 requests/day per IP
 
-**Note**: Rate limits are built-in defaults and are not configurable. If you encounter rate
-limiting during development, wait for the limit window to reset or restart the server
-(in-memory rate limit state is cleared on restart).
+During development with the in-memory backend, restart the server to clear rate limit state.
 
-**For production**: Implement exponential backoff
+For production clients, implement exponential backoff:
 
 ```python
 import time
 import requests
 
-def login_with_retry(email, password, max_retries=5):
+def auth_with_retry(url, payload, max_retries=5):
     for attempt in range(max_retries):
-        response = requests.post(
-            "http://localhost:9090/control/v1/auth/email/initiate",
-            json={"email": email}
-        )
-
+        response = requests.post(url, json=payload)
         if response.status_code == 429:
-            # Exponential backoff
-            wait_time = 2 ** attempt
-            print(f"Rate limited. Waiting {wait_time}s...")
-            time.sleep(wait_time)
+            wait = 2 ** attempt
+            time.sleep(wait)
             continue
-
         return response
-
-    raise Exception("Max retries exceeded")
+    raise Exception("max retries exceeded")
 ```
+
+If all users behind a proxy share the same rate limit bucket, verify that the proxy sets `X-Forwarded-For` and that `--trusted-proxy-depth` is configured correctly.
 
 ## API Errors
 
 ### 400 Bad Request
 
-#### Issue: Invalid JSON
-
-**Error**: `400 Bad Request: Failed to parse JSON`
-
-**Solution**:
+**Invalid JSON**: Ensure request bodies use valid JSON with quoted string values:
 
 ```bash
-# Incorrect (missing quotes)
-curl -d '{email: user@example.com}'  # ❌
+# Wrong
+curl -d '{email: user@example.com}'
 
 # Correct
-curl -d '{"email": "user@example.com"}'  # ✅
+curl -d '{"email": "user@example.com"}' -H "Content-Type: application/json"
 ```
 
-#### Issue: Validation errors
-
-**Error**: `400 Bad Request: Validation failed`
-
-**Solution**: Check error response for details
+**Validation failed**: Check the error response for field-specific details:
 
 ```json
 {
-  "error": "Validation failed",
-  "details": {
-    "password": "Password must be at least 12 characters"
-  }
+  "error": "name must be between 1 and 128 characters",
+  "code": "VALIDATION_ERROR"
 }
 ```
 
 ### 403 Forbidden
 
-#### Issue: Insufficient permissions
-
-**Error**: `403 Forbidden: Insufficient permissions`
-
-**Solutions**:
-
-1. Check your role in the organization (Owner, Admin, Member)
-2. Verify you're using the correct organization ID
-3. Request permission upgrade from organization owner
+Check your role in the organization (Owner, Admin, Member). Verify you are using the correct organization ID.
 
 ### 404 Not Found
 
-#### Issue: Resource not found
-
-**Error**: `404 Not Found: Organization not found`
-
-**Solutions**:
-
-1. Verify resource ID is correct
-2. Check you have access to the resource
-3. Confirm resource wasn't deleted
+Verify the resource ID is correct and that you have access to the resource:
 
 ```bash
-# List your organizations
-curl -X GET http://localhost:9090/control/v1/organizations \
+curl http://localhost:9090/control/v1/organizations \
   -H "Cookie: infera_session={session_id}"
 ```
 
 ### 500 Internal Server Error
 
-#### Issue: Unexpected server error
-
-**Error**: `500 Internal Server Error`
-
-**Solutions**:
-
-**Step 1**: Check server logs
+Enable debug logging and check stdout:
 
 ```bash
-# View recent logs
-tail -f /var/log/inferadb-control.log
-
-# Or if running directly
-./target/release/inferadb-control --log-level debug 2>&1 | tee api.log
-```
-
-**Step 2**: Enable debug logging
-
-```bash
-# Via CLI flag
 inferadb-control --log-level debug
-
-# Or via environment variable
-export INFERADB__CONTROL__LOG_LEVEL=debug
 ```
 
-**Step 3**: Report the issue with logs
+Include the timestamp, endpoint, and method when reporting issues.
 
-- Include relevant log excerpts
-- Note the timestamp of the error
-- Provide request details (endpoint, method, payload)
+## Performance
 
-## Performance Issues
+### Slow audit log queries
 
-### Slow Queries
-
-#### Issue: Audit log queries timing out
-
-**Cause**: Querying large date ranges without filters
-
-**Solution**:
+Use filters to narrow the result set:
 
 ```bash
-# Bad: Open-ended query with large page size
-GET /control/v1/organizations/{org}/audit-logs?page_size=100
-
-# Good: Filtered by event type prefix
-GET /control/v1/organizations/{org}/audit-logs?event_type=ledger.vault&page_size=50
-
-# Better: Add principal and outcome filters
-GET /control/v1/organizations/{org}/audit-logs?event_type=ledger.vault&principal=user:42&outcome=success
+# Filtered by event type and outcome
+curl "http://localhost:9090/control/v1/organizations/{org}/audit-logs?event_type=ledger.vault&outcome=success&page_size=50" \
+  -H "Cookie: infera_session={session_id}"
 ```
 
-### High Memory Usage
+### High memory usage
 
-#### Issue: API consuming excessive memory
+- Paginate all list operations with appropriate `page_size` values.
+- Monitor memory via `GET /metrics`.
+- The Tokio thread count equals CPU core count and is not configurable. Reduce concurrent connections at the load balancer if needed.
 
-**Causes**: Large result sets, memory leaks, or insufficient pagination
+## Deployment
 
-**Solutions**:
-
-**Step 1**: Use pagination
-
-```bash
-# Fetch in smaller batches
-GET /control/v1/organizations/{org}/vaults?page_size=25
-```
-
-**Step 2**: Monitor memory usage
+### Container fails to start
 
 ```bash
-# Check memory usage
-ps aux | grep inferadb-control
-
-# Use Prometheus metrics
-curl http://localhost:9090/metrics | grep memory
-```
-
-**Step 3**: Reduce concurrency
-
-The thread count is managed automatically by the Tokio runtime and is not configurable.
-If memory usage is excessive, consider reducing the number of concurrent connections at the
-load balancer or reverse proxy level.
-
-## Deployment Issues
-
-### Docker Deployment
-
-#### Issue: Container fails to start
-
-**Error**: `Container exited with code 1`
-
-**Solutions**:
-
-**Step 1**: Check container logs
-
-```bash
+# Check logs
 docker logs inferadb-control
 
-# Follow logs in real-time
-docker logs -f inferadb-control
-```
-
-**Step 2**: Verify environment variables
-
-```bash
-# List container environment
+# Verify environment variables
 docker inspect inferadb-control | jq '.[0].Config.Env'
-```
 
-**Step 3**: Check volume mounts for key file
-
-```bash
-# Verify key file is accessible inside the container
+# Check key file mount
 docker exec inferadb-control ls -la /data/master.key
 ```
 
-### Kubernetes Deployment
-
-#### Issue: Pod CrashLoopBackOff
-
-**Error**: Pod repeatedly crashes
-
-**Solutions**:
-
-**Step 1**: Check pod logs
+### Kubernetes pod CrashLoopBackOff
 
 ```bash
+# Current pod logs
 kubectl logs -n infera pod/inferadb-control-xxxxx
 
-# Check previous crashed pod
+# Previous crash logs
 kubectl logs -n infera pod/inferadb-control-xxxxx --previous
-```
 
-**Step 2**: Verify ConfigMap
-
-```bash
+# Verify config and secrets
 kubectl get configmap -n infera infera-config -o yaml
-```
-
-**Step 3**: Check secrets
-
-```bash
 kubectl get secret -n infera infera-secrets -o yaml
 ```
 
-#### Issue: Service not accessible
-
-**Error**: Connection timeout or refused
-
-**Solutions**:
-
-**Step 1**: Verify service
+### Service not accessible from within the cluster
 
 ```bash
-kubectl get svc -n infera
-
-# Check endpoints
 kubectl get endpoints -n infera inferadb-control
-```
 
-**Step 2**: Test from within cluster
-
-```bash
 kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
-  curl http://inferadb-control.inferadb.svc.cluster.local:9090/healthz
+  curl http://inferadb-control.infera.svc.cluster.local:9090/healthz
 ```
 
-## Development & Testing
+## Email Delivery
 
-### Test Failures
+### Verification emails not received
 
-#### Issue: Tests failing due to port conflicts
-
-**Error**: `Address already in use` during tests
-
-**Solution**:
+For development with a local mail server (Mailpit, MailHog):
 
 ```bash
-# Use random ports for tests
-cargo test -- --test-threads=1
-
-# Or kill conflicting processes
-pkill -f inferadb-control
-```
-
-#### Issue: Integration tests failing
-
-**Error**: Storage-related test failures
-
-**Solution**:
-
-```bash
-# Tests use in-memory backend by default
-cargo test
-
-# Run specific test suites
-cargo test --lib  # Unit tests only
-cargo test --test '*'  # Integration tests
-
-# Check test output for specific errors
-cargo test -- --nocapture
-```
-
-### Code Coverage Issues
-
-#### Issue: Coverage generation slow or timing out
-
-**Solution**:
-
-```bash
-# Use llvm-cov for faster, more accurate coverage
-cargo llvm-cov --workspace --html
-
-# For CI (generates LCOV format)
-cargo llvm-cov --workspace --lcov --output-path lcov.info
-
-# Exclude specific files if needed
-cargo llvm-cov --workspace --html --ignore-filename-regex 'tests/'
-```
-
-### Clippy Warnings
-
-#### Issue: Clippy failing CI
-
-**Error**: `error: this returns a Result<_, ()>  --deny warnings`
-
-**Solution**:
-
-```bash
-# Fix all clippy warnings
-cargo clippy --fix --allow-dirty --allow-staged
-
-# Check without failing
-cargo clippy -- -W clippy::all
-```
-
-## Email & Notifications
-
-### Email Not Sending
-
-#### Issue: Verification emails not received
-
-**Solutions**:
-
-**For development**: Check MailHog
-
-```bash
-# Open MailHog UI
+# Check the web UI
 open http://localhost:8025
-
-# Check MailHog container
-docker-compose ps mailhog
-docker-compose logs mailhog
 ```
 
-**For production**: Verify SMTP config
+For production, verify SMTP configuration:
 
 ```bash
-# Via CLI flags
 inferadb-control \
-  --email-host smtp.gmail.com \
+  --email-host smtp.example.com \
   --email-port 587 \
-  --email-username your-email@gmail.com \
-  --email-password your-app-password \
-  --email-from-address noreply@yourdomain.com \
-  --email-from-name "Your App"
-
-# Or via environment variables
-export INFERADB__CONTROL__EMAIL_HOST=smtp.gmail.com
-export INFERADB__CONTROL__EMAIL_PORT=587
-export INFERADB__CONTROL__EMAIL_USERNAME=your-email@gmail.com
-export INFERADB__CONTROL__EMAIL_PASSWORD=your-app-password  # Use provider-specific credentials (e.g., Gmail app password, SendGrid API key)
-export INFERADB__CONTROL__EMAIL_FROM_ADDRESS=noreply@yourdomain.com
-export INFERADB__CONTROL__EMAIL_FROM_NAME="Your App"
+  --email-username "smtp-user" \
+  --email-password "smtp-pass" \
+  --email-from-address "noreply@example.com" \
+  --email-from-name "Your Company"
 ```
 
-**Test SMTP connection**:
+Test SMTP connectivity:
 
 ```bash
-# Test SMTP (Linux)
-telnet smtp.gmail.com 587
-
-# Or use curl
-curl --url 'smtps://smtp.gmail.com:465' \
-  --mail-from 'sender@example.com' \
-  --mail-rcpt 'recipient@example.com' \
-  --upload-file email.txt
+telnet smtp.example.com 587
 ```
 
-## Getting Further Help
+If email is not needed, leave `--email-host` empty (the default). The server runs without email capabilities when the host is empty.
 
-If these solutions don't resolve your issue:
+## Getting Help
 
-1. **Check existing documentation**:
-   - [Getting Started](getting-started.md)
-   - [Deployment Guide](deployment.md)
-   - [API Examples](examples.md)
-
-2. **Enable debug logging**:
+1. Enable trace logging: `inferadb-control --log-level trace`
+2. Collect diagnostic info:
 
    ```bash
-   inferadb-control --log-level trace
-   # Or: export INFERADB__CONTROL__LOG_LEVEL=trace
-   ```
-
-3. **Collect diagnostic information**:
-
-   ```bash
-   # System info
    uname -a
-   rustc --version
-
-   # API version
-   ./target/release/inferadb-control --version
-
-   # Configuration (redact secrets!)
-   env | grep INFERADB__CONTROL__ | grep -Evi '(secret|password|token|key|pem|credential)'
-
-   # Recent logs
-   tail -n 100 /var/log/inferadb-control.log
+   inferadb-control --version
+   env | grep INFERADB__CONTROL__ | grep -Evi '(secret|password|token|key|pem|credential|blinding)'
    ```
 
-4. **File an issue**:
-   - Include diagnostic information above
-   - Provide steps to reproduce
-   - Note expected vs actual behavior
-   - Link: [GitHub Issues](https://github.com/inferadb/inferadb/issues)
-
-5. **Security issues**: Email <security@inferadb.com> (do not file public issues)
+3. File an issue: [github.com/inferadb/inferadb/issues](https://github.com/inferadb/inferadb/issues)
+4. Security issues: Email security@inferadb.com (do not file public issues).

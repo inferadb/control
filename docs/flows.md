@@ -1,356 +1,350 @@
-# Data Flows
+# Data flows
 
-This document illustrates the data flows for key operations in InferaDB Control.
+Sequence diagrams for each authentication and token operation in InferaDB Control.
 
-## User Registration Flow
+## Why it matters
 
-Registration uses the 3-step email code authentication flow. New users are detected at the verify step and must complete registration separately.
+These diagrams show the exact request/response sequences between your client, Control, Ledger, and the Email service. Use them to implement client integrations correctly and to debug authentication issues.
+
+## Quickstart
+
+The most common flow is email code login for an existing user:
+
+```bash
+# Step 1: Get a verification code
+curl -X POST /control/v1/auth/email/initiate \
+  -d '{"email": "you@example.com"}'
+
+# Step 2: Verify the code
+curl -X POST /control/v1/auth/email/verify \
+  -d '{"email": "you@example.com", "code": "ABC123"}'
+# -> {"status": "authenticated", "access_token": "...", "refresh_token": "..."}
+```
+
+## Registration (new user)
+
+A new user goes through all three email auth steps: initiate, verify, and complete.
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant API as Control
-    participant DB as Ledger
+    participant Client
+    participant Control
+    participant Ledger
     participant Email as Email Service
 
-    User->>API: POST /control/v1/auth/email/initiate<br/>{email, region?}
+    Client->>Control: POST /control/v1/auth/email/initiate<br/>{"email": "new@example.com", "region": "us-east-va"}
+    Control->>Control: Validate email format
+    Control->>Ledger: initiate_email_verification(email, region)
+    Ledger-->>Control: {code: "ABC123"}
+    Control->>Email: Send verification email (code, 10 min expiry)
+    Control-->>Client: 200 {"message": "verification code sent"}
 
-    API->>API: Validate Email Format
+    Client->>Control: POST /control/v1/auth/email/verify<br/>{"email": "new@example.com", "code": "ABC123"}
+    Control->>Ledger: verify_email_code(email, code, region)
+    Ledger-->>Control: NewUser {onboarding_token}
+    Control-->>Client: 200 {"status": "registration_required",<br/>"onboarding_token": "obt_..."}
 
-    alt Validation Fails
-        API-->>User: 400 Bad Request
-    end
+    Note over Client: Rate limit: 5/day per IP
 
-    API->>DB: Initiate Email Verification
-    DB-->>API: Verification Code
+    Client->>Control: POST /control/v1/auth/email/complete<br/>{"onboarding_token": "obt_...",<br/>"email": "new@example.com",<br/>"name": "Alice",<br/>"organization_name": "Acme Corp"}
+    Control->>Control: Validate email, name, org name
+    Control->>Ledger: complete_registration(token, email, region, name, org_name)
+    Ledger-->>Control: {user, organization, session: {access_token, refresh_token}}
+    Control-->>Client: 200 {"registration": {"user": 123,<br/>"organization": 456,<br/>"access_token": "eyJ...",<br/>"refresh_token": "opaque-token",<br/>"token_type": "Bearer"}}
 
-    API->>Email: Send Verification Code<br/>(6-character code, 10 min expiry)
-    Email-->>User: Verification Email
-
-    API-->>User: 200 OK<br/>{message: "verification code sent"}
-
-    User->>API: POST /control/v1/auth/email/verify<br/>{email, code, region?}
-
-    API->>DB: Verify Email Code
-    DB-->>API: NewUser {onboarding_token}
-
-    API-->>User: 200 OK<br/>{status: "registration_required",<br/>onboarding_token}
-
-    User->>API: POST /control/v1/auth/email/complete<br/>{onboarding_token, email, name,<br/>organization_name, region?}
-
-    API->>API: Validate Email, Name, Org Name
-
-    API->>DB: Complete Registration<br/>(Create User + Default Org)
-    DB-->>API: User + Organization + Session
-
-    API-->>User: 200 OK<br/>{registration: {user, organization,<br/>access_token, refresh_token}}
-
-    Note over User: Cookies set:<br/>inferadb_access (15 min)<br/>inferadb_refresh (30 days)
+    Note over Client: Cookies set:<br/>inferadb_access (path=/, 15 min)<br/>inferadb_refresh (path=/control/v1/auth, 30 days)
 ```
 
-## Login Flow
+## Login (existing user, no TOTP)
 
-Existing users authenticate via the email code flow. If TOTP is enabled, a second factor is required.
+An existing user without TOTP completes authentication in two steps.
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant API as Control
-    participant DB as Ledger
+    participant Client
+    participant Control
+    participant Ledger
     participant Email as Email Service
 
-    User->>API: POST /control/v1/auth/email/initiate<br/>{email}
+    Client->>Control: POST /control/v1/auth/email/initiate<br/>{"email": "alice@example.com"}
+    Control->>Ledger: initiate_email_verification(email, region)
+    Ledger-->>Control: {code}
+    Control->>Email: Send verification email
+    Control-->>Client: 200 {"message": "verification code sent"}
 
-    API->>DB: Initiate Email Verification
-    DB-->>API: Verification Code
+    Client->>Control: POST /control/v1/auth/email/verify<br/>{"email": "alice@example.com", "code": "XYZ789"}
+    Control->>Ledger: verify_email_code(email, code, region)
+    Ledger-->>Control: ExistingUser {session: {access_token, refresh_token}}
+    Control-->>Client: 200 {"status": "authenticated",<br/>"access_token": "eyJ...",<br/>"refresh_token": "opaque-token",<br/>"token_type": "Bearer"}
 
-    API->>Email: Send Verification Code
-    Email-->>User: Verification Email
+    Note over Client: Cookies set:<br/>inferadb_access (15 min)<br/>inferadb_refresh (30 days)
+```
 
-    API-->>User: 200 OK<br/>{message: "verification code sent"}
+## Login with TOTP
 
-    User->>API: POST /control/v1/auth/email/verify<br/>{email, code}
+When TOTP is enabled, the verify step returns a challenge nonce instead of tokens. The client must complete a second factor.
 
-    API->>DB: Verify Email Code
-    DB-->>API: ExistingUser {session}
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Control
+    participant Ledger
 
-    API-->>User: 200 OK<br/>{status: "authenticated",<br/>access_token, refresh_token}
+    Note over Client,Ledger: Steps 1-2: same as standard login
 
-    Note over User: Cookies set:<br/>inferadb_access (15 min)<br/>inferadb_refresh (30 days)
+    Client->>Control: POST /control/v1/auth/email/verify<br/>{"email": "alice@example.com", "code": "XYZ789"}
+    Control->>Ledger: verify_email_code(email, code, region)
+    Ledger-->>Control: TotpRequired {challenge_nonce}
+    Control-->>Client: 200 {"status": "totp_required",<br/>"challenge_nonce": "<base64>"}
 
-    alt TOTP Enabled
-        Note over DB: Returns TotpRequired instead
-        API-->>User: 200 OK<br/>{status: "totp_required",<br/>challenge_nonce}
+    alt TOTP code
+        Client->>Control: POST /control/v1/auth/totp/verify<br/>{"user_slug": 123,<br/>"totp_code": "654321",<br/>"challenge_nonce": "<base64>"}
+        Control->>Ledger: verify_totp(user, totp_code, nonce)
+        Ledger-->>Control: {access_token, refresh_token}
+        Control-->>Client: 200 {"access_token": "eyJ...",<br/>"refresh_token": "opaque-token",<br/>"token_type": "Bearer"}
+    else Recovery code
+        Client->>Control: POST /control/v1/auth/recovery<br/>{"user_slug": 123,<br/>"code": "ABCD1234",<br/>"challenge_nonce": "<base64>"}
+        Control->>Ledger: consume_recovery_code(user, code, nonce)
+        Ledger-->>Control: {tokens, remaining_codes}
+        Control-->>Client: 200 {"access_token": "eyJ...",<br/>"refresh_token": "opaque-token",<br/>"token_type": "Bearer",<br/>"remaining_codes": 9}
+    end
 
-        User->>API: POST /control/v1/auth/totp/verify<br/>{user_slug, totp_code, challenge_nonce}
-        API->>DB: Verify TOTP
-        DB-->>API: Session Tokens
+    Note over Client: Cookies set on success
+```
 
-        API-->>User: 200 OK<br/>{access_token, refresh_token}
+## Passkey authentication
+
+Passkey authentication uses a two-step WebAuthn ceremony. Challenge state is encrypted into the `challenge_id` (no server-side storage).
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Control
+    participant Ledger
+
+    Client->>Control: POST /control/v1/auth/passkey/begin<br/>{"user_slug": 123}
+    Control->>Ledger: list_user_credentials(user, Passkey)
+    Ledger-->>Control: [passkey credentials]
+    Control->>Control: Generate WebAuthn challenge<br/>Encrypt state into challenge_id (AES-256-GCM, 60s TTL)
+    Control-->>Client: 200 {"challenge_id": "<encrypted>",<br/>"challenge": {/* RequestChallengeResponse */}}
+
+    Note over Client: Browser executes<br/>navigator.credentials.get()
+
+    Client->>Control: POST /control/v1/auth/passkey/finish<br/>{"challenge_id": "<encrypted>",<br/>"credential": {/* PublicKeyCredential */}}
+    Control->>Control: Decrypt and validate challenge state
+    Control->>Control: Verify WebAuthn response
+    Control->>Ledger: list_user_credentials(user, Passkey) + list_user_credentials(user, Totp)
+    Control->>Ledger: update_user_credential (sign count)
+
+    alt No TOTP
+        Control->>Ledger: create_user_session(user)
+        Ledger-->>Control: {access_token, refresh_token}
+        Control-->>Client: 200 {"status": "authenticated",<br/>"access_token": "eyJ...",<br/>"refresh_token": "opaque-token",<br/>"token_type": "Bearer"}
+    else TOTP enabled
+        Control->>Ledger: create_totp_challenge(user, "passkey")
+        Ledger-->>Control: challenge_nonce
+        Control-->>Client: 200 {"status": "totp_required",<br/>"challenge_nonce": "<base64>"}
+        Note over Client: Complete TOTP flow (see above)
     end
 ```
 
-## Token Generation Flow
+## Passkey registration
+
+Requires an existing authenticated session. The registration endpoints are write routes (Ledger-validated JWT).
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Control
+    participant Ledger
+
+    Client->>Control: POST /control/v1/users/me/credentials/passkeys/begin<br/>Authorization: Bearer {access_token}<br/>{"name": "My MacBook"}
+    Control->>Control: Validate JWT (Ledger round-trip)
+    Control->>Ledger: list_user_credentials(user, Passkey)
+    Ledger-->>Control: [existing passkeys] (exclude list)
+    Control->>Control: Generate WebAuthn registration challenge
+    Control-->>Client: 200 {"challenge_id": "<encrypted>",<br/>"challenge": {/* CreationChallengeResponse */}}
+
+    Note over Client: Browser executes<br/>navigator.credentials.create()
+
+    Client->>Control: POST /control/v1/users/me/credentials/passkeys/finish<br/>Authorization: Bearer {access_token}<br/>{"challenge_id": "<encrypted>",<br/>"name": "My MacBook",<br/>"credential": {/* RegisterPublicKeyCredential */}}
+    Control->>Control: Validate JWT, decrypt challenge, verify WebAuthn response
+    Control->>Ledger: create_user_credential(user, name, credential_data)
+    Ledger-->>Control: {id, name}
+    Control-->>Client: 200 {"slug": 789, "name": "My MacBook"}
+```
+
+## Vault token generation
+
+Authenticated users generate vault tokens to access the Engine.
 
 ```mermaid
 sequenceDiagram
     participant App as Application
-    participant API as Control
-    participant DB as Ledger
-    participant Engine as InferaDB Engine
+    participant Control
+    participant Ledger
+    participant Engine
 
-    App->>API: POST /control/v1/organizations/{org}/vaults/{vault}/tokens<br/>Authorization: Bearer {access_token}<br/>{app: <app_slug>, scopes: [...]}
+    App->>Control: POST /control/v1/organizations/{org}/vaults/{vault}/tokens<br/>Authorization: Bearer {access_token}<br/>{"app": 42, "scopes": ["vault:read", "vault:write"]}
+    Control->>Ledger: validate_token (JWT write-route validation)
+    Control->>Ledger: get_app(org, user, app)
+    Ledger-->>Control: App details (verifies caller access)
+    Control->>Ledger: create_vault_token(org, app, vault, scopes)
+    Ledger-->>Control: {access_token, refresh_token, expires_at}
+    Control-->>App: 201 {"access_token": "<vault-jwt>",<br/>"refresh_token": "<opaque>",<br/>"token_type": "Bearer",<br/>"expires_in": 300}
 
-    API->>API: Validate JWT Access Token<br/>(Ledger round-trip for write routes)
-
-    alt Token Invalid/Expired
-        API-->>App: 401 Unauthorized
-    end
-
-    API->>DB: Get App<br/>(Verify caller has access)
-    DB-->>API: App Details
-
-    alt App Not Found / No Access
-        API-->>App: Error
-    end
-
-    API->>DB: Create Vault Token<br/>(org, app, vault, scopes)
-    DB-->>API: Token Pair + Expiry
-
-    API-->>App: 201 Created<br/>{access_token, refresh_token,<br/>token_type, expires_in}
-
-    Note over App: App can now call Engine
-    App->>Engine: POST /v1/evaluate<br/>Authorization: Bearer {access_token}
-    Engine-->>App: Authorization Decision
+    App->>Engine: POST /check<br/>Authorization: Bearer {vault-jwt}
+    Engine->>Engine: Validate JWT (JWKS, Ed25519)
+    Engine-->>App: Authorization decision
 ```
 
-## Organization Creation Flow
+## Client assertion (machine-to-machine)
+
+Backend services authenticate via OAuth 2.0 JWT Bearer (RFC 7523). The client signs a JWT with its Ed25519 private key.
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant API as Control
-    participant DB as Ledger
+    participant Backend
+    participant Control
+    participant Ledger
 
-    User->>API: POST /control/v1/organizations<br/>{name, tier}<br/>Authorization: Bearer {access_token}
+    Note over Backend: Create JWT assertion:<br/>{iss: client_id, sub: client_id,<br/>aud: token_endpoint,<br/>exp: now+60s, iat: now, jti: uuid}<br/>Sign with Ed25519 private key
 
-    API->>API: Validate JWT Access Token
-
-    API->>DB: Count User's Organizations
-    DB-->>API: Organization Count
-
-    alt Exceeds Per-User Limit (10) or Global Limit (100k)
-        API-->>User: 400 Bad Request
-    end
-
-    API->>API: Validate Organization Name
-    API->>API: Generate Org ID
-    API->>API: Generate Member ID
-
-    API->>DB: BEGIN TRANSACTION
-    API->>DB: Create Organization
-    API->>DB: Create Organization Member<br/>(User as Owner)
-    API->>DB: COMMIT TRANSACTION
-
-    API-->>User: 201 Created<br/>{organization}
+    Backend->>Control: POST /control/v1/token<br/>{"grant_type": "client_credentials",<br/>"client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",<br/>"client_assertion": "<signed-jwt>",<br/>"organization": 123,<br/>"vault": "456",<br/>"scopes": ["vault:read"]}
+    Control->>Control: Validate grant_type and assertion_type
+    Control->>Ledger: authenticate_client_assertion(org, vault, assertion, scopes)
+    Note over Ledger: Parse assertion JWT<br/>Look up client by iss/sub<br/>Verify Ed25519 signature<br/>Validate claims (aud, exp, jti)
+    Ledger-->>Control: {access_token, refresh_token, expires_at}
+    Control-->>Backend: 201 {"access_token": "<vault-jwt>",<br/>"refresh_token": "<opaque>",<br/>"token_type": "Bearer",<br/>"expires_in": 300}
 ```
 
-## Client Certificate Generation Flow
+## Session refresh
+
+### User session refresh
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Control
+    participant Ledger
+
+    Client->>Control: POST /control/v1/auth/refresh<br/>{"refresh_token": "<opaque>"}<br/>or Cookie: inferadb_refresh=<opaque>
+    Control->>Ledger: refresh_token(token)
+    Note over Ledger: Validate token<br/>Mark as used (single-use)<br/>Issue new pair
+    Ledger-->>Control: {access_token, refresh_token}
+    Control-->>Client: 200 {"access_token": "eyJ...",<br/>"refresh_token": "<new-opaque>",<br/>"token_type": "Bearer"}
+
+    Note over Client: Old refresh token is invalidated.<br/>Cookies updated with new pair.
+```
+
+### Vault token refresh
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Control
+    participant Ledger
+
+    App->>Control: POST /control/v1/tokens/refresh<br/>{"refresh_token": "<opaque>"}
+    Control->>Ledger: refresh_token(token)
+    Ledger-->>Control: {access_token, refresh_token, expires_at}
+    Control-->>App: 200 {"access_token": "<vault-jwt>",<br/>"refresh_token": "<new-opaque>",<br/>"token_type": "Bearer",<br/>"expires_in": 300}
+```
+
+## Logout and revocation
+
+### Logout (current session)
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Control
+    participant Ledger
+
+    Client->>Control: POST /control/v1/auth/logout<br/>Cookie: inferadb_refresh=<opaque>
+    Control->>Ledger: revoke_token(refresh_token)
+    Note over Ledger: Best-effort revocation
+    Control-->>Client: 200 {"message": "logged out"}<br/>Set-Cookie: inferadb_access=; Max-Age=0<br/>Set-Cookie: inferadb_refresh=; Max-Age=0
+```
+
+### Revoke all sessions
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Control
+    participant Ledger
+
+    Client->>Control: POST /control/v1/auth/revoke-all<br/>Authorization: Bearer {access_token}
+    Control->>Ledger: validate_token (write-route JWT validation)
+    Control->>Ledger: revoke_all_user_sessions(user_slug)
+    Ledger-->>Control: {revoked_count}
+    Control-->>Client: 200 {"revoked_count": 5}<br/>Cookies cleared
+```
+
+### Revoke vault tokens
 
 ```mermaid
 sequenceDiagram
     participant Admin
-    participant API as Control
-    participant DB as Ledger
+    participant Control
+    participant Ledger
 
-    Admin->>API: POST /control/v1/organizations/{org}/clients/{client}/certificates<br/>{name}<br/>Authorization: Bearer {access_token}
-
-    API->>API: Validate JWT Access Token
-
-    API->>DB: Get Organization Member
-    DB-->>API: Admin Membership
-
-    alt Not Admin/Owner
-        API-->>Admin: 403 Forbidden
-    end
-
-    API->>DB: Get Client
-    DB-->>API: Client Details
-
-    alt Wrong Organization
-        API-->>Admin: 404 Not Found
-    end
-
-    API->>DB: Count Client Certificates
-    DB-->>API: Certificate Count
-
-    alt Exceeds Org Tier Limit
-        API-->>Admin: 400 Bad Request
-    end
-
-    API->>API: Generate Ed25519 Keypair
-    API->>API: Encrypt Private Key<br/>(AES-GCM with Master Secret)
-    API->>API: Generate Certificate ID
-    API->>API: Generate KID (Key ID)
-
-    API->>DB: Create Client Certificate<br/>{public_key, encrypted_private_key, kid}
-
-    API->>API: Decrypt Private Key<br/>(for one-time return)
-
-    API-->>Admin: 201 Created<br/>{certificate, private_key_pem}
-
-    Note over Admin: IMPORTANT: Save private_key_pem securely.<br/>It cannot be retrieved again.
+    Admin->>Control: DELETE /control/v1/organizations/{org}/vaults/{vault}/tokens<br/>Authorization: Bearer {access_token}<br/>{"app": 42}
+    Control->>Ledger: get_app(org, user, app) — verify access
+    Control->>Ledger: revoke_all_app_sessions(app)
+    Ledger-->>Control: {revoked_count}
+    Control-->>Admin: 200 {"revoked_count": 3}
 ```
 
-## Refresh Token Flow
+## Email verification
 
-```mermaid
-sequenceDiagram
-    participant App as Application
-    participant API as Control
-    participant DB as Ledger
-
-    App->>API: POST /control/v1/tokens/refresh<br/>{refresh_token}
-
-    API->>DB: Refresh Token<br/>(validates, rotates, issues new pair)
-    DB-->>API: New Token Pair
-
-    alt Token Invalid/Expired/Used
-        API-->>App: Error
-    end
-
-    API-->>App: 200 OK<br/>{access_token, refresh_token,<br/>token_type, expires_in}
-```
-
-## Email Verification Flow
+Verify an additional email address added to a user account.
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant API as Control
-    participant DB as Ledger
+    participant Control
+    participant Ledger
 
-    User->>API: POST /control/v1/auth/verify-email<br/>{token}
-
-    API->>DB: Verify User Email (token)
-
-    alt Token Invalid/Expired
-        API-->>User: Error
-    end
-
-    DB-->>API: Email Verified
-
-    API-->>User: 200 OK<br/>{message: "Email verified successfully",<br/>verified: true}
+    User->>Control: POST /control/v1/auth/verify-email<br/>{"token": "<verification-token>"}
+    Control->>Ledger: verify_user_email(token)
+    Ledger-->>Control: Email verified
+    Control-->>User: 200 {"message": "Email verified successfully",<br/>"verified": true}
 ```
 
-## Audit Log Flow
+## Rate limiting
+
+All login-related endpoints share a rate limit bucket. Registration has a stricter limit.
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant API as Control
-    participant Handler as Request Handler
-    participant DB as Ledger
+    participant Client
+    participant Control
+    participant Ledger as Rate Limiter (Ledger-backed)
 
-    User->>API: POST /control/v1/organizations/{org}/vaults<br/>{name}<br/>Authorization: Bearer {access_token}
+    Client->>Control: POST /control/v1/auth/email/initiate
+    Control->>Ledger: check(login_ip, client_ip, 100/hour)
+    Ledger-->>Control: Allowed (count: 1/100)
+    Control->>Control: Process request
+    Control-->>Client: 200 OK
 
-    API->>API: Extract Auth Context<br/>(user_id from JWT, org_id, IP, user_agent)
+    Note over Client: After 100 requests in 1 hour...
 
-    API->>Handler: Process Request
-
-    Handler->>DB: Create Vault
-    DB-->>Handler: Vault Created
-
-    Handler->>Handler: Generate Audit Log Entry<br/>{action: "vault.create", actor: user_id, resource: vault_id}
-
-    Handler->>DB: Store Audit Log
-
-    Handler-->>API: Response
-
-    API-->>User: 201 Created<br/>{vault}
-
-    Note over DB: Audit logs queryable via<br/>GET /control/v1/organizations/{org}/audit-logs
+    Client->>Control: POST /control/v1/auth/email/initiate
+    Control->>Ledger: check(login_ip, client_ip, 100/hour)
+    Ledger-->>Control: Limited {retry_after_secs}
+    Control-->>Client: 429 Too Many Requests<br/>Retry-After: {seconds}
 ```
 
-## Team-Based Vault Access
+**Rate limit buckets:**
 
-```mermaid
-graph TB
-    subgraph "Organization"
-        User1[User: Alice]
-        User2[User: Bob]
-        User3[User: Charlie]
-    end
+| Bucket            | Endpoints                                                                                                                                                                           | Limit           |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `login_ip`        | `/auth/email/initiate`, `/auth/email/verify`, `/auth/totp/verify`, `/auth/recovery`, `/auth/passkey/begin`, `/auth/passkey/finish`, `/token`, `/auth/refresh`, `/auth/verify-email` | 100/hour per IP |
+| `registration_ip` | `/auth/email/complete`                                                                                                                                                              | 5/day per IP    |
 
-    subgraph "Teams"
-        Team1[Team: Engineering]
-        Team2[Team: Security]
-    end
+## Further reading
 
-    subgraph "Vaults"
-        Vault1[Vault: Production Policies]
-        Vault2[Vault: Staging Policies]
-    end
-
-    User1 -->|Member| Team1
-    User2 -->|Member| Team1
-    User2 -->|Member| Team2
-    User3 -->|Member| Team2
-
-    Team1 -->|Editor| Vault1
-    Team1 -->|Viewer| Vault2
-    Team2 -->|Admin| Vault1
-
-    style Vault1 fill:#4CAF50
-    style Vault2 fill:#2196F3
-    style Team1 fill:#FF9800
-    style Team2 fill:#9C27B0
-```
-
-**Resulting Permissions:**
-
-- **Alice**: Can edit Production (via Engineering), can view Staging (via Engineering)
-- **Bob**: Can edit Production (via Engineering), can admin Production (via Security), can view Staging (via Engineering)
-- **Charlie**: Can admin Production (via Security)
-
-## Rate Limiting Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant API as Control
-    participant RateLimit as Rate Limiter
-    participant DB as Ledger
-
-    User->>API: POST /control/v1/auth/email/initiate<br/>(Request 1)
-
-    API->>RateLimit: Check Rate Limit<br/>(category: login_ip, IP: x.x.x.x)
-    RateLimit->>DB: Get Current Window Count
-    DB-->>RateLimit: Count: 1/100 (within limit)
-
-    RateLimit->>DB: Increment Counter
-    RateLimit-->>API: ALLOWED
-
-    API->>API: Process Request
-    API-->>User: 200 OK
-
-    Note over User,DB: ... 99 more requests ...
-
-    User->>API: POST /control/v1/auth/email/initiate<br/>(Request 101)
-
-    API->>RateLimit: Check Rate Limit
-    RateLimit->>DB: Get Current Window Count
-    DB-->>RateLimit: Count: 100/100 (at limit)
-
-    RateLimit-->>API: BLOCKED
-
-    API-->>User: 429 Too Many Requests<br/>Retry-After: {seconds}
-
-    Note over User: Wait for window to reset (1 hour window)
-```
-
-## Further Reading
-
-- [Architecture](architecture.md): System architecture diagrams and deployment topology
-- [Authentication](authentication.md): Detailed authentication mechanisms
-- [Overview](overview.md): Complete entity definitions and data model
+- [Authentication](authentication.md): Token types, security properties, and configuration reference
+- [Architecture](architecture.md): System architecture and deployment topology

@@ -1,159 +1,184 @@
-# InferaDB Control - Deployment Guide
+# Deployment Guide
 
-This guide provides instructions for deploying InferaDB Control in production environments.
+This guide covers production deployment of the `inferadb-control` binary.
 
-## Prerequisites
+## Why It Matters
 
-### Infrastructure Requirements
+A correct deployment requires matching CLI flags to your infrastructure, configuring health probes, and securing secrets. Mistakes here cause silent data loss (wrong storage backend) or authentication failures (wrong key configuration).
 
-- **Compute Resources** (single instance):
-  - CPU: 4+ cores recommended
-  - RAM: 8GB+ recommended (data stored in memory)
-  - Storage: Minimal (logs only, data in RAM)
+## Quickstart
 
-- **Network**:
-  - HTTP port (default: 127.0.0.1:9090, localhost only) - REST API. Use `0.0.0.0:9090` in production to accept external connections.
-  - Outbound access to:
-    - SMTP server (for email)
-    - InferaDB Ledger (if using ledger storage)
+Development (in-memory, no external dependencies):
 
-### Software Dependencies
+```bash
+inferadb-control --dev-mode
+```
 
-- Rust toolchain (for building from source)
-- TLS certificates (for production HTTPS)
-
-## Configuration
-
-InferaDB Control uses CLI flags and environment variables for all configuration. There are no config files.
-
-### CLI Flags
+Production (Ledger backend):
 
 ```bash
 inferadb-control \
   --listen 0.0.0.0:9090 \
   --storage ledger \
+  --ledger-endpoint http://ledger:9200 \
+  --ledger-client-id control-prod-01 \
+  --ledger-organization 1 \
   --key-file /etc/inferadb/master.key \
   --frontend-url https://dashboard.example.com \
   --log-level info \
-  --log-format json \
-  --email-host smtp.example.com \
-  --email-port 587 \
-  --email-username "smtp-user" \
-  --email-password "smtp-pass" \
-  --email-from-address "noreply@example.com" \
-  --email-from-name "Your Company" \
-  --ledger-endpoint http://ledger:9200 \
-  --ledger-client-id your-client-id \
-  --ledger-organization your-organization-id \
-  --ledger-vault your-vault-id
+  --log-format json
 ```
 
-| Flag                    | Type                   | Default                 | Description                                                     |
-| ----------------------- | ---------------------- | ----------------------- | --------------------------------------------------------------- |
-| `--listen`              | SocketAddr             | `127.0.0.1:9090`        | HTTP listen address (override to `0.0.0.0:9090` for production) |
-| `--storage`             | `memory`\|`ledger`     | `ledger`                | Storage backend                                                 |
-| `--dev-mode`            | flag                   | off                     | Forces memory storage, relaxes security                         |
-| `--key-file`            | PathBuf                | `./data/master.key`     | Path to AES-256-GCM master key file (auto-generated if missing) |
-| `--pem`                 | String                 | —                       | Ed25519 PEM string (alternative to `--key-file`)                |
-| `--frontend-url`        | String                 | `http://localhost:3000` | Frontend URL for email links                                    |
-| `--log-level`           | String                 | `info`                  | Log level: trace, debug, info, warn, error                      |
-| `--log-format`          | `auto`\|`json`\|`text` | `auto`                  | Log output format                                               |
-| `--email-host`          | String                 | `""` (disabled)         | SMTP host (empty disables email)                                |
-| `--email-port`          | u16                    | `587`                   | SMTP port                                                       |
-| `--email-username`      | String                 | —                       | SMTP username                                                   |
-| `--email-password`      | String                 | —                       | SMTP password                                                   |
-| `--email-from-address`  | String                 | `noreply@inferadb.com`  | Sender email address                                            |
-| `--email-from-name`     | String                 | `InferaDB`              | Sender display name                                             |
-| `--email-insecure`      | flag                   | off                     | Disable SMTP TLS verification                                   |
-| `--ledger-endpoint`     | String                 | —                       | Ledger gRPC endpoint URL (required when storage=ledger)         |
-| `--ledger-client-id`    | String                 | —                       | Ledger client identifier (required when storage=ledger)         |
-| `--ledger-organization` | u64                    | —                       | Ledger organization for data scoping (required when storage=ledger) |
-| `--ledger-vault`        | u64                    | —                       | Ledger vault for finer-grained key scoping (optional)           |
-| `--email-blinding-key`  | String                 | —                       | Email blinding key for HMAC-SHA256 (64-char hex, 32 bytes)      |
-| `--webauthn-rp-id`      | String                 | `localhost`             | WebAuthn Relying Party ID (domain)                              |
-| `--webauthn-origin`     | String                 | `http://localhost:3000` | WebAuthn Relying Party origin URL                               |
-| `--trusted-proxy-depth` | NonZeroU8              | —                       | Number of trusted reverse proxies (for X-Forwarded-For)         |
-| `--worker-id`           | u16                    | random                  | Snowflake ID worker ID (0-1023, must be unique per instance)    |
+## Configuration
+
+All configuration uses CLI flags or environment variables. There are no config files.
+
+Precedence: CLI flag > environment variable > default value.
+
+### CLI Flags
+
+| Flag                    | Type                   | Default                 | Description                                                           |
+| ----------------------- | ---------------------- | ----------------------- | --------------------------------------------------------------------- |
+| `--listen`              | SocketAddr             | `127.0.0.1:9090`        | HTTP bind address                                                     |
+| `--storage`             | `memory` or `ledger`   | `ledger`                | Storage backend                                                       |
+| `--dev-mode`            | flag                   | off                     | Forces memory storage (CLI-only, no env var)                          |
+| `--key-file`            | PathBuf                | `./data/master.key`     | Path to AES-256-GCM master key file (auto-generated if missing)       |
+| `--pem`                 | String                 | --                      | Ed25519 PEM string for JWT signing (auto-generated if missing)        |
+| `--frontend-url`        | String                 | `http://localhost:3000` | Base URL for email links and CORS origin                              |
+| `--log-level`           | String                 | `info`                  | Tracing filter: trace, debug, info, warn, error                       |
+| `--log-format`          | `auto`, `json`, `text` | `auto`                  | Log output format (auto = JSON when non-TTY, text otherwise)          |
+| `--email-host`          | String                 | `""` (disabled)         | SMTP host; empty disables email                                       |
+| `--email-port`          | u16                    | `587`                   | SMTP port                                                             |
+| `--email-username`      | String                 | --                      | SMTP username                                                         |
+| `--email-password`      | String                 | --                      | SMTP password                                                         |
+| `--email-from-address`  | String                 | `noreply@inferadb.com`  | Sender email address                                                  |
+| `--email-from-name`     | String                 | `InferaDB`              | Sender display name                                                   |
+| `--email-insecure`      | flag                   | off                     | Skip SMTP TLS verification (development only)                         |
+| `--email-blinding-key`  | String                 | --                      | HMAC-SHA256 key for email blinding (64-char hex, 32 bytes)            |
+| `--ledger-endpoint`     | String                 | --                      | Ledger gRPC endpoint URL (required when `storage=ledger`)             |
+| `--ledger-client-id`    | String                 | --                      | Ledger client identifier (required when `storage=ledger`)             |
+| `--ledger-organization` | u64                    | --                      | Ledger organization for data scoping (required when `storage=ledger`) |
+| `--ledger-vault`        | u64                    | --                      | Ledger vault for key scoping (optional)                               |
+| `--webauthn-rp-id`      | String                 | `localhost`             | WebAuthn Relying Party ID (domain)                                    |
+| `--webauthn-origin`     | String                 | `http://localhost:3000` | WebAuthn Relying Party origin URL                                     |
+| `--trusted-proxy-depth` | NonZeroU8              | --                      | Number of trusted reverse proxies for `X-Forwarded-For`               |
+| `--worker-id`           | u16                    | random                  | Snowflake ID worker ID (0-1023, must be unique per instance)          |
 
 ### Environment Variables
 
-Every CLI flag can also be set via environment variable using the `INFERADB__CONTROL__` prefix with double underscores as separators. Hyphens in flag names become underscores:
+Every CLI flag maps to an environment variable with the `INFERADB__CONTROL__` prefix. Hyphens in flag names become underscores:
 
 ```bash
-# Listen address
 export INFERADB__CONTROL__LISTEN="0.0.0.0:9090"
-
-# Storage backend
 export INFERADB__CONTROL__STORAGE="ledger"
-
-# Master key
 export INFERADB__CONTROL__KEY_FILE="/etc/inferadb/master.key"
-# Or provide the PEM string directly
-export INFERADB__CONTROL__PEM="-----BEGIN PRIVATE KEY-----..."
-
-# SMTP credentials
-export INFERADB__CONTROL__EMAIL_HOST="smtp.example.com"
-export INFERADB__CONTROL__EMAIL_PORT="587"
-export INFERADB__CONTROL__EMAIL_USERNAME="smtp-user"
-export INFERADB__CONTROL__EMAIL_PASSWORD="smtp-pass"
-export INFERADB__CONTROL__EMAIL_FROM_ADDRESS="noreply@example.com"
-export INFERADB__CONTROL__EMAIL_FROM_NAME="Your Company"
-
-# Ledger storage
 export INFERADB__CONTROL__LEDGER_ENDPOINT="http://ledger:9200"
-export INFERADB__CONTROL__LEDGER_CLIENT_ID="your-client-id"
+export INFERADB__CONTROL__LEDGER_CLIENT_ID="control-prod-01"
 export INFERADB__CONTROL__LEDGER_ORGANIZATION="1"
-export INFERADB__CONTROL__LEDGER_VAULT="7"
-
-# Logging
 export INFERADB__CONTROL__LOG_LEVEL="info"
 export INFERADB__CONTROL__LOG_FORMAT="json"
 ```
 
-**CRITICAL**: Store secrets (PEM key, SMTP password) securely via a secrets manager or encrypted environment variables. Never commit them to version control.
+Exception: `--dev-mode` has no environment variable. It must be an explicit CLI choice.
 
-### Authentication Keys
+Store secrets (`INFERADB__CONTROL__PEM`, `INFERADB__CONTROL__EMAIL_PASSWORD`, `INFERADB__CONTROL__EMAIL_BLINDING_KEY`) in a secrets manager. Do not commit them to version control.
 
-**Ed25519 Identity Key** (for signing JWTs): Generate an Ed25519 private key and provide it via `--pem` (inline PEM string). If not provided, a new keypair is generated on each startup.
+## Authentication Keys
+
+**Ed25519 Identity Key** (JWT signing): Provide via `--pem`. If omitted, a new keypair is generated on each startup, invalidating all existing tokens.
 
 ```bash
 openssl genpkey -algorithm Ed25519 -out identity.pem
 inferadb-control --pem "$(cat identity.pem)"
 ```
 
-**AES-256-GCM Master Key** (for encrypting private keys at rest): The `--key-file` flag specifies the path to a 32-byte master key file. If the file does not exist, a new key is auto-generated and saved with restrictive permissions (0600).
+**AES-256-GCM Master Key** (encrypting private keys at rest): The `--key-file` path points to a 32-byte key file. If the file does not exist, a new key is auto-generated with restrictive permissions (0600).
 
-```bash
-# Key is auto-generated at the default path: ./data/master.key
-# Or specify a custom path:
-inferadb-control --key-file /etc/inferadb/master.key
+## Health Checks
+
+Control exposes four health endpoints. None require authentication.
+
+| Endpoint    | Purpose                                           | Returns    | Use For                    |
+| ----------- | ------------------------------------------------- | ---------- | -------------------------- |
+| `/livez`    | Process is running                                | 200 OK     | Kubernetes liveness probe  |
+| `/readyz`   | Ledger is reachable (or no Ledger in dev)         | 200 or 503 | Kubernetes readiness probe |
+| `/startupz` | Initialization complete (delegates to readyz)     | 200 or 503 | Kubernetes startup probe   |
+| `/healthz`  | Detailed JSON with version, uptime, Ledger status | 200 JSON   | Monitoring and debugging   |
+
+`/healthz` response:
+
+```json
+{
+  "status": "healthy",
+  "service": "inferadb-control",
+  "version": "0.1.0",
+  "instance_id": 0,
+  "uptime_seconds": 3600,
+  "ledger_healthy": true
+}
 ```
 
-## Single-Instance Deployment
+Health check results are cached for 5 seconds to protect Ledger from probe bursts.
 
-### Single Instance Configuration
+## Graceful Shutdown
 
-Deploy one instance of Control:
+Control handles `SIGTERM` and `SIGINT`:
+
+1. Stops accepting new connections.
+2. Waits for in-flight requests to complete (up to 30 seconds).
+3. Cleans up worker registration.
+4. Exits.
+
+Set `terminationGracePeriodSeconds: 60` in Kubernetes to allow sufficient drain time.
+
+## Observability
+
+### Logging
+
+Logs go to stdout. Configure with `--log-level` and `--log-format`.
 
 ```bash
-inferadb-control \
-  --listen 0.0.0.0:9090 \
-  --storage ledger \
-  --key-file /etc/inferadb/master.key \
-  --ledger-endpoint http://ledger:9200 \
-  --ledger-client-id control-prod-01 \
-  --ledger-organization 1
+# Production
+inferadb-control --log-level info --log-format json
+
+# Debugging
+inferadb-control --log-level debug --log-format text
 ```
 
-### Load Balancer (Optional)
+### Metrics
 
-You can still use a load balancer for TLS termination and health checks:
+Prometheus metrics are exposed at `GET /metrics` (no authentication). Key metrics include HTTP request duration/count, storage operation latency, and rate limit hit counts.
 
-- **Health checks**: `GET /readyz`
-- **Session affinity**: Not required
-- **TLS termination**: Recommended at load balancer
+## Security
 
-Example (Kubernetes Service):
+### TLS
+
+Control does not terminate TLS. Place it behind a reverse proxy or load balancer that handles TLS.
+
+### CORS
+
+CORS is configured from `--frontend-url`. Set this to your web dashboard origin:
+
+```bash
+inferadb-control --frontend-url https://dashboard.example.com
+```
+
+### Rate Limiting
+
+Built-in rate limits are enforced per IP and are not configurable:
+
+- **Login/auth endpoints**: 100 requests/hour per IP
+- **Registration**: 5 requests/day per IP
+
+Deploy behind a reverse proxy that sets `X-Forwarded-For`, and use `--trusted-proxy-depth` to specify how many proxy hops to trust.
+
+### Network Security
+
+- Use private networks for Ledger gRPC connections.
+- Restrict ingress to the load balancer.
+- The metrics endpoint (`/metrics`) has no authentication; protect it with network policy.
+
+## Kubernetes Example
 
 ```yaml
 apiVersion: v1
@@ -167,257 +192,44 @@ spec:
     - name: http
       port: 80
       targetPort: 9090
-  type: LoadBalancer
 
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: inferadb-control
-  annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
-  tls:
-    - hosts:
-        - api.example.com
-      secretName: infera-api-tls
-  rules:
-    - host: api.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: inferadb-control
-                port:
-                  number: 80
-```
-
-### Data Persistence Considerations
-
-**Important**: With the in-memory backend:
-
-- All data (users, sessions, vaults, etc.) is stored in RAM
-- Restarting the server loses all data
-- For production use, implement regular backups or wait for Ledger backend
-
-**Recommended Approach**:
-
-- Use persistent volumes to store export snapshots
-- Implement automated backup scripts
-- Plan migration strategy for when Ledger backend is available
-
-## Health Checks
-
-Control provides multiple health check endpoints:
-
-### Liveness Probe
-
-```bash
-GET /livez
-```
-
-Returns `200 OK` if the process is running. Use for Kubernetes liveness probes.
-
-### Readiness Probe
-
-```bash
-GET /readyz
-```
-
-Returns `200 OK` if the service is ready to accept traffic (storage accessible). Use for Kubernetes readiness probes.
-
-### Startup Probe
-
-```bash
-GET /startupz
-```
-
-Returns `200 OK` after initialization is complete. Use for Kubernetes startup probes.
-
-### Detailed Health Status
-
-```bash
-GET /healthz
-```
-
-Returns JSON with detailed health information:
-
-```json
-{
-  "status": "healthy",
-  "service": "inferadb-control",
-  "version": "0.1.0",
-  "instance_id": 0,
-  "uptime_seconds": 3600,
-  "ledger_healthy": true,
-  "details": null
-}
-```
-
-## Graceful Shutdown
-
-Control handles graceful shutdown on `SIGTERM` and `SIGINT`:
-
-1. Stop accepting new requests
-2. Wait for in-flight requests to complete (up to 30 seconds)
-3. Cleanup worker registration
-4. Exit
-
-**Kubernetes**: Set `terminationGracePeriodSeconds: 60` to allow sufficient time for graceful shutdown.
-
-## Observability
-
-### Logging
-
-Logs are written to stdout. Configure via CLI flags:
-
-```bash
-inferadb-control --log-level info --log-format json
-```
-
-Or via environment variables:
-
-```bash
-export INFERADB__CONTROL__LOG_LEVEL="info"    # trace, debug, info, warn, error
-export INFERADB__CONTROL__LOG_FORMAT="json"   # auto, json, text
-```
-
-### Metrics
-
-Prometheus metrics are exposed at `/metrics`:
-
-Key metrics:
-
-- HTTP request duration/count
-- Storage operation latency
-- Rate limit hit counts
-
-## Security Best Practices
-
-### 1. TLS/HTTPS
-
-**Always use TLS in production**:
-
-- Terminate TLS at load balancer or reverse proxy
-- Use valid certificates (Let's Encrypt, commercial CA)
-- Enforce HTTPS redirects
-
-### 2. Secrets Management
-
-**Never commit secrets to version control**:
-
-- Use environment variables for runtime secrets
-- Consider secrets management systems:
-  - Kubernetes Secrets
-  - HashiCorp Vault
-  - AWS Secrets Manager
-  - Azure Key Vault
-
-### 3. Network Security
-
-- Use private networks for database connections
-- Restrict ingress to load balancer only
-- Enable mTLS for internal gRPC communication
-
-### 4. Rate Limiting
-
-Rate limits are built-in defaults enforced per IP:
-
-- Login: 100/hour (applied to all auth endpoints)
-- Registration: 5/day
-
-These limits are not configurable via CLI flags or environment variables. Deploy behind a reverse proxy that sets `X-Forwarded-For` headers correctly, and use the `--trusted-proxy-depth` flag to specify how many proxy hops to trust.
-
-### 5. CORS
-
-CORS is configured automatically based on `--frontend-url`. Set this to your web dashboard origin:
-
-```bash
-inferadb-control --frontend-url https://dashboard.example.com
+  template:
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: control
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 9090
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9090
+          startupProbe:
+            httpGet:
+              path: /startupz
+              port: 9090
+            failureThreshold: 30
+            periodSeconds: 2
 ```
 
 ## Deployment Checklist
 
-- [ ] Ed25519 master key generated and stored securely
-- [ ] Secrets stored securely (environment variables/secrets manager)
-- [ ] Storage backend selected (`--storage ledger` for production)
-- [ ] Ledger endpoint and credentials configured (if using ledger storage)
-- [ ] Sufficient RAM allocated (8GB+ recommended)
-- [ ] Data backup/export procedures documented
-- [ ] Load balancer configured with health checks (if using)
-- [ ] TLS certificates provisioned
-- [ ] `--frontend-url` set for CORS and email links
-- [ ] Email SMTP credentials configured and tested
-- [ ] Logging configured (`--log-level`, `--log-format`)
-- [ ] Disaster recovery plan established (understand data loss with memory storage)
-- [ ] Security review completed
-- [ ] Load testing performed
-- [ ] Team aware of single-instance limitation
-
-## Troubleshooting
-
-### Data Loss on Restart
-
-**Symptoms**: All users, sessions, and data lost after server restart.
-
-**Explanation**: This is expected behavior with the in-memory backend.
-
-**Solutions**:
-
-1. Implement regular data export/backup procedures
-2. Document recovery procedures for team
-3. Wait for Ledger backend implementation for persistent storage
-
-### High Rate Limit Rejections
-
-**Symptoms**: Users seeing "429 Too Many Requests" errors.
-
-**Solutions**:
-
-1. Verify load balancer correctly forwards `X-Forwarded-For`
-2. Rate limits are hardcoded; contact support if adjustments are needed
-3. Implement IP whitelisting for trusted sources
-
-### Session Limit Exceeded
-
-**Symptoms**: Users unable to create new sessions.
-
-**Solutions**:
-
-1. Session limits are hardcoded; expired sessions are automatically cleaned up by Ledger's TTL garbage collector
-2. Manually revoke old sessions via API
-
-### Email Delivery Failures
-
-**Symptoms**: Users not receiving verification/reset emails.
-
-**Solutions**:
-
-1. Test SMTP connectivity: `telnet smtp-host 587`
-2. Verify SMTP credentials
-3. Check email service logs for delivery status
-4. Ensure `from_email` is authorized sender
-
-## Maintenance
-
-### Updating Configuration
-
-1. Update CLI flags or environment variables
-2. Rolling restart of instances (zero-downtime)
-3. Verify health checks pass
-
-### Scaling Up/Down
-
-1. Add/remove instances
-2. Ensure unique worker IDs
-3. Update load balancer backends
-
-## Support
-
-For issues or questions:
-
-- GitHub Issues: <https://github.com/inferadb/inferadb>
-- Documentation: <https://inferadb.com/docs>
-- Community Discord: <https://discord.gg/inferadb>
+- [ ] `--storage ledger` with `--ledger-endpoint`, `--ledger-client-id`, `--ledger-organization` configured
+- [ ] Ed25519 PEM key persisted (not auto-generated per restart)
+- [ ] Master key file path on persistent storage
+- [ ] Secrets stored in a secrets manager
+- [ ] `--frontend-url` set to the production dashboard URL
+- [ ] `--trusted-proxy-depth` matches your proxy chain
+- [ ] Unique `--worker-id` per instance (for multi-instance deployments)
+- [ ] SMTP credentials configured and tested (if email is needed)
+- [ ] TLS termination configured at the load balancer
+- [ ] Health check probes configured in the orchestrator
+- [ ] `--log-format json` for structured log aggregation

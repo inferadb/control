@@ -1,143 +1,169 @@
-# InferaDB Control Configuration Guide
+# Configuration
 
-Configuration via CLI arguments and environment variables.
+Configure InferaDB Control via CLI flags and environment variables. No configuration files.
 
-## Overview
+## Why this matters
 
-InferaDB Control uses CLI-first configuration with environment variable fallbacks. Precedence (highest to lowest):
+InferaDB Control uses CLI-first configuration with environment variable fallbacks. Getting the configuration right determines whether your deployment is secure, observable, and connected to the correct storage backend.
 
-1. **CLI arguments** (highest priority)
-2. **Environment variables** (`INFERADB__CONTROL__` prefix)
-3. **Default values** (lowest priority)
-
-Run `inferadb-control --help` for the full list of options.
-
-## Quick Start
+## Quickstart
 
 ```bash
-# Development (in-memory storage, auto-generated identity)
+# Development -- in-memory storage, auto-generated identity
 inferadb-control --dev-mode
 
-# Production (all required fields)
+# Production -- Ledger backend with all required fields
 inferadb-control \
   --listen 0.0.0.0:9090 \
   --storage ledger \
-  --ledger-endpoint https://ledger.inferadb:50051 \
+  --ledger-endpoint https://ledger.prod:50051 \
   --ledger-client-id ctrl-prod-01 \
   --ledger-organization 1 \
+  --pem "$(cat /secrets/identity.pem)" \
   --key-file /data/master.key \
   --frontend-url https://app.inferadb.com \
   --webauthn-rp-id app.inferadb.com \
   --webauthn-origin https://app.inferadb.com \
+  --email-host smtp.sendgrid.net \
+  --email-port 587 \
+  --email-username apikey \
+  --email-password "$SENDGRID_API_KEY" \
+  --worker-id 0 \
   --log-format json
-
-# Same via environment variables
-export INFERADB__CONTROL__LISTEN=0.0.0.0:9090
-export INFERADB__CONTROL__STORAGE=ledger
-export INFERADB__CONTROL__LEDGER_ENDPOINT=https://ledger.inferadb:50051
-export INFERADB__CONTROL__LEDGER_CLIENT_ID=ctrl-prod-01
-export INFERADB__CONTROL__LEDGER_ORGANIZATION=1
-export INFERADB__CONTROL__KEY_FILE=/data/master.key
-export INFERADB__CONTROL__FRONTEND_URL=https://app.inferadb.com
-export INFERADB__CONTROL__WEBAUTHN_RP_ID=app.inferadb.com
-export INFERADB__CONTROL__WEBAUTHN_ORIGIN=https://app.inferadb.com
-export INFERADB__CONTROL__LOG_FORMAT=json
-inferadb-control
 ```
 
-## Configuration Reference
+## Precedence
 
-### Server
+1. **CLI flags** (highest priority)
+2. **Environment variables** (prefix: `INFERADB__CONTROL__`)
+3. **Default values** (lowest priority)
 
-| CLI Flag       | Env Var                         | Type         | Default          | Description            |
-| -------------- | ------------------------------- | ------------ | ---------------- | ---------------------- |
-| `--listen`     | `INFERADB__CONTROL__LISTEN`     | `SocketAddr` | `127.0.0.1:9090` | HTTP bind address      |
-| `--log-level`  | `INFERADB__CONTROL__LOG_LEVEL`  | `String`     | `info`           | tracing filter string  |
-| `--log-format` | `INFERADB__CONTROL__LOG_FORMAT` | `Enum`       | `auto`           | `auto`, `json`, `text` |
+Run `inferadb-control --help` for the full list of options and defaults.
 
-### Identity & Encryption
+## Server
 
-| CLI Flag     | Env Var                       | Type      | Default             | Description                      |
-| ------------ | ----------------------------- | --------- | ------------------- | -------------------------------- |
-| `--pem`      | `INFERADB__CONTROL__PEM`      | `String?` | --                  | Ed25519 PEM (auto-gen if absent) |
-| `--key-file` | `INFERADB__CONTROL__KEY_FILE` | `PathBuf` | `./data/master.key` | AES-256-GCM master key path      |
+| CLI Flag | Env Var | Type | Default | Required | Description |
+|---|---|---|---|---|---|
+| `--listen` | `INFERADB__CONTROL__LISTEN` | `SocketAddr` | `127.0.0.1:9090` | No | HTTP bind address |
+| `--dev-mode` | -- | `bool` | `false` | No | Forces in-memory storage. CLI only, no env var. |
 
-### Storage
+Dev mode overrides `--storage` to `memory` regardless of its value.
 
-| CLI Flag                 | Env Var                                   | Type      | Default  | Description                      |
-| ------------------------ | ----------------------------------------- | --------- | -------- | -------------------------------- |
-| `--storage`              | `INFERADB__CONTROL__STORAGE`              | `Enum`    | `ledger` | `memory` or `ledger`             |
-| `--ledger-endpoint`      | `INFERADB__CONTROL__LEDGER_ENDPOINT`      | `String?` | --       | Required when storage=ledger     |
-| `--ledger-client-id`     | `INFERADB__CONTROL__LEDGER_CLIENT_ID`     | `String?` | --       | Required when storage=ledger     |
-| `--ledger-organization`  | `INFERADB__CONTROL__LEDGER_ORGANIZATION`  | `u64?`    | --       | Required when storage=ledger     |
-| `--ledger-vault`         | `INFERADB__CONTROL__LEDGER_VAULT`         | `u64?`    | --       | Optional, finer-grained scoping  |
+## Observability
 
-### Email Blinding
+| CLI Flag | Env Var | Type | Default | Required | Description |
+|---|---|---|---|---|---|
+| `--log-level` | `INFERADB__CONTROL__LOG_LEVEL` | `String` | `info` | No | Tracing filter string (e.g., `info`, `debug`, `trace`) |
+| `--log-format` | `INFERADB__CONTROL__LOG_FORMAT` | `Enum` | `auto` | No | Output format: `auto`, `json`, `text` |
 
-| CLI Flag               | Env Var                                  | Type      | Default | Description                         |
-| ---------------------- | ---------------------------------------- | --------- | ------- | ----------------------------------- |
-| `--email-blinding-key` | `INFERADB__CONTROL__EMAIL_BLINDING_KEY`  | `String?` | --      | HMAC-SHA256 key (64-char hex, 32B)  |
+The `auto` format uses JSON when stdout is not a TTY, and human-readable text otherwise. Use `json` in production for structured log aggregation.
 
-Must match the key configured on the Ledger cluster. Generate with: `openssl rand -hex 32`
+## Storage
 
-### Email (SMTP)
+| CLI Flag | Env Var | Type | Default | Required | Description |
+|---|---|---|---|---|---|
+| `--storage` | `INFERADB__CONTROL__STORAGE` | `Enum` | `ledger` | No | Backend: `memory` or `ledger` |
+| `--ledger-endpoint` | `INFERADB__CONTROL__LEDGER_ENDPOINT` | `String` | -- | When `storage=ledger` | Ledger gRPC endpoint. Must start with `http://` or `https://`. |
+| `--ledger-client-id` | `INFERADB__CONTROL__LEDGER_CLIENT_ID` | `String` | -- | When `storage=ledger` | Client identifier for idempotency tracking |
+| `--ledger-organization` | `INFERADB__CONTROL__LEDGER_ORGANIZATION` | `u64` | -- | When `storage=ledger` | Organization ID for data scoping |
+| `--ledger-vault` | `INFERADB__CONTROL__LEDGER_VAULT` | `u64` | -- | No | Optional. Finer-grained key scoping within the Ledger organization. |
 
-| CLI Flag               | Env Var                                 | Type      | Default                | Description       |
-| ---------------------- | --------------------------------------- | --------- | ---------------------- | ----------------- |
-| `--email-host`         | `INFERADB__CONTROL__EMAIL_HOST`         | `String`  | `""` (empty)           | Empty = email off |
-| `--email-port`         | `INFERADB__CONTROL__EMAIL_PORT`         | `u16`     | `587`                  | SMTP port         |
-| `--email-username`     | `INFERADB__CONTROL__EMAIL_USERNAME`     | `String?` | --                     | SMTP username     |
-| `--email-password`     | `INFERADB__CONTROL__EMAIL_PASSWORD`     | `String?` | --                     | SMTP password     |
-| `--email-from-address` | `INFERADB__CONTROL__EMAIL_FROM_ADDRESS` | `String`  | `noreply@inferadb.com` | From address      |
-| `--email-from-name`    | `INFERADB__CONTROL__EMAIL_FROM_NAME`    | `String`  | `InferaDB`             | From display name |
-| `--email-insecure`     | `INFERADB__CONTROL__EMAIL_INSECURE`     | `bool`    | `false`                | Skip TLS verify   |
+When `storage=ledger`, three fields are required: `ledger-endpoint`, `ledger-client-id`, and `ledger-organization`. The server refuses to start if any are missing.
 
-### Frontend
+The `memory` backend stores all data in RAM. Data is lost on restart. Use it only for development and testing.
 
-| CLI Flag         | Env Var                           | Type     | Default                 | Description              |
-| ---------------- | --------------------------------- | -------- | ----------------------- | ------------------------ |
-| `--frontend-url` | `INFERADB__CONTROL__FRONTEND_URL` | `String` | `http://localhost:3000` | Base URL for email links |
+## Identity and encryption
 
-### WebAuthn
+| CLI Flag | Env Var | Type | Default | Required | Description |
+|---|---|---|---|---|---|
+| `--pem` | `INFERADB__CONTROL__PEM` | `String` | -- | No | Ed25519 private key in PEM format. Auto-generated on each startup if absent. |
+| `--key-file` | `INFERADB__CONTROL__KEY_FILE` | `PathBuf` | `./data/master.key` | No | Path to AES-256-GCM master key for encrypting private keys at rest |
 
-| CLI Flag            | Env Var                              | Type     | Default                 | Description                     |
-| ------------------- | ------------------------------------ | -------- | ----------------------- | ------------------------------- |
-| `--webauthn-rp-id`  | `INFERADB__CONTROL__WEBAUTHN_RP_ID`  | `String` | `localhost`             | Relying Party ID (domain)       |
-| `--webauthn-origin` | `INFERADB__CONTROL__WEBAUTHN_ORIGIN` | `String` | `http://localhost:3000` | Relying Party origin URL        |
+In production, provide a stable `--pem` value. If auto-generated, JWTs issued before a restart become invalid because the signing key changes.
 
-The RP ID must be an effective domain suffix of the origin. Cannot be changed after credentials are registered.
+## Email (SMTP)
 
-### Proxy
+| CLI Flag | Env Var | Type | Default | Required | Description |
+|---|---|---|---|---|---|
+| `--email-host` | `INFERADB__CONTROL__EMAIL_HOST` | `String` | `""` (empty) | No | SMTP hostname. Empty string disables email. |
+| `--email-port` | `INFERADB__CONTROL__EMAIL_PORT` | `u16` | `587` | No | SMTP port (587 for STARTTLS, 465 for implicit TLS) |
+| `--email-username` | `INFERADB__CONTROL__EMAIL_USERNAME` | `String` | -- | When email enabled | SMTP authentication username |
+| `--email-password` | `INFERADB__CONTROL__EMAIL_PASSWORD` | `String` | -- | When email enabled | SMTP authentication password |
+| `--email-from-address` | `INFERADB__CONTROL__EMAIL_FROM_ADDRESS` | `String` | `noreply@inferadb.com` | No | Sender email address |
+| `--email-from-name` | `INFERADB__CONTROL__EMAIL_FROM_NAME` | `String` | `InferaDB` | No | Sender display name |
+| `--email-insecure` | `INFERADB__CONTROL__EMAIL_INSECURE` | `bool` | `false` | No | Skip TLS certificate verification. For local dev only (e.g., Mailpit). |
 
-| CLI Flag                | Env Var                                  | Type         | Default | Description                          |
-| ----------------------- | ---------------------------------------- | ------------ | ------- | ------------------------------------ |
-| `--trusted-proxy-depth` | `INFERADB__CONTROL__TRUSTED_PROXY_DEPTH` | `NonZeroU8?` | --      | Trusted proxy count for client IP    |
+Email is disabled by default. Set `--email-host` to a non-empty value to enable it. When disabled, verification codes are generated but not delivered -- check server logs in dev mode.
 
-When set, the client IP is extracted as the Nth-from-right entry in `X-Forwarded-For`.
+The server warns at startup if `--email-insecure` is set with a non-localhost host.
 
-### Instance Identity
+## Email blinding
 
-| CLI Flag      | Env Var                          | Type    | Default | Description                          |
-| ------------- | -------------------------------- | ------- | ------- | ------------------------------------ |
-| `--worker-id` | `INFERADB__CONTROL__WORKER_ID`   | `u16?`  | random  | Snowflake ID worker (0-1023)         |
+| CLI Flag | Env Var | Type | Default | Required | Description |
+|---|---|---|---|---|---|
+| `--email-blinding-key` | `INFERADB__CONTROL__EMAIL_BLINDING_KEY` | `String` | -- | For email operations | HMAC-SHA256 key as a 64-character hex string (32 bytes) |
 
-In multi-instance deployments, each instance must have a unique worker ID to guarantee ID uniqueness.
+This key must match the key configured on the Ledger cluster. Generate one with:
 
-### Mode Flags
+```bash
+openssl rand -hex 32
+```
 
-| CLI Flag     | Type   | Default | Description                                  |
-| ------------ | ------ | ------- | -------------------------------------------- |
-| `--dev-mode` | `bool` | `false` | Forces storage=memory (no env var, CLI only) |
+## Authentication (WebAuthn)
 
-## Validation Rules
+| CLI Flag | Env Var | Type | Default | Required | Description |
+|---|---|---|---|---|---|
+| `--webauthn-rp-id` | `INFERADB__CONTROL__WEBAUTHN_RP_ID` | `String` | `localhost` | No | Relying Party ID. Must be an effective domain suffix of the origin. |
+| `--webauthn-origin` | `INFERADB__CONTROL__WEBAUTHN_ORIGIN` | `String` | `http://localhost:3000` | No | Relying Party origin URL. Must include the scheme. |
 
-Configuration is validated at startup:
+The RP ID cannot change after passkey credentials are registered. Set it to your production domain before accepting real credential registrations.
 
-- **Ledger storage**: `ledger-endpoint`, `ledger-client-id`, and `ledger-organization` must all be set; `ledger-endpoint` must start with `http://` or `https://`
-- **Frontend URL**: Must start with `http://` or `https://`, must not end with `/`; warns if `localhost` or `127.0.0.1` is used
-- **Dev mode**: Overrides storage to `memory` regardless of `--storage` value
+## Frontend
 
-## Configuration Profiles
+| CLI Flag | Env Var | Type | Default | Required | Description |
+|---|---|---|---|---|---|
+| `--frontend-url` | `INFERADB__CONTROL__FRONTEND_URL` | `String` | `http://localhost:3000` | No | Base URL for links in emails (verification, password reset). Also used as the CORS allowed origin. |
+
+Must start with `http://` or `https://`. Must not end with a trailing slash. The server warns if this contains `localhost` or `127.0.0.1`.
+
+## Network
+
+| CLI Flag | Env Var | Type | Default | Required | Description |
+|---|---|---|---|---|---|
+| `--trusted-proxy-depth` | `INFERADB__CONTROL__TRUSTED_PROXY_DEPTH` | `NonZeroU8` | -- | No | Number of trusted reverse proxies. When set, client IP is the Nth-from-right entry in `X-Forwarded-For`. |
+
+Set this when running behind a load balancer (e.g., AWS ALB, nginx). Without it, rate limiting uses the direct connection IP, which is the proxy address.
+
+## Instance identity
+
+| CLI Flag | Env Var | Type | Default | Required | Description |
+|---|---|---|---|---|---|
+| `--worker-id` | `INFERADB__CONTROL__WORKER_ID` | `u16` | random | No | Snowflake ID worker ID (0--1023). Each instance in a multi-instance deployment must have a unique value. |
+
+If unset, a random value is chosen at startup. In Kubernetes, derive it from the pod ordinal to guarantee uniqueness.
+
+## Validation rules
+
+The server validates configuration at startup and refuses to start if rules are violated:
+
+- **Ledger storage**: `--ledger-endpoint`, `--ledger-client-id`, and `--ledger-organization` are all required. The endpoint must start with `http://` or `https://`.
+- **Frontend URL**: Must start with `http://` or `https://`. Must not end with `/`.
+- **Dev mode**: Overrides `--storage` to `memory`.
+- **Worker ID**: Must be in the range 0--1023.
+
+## Sensitive fields
+
+Three fields contain secrets and are hidden from `--help` output:
+
+| Field | Purpose |
+|---|---|
+| `--pem` | Ed25519 private key (control plane identity) |
+| `--email-blinding-key` | HMAC-SHA256 key for email address hashing |
+| `--email-password` | SMTP authentication credential |
+
+These fields are also redacted in debug log output.
+
+## Deployment profiles
 
 ### Development
 
@@ -145,17 +171,29 @@ Configuration is validated at startup:
 inferadb-control --dev-mode
 ```
 
-### Production
+All defaults apply. In-memory storage, auto-generated identity, no email delivery.
+
+### Development with email (Mailpit)
+
+```bash
+inferadb-control --dev-mode \
+  --email-host localhost \
+  --email-port 1025 \
+  --email-insecure
+```
+
+### Production (CLI flags)
 
 ```bash
 inferadb-control \
   --listen 0.0.0.0:9090 \
   --storage ledger \
-  --ledger-endpoint https://ledger.inferadb:50051 \
+  --ledger-endpoint https://ledger.prod:50051 \
   --ledger-client-id ctrl-prod-01 \
   --ledger-organization 1 \
-  --key-file /data/master.key \
   --pem "$(cat /secrets/identity.pem)" \
+  --key-file /data/master.key \
+  --email-blinding-key "$EMAIL_BLINDING_KEY" \
   --frontend-url https://app.inferadb.com \
   --webauthn-rp-id app.inferadb.com \
   --webauthn-origin https://app.inferadb.com \
@@ -165,60 +203,35 @@ inferadb-control \
   --email-password "$SENDGRID_API_KEY" \
   --email-from-address noreply@inferadb.com \
   --worker-id 0 \
-  --log-format json
+  --log-format json \
+  --trusted-proxy-depth 1
 ```
 
-## Secrets Management
+### Production (environment variables)
 
-Never commit secrets. Use environment variables or Kubernetes secrets.
+```bash
+export INFERADB__CONTROL__LISTEN=0.0.0.0:9090
+export INFERADB__CONTROL__STORAGE=ledger
+export INFERADB__CONTROL__LEDGER_ENDPOINT=https://ledger.prod:50051
+export INFERADB__CONTROL__LEDGER_CLIENT_ID=ctrl-prod-01
+export INFERADB__CONTROL__LEDGER_ORGANIZATION=1
+export INFERADB__CONTROL__PEM="$(cat /secrets/identity.pem)"
+export INFERADB__CONTROL__KEY_FILE=/data/master.key
+export INFERADB__CONTROL__EMAIL_BLINDING_KEY="$EMAIL_BLINDING_KEY"
+export INFERADB__CONTROL__FRONTEND_URL=https://app.inferadb.com
+export INFERADB__CONTROL__WEBAUTHN_RP_ID=app.inferadb.com
+export INFERADB__CONTROL__WEBAUTHN_ORIGIN=https://app.inferadb.com
+export INFERADB__CONTROL__EMAIL_HOST=smtp.sendgrid.net
+export INFERADB__CONTROL__EMAIL_PORT=587
+export INFERADB__CONTROL__EMAIL_USERNAME=apikey
+export INFERADB__CONTROL__EMAIL_PASSWORD="$SENDGRID_API_KEY"
+export INFERADB__CONTROL__EMAIL_FROM_ADDRESS=noreply@inferadb.com
+export INFERADB__CONTROL__WORKER_ID=0
+export INFERADB__CONTROL__LOG_FORMAT=json
+export INFERADB__CONTROL__TRUSTED_PROXY_DEPTH=1
 
-### Sensitive Fields
-
-These fields use `hide_env_values = true` in clap (hidden from `--help` output):
-
-| Field                | Purpose                                |
-| -------------------- | -------------------------------------- |
-| `pem`                | Ed25519 private key (control identity) |
-| `email-blinding-key` | HMAC-SHA256 key for email hashing      |
-| `email-password`     | SMTP authentication                    |
-
-### Kubernetes Secrets
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: inferadb-control-secrets
-type: Opaque
-stringData:
-  pem: |
-    -----BEGIN PRIVATE KEY-----
-    ...
-    -----END PRIVATE KEY-----
-  emailBlindingKey: "your-64-char-hex-string"
-  emailPassword: "your-smtp-password"
+inferadb-control
 ```
-
-```yaml
-env:
-  - name: INFERADB__CONTROL__PEM
-    valueFrom:
-      secretKeyRef:
-        name: inferadb-control-secrets
-        key: pem
-  - name: INFERADB__CONTROL__EMAIL_BLINDING_KEY
-    valueFrom:
-      secretKeyRef:
-        name: inferadb-control-secrets
-        key: emailBlindingKey
-  - name: INFERADB__CONTROL__EMAIL_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: inferadb-control-secrets
-        key: emailPassword
-```
-
-## Deployment Examples
 
 ### Docker
 
@@ -245,35 +258,68 @@ services:
       INFERADB__CONTROL__WEBAUTHN_ORIGIN: "https://app.inferadb.com"
 ```
 
-### Kubernetes (Helm)
+### Kubernetes secrets
 
-```bash
-helm install inferadb-control ./helm \
-  --namespace inferadb \
-  --create-namespace \
-  --set config.storage=ledger \
-  --set config.ledgerEndpoint=http://ledger.inferadb:50051 \
-  --set config.ledgerClientId=ctrl-prod-01 \
-  --set config.ledgerOrganization=1
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: inferadb-control-secrets
+type: Opaque
+stringData:
+  pem: |
+    -----BEGIN PRIVATE KEY-----
+    MC4CAQAwBQYDK2VwBCIE...
+    -----END PRIVATE KEY-----
+  emailBlindingKey: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8c9d0e1f2a3b4c5d6a7b8c9d0e1f2"
+  emailPassword: "SG.your-sendgrid-api-key"
+```
+
+Reference the secrets in your deployment:
+
+```yaml
+env:
+  - name: INFERADB__CONTROL__PEM
+    valueFrom:
+      secretKeyRef:
+        name: inferadb-control-secrets
+        key: pem
+  - name: INFERADB__CONTROL__EMAIL_BLINDING_KEY
+    valueFrom:
+      secretKeyRef:
+        name: inferadb-control-secrets
+        key: emailBlindingKey
+  - name: INFERADB__CONTROL__EMAIL_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: inferadb-control-secrets
+        key: emailPassword
 ```
 
 ## Troubleshooting
 
-### Validation Errors
+### Startup validation fails
 
-Run with `--help` to see all options and their defaults:
+Run `inferadb-control --help` to see all options and their types. Common issues:
+
+- Missing `--ledger-endpoint` when `--storage=ledger`
+- `--frontend-url` ends with a trailing slash
+- `--ledger-endpoint` uses a non-HTTP scheme (e.g., `grpc://`)
+
+### Email not sending
+
+1. Verify `--email-host` is non-empty (empty disables email)
+2. Check SMTP credentials and port
+3. Test with a local mail server: `--email-host localhost --email-port 1025 --email-insecure`
+
+### Debug logging
 
 ```bash
-inferadb-control --help
+inferadb-control --dev-mode --log-level debug
+
+# Pretty-print JSON logs
+inferadb-control --dev-mode --log-format json 2>&1 | jq
+
+# Filter for errors
+inferadb-control --dev-mode --log-format json 2>&1 | jq 'select(.level == "ERROR")'
 ```
-
-### Email Not Sending
-
-1. Verify `--email-host` is non-empty (empty = disabled)
-2. Check SMTP credentials
-3. Test with local mailhog: `--email-host localhost --email-port 1025 --email-insecure`
-
-## See Also
-
-- [Authentication Guide](../authentication.md)
-- [Deployment Guide](../deployment.md)

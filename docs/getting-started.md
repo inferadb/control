@@ -262,14 +262,14 @@ All errors follow a consistent format:
 }
 ```
 
-| HTTP Status | Error Code | Meaning |
-|---|---|---|
-| 400 | `VALIDATION_ERROR` | Invalid request payload |
-| 401 | `AUTHENTICATION_ERROR` | Missing or invalid credentials |
-| 403 | `AUTHORIZATION_ERROR` | Insufficient permissions |
-| 404 | `NOT_FOUND` | Resource does not exist |
-| 409 | `ALREADY_EXISTS` | Resource conflict |
-| 429 | `RATE_LIMIT_EXCEEDED` | Too many requests |
+| HTTP Status | Error Code             | Meaning                        |
+| ----------- | ---------------------- | ------------------------------ |
+| 400         | `VALIDATION_ERROR`     | Invalid request payload        |
+| 401         | `AUTHENTICATION_ERROR` | Missing or invalid credentials |
+| 403         | `AUTHORIZATION_ERROR`  | Insufficient permissions       |
+| 404         | `NOT_FOUND`            | Resource does not exist        |
+| 409         | `ALREADY_EXISTS`       | Resource conflict              |
+| 429         | `RATE_LIMIT_EXCEEDED`  | Too many requests              |
 
 ### Rate limits
 

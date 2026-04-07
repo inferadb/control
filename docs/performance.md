@@ -1,381 +1,97 @@
 # Performance Characteristics
 
-This document describes the performance characteristics, benchmarks, and scalability guidance for InferaDB Control.
+InferaDB Control is designed for low-latency multi-tenant administration with built-in rate limiting and horizontal scaling via the Ledger backend.
 
-**IMPORTANT NOTE**: This document describes both current capabilities (in-memory backend) and production capabilities (Ledger backend). Sections marked "Production" or referencing Ledger features apply to the Ledger storage backend implementation.
+## Why It Matters
 
-## Summary
+Understanding token lifetimes, rate limits, and resource constraints helps you size deployments, configure clients, and debug unexpected 429 or timeout responses.
 
-Control is designed for high performance:
+## Token and Session Lifetimes
 
-- **Target Latency**: p95 < 500ms, p99 < 1000ms for most operations
-- **Target Throughput**: 1000+ requests/second on modest hardware
-- **Current Scalability**: Single-instance with in-memory storage
-- **Production Scalability**: Horizontally scalable with Ledger backend
+These values are compile-time constants defined in `crates/const/src/duration.rs`:
 
-## Benchmark Environment
+| Token / Cookie                 | TTL        | Constant                                        |
+| ------------------------------ | ---------- | ----------------------------------------------- |
+| Access token cookie            | 15 minutes | `ACCESS_COOKIE_MAX_AGE_SECONDS` (900)           |
+| User session refresh token     | 1 hour     | `USER_SESSION_REFRESH_TOKEN_TTL_SECONDS` (3600) |
+| Client (service) refresh token | 7 days     | `CLIENT_REFRESH_TOKEN_TTL_SECONDS` (604800)     |
+| Refresh token cookie           | 30 days    | `REFRESH_COOKIE_MAX_AGE_SECONDS` (2592000)      |
+| Session cookie                 | 24 hours   | `SESSION_COOKIE_MAX_AGE` (86400)                |
+| Authorization code             | 10 minutes | `AUTHORIZATION_CODE_TTL_SECONDS` (600)          |
+| Email verification token       | 24 hours   | `EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS` (24)    |
+| Organization invitation        | 7 days     | `INVITATION_EXPIRY_DAYS` (7)                    |
+| Health check cache             | 5 seconds  | `HEALTH_CACHE_TTL_SECONDS` (5)                  |
 
-**Test Hardware:**
+## Rate Limits
 
-- CPU: 4 cores (Intel/AMD x86_64)
-- RAM: 8 GB
-- Storage: SSD
-- Network: Local (minimal latency)
+Rate limits are enforced per IP and are not configurable at runtime. Defined in `crates/core/src/ratelimit.rs`:
 
-**Software:**
+| Endpoint Category | Limit        | Window | Applies To                                                                |
+| ----------------- | ------------ | ------ | ------------------------------------------------------------------------- |
+| Login / Auth      | 100 requests | 1 hour | All public auth endpoints (email, passkey, TOTP, token exchange, refresh) |
+| Registration      | 5 requests   | 1 day  | `POST /control/v1/auth/email/complete`                                    |
 
-- Rust: 1.92+
-- Storage: Ledger or Memory backend
-- Load Tool: k6
+When a rate limit is exceeded, the server returns HTTP 429 with a `Retry-After` header and a JSON body:
 
-## Performance Benchmarks
+```json
+{
+  "error": "rate limit exceeded",
+  "code": "RATE_LIMIT_EXCEEDED"
+}
+```
 
-### Authentication Operations
+Unidentifiable clients (missing `X-Forwarded-For` when behind a proxy) share a single rate limit bucket.
 
-| Operation    | Concurrent Users | RPS | p50   | p95   | p99   | Notes                                    |
-| ------------ | ---------------- | --- | ----- | ----- | ----- | ---------------------------------------- |
-| Registration | 100              | 150 | 180ms | 400ms | 800ms | Includes password hashing (via Ledger)   |
-| Login        | 100              | 180 | 150ms | 350ms | 750ms | Password verification + session creation |
-| Get Profile  | 200              | 350 | 45ms  | 120ms | 250ms | Read-only, cached session                |
-| Logout       | 150              | 220 | 50ms  | 150ms | 300ms | Session revocation                       |
+## Resource Limits
 
-**Key Characteristics:**
+Defined in `crates/const/src/limits.rs`:
 
-- **Password Hashing**: Delegated to Ledger backend
-- **Session Management**: Cookie-based with 24-hour session cookie TTL
-- **Rate Limiting**: 100 login attempts/hour per IP prevents abuse
-
-### Vault & Token Operations
-
-| Operation      | Concurrent Users | RPS | p50   | p95   | p99    | Notes                            |
-| -------------- | ---------------- | --- | ----- | ----- | ------ | -------------------------------- |
-| Create Vault   | 50               | 80  | 120ms | 350ms | 800ms  | Includes transaction + indexes   |
-| List Vaults    | 100              | 200 | 60ms  | 180ms | 400ms  | Paginated, filtered by access    |
-| Generate Token | 75               | 120 | 200ms | 600ms | 1200ms | Ed25519 signing + JWT generation |
-| Refresh Token  | 100              | 180 | 80ms  | 250ms | 550ms  | Single-use token exchange        |
-| Revoke Tokens  | 50               | 90  | 100ms | 300ms | 700ms  | Bulk revocation by vault         |
-
-**Key Characteristics:**
-
-- **Token Generation**: Ed25519 signature
-- **Access Token Cookie**: 15-minute max-age
-- **User Session Refresh Token**: 1-hour TTL
-- **Client Refresh Token**: 7-day TTL
-
-### Organization Management
-
-| Operation    | Concurrent Users | RPS | p50   | p95   | p99   | Notes                      |
-| ------------ | ---------------- | --- | ----- | ----- | ----- | -------------------------- |
-| Create Org   | 25               | 60  | 110ms | 350ms | 750ms | Transaction: org + member  |
-| Update Org   | 50               | 100 | 70ms  | 220ms | 500ms | Single record update       |
-| List Members | 75               | 150 | 55ms  | 180ms | 400ms | Paginated list             |
-| Add Member   | 30               | 70  | 90ms  | 280ms | 650ms | Invitation + notification  |
-| Create Team  | 40               | 80  | 85ms  | 260ms | 600ms | Team + initial permissions |
-
-**Key Characteristics:**
-
-- **Global Organization Limit**: 100,000 total organizations
-- **Per-User Organization Limit**: 10 organizations per user
-- **Max Concurrent Sessions**: 10 per user
-- **Max Passkeys Per User**: 20
-
-### Client & Certificate Operations
-
-| Operation            | Concurrent Users | RPS | p50   | p95   | p99    | Notes                            |
-| -------------------- | ---------------- | --- | ----- | ----- | ------ | -------------------------------- |
-| Create Client        | 40               | 75  | 95ms  | 300ms | 700ms  | Client record creation           |
-| Generate Certificate | 30               | 55  | 250ms | 750ms | 1500ms | Ed25519 keypair + encryption     |
-| List Certificates    | 80               | 150 | 60ms  | 190ms | 420ms  | Read-only list                   |
-| Revoke Certificate   | 50               | 90  | 110ms | 320ms | 750ms  | Mark revoked + invalidate tokens |
-
-**Key Characteristics:**
-
-- **Keypair Generation**: Ed25519 (~50ms) + AES-GCM encryption (~20ms)
-- **Certificate Limits**: Per tier (Free: 50, Pro: 500, Enterprise: unlimited)
-- **Private Key**: Encrypted at rest with master secret, returned once only
-
-### Spike Load Behavior
-
-| Scenario           | Users    | Duration | RPS | p95  | p99  | Error Rate | Recovery Time |
-| ------------------ | -------- | -------- | --- | ---- | ---- | ---------- | ------------- |
-| Normal → 200 users | 10 → 200 | 10s      | 280 | 1.2s | 2.5s | 3%         | < 10s         |
-| Normal → 500 users | 10 → 500 | 10s      | 450 | 2.5s | 5.0s | 8%         | < 30s         |
-| Sustained 200      | 200      | 5m       | 250 | 1.5s | 3.0s | 2%         | N/A           |
-
-**Key Characteristics:**
-
-- **Rate Limiting**: Activates at configured thresholds (returns 429)
-- **Graceful Degradation**: Health checks remain available during overload
-- **Recovery**: Automatic backpressure via rate limiting
-- **Error Budget**: < 10% during spike, < 5% during normal operation
+| Limit                       | Value   | Constant                      |
+| --------------------------- | ------- | ----------------------------- |
+| Max passkeys per user       | 20      | `MAX_PASSKEYS_PER_USER`       |
+| Max concurrent sessions     | 10      | `MAX_CONCURRENT_SESSIONS`     |
+| Global organization limit   | 100,000 | `GLOBAL_ORGANIZATION_LIMIT`   |
+| Per-user organization limit | 10      | `PER_USER_ORGANIZATION_LIMIT` |
 
 ## Scalability
 
-### Horizontal Scaling (Production - Requires Ledger)
+### Single Instance
 
-**Note**: Horizontal scaling is supported with Ledger backend. In-memory backend is limited to single-instance deployments.
+The in-memory backend is limited to one instance. All data lives in RAM and is lost on restart. Use this for development and testing.
 
-Horizontal scaling features:
+### Horizontal Scaling (Ledger Backend)
 
-1. **Stateless Design**: No in-memory state beyond configuration
-2. **Worker IDs**: Unique Snowflake ID generation per instance (0-1023)
-4. **Load Balancing**: Round-robin or least-connections
+With the Ledger backend, Control instances are stateless. Each instance needs a unique `--worker-id` (0-1023) for Snowflake ID generation.
 
-**Scaling Guidelines:**
+Key properties:
 
-| Total RPS | Instances | Per-Instance RPS | Notes                             |
-| --------- | --------- | ---------------- | --------------------------------- |
-| < 500     | 1         | 500              | Single instance sufficient        |
-| 500-2000  | 2-3       | 500-700          | Active-active with load balancer  |
-| 2000-5000 | 4-8       | 500-700          | Recommended for high availability |
-| 5000+     | 8+        | 500-700          | Add instances as needed           |
+- **Stateless**: No shared in-memory state beyond configuration.
+- **Worker IDs**: Each instance must have a unique value. Set via `--worker-id` or `INFERADB__CONTROL__WORKER_ID`.
+- **Rate Limits**: With the Ledger-backed rate limiter, limits are shared across instances.
+- **Session Affinity**: Not required.
 
-**Key Metrics:**
+### Request Pipeline
 
-- **CPU**: Target 60-70% utilization per instance
-- **Memory**: ~500MB base + ~100MB per 1000 active sessions
-- **Connections**: Ledger connection pool (10 per instance)
-
-### Vertical Scaling
-
-Resource recommendations per instance:
-
-| Load Level           | CPU     | Memory | Storage    | Network  |
-| -------------------- | ------- | ------ | ---------- | -------- |
-| Light (< 100 RPS)    | 2 cores | 4 GB   | 20 GB SSD  | 100 Mbps |
-| Medium (100-500 RPS) | 4 cores | 8 GB   | 50 GB SSD  | 1 Gbps   |
-| Heavy (500-1000 RPS) | 8 cores | 16 GB  | 100 GB SSD | 1 Gbps   |
-
-**Bottlenecks:**
-
-- **CPU**: Ed25519 signing, AES-256-GCM encryption
-- **Memory**: Session cache, connection pools
-- **Storage**: Ledger transaction throughput
-- **Network**: Typically not a bottleneck
-
-### Database Scaling (Production - Ledger)
-
-**Current**: In-memory backend scales with available RAM on single instance.
-
-**Production**: With Ledger backend, the storage layer automatically handles:
-
-- **Sharding**: Data distributed across cluster nodes
-- **Replication**: 3x replication by default
-- **Failover**: Automatic failover via Raft consensus
-
-**Ledger Cluster Sizing:**
-
-| Control Load      | Ledger Nodes | Storage Per Node | Notes                           |
-| ----------------- | ------------ | ---------------- | ------------------------------- |
-| Development/Test  | 1            | 50 GB            | Not recommended for production  |
-| Small Production  | 3            | 100 GB           | Standard 3-node cluster         |
-| Medium Production | 5-7          | 200 GB           | Increased capacity + redundancy |
-| Large Production  | 9+           | 500 GB           | Multi-datacenter recommended    |
+The server uses the Tokio async runtime with a work-stealing scheduler. The concurrency limit is 10,000 simultaneous in-flight requests. A default body size limit of 256 KiB prevents memory exhaustion (schema deployment endpoints allow up to 1 MiB).
 
 ## Optimization Guidelines
 
-### Application-Level
+### Application Level
 
-1. **Connection Pooling**
-   - Maintain persistent Ledger connections
-   - Pool size: 10 connections per instance
-   - Reuse HTTP client connections
+- **Connection Pooling**: Maintain persistent connections to the Ledger backend.
+- **Org Membership Cache**: Successful membership checks are cached for 30 seconds (up to 4,096 entries) to avoid Ledger round-trips on every read request.
+- **Health Check Cache**: Ledger health probe results are cached for 5 seconds to absorb Kubernetes probe bursts.
 
-2. **Caching**
-   - Session validation cached for 60s
-   - Public keys cached for certificate verification
-   - Rate limit windows in-memory
+### Infrastructure Level
 
-3. **Async I/O**
-   - Tokio async runtime with work-stealing scheduler
-   - Non-blocking database operations
-   - Parallel request processing
+- **Health Check Endpoint**: Use `GET /readyz` for load balancer health checks.
+- **Prometheus Metrics**: Scrape `GET /metrics` for request duration, storage latency, and rate limit counters.
+- **Autoscaling Signals**: CPU utilization and request latency from Prometheus are the primary scaling indicators.
 
-4. **Request Prioritization**
-   - Health checks: Highest priority (no DB access)
-   - Authentication: High priority
-   - List operations: Medium priority
+## Troubleshooting
 
-### Database-Level
+**High Latency (p95 > 1s)**: Check Ledger connectivity and transaction conflicts. Review Prometheus histogram data. Scale horizontally if Ledger is healthy but throughput is saturated.
 
-1. **Indexes**
-   - Primary: Snowflake IDs (time-sortable)
-   - Secondary: Email lookups, organization membership
-   - Avoid full table scans
+**High 429 Rate**: Verify the load balancer sets `X-Forwarded-For` correctly and `--trusted-proxy-depth` matches your proxy chain. All clients behind a misconfigured proxy share one rate limit bucket.
 
-2. **Transactions**
-   - Keep transactions short (< 5s)
-   - Batch related operations
-   - Retry on conflicts
-
-3. **Query Patterns**
-   - Range reads for pagination
-   - Point lookups for ID-based queries
-   - Avoid unbounded scans
-
-### Infrastructure-Level
-
-1. **Load Balancing**
-   - Use health check endpoint: `/readyz`
-   - Sticky sessions not required
-   - Distribute evenly across instances
-
-2. **Monitoring**
-   - Prometheus metrics at `/metrics`
-   - Alert on p95 > 1000ms
-   - Alert on error rate > 5%
-
-3. **Autoscaling**
-   - Scale up: CPU > 70% for 5 minutes
-   - Scale down: CPU < 30% for 15 minutes
-   - Min instances: 2 (for HA)
-   - Max instances: Based on budget/requirements
-
-## Load Testing
-
-### Running Load Tests
-
-```bash
-# Authentication load test (100 concurrent users)
-k6 run loadtests/auth.js
-
-# Vault operations (50 concurrent users)
-k6 run loadtests/vaults.js
-
-# Organization management (25 concurrent users)
-k6 run loadtests/organizations.js
-
-# Spike test (up to 500 users)
-k6 run loadtests/spike.js
-```
-
-See [`loadtests/README.md`](loadtests/README.md) for detailed load testing documentation.
-
-### Recommended Test Schedule
-
-**Pre-Production:**
-
-- Run full load test suite before each release
-- Execute spike tests to verify rate limiting
-- Test multi-instance coordination
-
-**Production:**
-
-- Weekly: Auth load test (50 users, 5 minutes)
-- Monthly: Full suite at 50% production load
-- Quarterly: Capacity planning tests
-
-## Performance Tuning
-
-### Configuration Parameters
-
-Key configuration settings for performance:
-
-```bash
-# CLI flags
-inferadb-control --log-level info --storage ledger
-
-# Or environment variables (INFERADB__CONTROL__ prefix)
-INFERADB__CONTROL__LOG_LEVEL=info
-INFERADB__CONTROL__STORAGE=ledger
-```
-
-- **Tokio worker threads**: Uses the default (number of CPU cores). Not configurable.
-- **Rate limits**: Built-in defaults. Not configurable.
-
-### Password Hashing
-
-Password hashing is delegated to the Ledger backend and is not configurable at the Control layer.
-
-## Troubleshooting Performance Issues
-
-### High Latency
-
-**Symptoms:** p95 > 1000ms, p99 > 2000ms
-
-**Diagnosis:**
-
-1. Check Ledger metrics via monitoring dashboard
-2. Review Prometheus metrics: Query duration histogram
-3. Check system resources: `htop`, `iostat`
-
-**Solutions:**
-
-- Scale horizontally (add instances)
-- Optimize database queries (check transaction conflicts)
-- Increase Ledger cluster size
-- Review rate limiting settings
-
-### High Error Rate
-
-**Symptoms:** > 5% requests failing
-
-**Diagnosis:**
-
-1. Check logs for error patterns
-2. Review rate limiting metrics (429 responses)
-3. Check database connectivity
-
-**Solutions:**
-
-- Adjust rate limits if too restrictive
-- Fix database connectivity issues
-- Restart unhealthy instances
-- Review error logs for application bugs
-
-### Memory Leaks
-
-**Symptoms:** Memory usage continuously increasing
-
-**Diagnosis:**
-
-1. Monitor RSS memory over time
-2. Check for session leak (stuck sessions)
-3. Review connection pool stats
-
-**Solutions:**
-
-- Expired sessions are automatically cleaned up by Ledger's TTL garbage collector
-- Restart instances periodically (rolling restart)
-- Report bug if leak confirmed
-
-### CPU Saturation
-
-**Symptoms:** CPU > 90% sustained
-
-**Diagnosis:**
-
-1. Profile with `perf` or `flamegraph`
-2. Review request mix (write-heavy vs read-heavy)
-
-**Solutions:**
-
-- Scale horizontally
-- Cache more aggressively
-- Optimize hot code paths
-
-## Future Optimizations
-
-Potential improvements for future releases:
-
-1. **Read Replicas**: Ledger read-only replicas for list operations
-2. **Caching Layer**: Redis/Memcached for session validation
-3. **Connection Pooling**: HTTP/2 multiplexing for Ledger connections
-4. **Background Queues**: Async email sending via message queue
-5. **Query Optimization**: Analyze slow queries, add selective indexes
-6. **Compression**: Gzip response bodies for large payloads
-
-## Benchmarking Best Practices
-
-1. **Isolate Environment**: No other workloads during testing
-2. **Warm Up**: Run for 30s before measuring
-3. **Realistic Load**: Match production request patterns
-4. **Multiple Runs**: Average results from 3+ runs
-5. **Document Conditions**: Record hardware, software versions
-6. **Track Over Time**: Compare releases for regressions
-
-## Further Reading
-
-- [Tokio Performance Tuning](https://tokio.rs/tokio/topics/performance)
-- [Load Testing with k6](https://k6.io/docs/testing-guides/)
-- [Prometheus Best Practices](https://prometheus.io/docs/practices/)
+**High Memory Usage**: Paginate all list operations. The Tokio thread count matches CPU core count and is not configurable. Reduce concurrent connections at the load balancer if memory pressure is high.

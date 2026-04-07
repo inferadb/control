@@ -28,16 +28,16 @@ inferadb-control (bin) → api → core → inferadb-common-storage
                               → const (shared across all)
 ```
 
-| Crate              | Purpose                                                       |
-| ------------------ | ------------------------------------------------------------- |
-| `control`          | Binary entrypoint, CLI args, startup orchestration            |
-| `api`              | HTTP handlers, JWT middleware, routing, rate limiting          |
-| `core`             | Crypto, email, ID gen, clock validation, WebAuthn, metrics    |
-| `types`            | Error enum, ID generator, response DTOs                       |
-| `config`           | Configuration loading and validation                          |
-| `const`            | Zero-dependency shared constants                              |
-| `test-fixtures`    | Lightweight test utilities (state, app, helpers)              |
-| `test-integration` | Integration test infrastructure with MockLedgerServer         |
+| Crate              | Purpose                                                    |
+| ------------------ | ---------------------------------------------------------- |
+| `control`          | Binary entrypoint, CLI args, startup orchestration         |
+| `api`              | HTTP handlers, JWT middleware, routing, rate limiting      |
+| `core`             | Crypto, email, ID gen, clock validation, WebAuthn, metrics |
+| `types`            | Error enum, ID generator, response DTOs                    |
+| `config`           | Configuration loading and validation                       |
+| `const`            | Zero-dependency shared constants                           |
+| `test-fixtures`    | Lightweight test utilities (state, app, helpers)           |
+| `test-integration` | Integration test infrastructure with MockLedgerServer      |
 
 **Key architectural pattern:** The Control Plane is a thin API gateway over the Ledger SDK. Handlers call Ledger directly for entity CRUD, session management, and token operations. No local repository layer or storage abstraction exists in Control — all persistent state is owned by Ledger.
 
@@ -51,8 +51,8 @@ inferadb-control (bin) → api → core → inferadb-common-storage
 
 **Purpose:** Binary entrypoint for the InferaDB Control API server. Handles CLI args, config loading, service initialization, and startup orchestration.
 
-| Symbol   | Kind     | Description                                                                                                                 |
-| -------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Symbol   | Kind     | Description                                                                                                                        |
+| -------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `main()` | Function | Startup orchestration: crypto provider → CLI → config → logging → display → worker ID → ID gen → email → Ledger → WebAuthn → serve |
 
 **`main()` Initialization Sequence:**
@@ -89,11 +89,11 @@ inferadb-control (bin) → api → core → inferadb-common-storage
 
 **Purpose:** Crate root with re-exports. Defines `ServicesConfig` and `serve()`.
 
-| Symbol              | Kind     | Description                                                                                      |
-| ------------------- | -------- | ------------------------------------------------------------------------------------------------ |
-| `ServicesConfig`    | Struct   | `email_service`, `ledger`, `blinding_key`, `webauthn`, `rate_limiter` (all `Option<Arc<...>>`)   |
-| `serve()`           | Function | Creates `AppState`, builds router, binds TCP listener, serves with graceful shutdown             |
-| `shutdown_signal()` | Function | Handles Ctrl+C and SIGTERM for graceful shutdown                                                 |
+| Symbol              | Kind     | Description                                                                                    |
+| ------------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `ServicesConfig`    | Struct   | `email_service`, `ledger`, `blinding_key`, `webauthn`, `rate_limiter` (all `Option<Arc<...>>`) |
+| `serve()`           | Function | Creates `AppState`, builds router, binds TCP listener, serves with graceful shutdown           |
+| `shutdown_signal()` | Function | Handles Ctrl+C and SIGTERM for graceful shutdown                                               |
 
 **Re-exports:** `AppState`, `create_router_with_state`, `RateLimitConfig`, `UserClaims`, `require_jwt`
 
@@ -101,8 +101,8 @@ inferadb-control (bin) → api → core → inferadb-common-storage
 
 **Purpose:** Defines ALL API routes via `create_router_with_state()`.
 
-| Symbol                       | Kind     | Description                                                                            |
-| ---------------------------- | -------- | -------------------------------------------------------------------------------------- |
+| Symbol                       | Kind     | Description                                                                             |
+| ---------------------------- | -------- | --------------------------------------------------------------------------------------- |
 | `create_router_with_state()` | Function | Two JWT route groups (read/write) plus public routes with rate limiting and body limits |
 
 **Route Groups:**
@@ -129,46 +129,46 @@ inferadb-control (bin) → api → core → inferadb-common-storage
 
 **Purpose:** Ledger-validated JWT authentication for write routes.
 
-| Symbol                 | Kind       | Description                                                                        |
-| ---------------------- | ---------- | ---------------------------------------------------------------------------------- |
-| `UserClaims`           | Struct     | `user_slug: UserSlug`, `role: String` — extracted from validated JWT               |
-| `require_jwt()`        | Middleware | Validates token via Ledger's `validate_token`, injects `UserClaims`. Returns 401 on failure. |
-| `extract_access_token()` | Function | Extracts from `Authorization: Bearer` header or `inferadb_access` cookie           |
+| Symbol                   | Kind       | Description                                                                                  |
+| ------------------------ | ---------- | -------------------------------------------------------------------------------------------- |
+| `UserClaims`             | Struct     | `user_slug: UserSlug`, `role: String` — extracted from validated JWT                         |
+| `require_jwt()`          | Middleware | Validates token via Ledger's `validate_token`, injects `UserClaims`. Returns 401 on failure. |
+| `extract_access_token()` | Function   | Extracts from `Authorization: Bearer` header or `inferadb_access` cookie                     |
 
 #### `middleware/jwt_local.rs`
 
 **Purpose:** Local JWT validation for read routes — avoids Ledger round-trip.
 
-| Symbol                | Kind       | Description                                                                                    |
-| --------------------- | ---------- | ---------------------------------------------------------------------------------------------- |
-| `JwksCache`           | Struct     | Moka-backed cache (5min TTL, 64 cap) mapping `kid` → `DecodingKey`. Thundering herd prevention via `try_get_with()`. |
+| Symbol                | Kind       | Description                                                                                                                             |
+| --------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `JwksCache`           | Struct     | Moka-backed cache (5min TTL, 64 cap) mapping `kid` → `DecodingKey`. Thundering herd prevention via `try_get_with()`.                    |
 | `require_jwt_local()` | Middleware | Extracts `kid` from unverified header, fetches key via Ledger on cache miss, validates with EdDSA. Checks audience, issuer, token type. |
 
 #### `middleware/ratelimit.rs`
 
-| Symbol                      | Kind       | Description                                                                                 |
-| --------------------------- | ---------- | ------------------------------------------------------------------------------------------- |
+| Symbol                      | Kind       | Description                                                                                                |
+| --------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
 | `RateLimitConfig`           | Struct     | Configurable rate limits with manual `Default` impl; production defaults: 100/hr login, 5/day registration |
-| `login_rate_limit()`        | Middleware | Per-IP login rate limiting; fail-open on limiter error                                       |
-| `registration_rate_limit()` | Middleware | Per-IP registration rate limiting; fail-open on limiter error                                |
+| `login_rate_limit()`        | Middleware | Per-IP login rate limiting; fail-open on limiter error                                                     |
+| `registration_rate_limit()` | Middleware | Per-IP registration rate limiting; fail-open on limiter error                                              |
 
 #### `middleware/logging.rs`
 
-| Symbol                 | Kind       | Description                                                                                              |
-| ---------------------- | ---------- | -------------------------------------------------------------------------------------------------------- |
+| Symbol                 | Kind       | Description                                                                                                         |
+| ---------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------- |
 | `logging_middleware()` | Middleware | Logs method, path, matched_path, status, duration_ms, client_ip, user_agent, request_id; records Prometheus metrics |
 
 #### `middleware/request_id.rs`
 
-| Symbol                    | Kind       | Description                                                                                  |
-| ------------------------- | ---------- | -------------------------------------------------------------------------------------------- |
-| `RequestId`               | Struct     | `(pub String)` — unique request identifier                                                   |
+| Symbol                    | Kind       | Description                                                                                                                  |
+| ------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `RequestId`               | Struct     | `(pub String)` — unique request identifier                                                                                   |
 | `request_id_middleware()` | Middleware | Propagates `X-Request-ID` header or generates UUID v4. Injects into extensions, tracing span, response header. Max 64 chars. |
 
 #### `middleware/security_headers.rs`
 
-| Symbol                         | Kind       | Description                                                                                                                |
-| ------------------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Symbol                          | Kind       | Description                                                                                                                                                      |
+| ------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `security_headers_middleware()` | Middleware | Adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Cache-Control: no-store`, HSTS (1yr), `Referrer-Policy: no-referrer`, CSP `default-src 'none'` |
 
 ---
@@ -179,40 +179,40 @@ inferadb-control (bin) → api → core → inferadb-common-storage
 
 **Purpose:** Shared application state and error mapping.
 
-| Symbol     | Kind             | Description                                                                                                              |
-| ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `AppState` | Struct (Builder) | `config`, `worker_id`, `start_time`, `email_service`, `rate_limits`, `ledger`, `blinding_key`, `webauthn`, `challenge_store`, `rate_limiter`, `jwks_cache`, `health_cache`, `org_membership_cache`; `new_test()` for tests |
-| `ApiError` | Struct           | Wraps `CoreError`; implements `IntoResponse` with status code mapping and JSON error response; scrubs internal details for 5xx |
-| `Result<T>` | Type alias      | `std::result::Result<T, ApiError>`                                                                                        |
+| Symbol      | Kind             | Description                                                                                                                                                                                                                |
+| ----------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AppState`  | Struct (Builder) | `config`, `worker_id`, `start_time`, `email_service`, `rate_limits`, `ledger`, `blinding_key`, `webauthn`, `challenge_store`, `rate_limiter`, `jwks_cache`, `health_cache`, `org_membership_cache`; `new_test()` for tests |
+| `ApiError`  | Struct           | Wraps `CoreError`; implements `IntoResponse` with status code mapping and JSON error response; scrubs internal details for 5xx                                                                                             |
+| `Result<T>` | Type alias       | `std::result::Result<T, ApiError>`                                                                                                                                                                                         |
 
 #### `handlers/common.rs`
 
 **Purpose:** Shared handler utilities, cursor-based pagination, validation.
 
-| Symbol                              | Kind       | Description                                                                          |
-| ----------------------------------- | ---------- | ------------------------------------------------------------------------------------ |
-| `CursorPaginationQuery`             | Struct     | `page_size` (default 50, max 100), `page_token: Option<String>` (opaque base64 cursor) |
-| `MessageResponse`                   | Struct     | Generic `{ message: String }` response                                               |
-| `OrgMembershipCache`                | Struct     | Moka-backed cache (30s TTL, 4096 cap) for `(user_slug, org_slug)` membership checks  |
-| `require_ledger()`                  | Function   | Returns error if Ledger client unconfigured                                           |
-| `encode_page_token()`               | Function   | Base64-encodes cursor bytes                                                           |
-| `decode_page_token()`               | Function   | Base64-decodes cursor from query                                                      |
-| `verify_org_membership()`           | Function   | Checks membership via Ledger with 30s cache                                           |
-| `verify_org_membership_from_claims()` | Function | Convenience wrapper extracting org/user from state/claims                             |
-| `validate_name()`                   | Function   | 1-128 chars, alphanumeric + hyphens/underscores/spaces/periods/apostrophes            |
-| `validate_description()`            | Function   | Up to 1024 chars, rejects control chars and Unicode bidi overrides                    |
-| `validate_email()`                  | Function   | RFC 5321 (max 254 chars), requires `local@domain.tld` format                          |
-| `safe_id_cast()`                    | Function   | Casts i64 → u64 safely, error on negative                                             |
+| Symbol                                | Kind     | Description                                                                            |
+| ------------------------------------- | -------- | -------------------------------------------------------------------------------------- |
+| `CursorPaginationQuery`               | Struct   | `page_size` (default 50, max 100), `page_token: Option<String>` (opaque base64 cursor) |
+| `MessageResponse`                     | Struct   | Generic `{ message: String }` response                                                 |
+| `OrgMembershipCache`                  | Struct   | Moka-backed cache (30s TTL, 4096 cap) for `(user_slug, org_slug)` membership checks    |
+| `require_ledger()`                    | Function | Returns error if Ledger client unconfigured                                            |
+| `encode_page_token()`                 | Function | Base64-encodes cursor bytes                                                            |
+| `decode_page_token()`                 | Function | Base64-decodes cursor from query                                                       |
+| `verify_org_membership()`             | Function | Checks membership via Ledger with 30s cache                                            |
+| `verify_org_membership_from_claims()` | Function | Convenience wrapper extracting org/user from state/claims                              |
+| `validate_name()`                     | Function | 1-128 chars, alphanumeric + hyphens/underscores/spaces/periods/apostrophes             |
+| `validate_description()`              | Function | Up to 1024 chars, rejects control chars and Unicode bidi overrides                     |
+| `validate_email()`                    | Function | RFC 5321 (max 254 chars), requires `local@domain.tld` format                           |
+| `safe_id_cast()`                      | Function | Casts i64 → u64 safely, error on negative                                              |
 
 #### `handlers/email_auth.rs`
 
 **Purpose:** Email passwordless authentication — 3-step flow (initiate → verify → complete).
 
-| Symbol                         | Kind    | Description                                                                                      |
-| ------------------------------ | ------- | ------------------------------------------------------------------------------------------------ |
-| `initiate()`                   | Handler | POST `/v1/auth/email/initiate` — Generates 6-char code, sends via email (fire-and-forget)        |
-| `verify()`                     | Handler | POST `/v1/auth/email/verify` — Verifies code; returns `Authenticated`, `TotpRequired`, or `RegistrationRequired` |
-| `complete()`                   | Handler | POST `/v1/auth/email/complete` — Rate-limited 5/day; creates user + default org, sets cookies     |
+| Symbol       | Kind    | Description                                                                                                      |
+| ------------ | ------- | ---------------------------------------------------------------------------------------------------------------- |
+| `initiate()` | Handler | POST `/v1/auth/email/initiate` — Generates 6-char code, sends via email (fire-and-forget)                        |
+| `verify()`   | Handler | POST `/v1/auth/email/verify` — Verifies code; returns `Authenticated`, `TotpRequired`, or `RegistrationRequired` |
+| `complete()` | Handler | POST `/v1/auth/email/complete` — Rate-limited 5/day; creates user + default org, sets cookies                    |
 
 **Response types:** `VerifyResponse` is a tagged enum with three authentication paths. `TotpRequired` includes an encrypted `challenge_nonce` for the MFA step.
 
@@ -220,87 +220,87 @@ inferadb-control (bin) → api → core → inferadb-common-storage
 
 **Purpose:** Multi-factor authentication: TOTP, recovery codes, WebAuthn passkeys.
 
-| Symbol                      | Kind    | Description                                                                          |
-| --------------------------- | ------- | ------------------------------------------------------------------------------------ |
-| `verify_totp()`             | Handler | POST `/v1/auth/totp/verify` — Consumes single-use nonce, creates session             |
-| `consume_recovery()`        | Handler | POST `/v1/auth/recovery` — Single-use recovery code bypass, returns remaining count  |
-| `passkey_begin()`           | Handler | POST `/v1/auth/passkey/begin` — Fetches credentials from Ledger, generates WebAuthn challenge |
+| Symbol                      | Kind    | Description                                                                                                |
+| --------------------------- | ------- | ---------------------------------------------------------------------------------------------------------- |
+| `verify_totp()`             | Handler | POST `/v1/auth/totp/verify` — Consumes single-use nonce, creates session                                   |
+| `consume_recovery()`        | Handler | POST `/v1/auth/recovery` — Single-use recovery code bypass, returns remaining count                        |
+| `passkey_begin()`           | Handler | POST `/v1/auth/passkey/begin` — Fetches credentials from Ledger, generates WebAuthn challenge              |
 | `passkey_finish()`          | Handler | POST `/v1/auth/passkey/finish` — Validates response, updates sign count; returns session or TOTP challenge |
-| `passkey_register_begin()`  | Handler | POST (authenticated) — Generates registration challenge with exclude list             |
-| `passkey_register_finish()` | Handler | POST (authenticated) — Stores new passkey credential in Ledger                        |
+| `passkey_register_begin()`  | Handler | POST (authenticated) — Generates registration challenge with exclude list                                  |
+| `passkey_register_finish()` | Handler | POST (authenticated) — Stores new passkey credential in Ledger                                             |
 
 #### `handlers/auth.rs`
 
 **Purpose:** Session token management — refresh, logout, revoke-all.
 
-| Symbol         | Kind    | Description                                                            |
-| -------------- | ------- | ---------------------------------------------------------------------- |
-| `refresh()`    | Handler | POST `/v1/auth/refresh` — Rotates refresh token via Ledger, sets cookies |
+| Symbol         | Kind    | Description                                                                  |
+| -------------- | ------- | ---------------------------------------------------------------------------- |
+| `refresh()`    | Handler | POST `/v1/auth/refresh` — Rotates refresh token via Ledger, sets cookies     |
 | `logout()`     | Handler | POST `/v1/auth/logout` — Revokes refresh token (best-effort), clears cookies |
-| `revoke_all()` | Handler | POST `/v1/auth/revoke-all` — Requires JWT, revokes all user sessions   |
+| `revoke_all()` | Handler | POST `/v1/auth/revoke-all` — Requires JWT, revokes all user sessions         |
 
 **Insight:** `set_token_cookies()` sets access (root path) and refresh (`/control/v1/auth` path) as HttpOnly secure cookies with SameSite=Lax. Refresh cookie path-scoped to prevent leakage to non-auth endpoints.
 
 #### `handlers/health.rs`
 
-| Symbol               | Kind    | Description                                                            |
-| -------------------- | ------- | ---------------------------------------------------------------------- |
-| `livez_handler()`    | Handler | Always 200 (Kubernetes liveness)                                       |
-| `readyz_handler()`   | Handler | Storage health check (Kubernetes readiness)                            |
-| `startupz_handler()` | Handler | Delegates to readyz (Kubernetes startup)                               |
-| `healthz_handler()`  | Handler | Full JSON response with storage health, uptime, version               |
+| Symbol               | Kind    | Description                                             |
+| -------------------- | ------- | ------------------------------------------------------- |
+| `livez_handler()`    | Handler | Always 200 (Kubernetes liveness)                        |
+| `readyz_handler()`   | Handler | Storage health check (Kubernetes readiness)             |
+| `startupz_handler()` | Handler | Delegates to readyz (Kubernetes startup)                |
+| `healthz_handler()`  | Handler | Full JSON response with storage health, uptime, version |
 
 #### `handlers/tokens.rs`
 
 **Purpose:** Vault-scoped JWT token lifecycle, client assertion auth (RFC 7523).
 
-| Symbol                            | Kind    | Description                                                                                |
-| --------------------------------- | ------- | ------------------------------------------------------------------------------------------ |
-| `generate_vault_token()`          | Handler | POST — Creates JWT access token + refresh token; accepts `VaultRole` enum                  |
-| `refresh_vault_token()`           | Handler | POST `/v1/tokens/refresh` — Validates, marks used (replay protection), rotates tokens       |
+| Symbol                            | Kind    | Description                                                                                                       |
+| --------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| `generate_vault_token()`          | Handler | POST — Creates JWT access token + refresh token; accepts `VaultRole` enum                                         |
+| `refresh_vault_token()`           | Handler | POST `/v1/tokens/refresh` — Validates, marks used (replay protection), rotates tokens                             |
 | `client_assertion_authenticate()` | Handler | POST `/v1/token` — OAuth 2.0 JWT Bearer flow: decode header for `kid`, verify Ed25519 signature, check JTI replay |
-| `revoke_vault_tokens()`           | Handler | DELETE — Vault-scoped token revocation                                                      |
+| `revoke_vault_tokens()`           | Handler | DELETE — Vault-scoped token revocation                                                                            |
 
 **Insight:** Refresh token rotation (issue new, invalidate old) is a security best practice. Second use of a rotated token returns 401, indicating potential theft.
 
 #### `handlers/users.rs`
 
-| Symbol             | Kind    | Description                                                                                 |
-| ------------------ | ------- | ------------------------------------------------------------------------------------------- |
-| `get_profile()`    | Handler | GET — Returns authenticated user's profile                                                  |
-| `update_profile()` | Handler | PATCH — Updates display name with validation                                                |
-| `delete_user()`    | Handler | DELETE — Validates not last owner of any org; cascades via Ledger                           |
+| Symbol             | Kind    | Description                                                       |
+| ------------------ | ------- | ----------------------------------------------------------------- |
+| `get_profile()`    | Handler | GET — Returns authenticated user's profile                        |
+| `update_profile()` | Handler | PATCH — Updates display name with validation                      |
+| `delete_user()`    | Handler | DELETE — Validates not last owner of any org; cascades via Ledger |
 
 #### `handlers/emails.rs`
 
-| Symbol           | Kind    | Description                                     |
-| ---------------- | ------- | ----------------------------------------------- |
-| `add_email()`    | Handler | POST — Adds email, generates verification token |
-| `list_emails()`  | Handler | GET — Lists all user emails                     |
-| `delete_email()` | Handler | DELETE — Cannot delete primary email             |
+| Symbol           | Kind    | Description                                                 |
+| ---------------- | ------- | ----------------------------------------------------------- |
+| `add_email()`    | Handler | POST — Adds email, generates verification token             |
+| `list_emails()`  | Handler | GET — Lists all user emails                                 |
+| `delete_email()` | Handler | DELETE — Cannot delete primary email                        |
 | `verify_email()` | Handler | POST `/v1/auth/verify-email` — Validates verification token |
 
 #### `handlers/organizations.rs`
 
 **Purpose:** Organization lifecycle, member management, invitations.
 
-| Symbol                       | Kind    | Description                                                         |
-| ---------------------------- | ------- | ------------------------------------------------------------------- |
-| `create_organization()`      | Handler | POST — Tier limits, verified email required, creator becomes OWNER  |
-| `list_organizations()`       | Handler | GET — Paginated user orgs                                           |
-| `get_organization()`         | Handler | GET — Requires membership                                           |
-| `update_organization()`      | Handler | PATCH — Admin/owner required                                        |
-| `delete_organization()`      | Handler | DELETE — Owner required                                             |
-| `list_members()`             | Handler | GET — Lists all members                                             |
-| `update_member_role()`       | Handler | PATCH — Cannot demote last owner                                    |
-| `remove_member()`            | Handler | DELETE — Cannot remove last owner                                   |
-| `leave_organization()`       | Handler | DELETE — Cannot leave if last owner                                 |
-| `create_invitation()`        | Handler | POST — Tier member limits, duplicate checks, optional email         |
-| `list_invitations()`         | Handler | GET — Pending invitations for an org                                |
-| `delete_invitation()`        | Handler | DELETE — Cancels invitation                                         |
-| `accept_invitation()`        | Handler | POST — Validates token, checks email match, creates membership      |
-| `list_received_invitations()`| Handler | GET — Invitations received by current user                          |
-| `decline_invitation()`       | Handler | POST — Declines an invitation                                       |
+| Symbol                        | Kind    | Description                                                        |
+| ----------------------------- | ------- | ------------------------------------------------------------------ |
+| `create_organization()`       | Handler | POST — Tier limits, verified email required, creator becomes OWNER |
+| `list_organizations()`        | Handler | GET — Paginated user orgs                                          |
+| `get_organization()`          | Handler | GET — Requires membership                                          |
+| `update_organization()`       | Handler | PATCH — Admin/owner required                                       |
+| `delete_organization()`       | Handler | DELETE — Owner required                                            |
+| `list_members()`              | Handler | GET — Lists all members                                            |
+| `update_member_role()`        | Handler | PATCH — Cannot demote last owner                                   |
+| `remove_member()`             | Handler | DELETE — Cannot remove last owner                                  |
+| `leave_organization()`        | Handler | DELETE — Cannot leave if last owner                                |
+| `create_invitation()`         | Handler | POST — Tier member limits, duplicate checks, optional email        |
+| `list_invitations()`          | Handler | GET — Pending invitations for an org                               |
+| `delete_invitation()`         | Handler | DELETE — Cancels invitation                                        |
+| `accept_invitation()`         | Handler | POST — Validates token, checks email match, creates membership     |
+| `list_received_invitations()` | Handler | GET — Invitations received by current user                         |
+| `decline_invitation()`        | Handler | POST — Declines an invitation                                      |
 
 **Insight:** "Last owner" protection is enforced consistently across role update, member removal, and self-departure — every org must always have at least one owner.
 
@@ -318,7 +318,7 @@ inferadb-control (bin) → api → core → inferadb-common-storage
 | `create_certificate()` | Handler | POST — Generates Ed25519 keypair, encrypts private key, writes public key to Ledger. Compensating transaction on Ledger failure. |
 | `list_certificates()`  | Handler | GET — Certificate metadata                                                                                                       |
 | `get_certificate()`    | Handler | GET — Single certificate                                                                                                         |
-| `revoke_certificate()` | Handler | DELETE — Marks revoked in Control + Ledger; compensating rollback restores active state on Ledger failure                         |
+| `revoke_certificate()` | Handler | DELETE — Marks revoked in Control + Ledger; compensating rollback restores active state on Ledger failure                        |
 | `rotate_certificate()` | Handler | POST — Creates new cert with grace period, writes to Ledger; compensating deletion on Ledger failure                             |
 
 **Note:** All three certificate lifecycle handlers use compensating transactions — on Ledger write failure, Control state is rolled back.
@@ -327,47 +327,47 @@ inferadb-control (bin) → api → core → inferadb-common-storage
 
 **Purpose:** Vault lifecycle management. Access grants are managed by Ledger directly.
 
-| Symbol            | Kind    | Description                                               |
-| ----------------- | ------- | --------------------------------------------------------- |
-| `create_vault()`  | Handler | POST — Tier limits, auto-grants creator ADMIN via Ledger  |
-| `list_vaults()`   | Handler | GET — Accessible vaults                                   |
-| `get_vault()`     | Handler | GET — Vault details                                       |
-| `update_vault()`  | Handler | PATCH — Vault admin required                              |
-| `delete_vault()`  | Handler | DELETE — Cascades via Ledger                              |
+| Symbol           | Kind    | Description                                              |
+| ---------------- | ------- | -------------------------------------------------------- |
+| `create_vault()` | Handler | POST — Tier limits, auto-grants creator ADMIN via Ledger |
+| `list_vaults()`  | Handler | GET — Accessible vaults                                  |
+| `get_vault()`    | Handler | GET — Vault details                                      |
+| `update_vault()` | Handler | PATCH — Vault admin required                             |
+| `delete_vault()` | Handler | DELETE — Cascades via Ledger                             |
 
 #### `handlers/teams.rs`
 
-| Symbol                     | Kind    | Description                            |
-| -------------------------- | ------- | -------------------------------------- |
-| `create_team()`            | Handler | POST — Tier limits                     |
-| `list_teams()`             | Handler | GET                                    |
-| `get_team()`               | Handler | GET                                    |
-| `update_team()`            | Handler | PATCH — Admin/owner or team manager    |
-| `delete_team()`            | Handler | DELETE — Cascades members              |
-| `add_team_member()`        | Handler | POST — Verifies org membership first   |
-| `list_team_members()`      | Handler | GET                                    |
-| `update_team_member()`     | Handler | PATCH — Manager status                 |
-| `remove_team_member()`     | Handler | DELETE                                 |
+| Symbol                 | Kind    | Description                          |
+| ---------------------- | ------- | ------------------------------------ |
+| `create_team()`        | Handler | POST — Tier limits                   |
+| `list_teams()`         | Handler | GET                                  |
+| `get_team()`           | Handler | GET                                  |
+| `update_team()`        | Handler | PATCH — Admin/owner or team manager  |
+| `delete_team()`        | Handler | DELETE — Cascades members            |
+| `add_team_member()`    | Handler | POST — Verifies org membership first |
+| `list_team_members()`  | Handler | GET                                  |
+| `update_team_member()` | Handler | PATCH — Manager status               |
+| `remove_team_member()` | Handler | DELETE                               |
 
 #### `handlers/schemas.rs`
 
 **Purpose:** Schema version management for vaults.
 
-| Symbol                 | Kind    | Description                                                          |
-| ---------------------- | ------- | -------------------------------------------------------------------- |
-| `deploy_schema()`      | Handler | POST — Auto-increment or explicit version; duplicate rejection       |
-| `list_schemas()`       | Handler | GET — Optional status filter, pagination                             |
-| `get_schema()`         | Handler | GET — By version number                                              |
-| `get_current_schema()` | Handler | GET — Active schema                                                  |
-| `activate_schema()`    | Handler | POST — Marks ACTIVE                                                  |
-| `rollback_schema()`    | Handler | POST — Reactivates previous version                                  |
-| `diff_schemas()`       | Handler | GET — Placeholder (returns empty changes; diff delegated to Engine)  |
+| Symbol                 | Kind    | Description                                                         |
+| ---------------------- | ------- | ------------------------------------------------------------------- |
+| `deploy_schema()`      | Handler | POST — Auto-increment or explicit version; duplicate rejection      |
+| `list_schemas()`       | Handler | GET — Optional status filter, pagination                            |
+| `get_schema()`         | Handler | GET — By version number                                             |
+| `get_current_schema()` | Handler | GET — Active schema                                                 |
+| `activate_schema()`    | Handler | POST — Marks ACTIVE                                                 |
+| `rollback_schema()`    | Handler | POST — Reactivates previous version                                 |
+| `diff_schemas()`       | Handler | GET — Placeholder (returns empty changes; diff delegated to Engine) |
 
 #### `handlers/audit_logs.rs`
 
-| Symbol               | Kind    | Description                                     |
-| -------------------- | ------- | ----------------------------------------------- |
-| `list_audit_logs()`  | Handler | GET — Owner-only, with filtering and pagination |
+| Symbol              | Kind    | Description                                     |
+| ------------------- | ------- | ----------------------------------------------- |
+| `list_audit_logs()` | Handler | GET — Owner-only, with filtering and pagination |
 
 **Note:** Audit event ingestion is handled by Ledger's event system — no creation handler in Control.
 
@@ -385,11 +385,11 @@ inferadb-control (bin) → api → core → inferadb-common-storage
 
 Tests are consolidated into 3 files with nested module organization:
 
-| Test File               | Coverage                                                                                       |
-| ----------------------- | ---------------------------------------------------------------------------------------------- |
-| `integration_tests.rs`  | 118 tests across 13 modules: auth, email_auth, users, organizations, vaults, teams, clients, schemas, tokens, emails, audit_logs, mfa_auth, jwt_middleware |
-| `handler_tests.rs`      | 20 handler-level tests                                                                         |
-| `ratelimit_tests.rs`    | 1 rate limit enforcement test                                                                  |
+| Test File              | Coverage                                                                                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `integration_tests.rs` | 118 tests across 13 modules: auth, email_auth, users, organizations, vaults, teams, clients, schemas, tokens, emails, audit_logs, mfa_auth, jwt_middleware |
+| `handler_tests.rs`     | 20 handler-level tests                                                                                                                                     |
+| `ratelimit_tests.rs`   | 1 rate limit enforcement test                                                                                                                              |
 
 **Module breakdown in `integration_tests.rs`:**
 
@@ -457,108 +457,108 @@ Run `cargo nextest run` for current totals.
 
 **Purpose:** Snowflake ID generation with custom epoch (2024-01-01T00:00:00Z).
 
-| Symbol                     | Kind     | Description                                                          |
-| -------------------------- | -------- | -------------------------------------------------------------------- |
-| `IdGenerator`              | Struct   | Zero-sized type exposing static Snowflake ID generation              |
-| `IdGenerator::init(u16)`   | Method   | One-time global initialization with worker ID (0-1023)               |
-| `IdGenerator::next_id()`   | Method   | Generates next unique Snowflake ID                                   |
-| `IdGenerator::worker_id()` | Method   | Returns the initialized worker ID (0 if not yet initialized)        |
+| Symbol                     | Kind   | Description                                                  |
+| -------------------------- | ------ | ------------------------------------------------------------ |
+| `IdGenerator`              | Struct | Zero-sized type exposing static Snowflake ID generation      |
+| `IdGenerator::init(u16)`   | Method | One-time global initialization with worker ID (0-1023)       |
+| `IdGenerator::next_id()`   | Method | Generates next unique Snowflake ID                           |
+| `IdGenerator::worker_id()` | Method | Returns the initialized worker ID (0 if not yet initialized) |
 
 ### `src/logging.rs`
 
 **Purpose:** Structured logging initialization with optional OpenTelemetry. Uses an internal `LogFormat` enum (`Full`, `Pretty`, `Compact`, `Json`) for renderer selection — distinct from the public `LogFormat` in the config crate (`Auto`, `Json`, `Text`) which maps to these internal formats.
 
-| Symbol                | Kind     | Description                                                                    |
-| --------------------- | -------- | ------------------------------------------------------------------------------ |
-| `LogFormat`           | Enum     | Internal: `Full`, `Pretty`, `Compact`, `Json` (not exported; used by `init()`)     |
+| Symbol                | Kind     | Description                                                                                                       |
+| --------------------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `LogFormat`           | Enum     | Internal: `Full`, `Pretty`, `Compact`, `Json` (not exported; used by `init()`)                                    |
 | `LogConfig`           | Struct   | Configuration: `format`, `include_location`, `include_target`, `include_thread_id`, `log_spans`, `ansi`, `filter` |
-| `init_logging()`      | Function | Primary logging initializer; accepts `LogConfig`, used by `main()`             |
-| `init()`              | Function | Legacy simplified initialization (log_level + json bool)                       |
-| `init_with_tracing()` | Function | With OpenTelemetry OTLP (10% sampling)                                         |
+| `init_logging()`      | Function | Primary logging initializer; accepts `LogConfig`, used by `main()`                                                |
+| `init()`              | Function | Legacy simplified initialization (log_level + json bool)                                                          |
+| `init_with_tracing()` | Function | With OpenTelemetry OTLP (10% sampling)                                                                            |
 
 ### `src/metrics.rs`
 
 **Purpose:** Prometheus metrics registration and recording.
 
-| Symbol                            | Kind     | Description                                              |
-| --------------------------------- | -------- | -------------------------------------------------------- |
-| `init()`                          | Function | Register all metrics (idempotent via `Once`)             |
-| `record_http_request()`           | Function | Counter + histogram                                      |
-| `record_auth_attempt()`           | Function | Counter by type/success                                  |
-| `record_registration()`           | Function | Registration counter                                     |
-| `record_rate_limit_exceeded()`    | Function | Rate limit exceeded counter by category                  |
-| `record_db_query()`               | Function | Histogram for DB latency                                 |
-| `record_grpc_request()`           | Function | gRPC request counter + histogram                         |
-| `set_active_sessions()`           | Function | `active_sessions` gauge                                  |
-| `set_organizations_total()`       | Function | `organizations_total` gauge                              |
-| `set_vaults_total()`              | Function | `vaults_total` gauge                                     |
-| `record_discovery_cache_hit()`    | Function | Discovery cache hit counter                              |
-| `record_discovery_cache_miss()`   | Function | Discovery cache miss counter                             |
-| `set_discovered_endpoints()`      | Function | `discovered_endpoints` gauge                             |
-| `set_clock_skew()`                | Function | `clock_skew_seconds` gauge for NTP monitoring            |
-| `record_signing_key_registered()` | Function | Signing key registration counter + histogram per org     |
-| `record_signing_key_revoked()`    | Function | Signing key revocation counter + histogram per org       |
-| `record_signing_key_rotated()`    | Function | Signing key rotation counter + histogram per org         |
+| Symbol                            | Kind     | Description                                          |
+| --------------------------------- | -------- | ---------------------------------------------------- |
+| `init()`                          | Function | Register all metrics (idempotent via `Once`)         |
+| `record_http_request()`           | Function | Counter + histogram                                  |
+| `record_auth_attempt()`           | Function | Counter by type/success                              |
+| `record_registration()`           | Function | Registration counter                                 |
+| `record_rate_limit_exceeded()`    | Function | Rate limit exceeded counter by category              |
+| `record_db_query()`               | Function | Histogram for DB latency                             |
+| `record_grpc_request()`           | Function | gRPC request counter + histogram                     |
+| `set_active_sessions()`           | Function | `active_sessions` gauge                              |
+| `set_organizations_total()`       | Function | `organizations_total` gauge                          |
+| `set_vaults_total()`              | Function | `vaults_total` gauge                                 |
+| `record_discovery_cache_hit()`    | Function | Discovery cache hit counter                          |
+| `record_discovery_cache_miss()`   | Function | Discovery cache miss counter                         |
+| `set_discovered_endpoints()`      | Function | `discovered_endpoints` gauge                         |
+| `set_clock_skew()`                | Function | `clock_skew_seconds` gauge for NTP monitoring        |
+| `record_signing_key_registered()` | Function | Signing key registration counter + histogram per org |
+| `record_signing_key_revoked()`    | Function | Signing key revocation counter + histogram per org   |
+| `record_signing_key_rotated()`    | Function | Signing key rotation counter + histogram per org     |
 
 ### `src/ratelimit.rs`
 
 **Purpose:** Rate limiting with pluggable backends (in-memory or Ledger-backed).
 
-| Symbol                 | Kind       | Description                                                                 |
-| ---------------------- | ---------- | --------------------------------------------------------------------------- |
-| `RateLimit`            | Type alias | Alias for `RateLimitPolicy` — config with `max_requests` and window         |
-| `RateLimiter`          | Type alias | Alias for `AppRateLimiter` — storage-backed rate limiter                    |
-| `RateLimitResult`      | Type alias | Alias for `RateLimitOutcome` — `allowed`, `remaining`, `reset_after`        |
-| `InMemoryRateLimiter`  | Type alias | `RateLimiter<MemoryBackend>` — single-node rate limiting                    |
-| `LedgerRateLimiter`    | Type alias | `RateLimiter<LedgerStorageBackend>` — distributed rate limiting             |
-| `AnyRateLimiter`       | Enum       | Dynamic dispatch: `InMemory` or `Ledger` variant with `check()` method      |
-| `categories`           | Module     | Re-exports rate limit category constants from `inferadb-control-const`       |
-| `limits`               | Module     | Standard limits: `login_ip()` (100/hr), `registration_ip()` (5/day)         |
+| Symbol                | Kind       | Description                                                            |
+| --------------------- | ---------- | ---------------------------------------------------------------------- |
+| `RateLimit`           | Type alias | Alias for `RateLimitPolicy` — config with `max_requests` and window    |
+| `RateLimiter`         | Type alias | Alias for `AppRateLimiter` — storage-backed rate limiter               |
+| `RateLimitResult`     | Type alias | Alias for `RateLimitOutcome` — `allowed`, `remaining`, `reset_after`   |
+| `InMemoryRateLimiter` | Type alias | `RateLimiter<MemoryBackend>` — single-node rate limiting               |
+| `LedgerRateLimiter`   | Type alias | `RateLimiter<LedgerStorageBackend>` — distributed rate limiting        |
+| `AnyRateLimiter`      | Enum       | Dynamic dispatch: `InMemory` or `Ledger` variant with `check()` method |
+| `categories`          | Module     | Re-exports rate limit category constants from `inferadb-control-const` |
+| `limits`              | Module     | Standard limits: `login_ip()` (100/hr), `registration_ip()` (5/day)    |
 
 ### `src/email_hmac.rs`
 
 **Purpose:** Email blinding key utilities for privacy-preserving email lookups.
 
-| Symbol               | Kind     | Description                                                                |
-| -------------------- | -------- | -------------------------------------------------------------------------- |
-| `parse_blinding_key` | Function | Parses hex-encoded email blinding key from config string                   |
-| `EmailBlindingKey`   | Re-export| Typed blinding key from `inferadb-ledger-types`                            |
-| `compute_email_hmac` | Re-export| HMAC computation for email blinding                                        |
-| `normalize_email`    | Re-export| Email normalization (lowercase, trim)                                      |
+| Symbol               | Kind      | Description                                              |
+| -------------------- | --------- | -------------------------------------------------------- |
+| `parse_blinding_key` | Function  | Parses hex-encoded email blinding key from config string |
+| `EmailBlindingKey`   | Re-export | Typed blinding key from `inferadb-ledger-types`          |
+| `compute_email_hmac` | Re-export | HMAC computation for email blinding                      |
+| `normalize_email`    | Re-export | Email normalization (lowercase, trim)                    |
 
 ### `src/ratelimit_ledger.rs`
 
 **Purpose:** Ledger-backed storage for distributed rate limiting across multiple Control nodes.
 
-| Symbol                  | Kind   | Description                                                                 |
-| ----------------------- | ------ | --------------------------------------------------------------------------- |
-| `LedgerStorageBackend`  | Struct | Delegates rate limit state to Ledger's entity store for multi-node consistency |
+| Symbol                 | Kind   | Description                                                                    |
+| ---------------------- | ------ | ------------------------------------------------------------------------------ |
+| `LedgerStorageBackend` | Struct | Delegates rate limit state to Ledger's entity store for multi-node consistency |
 
 ### `src/sdk_error.rs`
 
 **Purpose:** Mapping Ledger SDK errors to Control API error types.
 
-| Symbol                              | Kind     | Description                                                                    |
-| ----------------------------------- | -------- | ------------------------------------------------------------------------------ |
-| `sdk_error_to_control()`            | Function | Converts Ledger SDK errors to Control API errors with gRPC status mapping      |
-| `SdkResultExt`                      | Trait    | Extension trait on `Result<T, SdkError>` for ergonomic error conversion        |
-| `SdkResultExt::map_sdk_err()`       | Method   | Maps SdkError → Control Error                                                  |
-| `SdkResultExt::map_sdk_err_instrumented()` | Method | Maps error and records gRPC request metrics (duration, status code)      |
+| Symbol                                     | Kind     | Description                                                               |
+| ------------------------------------------ | -------- | ------------------------------------------------------------------------- |
+| `sdk_error_to_control()`                   | Function | Converts Ledger SDK errors to Control API errors with gRPC status mapping |
+| `SdkResultExt`                             | Trait    | Extension trait on `Result<T, SdkError>` for ergonomic error conversion   |
+| `SdkResultExt::map_sdk_err()`              | Method   | Maps SdkError → Control Error                                             |
+| `SdkResultExt::map_sdk_err_instrumented()` | Method   | Maps error and records gRPC request metrics (duration, status code)       |
 
 ### `src/webauthn.rs`
 
 **Purpose:** WebAuthn passkey challenge orchestration with stateless encrypted challenge store.
 
-| Symbol                         | Kind     | Description                                                                        |
-| ------------------------------ | -------- | ---------------------------------------------------------------------------------- |
-| `CHALLENGE_TTL`                | Const    | 60 seconds                                                                          |
-| `ChallengeState`               | Enum     | Ephemeral state for passkey ceremonies (`Registration`, `Authentication` variants) |
+| Symbol                         | Kind     | Description                                                                           |
+| ------------------------------ | -------- | ------------------------------------------------------------------------------------- |
+| `CHALLENGE_TTL`                | Const    | 60 seconds                                                                            |
+| `ChallengeState`               | Enum     | Ephemeral state for passkey ceremonies (`Registration`, `Authentication` variants)    |
 | `ChallengeStore`               | Struct   | Stateless store backed by AES-256-GCM encrypted tokens — no server-side session state |
-| `ChallengeStore::insert()`     | Method   | Encrypts challenge state into opaque base64url token                                |
-| `ChallengeStore::take()`       | Method   | Decrypts and validates token (checks TTL), returns `ChallengeState` or `None`       |
-| `build_webauthn()`             | Function | Builds `Webauthn` instance from RP ID and origin config                             |
-| `passkey_to_credential_data()` | Function | Converts webauthn-rs `Passkey` to Ledger SDK `CredentialData`                       |
-| `credential_info_to_passkey()` | Function | Converts Ledger SDK `PasskeyCredential` back to webauthn-rs `Passkey`               |
+| `ChallengeStore::insert()`     | Method   | Encrypts challenge state into opaque base64url token                                  |
+| `ChallengeStore::take()`       | Method   | Decrypts and validates token (checks TTL), returns `ChallengeState` or `None`         |
+| `build_webauthn()`             | Function | Builds `Webauthn` instance from RP ID and origin config                               |
+| `passkey_to_credential_data()` | Function | Converts webauthn-rs `Passkey` to Ledger SDK `CredentialData`                         |
+| `credential_info_to_passkey()` | Function | Converts Ledger SDK `PasskeyCredential` back to webauthn-rs `Passkey`                 |
 
 **Insight:** Stateless challenge store is elegant — encrypts the entire challenge state into the token itself (AES-256-GCM), so no server-side state or cache is needed. TTL is embedded in the encrypted payload.
 
@@ -617,14 +617,14 @@ Run `cargo nextest run` for current totals.
 
 **Purpose:** Crate root. Re-exports core shared types.
 
-| Type              | Description                                                           |
-| ----------------- | --------------------------------------------------------------------- |
-| `OrganizationSlug`| Re-export from `inferadb-ledger-types`                                |
-| `VaultSlug`       | Re-export from `inferadb-ledger-types`                                |
-| `IdGenerator`     | Snowflake ID generation                                               |
-| `Error`           | Unified error enum                                                    |
-| `Result`          | `std::result::Result<T, Error>`                                       |
-| `ErrorResponse`   | JSON error response DTO                                               |
+| Type               | Description                            |
+| ------------------ | -------------------------------------- |
+| `OrganizationSlug` | Re-export from `inferadb-ledger-types` |
+| `VaultSlug`        | Re-export from `inferadb-ledger-types` |
+| `IdGenerator`      | Snowflake ID generation                |
+| `Error`            | Unified error enum                     |
+| `Result`           | `std::result::Result<T, Error>`        |
+| `ErrorResponse`    | JSON error response DTO                |
 
 ### `src/id.rs`
 
@@ -656,8 +656,8 @@ Factory methods: `Error::validation("msg")`, `Error::not_found("msg")`, `Error::
 
 ### `src/dto/auth.rs`
 
-| Type            | Description                                                                |
-| --------------- | -------------------------------------------------------------------------- |
+| Type            | Description                                                                          |
+| --------------- | ------------------------------------------------------------------------------------ |
 | `ErrorResponse` | JSON error body: `error` (message), `code` (error code string), `details` (optional) |
 
 ---
@@ -670,13 +670,13 @@ Factory methods: `Error::validation("msg")`, `Error::not_found("msg")`, `Error::
 
 **Purpose:** CLI-first configuration via `clap::Parser` with environment variable support.
 
-| Symbol           | Kind                    | Description                                                                            |
-| ---------------- | ----------------------- | -------------------------------------------------------------------------------------- |
-| `Cli`            | Struct (Parser)         | Top-level CLI wrapper with optional subcommands, flattens `Config`                     |
-| `CliCommand`     | Enum (Subcommand)       | Placeholder for future subcommands (currently empty)                                   |
+| Symbol           | Kind                    | Description                                                                         |
+| ---------------- | ----------------------- | ----------------------------------------------------------------------------------- |
+| `Cli`            | Struct (Parser)         | Top-level CLI wrapper with optional subcommands, flattens `Config`                  |
+| `CliCommand`     | Enum (Subcommand)       | Placeholder for future subcommands (currently empty)                                |
 | `Config`         | Struct (Parser+Builder) | Flat fields: listen, log, PEM, key_file, storage, ledger, email, frontend, dev_mode |
-| `StorageBackend` | Enum (ValueEnum)        | `Memory` or `Ledger`; derives `strum::Display` with lowercase serialization            |
-| `LogFormat`      | Enum (ValueEnum)        | `Auto`, `Json`, or `Text`                                                              |
+| `StorageBackend` | Enum (ValueEnum)        | `Memory` or `Ledger`; derives `strum::Display` with lowercase serialization         |
+| `LogFormat`      | Enum (ValueEnum)        | `Auto`, `Json`, or `Text`                                                           |
 
 | Method                        | Description                                                                |
 | ----------------------------- | -------------------------------------------------------------------------- |
@@ -695,29 +695,29 @@ Factory methods: `Error::validation("msg")`, `Error::not_found("msg")`, `Error::
 
 ### `src/auth.rs`
 
-| Constant                 | Value                        | Description       |
-| ------------------------ | ---------------------------- | ----------------- |
-| `REQUIRED_ISSUER`        | `"https://api.inferadb.com"` | JWT `iss` claim   |
-| `REQUIRED_AUDIENCE`      | `"https://api.inferadb.com"` | JWT `aud` claim   |
-| `SESSION_COOKIE_NAME`    | `"infera_session"`           | Cookie name       |
-| `ACCESS_TOKEN_COOKIE_NAME` | `"inferadb_access"`        | Access token cookie name |
-| `REFRESH_TOKEN_COOKIE_NAME` | `"inferadb_refresh"`      | Refresh token cookie name |
-| `SYSTEM_CALLER_SLUG`    | `0`                          | System caller ID  |
-| `SESSION_COOKIE_MAX_AGE` | `86400` (24h)                | Cookie expiration |
+| Constant                    | Value                        | Description               |
+| --------------------------- | ---------------------------- | ------------------------- |
+| `REQUIRED_ISSUER`           | `"https://api.inferadb.com"` | JWT `iss` claim           |
+| `REQUIRED_AUDIENCE`         | `"https://api.inferadb.com"` | JWT `aud` claim           |
+| `SESSION_COOKIE_NAME`       | `"infera_session"`           | Cookie name               |
+| `ACCESS_TOKEN_COOKIE_NAME`  | `"inferadb_access"`          | Access token cookie name  |
+| `REFRESH_TOKEN_COOKIE_NAME` | `"inferadb_refresh"`         | Refresh token cookie name |
+| `SYSTEM_CALLER_SLUG`        | `0`                          | System caller ID          |
+| `SESSION_COOKIE_MAX_AGE`    | `86400` (24h)                | Cookie expiration         |
 
 ### `src/duration.rs`
 
-| Constant                                 | Value             | Description             |
-| ---------------------------------------- | ----------------- | ----------------------- |
-| `AUTHORIZATION_CODE_TTL_SECONDS`         | `600` (10 min)    | OAuth2 auth code        |
-| `USER_SESSION_REFRESH_TOKEN_TTL_SECONDS` | `3600` (1 hour)   | Browser session refresh |
-| `CLIENT_REFRESH_TOKEN_TTL_SECONDS`       | `604800` (7 days) | Machine client refresh  |
-| `INVITATION_EXPIRY_DAYS`                 | `7`               | Org invitation          |
-| `EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS`  | `24`              | Email verification      |
-| `PASSWORD_RESET_TOKEN_EXPIRY_HOURS`      | `1`               | Password reset          |
-| `ACCESS_COOKIE_MAX_AGE_SECONDS`          | `900` (15 min)    | Access token cookie     |
-| `REFRESH_COOKIE_MAX_AGE_SECONDS`         | `2592000` (30 days)| Refresh token cookie   |
-| `HEALTH_CACHE_TTL_SECONDS`               | `5`               | Health check cache      |
+| Constant                                 | Value               | Description             |
+| ---------------------------------------- | ------------------- | ----------------------- |
+| `AUTHORIZATION_CODE_TTL_SECONDS`         | `600` (10 min)      | OAuth2 auth code        |
+| `USER_SESSION_REFRESH_TOKEN_TTL_SECONDS` | `3600` (1 hour)     | Browser session refresh |
+| `CLIENT_REFRESH_TOKEN_TTL_SECONDS`       | `604800` (7 days)   | Machine client refresh  |
+| `INVITATION_EXPIRY_DAYS`                 | `7`                 | Org invitation          |
+| `EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS`  | `24`                | Email verification      |
+| `PASSWORD_RESET_TOKEN_EXPIRY_HOURS`      | `1`                 | Password reset          |
+| `ACCESS_COOKIE_MAX_AGE_SECONDS`          | `900` (15 min)      | Access token cookie     |
+| `REFRESH_COOKIE_MAX_AGE_SECONDS`         | `2592000` (30 days) | Refresh token cookie    |
+| `HEALTH_CACHE_TTL_SECONDS`               | `5`                 | Health check cache      |
 
 ### `src/limits.rs`
 
@@ -748,17 +748,17 @@ Factory methods: `Error::validation("msg")`, `Error::not_found("msg")`, `Error::
 
 **Purpose:** Lightweight test utilities for unit and integration tests. Provides app construction and HTTP helpers.
 
-| Function                          | Description                                                          |
-| --------------------------------- | -------------------------------------------------------------------- |
-| `create_test_state()`             | Creates `AppState` with in-memory backend, no Ledger connection      |
-| `create_test_app(state)`          | Wraps `create_router_with_state()` for full app router               |
-| `extract_access_token(headers)`   | Extracts `inferadb_access` cookie value from response headers        |
-| `extract_refresh_token(headers)`  | Extracts `inferadb_refresh` cookie value from response headers       |
-| `body_json(response)`             | Parse response body as `serde_json::Value`                           |
-| `json_request(method, uri)`       | Builds HTTP request with JSON content-type, no auth                  |
-| `post_json(app, uri, body)`       | Sends JSON POST request, returns response                            |
-| `get(app, uri)`                   | Sends GET request, returns response                                  |
-| `assert_status(response, status)` | Asserts response status code and returns JSON body                   |
+| Function                          | Description                                                     |
+| --------------------------------- | --------------------------------------------------------------- |
+| `create_test_state()`             | Creates `AppState` with in-memory backend, no Ledger connection |
+| `create_test_app(state)`          | Wraps `create_router_with_state()` for full app router          |
+| `extract_access_token(headers)`   | Extracts `inferadb_access` cookie value from response headers   |
+| `extract_refresh_token(headers)`  | Extracts `inferadb_refresh` cookie value from response headers  |
+| `body_json(response)`             | Parse response body as `serde_json::Value`                      |
+| `json_request(method, uri)`       | Builds HTTP request with JSON content-type, no auth             |
+| `post_json(app, uri, body)`       | Sends JSON POST request, returns response                       |
+| `get(app, uri)`                   | Sends GET request, returns response                             |
+| `assert_status(response, status)` | Asserts response status code and returns JSON body              |
 
 **Re-exports:** `AppState`, `create_router_with_state`, `ACCESS_TOKEN_COOKIE_NAME`, `REFRESH_TOKEN_COOKIE_NAME`
 
