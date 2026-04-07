@@ -22,7 +22,6 @@ inferadb-control \
   --storage ledger \
   --ledger-endpoint http://ledger:9200 \
   --ledger-client-id control-prod-01 \
-  --ledger-organization 1 \
   --key-file /etc/inferadb/master.key \
   --frontend-url https://dashboard.example.com \
   --log-level info \
@@ -37,32 +36,30 @@ Precedence: CLI flag > environment variable > default value.
 
 ### CLI Flags
 
-| Flag                    | Type                   | Default                 | Description                                                           |
-| ----------------------- | ---------------------- | ----------------------- | --------------------------------------------------------------------- |
-| `--listen`              | SocketAddr             | `127.0.0.1:9090`        | HTTP bind address                                                     |
-| `--storage`             | `memory` or `ledger`   | `ledger`                | Storage backend                                                       |
-| `--dev-mode`            | flag                   | off                     | Forces memory storage (CLI-only, no env var)                          |
-| `--key-file`            | PathBuf                | `./data/master.key`     | Path to AES-256-GCM master key file (auto-generated if missing)       |
-| `--pem`                 | String                 | --                      | Ed25519 PEM string for JWT signing (auto-generated if missing)        |
-| `--frontend-url`        | String                 | `http://localhost:3000` | Base URL for email links and CORS origin                              |
-| `--log-level`           | String                 | `info`                  | Tracing filter: trace, debug, info, warn, error                       |
-| `--log-format`          | `auto`, `json`, `text` | `auto`                  | Log output format (auto = JSON when non-TTY, text otherwise)          |
-| `--email-host`          | String                 | `""` (disabled)         | SMTP host; empty disables email                                       |
-| `--email-port`          | u16                    | `587`                   | SMTP port                                                             |
-| `--email-username`      | String                 | --                      | SMTP username                                                         |
-| `--email-password`      | String                 | --                      | SMTP password                                                         |
-| `--email-from-address`  | String                 | `noreply@inferadb.com`  | Sender email address                                                  |
-| `--email-from-name`     | String                 | `InferaDB`              | Sender display name                                                   |
-| `--email-insecure`      | flag                   | off                     | Skip SMTP TLS verification (development only)                         |
-| `--email-blinding-key`  | String                 | --                      | HMAC-SHA256 key for email blinding (64-char hex, 32 bytes)            |
-| `--ledger-endpoint`     | String                 | --                      | Ledger gRPC endpoint URL (required when `storage=ledger`)             |
-| `--ledger-client-id`    | String                 | --                      | Ledger client identifier (required when `storage=ledger`)             |
-| `--ledger-organization` | u64                    | --                      | Ledger organization for data scoping (required when `storage=ledger`) |
-| `--ledger-vault`        | u64                    | --                      | Ledger vault for key scoping (optional)                               |
-| `--webauthn-rp-id`      | String                 | `localhost`             | WebAuthn Relying Party ID (domain)                                    |
-| `--webauthn-origin`     | String                 | `http://localhost:3000` | WebAuthn Relying Party origin URL                                     |
-| `--trusted-proxy-depth` | NonZeroU8              | --                      | Number of trusted reverse proxies for `X-Forwarded-For`               |
-| `--worker-id`           | u16                    | random                  | Snowflake ID worker ID (0-1023, must be unique per instance)          |
+| Flag                    | Type                   | Default                 | Description                                                     |
+| ----------------------- | ---------------------- | ----------------------- | --------------------------------------------------------------- |
+| `--listen`              | SocketAddr             | `127.0.0.1:9090`        | HTTP bind address                                               |
+| `--storage`             | `memory` or `ledger`   | `ledger`                | Storage backend                                                 |
+| `--dev-mode`            | flag                   | off                     | Forces memory storage (CLI-only, no env var)                    |
+| `--key-file`            | PathBuf                | `./data/master.key`     | Path to AES-256-GCM master key file (auto-generated if missing) |
+| `--pem`                 | String                 | --                      | Ed25519 PEM string for JWT signing (auto-generated if missing)  |
+| `--frontend-url`        | String                 | `http://localhost:3000` | Base URL for email links and CORS origin                        |
+| `--log-level`           | String                 | `info`                  | Tracing filter: trace, debug, info, warn, error                 |
+| `--log-format`          | `auto`, `json`, `text` | `auto`                  | Log output format (auto = JSON when non-TTY, text otherwise)    |
+| `--email-host`          | String                 | `""` (disabled)         | SMTP host; empty disables email                                 |
+| `--email-port`          | u16                    | `587`                   | SMTP port                                                       |
+| `--email-username`      | String                 | --                      | SMTP username                                                   |
+| `--email-password`      | String                 | --                      | SMTP password                                                   |
+| `--email-from-address`  | String                 | `noreply@inferadb.com`  | Sender email address                                            |
+| `--email-from-name`     | String                 | `InferaDB`              | Sender display name                                             |
+| `--email-insecure`      | flag                   | off                     | Skip SMTP TLS verification (development only)                   |
+| `--email-blinding-key`  | String                 | --                      | HMAC-SHA256 key for email blinding (64-char hex, 32 bytes)      |
+| `--ledger-endpoint`     | String                 | --                      | Ledger gRPC endpoint URL (required when `storage=ledger`)       |
+| `--ledger-client-id`    | String                 | --                      | Ledger client identifier (required when `storage=ledger`)       |
+| `--webauthn-rp-id`      | String                 | `localhost`             | WebAuthn Relying Party ID (domain)                              |
+| `--webauthn-origin`     | String                 | `http://localhost:3000` | WebAuthn Relying Party origin URL                               |
+| `--trusted-proxy-depth` | NonZeroU8              | --                      | Number of trusted reverse proxies for `X-Forwarded-For`         |
+| `--worker-id`           | u16                    | random                  | Snowflake ID worker ID (0-1023, must be unique per instance)    |
 
 ### Environment Variables
 
@@ -74,7 +71,6 @@ export INFERADB__CONTROL__STORAGE="ledger"
 export INFERADB__CONTROL__KEY_FILE="/etc/inferadb/master.key"
 export INFERADB__CONTROL__LEDGER_ENDPOINT="http://ledger:9200"
 export INFERADB__CONTROL__LEDGER_CLIENT_ID="control-prod-01"
-export INFERADB__CONTROL__LEDGER_ORGANIZATION="1"
 export INFERADB__CONTROL__LOG_LEVEL="info"
 export INFERADB__CONTROL__LOG_FORMAT="json"
 ```
@@ -222,7 +218,7 @@ spec:
 
 ## Deployment Checklist
 
-- [ ] `--storage ledger` with `--ledger-endpoint`, `--ledger-client-id`, `--ledger-organization` configured
+- [ ] `--storage ledger` with `--ledger-endpoint` and `--ledger-client-id` configured
 - [ ] Ed25519 PEM key persisted (not auto-generated per restart)
 - [ ] Master key file path on persistent storage
 - [ ] Secrets stored in a secrets manager

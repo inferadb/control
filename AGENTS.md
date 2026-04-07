@@ -141,7 +141,7 @@ inferadb-control --dev-mode
 
 # Production
 inferadb-control --storage ledger --ledger-endpoint https://ledger:50051 \
-  --ledger-client-id ctrl-01 --ledger-organization 1 --log-format json
+  --ledger-client-id ctrl-01 --log-format json
 ```
 
 | Variable                                 | Default                 | Notes                        |
@@ -154,8 +154,6 @@ inferadb-control --storage ledger --ledger-endpoint https://ledger:50051 \
 | `INFERADB__CONTROL__STORAGE`             | `ledger`                | memory/ledger                |
 | `INFERADB__CONTROL__LEDGER_ENDPOINT`     | —                       | Required when storage=ledger |
 | `INFERADB__CONTROL__LEDGER_CLIENT_ID`    | —                       | Required when storage=ledger |
-| `INFERADB__CONTROL__LEDGER_ORGANIZATION` | —                       | Required when storage=ledger |
-| `INFERADB__CONTROL__LEDGER_VAULT`        | —                       | Optional                     |
 | `INFERADB__CONTROL__EMAIL_BLINDING_KEY`  | —                       | HMAC-SHA256 key (hex)        |
 | `INFERADB__CONTROL__EMAIL_HOST`          | `""`                    | Empty = email disabled       |
 | `INFERADB__CONTROL__EMAIL_PORT`          | `587`                   |                              |

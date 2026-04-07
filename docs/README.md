@@ -19,7 +19,6 @@ inferadb-control \
   --storage ledger \
   --ledger-endpoint https://ledger.inferadb.com \
   --ledger-client-id ctrl-01 \
-  --ledger-organization 1 \
   --frontend-url https://app.inferadb.com
 ```
 

@@ -47,11 +47,10 @@ For production with Ledger:
 ```bash
 inferadb-control --storage ledger \
   --ledger-endpoint http://ledger:9200 \
-  --ledger-client-id your-client-id \
-  --ledger-organization 1
+  --ledger-client-id your-client-id
 ```
 
-All three Ledger flags (`--ledger-endpoint`, `--ledger-client-id`, `--ledger-organization`) are required when `--storage ledger`.
+Both Ledger flags (`--ledger-endpoint` and `--ledger-client-id`) are required when `--storage ledger`.
 
 ### Port conflict
 

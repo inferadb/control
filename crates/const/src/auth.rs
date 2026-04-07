@@ -38,6 +38,14 @@ pub const ACCESS_TOKEN_COOKIE_NAME: &str = "inferadb_access";
 /// as an infrastructure caller for audit purposes.
 pub const SYSTEM_CALLER_SLUG: u64 = 0;
 
+/// Reserved organization slug for the Ledger `_system` namespace.
+///
+/// The `_system` organization (slug 0) stores global entities that span all
+/// tenant organizations: user accounts, email addresses, signing keys, and
+/// rate limit counters. This is a well-known constant defined by the Ledger
+/// — it is not deployment-specific and must not be configurable.
+pub const SYSTEM_ORGANIZATION_SLUG: u64 = 0;
+
 /// Cookie name for the opaque refresh token (long-lived).
 ///
 /// Stored in a separate HttpOnly cookie. Used to obtain new token pairs

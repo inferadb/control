@@ -145,11 +145,11 @@ async fn main() -> Result<()> {
     // Initialize rate limiter — Ledger-backed when a Ledger client is available,
     // in-memory otherwise (dev-mode / memory storage).
     let rate_limiter = if let Some(ref ledger_client) = ledger {
-        #[allow(clippy::expect_used)]
-        let org_id = config.ledger_organization.expect("validated");
         let caller =
             inferadb_ledger_sdk::UserSlug::new(inferadb_control_const::auth::SYSTEM_CALLER_SLUG);
-        let organization = inferadb_ledger_sdk::OrganizationSlug::new(org_id);
+        let organization = inferadb_ledger_sdk::OrganizationSlug::new(
+            inferadb_control_const::auth::SYSTEM_ORGANIZATION_SLUG,
+        );
         let limiter = ledger_rate_limiter(Arc::clone(ledger_client), caller, organization);
         startup::log_initialized("Rate limiter (Ledger-backed)");
         Arc::new(AnyRateLimiter::Ledger(limiter))

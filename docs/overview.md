@@ -2267,13 +2267,11 @@ Env var prefix: `INFERADB__CONTROL__`.
 
 ### Storage
 
-| Flag                    | Env var                                  | Default  | Description                                              |
-| ----------------------- | ---------------------------------------- | -------- | -------------------------------------------------------- |
-| `--storage`             | `INFERADB__CONTROL__STORAGE`             | `ledger` | `memory` or `ledger`                                     |
-| `--ledger-endpoint`     | `INFERADB__CONTROL__LEDGER_ENDPOINT`     | --       | Ledger gRPC URL (required for `ledger`)                  |
-| `--ledger-client-id`    | `INFERADB__CONTROL__LEDGER_CLIENT_ID`    | --       | Idempotency tracking ID (required for `ledger`)          |
-| `--ledger-organization` | `INFERADB__CONTROL__LEDGER_ORGANIZATION` | --       | Organization ID for data scoping (required for `ledger`) |
-| `--ledger-vault`        | `INFERADB__CONTROL__LEDGER_VAULT`        | --       | Optional vault for finer-grained scoping                 |
+| Flag                 | Env var                               | Default  | Description                                     |
+| -------------------- | ------------------------------------- | -------- | ----------------------------------------------- |
+| `--storage`          | `INFERADB__CONTROL__STORAGE`          | `ledger` | `memory` or `ledger`                            |
+| `--ledger-endpoint`  | `INFERADB__CONTROL__LEDGER_ENDPOINT`  | --       | Ledger gRPC URL (required for `ledger`)         |
+| `--ledger-client-id` | `INFERADB__CONTROL__LEDGER_CLIENT_ID` | --       | Idempotency tracking ID (required for `ledger`) |
 
 ### Email blinding
 
@@ -2329,7 +2327,6 @@ inferadb-control \
   --storage ledger \
   --ledger-endpoint https://ledger.inferadb.com \
   --ledger-client-id ctrl-01 \
-  --ledger-organization 1 \
   --key-file /run/secrets/master.key \
   --frontend-url https://app.inferadb.com \
   --email-host smtp.sendgrid.net \
