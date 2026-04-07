@@ -3,197 +3,117 @@ openapi: 3.1.0
 info:
   title: InferaDB Control
   description: |
-    Control Plane for InferaDB providing self-service user authentication, organization management, and vault access control.
+    Multi-tenant administration API for InferaDB. Manages organizations, users,
+    vaults, clients, schemas, and token issuance.
 
     ## Authentication
 
-    Control uses two primary authentication methods:
+    Control uses JWT Bearer tokens for API authentication. Obtain tokens via:
 
-    - **Session Cookie**: For web dashboard and interactive sessions. Set via `infera_session` cookie after login.
-    - **JWT Bearer Token**: For programmatic access via client assertions (OAuth 2.0 JWT Bearer flow).
+    - **Email code flow**: Passwordless authentication (initiate → verify → complete)
+    - **Passkey (WebAuthn)**: FIDO2 authentication with hardware keys
+    - **Client assertion**: RFC 7523 JWT Bearer grant for machine-to-machine auth
 
-    ## Multi-Tenancy
+    Include the token in the `Authorization` header: `Authorization: Bearer <token>`.
 
-    All resources are scoped to organizations. Users can belong to multiple organizations with different roles:
+    Read endpoints use locally-validated JWTs (Ed25519). Write endpoints validate
+    tokens against the Ledger backend.
 
-    - **Owner**: Full control, can transfer ownership
-    - **Admin**: Manage members, vaults, clients, and teams
-    - **Member**: Basic access, can view organization resources
+    ## Rate limiting
 
-    ## Rate Limiting
+    - Login endpoints: 100 requests/hour per IP
+    - Registration: 5 requests/day per IP
 
-    API requests are rate-limited by IP address and user:
+    Rate-limited responses return `429 Too Many Requests` with a `Retry-After` header.
 
-    - Login: 100 attempts/hour per IP
-    - Registration: 5 per day per IP
-    - Email verification: 5 tokens/hour
-    - Password reset: 3 tokens/hour
+    ## Pagination
 
-    Rate limit headers are included in responses:
-    - `X-RateLimit-Limit`: Maximum requests allowed
-    - `X-RateLimit-Remaining`: Remaining requests
-    - `X-RateLimit-Reset`: Unix timestamp when limit resets
+    List endpoints use cursor-based pagination with `page_size` (default 50, max 100)
+    and `page_token` query parameters. Responses include `next_page_token` when more
+    results are available.
 
-  version: 1.0.0
+    ## Errors
+
+    All error responses use the format: `{"error": "message", "code": "ERROR_CODE"}`.
+  version: 0.1.0
   contact:
-    name: InferaDB Support
-    url: https://inferadb.com/docs
-    email: support@inferadb.com
+    name: InferaDB
+    url: https://inferadb.com
+    email: open@inferadb.com
   license:
-    name: Business Source License 1.1
-    url: https://github.com/inferadb/inferadb/blob/main/management/LICENSE.md
+    name: MIT OR Apache-2.0
+    url: https://github.com/inferadb/control/blob/main/LICENSE-MIT
 
 servers:
-  - url: http://localhost:3000
+  - url: http://localhost:9090
     description: Local development
-  - url: https://api.inferadb.com
-    description: Production
 
 tags:
-  - name: Authentication
-    description: User authentication and session management
+  - name: Email auth
+    description: Passwordless email code authentication
+  - name: Session
+    description: Token refresh, logout, and session revocation
+  - name: MFA
+    description: TOTP, recovery codes, and passkey authentication
+  - name: Passkey registration
+    description: Register passkey credentials for the authenticated user
   - name: Users
-    description: User profile and account management
+    description: User profile management
   - name: Emails
-    description: User email management and verification
+    description: User email address management
   - name: Organizations
     description: Multi-tenant organization management
-  - name: Vaults
-    description: Authorization policy vault management
-  - name: Clients
-    description: Backend service identity and certificate management
+  - name: Members
+    description: Organization membership management
+  - name: Invitations
+    description: Organization invitations
   - name: Teams
-    description: Group-based access control
+    description: Team management within organizations
+  - name: Team members
+    description: Team membership management
+  - name: Clients
+    description: API client (application) management
+  - name: Certificates
+    description: Client certificate lifecycle
+  - name: Vaults
+    description: Vault management within organizations
+  - name: Schemas
+    description: Vault schema versioning and deployment
   - name: Tokens
-    description: JWT token generation and refresh
-  - name: Sessions
-    description: Session management and revocation
-  - name: Audit
-    description: Audit log querying
+    description: Vault-scoped JWT generation and refresh
+  - name: Audit logs
+    description: Organization audit log querying
   - name: Health
     description: Health check and monitoring endpoints
 
 paths:
-  # Authentication Endpoints
-  /v1/auth/register:
+  # ── Email Auth ───────────────────────────────────────────────────────
+
+  /control/v1/auth/email/initiate:
     post:
-      tags: [Authentication]
-      summary: Register new user
-      description: |
-        Create a new user account with email and password. Automatically creates a default organization
-        and issues a session token. Sends email verification link.
-      operationId: register
+      tags: [Email auth]
+      summary: Send a verification code
+      description: Sends a one-time verification code to the provided email address.
+      operationId: emailInitiate
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [email, password, name]
+              required: [email]
               properties:
                 email:
                   type: string
                   format: email
-                  example: alice@example.com
-                password:
+                  example: alice@northwind.com
+                region:
                   type: string
-                  format: password
-                  minLength: 12
-                  example: SecurePass123!
-                  description: Minimum 12 characters
-                name:
-                  type: string
-                  example: Alice Smith
-      responses:
-        "201":
-          description: User registered successfully
-          headers:
-            Set-Cookie:
-              schema:
-                type: string
-                example: infera_session=abc123; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  user:
-                    $ref: "#/components/schemas/User"
-                  organization:
-                    $ref: "#/components/schemas/Organization"
-                  session_token:
-                    type: string
-                    description: Session ID (also set as cookie)
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "409":
-          description: Email already registered
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
-  /v1/auth/login/password:
-    post:
-      tags: [Authentication]
-      summary: Login with password
-      description: Authenticate with email and password, creates a new session
-      operationId: login
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email, password]
-              properties:
-                email:
-                  type: string
-                  format: email
-                password:
-                  type: string
-                  format: password
-                session_type:
-                  type: string
-                  enum: [web, cli, sdk]
-                  default: web
-                  description: Session type affects TTL (web=30d, cli/sdk=90d)
+                  description: Preferred region for new account creation.
+                  example: us-east-va
       responses:
         "200":
-          description: Login successful
-          headers:
-            Set-Cookie:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  user:
-                    $ref: "#/components/schemas/User"
-                  organizations:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Organization"
-                  session_token:
-                    type: string
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/RateLimitExceeded"
-
-  /v1/auth/logout:
-    post:
-      tags: [Authentication]
-      summary: Logout current session
-      description: Revoke current session and clear cookie
-      operationId: logout
-      security:
-        - SessionCookie: []
-      responses:
-        "200":
-          description: Logout successful
+          description: Verification code sent.
           content:
             application/json:
               schema:
@@ -201,15 +121,343 @@ paths:
                 properties:
                   message:
                     type: string
-                    example: Logged out successfully
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+                    example: verification code sent
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
-  /v1/auth/verify-email:
+  /control/v1/auth/email/verify:
     post:
-      tags: [Authentication]
-      summary: Verify email address
-      description: Verify email with token sent via email
+      tags: [Email auth]
+      summary: Verify email code
+      description: |
+        Validates the verification code. Returns one of three outcomes:
+        - `authenticated`: Existing user, returns token pair
+        - `totp_required`: User has TOTP enabled, returns challenge nonce
+        - `registration_required`: New user, returns onboarding token
+      operationId: emailVerify
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email:
+                  type: string
+                  format: email
+                code:
+                  type: string
+                  example: "123456"
+                region:
+                  type: string
+      responses:
+        "200":
+          description: Verification result (discriminated by `status` field).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/VerifyAuthenticated"
+                  - $ref: "#/components/schemas/VerifyTotpRequired"
+                  - $ref: "#/components/schemas/VerifyRegistrationRequired"
+              examples:
+                authenticated:
+                  value:
+                    status: authenticated
+                    access_token: eyJ...
+                    refresh_token: rt_abc123
+                    token_type: Bearer
+                totp_required:
+                  value:
+                    status: totp_required
+                    challenge_nonce: base64-encoded-nonce
+                registration_required:
+                  value:
+                    status: registration_required
+                    onboarding_token: ilobt_abc123
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /control/v1/auth/email/complete:
+    post:
+      tags: [Email auth]
+      summary: Complete registration
+      description: Creates a new user account and organization. Requires a valid onboarding token from the verify step.
+      operationId: emailComplete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [onboarding_token, email, name, organization_name]
+              properties:
+                onboarding_token:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                name:
+                  type: string
+                  example: Alice Chen
+                organization_name:
+                  type: string
+                  example: Northwind Analytics
+                region:
+                  type: string
+      responses:
+        "200":
+          description: Registration complete. Returns token pair and resource slugs.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registration:
+                    type: object
+                    properties:
+                      user:
+                        type: integer
+                        format: uint64
+                      organization:
+                        type: integer
+                        format: uint64
+                      access_token:
+                        type: string
+                      refresh_token:
+                        type: string
+                      token_type:
+                        type: string
+                        example: Bearer
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  # ── Session ──────────────────────────────────────────────────────────
+
+  /control/v1/auth/refresh:
+    post:
+      tags: [Session]
+      summary: Refresh session tokens
+      description: Exchange a refresh token for a new access/refresh token pair. The refresh token can be sent in the request body or via the `inferadb_refresh` cookie.
+      operationId: refreshSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+                  description: Omit if using the refresh cookie.
+      responses:
+        "200":
+          description: New token pair.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionTokenResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  /control/v1/auth/logout:
+    post:
+      tags: [Session]
+      summary: Log out
+      description: Clears session cookies. Always succeeds.
+      operationId: logout
+      responses:
+        "200":
+          description: Logged out.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: logged out
+
+  /control/v1/auth/revoke-all:
+    post:
+      tags: [Session]
+      summary: Revoke all sessions
+      description: Revokes all refresh tokens for the authenticated user.
+      operationId: revokeAll
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Sessions revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked_count:
+                    type: integer
+                    format: uint64
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  # ── MFA ──────────────────────────────────────────────────────────────
+
+  /control/v1/auth/totp/verify:
+    post:
+      tags: [MFA]
+      summary: Verify TOTP code
+      description: Completes authentication with a TOTP code after the email verify step returned `totp_required`.
+      operationId: verifyTotp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_slug, totp_code, challenge_nonce]
+              properties:
+                user_slug:
+                  type: integer
+                  format: uint64
+                totp_code:
+                  type: string
+                  example: "123456"
+                challenge_nonce:
+                  type: string
+                  format: base64
+      responses:
+        "200":
+          description: Authentication successful.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionTokenResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /control/v1/auth/recovery:
+    post:
+      tags: [MFA]
+      summary: Use a recovery code
+      description: Authenticates with a one-time recovery code. Returns the number of remaining codes.
+      operationId: consumeRecovery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_slug, code, challenge_nonce]
+              properties:
+                user_slug:
+                  type: integer
+                  format: uint64
+                code:
+                  type: string
+                  example: ABCD-1234
+                challenge_nonce:
+                  type: string
+                  format: base64
+      responses:
+        "200":
+          description: Authentication successful.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SessionTokenResponse"
+                  - type: object
+                    properties:
+                      remaining_codes:
+                        type: integer
+                        format: uint32
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /control/v1/auth/passkey/begin:
+    post:
+      tags: [MFA]
+      summary: Begin passkey authentication
+      description: Initiates a WebAuthn authentication ceremony. Returns a challenge for the client to sign.
+      operationId: passkeyBegin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_slug]
+              properties:
+                user_slug:
+                  type: integer
+                  format: uint64
+      responses:
+        "200":
+          description: Authentication challenge.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  challenge_id:
+                    type: string
+                  challenge:
+                    type: object
+                    description: WebAuthn PublicKeyCredentialRequestOptions.
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /control/v1/auth/passkey/finish:
+    post:
+      tags: [MFA]
+      summary: Complete passkey authentication
+      description: Completes the WebAuthn authentication ceremony with the signed credential.
+      operationId: passkeyFinish
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challenge_id, credential]
+              properties:
+                challenge_id:
+                  type: string
+                credential:
+                  type: object
+                  description: WebAuthn PublicKeyCredential response.
+      responses:
+        "200":
+          description: Authentication result.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/VerifyAuthenticated"
+                  - $ref: "#/components/schemas/VerifyTotpRequired"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  # ── Email verification ───────────────────────────────────────────────
+
+  /control/v1/auth/verify-email:
+    post:
+      tags: [Emails]
+      summary: Verify an email address
+      description: Confirms an email address using a verification token sent via email.
       operationId: verifyEmail
       requestBody:
         required: true
@@ -221,37 +469,9 @@ paths:
               properties:
                 token:
                   type: string
-                  example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
       responses:
         "200":
-          description: Email verified successfully
-        "400":
-          description: Invalid or expired token
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
-  /v1/auth/password-reset/request:
-    post:
-      tags: [Authentication]
-      summary: Request password reset
-      description: Send password reset email (always returns 200 for security)
-      operationId: requestPasswordReset
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email]
-              properties:
-                email:
-                  type: string
-                  format: email
-      responses:
-        "200":
-          description: Password reset email sent (if account exists)
+          description: Email verified.
           content:
             application/json:
               schema:
@@ -259,182 +479,120 @@ paths:
                 properties:
                   message:
                     type: string
-                    example: If an account exists, a password reset email has been sent
-        "429":
-          $ref: "#/components/responses/RateLimitExceeded"
+                  verified:
+                    type: boolean
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  /v1/auth/password-reset/confirm:
+  # ── Passkey Registration ─────────────────────────────────────────────
+
+  /control/v1/users/me/credentials/passkeys/begin:
     post:
-      tags: [Authentication]
-      summary: Confirm password reset
-      description: Reset password with token from email
-      operationId: confirmPasswordReset
+      tags: [Passkey registration]
+      summary: Begin passkey registration
+      description: Starts a WebAuthn registration ceremony for the authenticated user.
+      operationId: passkeyRegisterBegin
+      security:
+        - BearerAuth: []
       requestBody:
-        required: true
         content:
           application/json:
             schema:
               type: object
-              required: [token, new_password]
               properties:
-                token:
+                name:
                   type: string
-                new_password:
-                  type: string
-                  format: password
-                  minLength: 12
+                  description: Human-readable label for the credential.
+                  example: MacBook Pro
       responses:
         "200":
-          description: Password reset successful (all sessions revoked)
-        "400":
-          $ref: "#/components/responses/BadRequest"
-
-  /v1/auth/me:
-    get:
-      tags: [Authentication]
-      summary: Get current user
-      description: Get authenticated user profile (alias for /v1/users/me)
-      operationId: getCurrentUser
-      security:
-        - SessionCookie: []
-      responses:
-        "200":
-          description: User profile
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/User"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  # CLI Authorization (PKCE flow)
-  /v1/auth/cli/authorize:
-    post:
-      tags: [Authentication]
-      summary: Authorize CLI access
-      description: |
-        Initiates CLI authorization using OAuth 2.0 Authorization Code flow with PKCE.
-
-        This endpoint is called from a browser where the user has an active web session.
-        It generates an authorization code that the CLI can exchange for a session token.
-
-        ## Flow
-        1. CLI generates `code_verifier` (random string) and `code_challenge` (SHA256 hash)
-        2. CLI opens browser to this endpoint with `code_challenge`
-        3. User logs in (if not already) via web session
-        4. This endpoint generates authorization code bound to PKCE challenge
-        5. Browser redirects back to CLI with code
-        6. CLI calls `/v1/auth/cli/token` with code and `code_verifier`
-      operationId: cliAuthorize
-      security:
-        - SessionCookie: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [code_challenge, code_challenge_method]
-              properties:
-                code_challenge:
-                  type: string
-                  description: PKCE code challenge (base64url-encoded SHA256 of code_verifier)
-                  example: E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM
-                code_challenge_method:
-                  type: string
-                  enum: [S256]
-                  description: PKCE code challenge method (must be S256)
-                  example: S256
-      responses:
-        "200":
-          description: Authorization code generated
+          description: Registration challenge.
           content:
             application/json:
               schema:
                 type: object
-                required: [code, expires_in]
                 properties:
-                  code:
+                  challenge_id:
                     type: string
-                    description: Authorization code to exchange for session token
-                  expires_in:
-                    type: integer
-                    description: Code expiry time in seconds (typically 60)
-                    example: 60
+                  challenge:
+                    type: object
+                    description: WebAuthn PublicKeyCredentialCreationOptions.
         "400":
-          description: Invalid code_challenge_method (must be S256)
+          $ref: "#/components/responses/ValidationError"
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/AuthenticationError"
 
-  /v1/auth/cli/token:
+  /control/v1/users/me/credentials/passkeys/finish:
     post:
-      tags: [Authentication]
-      summary: Exchange CLI authorization code
-      description: |
-        Exchange authorization code for CLI session token.
-
-        The authorization code is single-use and will be invalidated after this call.
-        PKCE verification ensures the same party that requested the code is exchanging it.
-      operationId: cliTokenExchange
+      tags: [Passkey registration]
+      summary: Complete passkey registration
+      description: Completes the WebAuthn registration ceremony and stores the credential.
+      operationId: passkeyRegisterFinish
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [code, code_verifier]
+              required: [challenge_id, name, credential]
               properties:
-                code:
+                challenge_id:
                   type: string
-                  description: Authorization code from /v1/auth/cli/authorize
-                code_verifier:
+                name:
                   type: string
-                  description: PKCE code verifier (original random string)
-                  minLength: 43
-                  maxLength: 128
+                  example: MacBook Pro
+                credential:
+                  type: object
+                  description: WebAuthn RegisterPublicKeyCredential response.
       responses:
         "200":
-          description: CLI session token issued
+          description: Credential registered.
           content:
             application/json:
               schema:
                 type: object
-                required: [session_token, expires_in]
                 properties:
-                  session_token:
-                    type: string
-                    description: CLI session token (session ID as string)
-                  expires_in:
+                  slug:
                     type: integer
-                    description: Session expiry time in seconds (7 days)
-                    example: 604800
+                    format: uint64
+                  name:
+                    type: string
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "401":
-          description: Invalid or expired authorization code, or PKCE verification failed
+          $ref: "#/components/responses/AuthenticationError"
 
-  # User Endpoints
-  /v1/users/me:
+  # ── Users ────────────────────────────────────────────────────────────
+
+  /control/v1/users/me:
     get:
       tags: [Users]
-      summary: Get user profile
-      operationId: getUserProfile
+      summary: Get your profile
+      operationId: getProfile
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       responses:
         "200":
-          description: User profile
+          description: User profile.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/User"
+                type: object
+                properties:
+                  user:
+                    $ref: "#/components/schemas/UserProfile"
         "401":
-          $ref: "#/components/responses/Unauthorized"
-
+          $ref: "#/components/responses/AuthenticationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
     patch:
       tags: [Users]
-      summary: Update user profile
-      operationId: updateUserProfile
+      summary: Update your profile
+      operationId: updateProfile
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -444,57 +602,66 @@ paths:
               properties:
                 name:
                   type: string
-                  example: Alice Johnson
+                  example: Alice Chen
       responses:
         "200":
-          description: Profile updated
+          description: Updated profile.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/User"
+                type: object
+                properties:
+                  user:
+                    $ref: "#/components/schemas/UserProfile"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          $ref: "#/components/responses/ValidationError"
         "401":
-          $ref: "#/components/responses/Unauthorized"
-
+          $ref: "#/components/responses/AuthenticationError"
     delete:
       tags: [Users]
-      summary: Delete user account
-      description: Soft delete user account (can be recovered within 30 days)
+      summary: Delete your account
       operationId: deleteUser
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       responses:
         "200":
-          description: Account deleted
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  # Email Management Endpoints
-  /v1/users/emails:
-    get:
-      tags: [Emails]
-      summary: List user emails
-      operationId: listEmails
-      security:
-        - SessionCookie: []
-      responses:
-        "200":
-          description: Email list
+          description: Account deleted.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/UserEmail"
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
 
+  # ── Emails ───────────────────────────────────────────────────────────
+
+  /control/v1/users/emails:
+    get:
+      tags: [Emails]
+      summary: List your email addresses
+      operationId: listEmails
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Email addresses.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  emails:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EmailInfo"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
     post:
       tags: [Emails]
-      summary: Add email address
-      description: Add additional email to user account (requires verification)
+      summary: Add an email address
       operationId: addEmail
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -506,97 +673,78 @@ paths:
                 email:
                   type: string
                   format: email
-                primary:
-                  type: boolean
-                  default: false
-      responses:
-        "201":
-          description: Email added (verification sent)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UserEmail"
-        "409":
-          description: Email already in use
-
-  /v1/users/emails/{id}:
-    patch:
-      tags: [Emails]
-      summary: Update email
-      description: Set email as primary or update other properties
-      operationId: updateEmail
-      security:
-        - SessionCookie: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                primary:
-                  type: boolean
       responses:
         "200":
-          description: Email updated
+          description: Email added (verification pending).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserEmail"
+                type: object
+                properties:
+                  email:
+                    $ref: "#/components/schemas/EmailInfo"
+                  message:
+                    type: string
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
 
+  /control/v1/users/emails/{id}:
     delete:
       tags: [Emails]
-      summary: Delete email
-      description: Remove email from account (cannot delete last email or unverified primary)
+      summary: Remove an email address
       operationId: deleteEmail
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
+        - $ref: "#/components/parameters/EmailId"
       responses:
         "200":
-          description: Email deleted
-        "400":
-          description: Cannot delete last email or primary email
-
-  # Organization Endpoints
-  /v1/organizations:
-    get:
-      tags: [Organizations]
-      summary: List user organizations
-      description: List all organizations the authenticated user belongs to
-      operationId: listOrganizations
-      security:
-        - SessionCookie: []
-      responses:
-        "200":
-          description: Organization list
+          description: Email removed.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/OrganizationWithRole"
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
+  # ── Organizations ────────────────────────────────────────────────────
+
+  /control/v1/organizations:
+    get:
+      tags: [Organizations]
+      summary: List your organizations
+      operationId: listOrganizations
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: Organizations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  organizations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Organization"
+                  next_page_token:
+                    type: string
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
     post:
       tags: [Organizations]
-      summary: Create organization
-      description: Create new organization (user becomes owner)
+      summary: Create an organization
       operationId: createOrganization
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -607,49 +755,51 @@ paths:
               properties:
                 name:
                   type: string
-                  example: Acme Corp
-                  minLength: 1
-                  maxLength: 100
-                tier:
-                  $ref: "#/components/schemas/OrganizationTier"
+                  example: Northwind Analytics
       responses:
         "201":
-          description: Organization created
+          description: Organization created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Organization"
+                type: object
+                properties:
+                  organization:
+                    $ref: "#/components/schemas/Organization"
         "400":
-          description: Invalid input or organization limit exceeded (100k per user)
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
 
-  /v1/organizations/{org}:
+  /control/v1/organizations/{org}:
     get:
       tags: [Organizations]
-      summary: Get organization
+      summary: Get an organization
       operationId: getOrganization
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/OrgSlug"
       responses:
         "200":
-          description: Organization details
+          description: Organization details.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Organization"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
+                type: object
+                properties:
+                  organization:
+                    $ref: "#/components/schemas/Organization"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
     patch:
       tags: [Organizations]
-      summary: Update organization
-      description: Update organization details (requires admin or owner role)
+      summary: Update an organization
       operationId: updateOrganization
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/OrgSlug"
       requestBody:
         required: true
         content:
@@ -659,167 +809,78 @@ paths:
               properties:
                 name:
                   type: string
-                tier:
-                  $ref: "#/components/schemas/OrganizationTier"
       responses:
         "200":
-          description: Organization updated
+          description: Updated organization.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Organization"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
+                type: object
+                properties:
+                  organization:
+                    $ref: "#/components/schemas/Organization"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
     delete:
       tags: [Organizations]
-      summary: Delete organization
-      description: Delete organization (requires owner role, soft delete)
+      summary: Delete an organization
       operationId: deleteOrganization
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/OrgSlug"
       responses:
         "200":
-          description: Organization deleted
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
-  /v1/organizations/{org}/transfer-ownership:
-    post:
-      tags: [Organizations]
-      summary: Transfer ownership
-      description: Transfer organization ownership to another member (requires owner role)
-      operationId: transferOwnership
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [new_owner_id]
-              properties:
-                new_owner_id:
-                  type: string
-                  format: snowflake
-                  description: User ID of new owner (must be existing member)
-      responses:
-        "200":
-          description: Ownership transferred
-        "400":
-          description: New owner not found or not a member
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
-  /v1/organizations/{org}/suspend:
-    post:
-      tags: [Organizations]
-      summary: Suspend organization
-      description: |
-        Suspend an organization, blocking all API access for that organization.
-        Requires owner role.
-      operationId: suspendOrganization
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-      responses:
-        "200":
-          description: Organization suspended
+          description: Organization deleted.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: Organization suspended successfully
-        "400":
-          description: Organization is already suspended
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
 
-  /v1/organizations/{org}/resume:
-    post:
-      tags: [Organizations]
-      summary: Resume organization
-      description: |
-        Resume a suspended organization, restoring API access.
-        Requires owner role.
-      operationId: resumeOrganization
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-      responses:
-        "200":
-          description: Organization resumed
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: Organization resumed successfully
-        "400":
-          description: Organization is not suspended
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+  # ── Members ──────────────────────────────────────────────────────────
 
-  # Organization Members
-  /v1/organizations/{org}/members:
+  /control/v1/organizations/{org}/members:
     get:
-      tags: [Organizations]
+      tags: [Members]
       summary: List organization members
       operationId: listMembers
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
       responses:
         "200":
-          description: Member list
+          description: Members.
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/PaginatedResponse"
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/OrganizationMember"
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Member"
+                  next_page_token:
+                    type: string
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
 
-  /v1/organizations/{org}/members/{member}:
+  /control/v1/organizations/{org}/members/{member}:
     patch:
-      tags: [Organizations]
-      summary: Update member role
-      description: Change member's role (requires admin or owner)
+      tags: [Members]
+      summary: Update a member's role
       operationId: updateMemberRole
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - name: member
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-          description: Member ID (not user ID)
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/MemberSlug"
       requestBody:
         required: true
         content:
@@ -829,951 +890,254 @@ paths:
               required: [role]
               properties:
                 role:
-                  $ref: "#/components/schemas/OrganizationRole"
+                  type: string
+                  enum: [admin, member]
       responses:
         "200":
-          description: Role updated
+          description: Role updated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OrganizationMember"
+                type: object
+                properties:
+                  member:
+                    $ref: "#/components/schemas/Member"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
         "403":
-          description: Cannot change owner role or insufficient permissions
-
+          $ref: "#/components/responses/AuthorizationError"
     delete:
-      tags: [Organizations]
-      summary: Remove member
-      description: Remove member from organization (requires admin or owner, cannot remove owner)
+      tags: [Members]
+      summary: Remove a member
       operationId: removeMember
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - name: member
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/MemberSlug"
       responses:
         "200":
-          description: Member removed
+          description: Member removed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
         "403":
-          description: Cannot remove owner or insufficient permissions
+          $ref: "#/components/responses/AuthorizationError"
 
-  # Organization Invitations
-  /v1/organizations/{org}/invitations:
+  /control/v1/organizations/{org}/members/me:
+    delete:
+      tags: [Members]
+      summary: Leave an organization
+      operationId: leaveOrganization
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+      responses:
+        "200":
+          description: Left organization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  # ── Invitations ──────────────────────────────────────────────────────
+
+  /control/v1/organizations/{org}/invitations:
+    get:
+      tags: [Invitations]
+      summary: List organization invitations
+      operationId: listInvitations
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: Invitations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invitations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Invitation"
+                  next_page_token:
+                    type: string
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
     post:
-      tags: [Organizations]
-      summary: Create invitation
-      description: Invite user to organization by email (requires admin or owner)
+      tags: [Invitations]
+      summary: Invite a user to the organization
       operationId: createInvitation
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/OrgSlug"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [email, role]
+              required: [email]
               properties:
                 email:
                   type: string
                   format: email
                 role:
-                  $ref: "#/components/schemas/OrganizationRole"
+                  type: string
+                  enum: [admin, member]
+                  description: Defaults to member.
       responses:
         "201":
-          description: Invitation created
+          description: Invitation created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OrganizationInvitation"
+                $ref: "#/components/schemas/Invitation"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
 
-    get:
-      tags: [Organizations]
-      summary: List invitations
-      description: List pending invitations for organization
-      operationId: listInvitations
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-      responses:
-        "200":
-          description: Invitation list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/OrganizationInvitation"
-
-  /v1/organizations/{org}/invitations/{invitation}:
+  /control/v1/organizations/{org}/invitations/{invitation}:
     delete:
-      tags: [Organizations]
-      summary: Delete invitation
-      description: Cancel pending invitation
+      tags: [Invitations]
+      summary: Cancel an invitation
       operationId: deleteInvitation
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - name: invitation
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/InvitationSlug"
       responses:
         "200":
-          description: Invitation deleted
-
-  /v1/organizations/invitations/accept:
-    post:
-      tags: [Organizations]
-      summary: Accept invitation
-      description: Accept organization invitation by token
-      operationId: acceptInvitation
-      security:
-        - SessionCookie: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [token]
-              properties:
-                token:
-                  type: string
-                  description: Invitation token from email
-      responses:
-        "200":
-          description: Invitation accepted
+          description: Invitation cancelled.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OrganizationMember"
-        "400":
-          description: Invalid or expired token
-
-  # Vault Endpoints
-  /v1/organizations/{org}/vaults:
-    get:
-      tags: [Vaults]
-      summary: List vaults
-      description: List vaults in organization (filtered by user's access)
-      operationId: listVaults
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
-      responses:
-        "200":
-          description: Vault list
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/PaginatedResponse"
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/Vault"
-
-    post:
-      tags: [Vaults]
-      summary: Create vault
-      description: Create authorization policy vault (requires admin or owner)
-      operationId: createVault
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name:
-                  type: string
-                  example: Production Policies
-                description:
-                  type: string
-                  example: Authorization policies for production environment
-      responses:
-        "201":
-          description: Vault created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Vault"
-
-  /v1/organizations/{org}/vaults/{vault}:
-    get:
-      tags: [Vaults]
-      summary: Get vault
-      operationId: getVault
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
-      responses:
-        "200":
-          description: Vault details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Vault"
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
         "404":
           $ref: "#/components/responses/NotFound"
 
-    patch:
-      tags: [Vaults]
-      summary: Update vault
-      description: Update vault metadata (requires admin role on vault)
-      operationId: updateVault
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                description:
-                  type: string
-      responses:
-        "200":
-          description: Vault updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Vault"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
-    delete:
-      tags: [Vaults]
-      summary: Delete vault
-      description: Delete vault (requires admin role, soft delete)
-      operationId: deleteVault
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
-      responses:
-        "200":
-          description: Vault deleted
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
-  # Vault User Grants
-  /v1/organizations/{org}/vaults/{vault}/user-grants:
+  /control/v1/users/me/invitations:
     get:
-      tags: [Vaults]
-      summary: List vault user grants
-      description: List user access grants for vault
-      operationId: listUserGrants
+      tags: [Invitations]
+      summary: List your received invitations
+      operationId: listReceivedInvitations
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
       responses:
         "200":
-          description: User grant list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/VaultUserGrant"
-
-    post:
-      tags: [Vaults]
-      summary: Create user grant
-      description: Grant user access to vault (requires admin role on vault)
-      operationId: createUserGrant
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [user_id, role]
-              properties:
-                user_id:
-                  type: string
-                  format: snowflake
-                role:
-                  $ref: "#/components/schemas/VaultRole"
-      responses:
-        "201":
-          description: Grant created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VaultUserGrant"
-
-  /v1/organizations/{org}/vaults/{vault}/user-grants/{grant}:
-    patch:
-      tags: [Vaults]
-      summary: Update user grant
-      description: Change user's vault role
-      operationId: updateUserGrant
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
-        - name: grant
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [role]
-              properties:
-                role:
-                  $ref: "#/components/schemas/VaultRole"
-      responses:
-        "200":
-          description: Grant updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VaultUserGrant"
-
-    delete:
-      tags: [Vaults]
-      summary: Revoke user grant
-      description: Remove user access to vault
-      operationId: deleteUserGrant
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
-        - name: grant
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-      responses:
-        "200":
-          description: Grant revoked
-
-  # Vault Team Grants
-  /v1/organizations/{org}/vaults/{vault}/team-grants:
-    get:
-      tags: [Vaults]
-      summary: List vault team grants
-      description: List team access grants for vault
-      operationId: listTeamGrants
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
-      responses:
-        "200":
-          description: Team grant list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/VaultTeamGrant"
-
-    post:
-      tags: [Vaults]
-      summary: Create team grant
-      description: Grant team access to vault (requires admin role on vault)
-      operationId: createTeamGrant
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [team_id, role]
-              properties:
-                team_id:
-                  type: string
-                  format: snowflake
-                role:
-                  $ref: "#/components/schemas/VaultRole"
-      responses:
-        "201":
-          description: Grant created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VaultTeamGrant"
-
-  /v1/organizations/{org}/vaults/{vault}/team-grants/{grant}:
-    patch:
-      tags: [Vaults]
-      summary: Update team grant
-      description: Change team's vault role
-      operationId: updateTeamGrant
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
-        - name: grant
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [role]
-              properties:
-                role:
-                  $ref: "#/components/schemas/VaultRole"
-      responses:
-        "200":
-          description: Grant updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VaultTeamGrant"
-
-    delete:
-      tags: [Vaults]
-      summary: Revoke team grant
-      description: Remove team access to vault
-      operationId: deleteTeamGrant
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
-        - name: grant
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-      responses:
-        "200":
-          description: Grant revoked
-
-  # Client Endpoints
-  /v1/organizations/{org}/clients:
-    get:
-      tags: [Clients]
-      summary: List clients
-      description: List backend service clients in organization
-      operationId: listClients
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
-      responses:
-        "200":
-          description: Client list
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/PaginatedResponse"
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/Client"
-
-    post:
-      tags: [Clients]
-      summary: Create client
-      description: Create backend service client (requires admin or owner)
-      operationId: createClient
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name, vault_id]
-              properties:
-                name:
-                  type: string
-                  example: Production API Server
-                vault_id:
-                  type: string
-                  format: snowflake
-                  description: Default vault for token generation
-      responses:
-        "201":
-          description: Client created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Client"
-
-  /v1/organizations/{org}/clients/{client}:
-    get:
-      tags: [Clients]
-      summary: Get client
-      operationId: getClient
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/ClientId"
-      responses:
-        "200":
-          description: Client details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Client"
-
-    patch:
-      tags: [Clients]
-      summary: Update client
-      operationId: updateClient
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/ClientId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                vault_id:
-                  type: string
-                  format: snowflake
-      responses:
-        "200":
-          description: Client updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Client"
-
-    delete:
-      tags: [Clients]
-      summary: Delete client
-      description: Delete client (soft delete)
-      operationId: deleteClient
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/ClientId"
-      responses:
-        "200":
-          description: Client deleted
-
-  /v1/organizations/{org}/clients/{client}/deactivate:
-    post:
-      tags: [Clients]
-      summary: Deactivate client
-      description: Immediately revoke all client certificates and tokens
-      operationId: deactivateClient
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/ClientId"
-      responses:
-        "200":
-          description: Client deactivated
-
-  # Client Certificates
-  /v1/organizations/{org}/clients/{client}/certificates:
-    get:
-      tags: [Clients]
-      summary: List client certificates
-      operationId: listCertificates
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/ClientId"
-      responses:
-        "200":
-          description: Certificate list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ClientCertificate"
-
-    post:
-      tags: [Clients]
-      summary: Generate certificate
-      description: |
-        Generate Ed25519 keypair for client authentication. Private key is returned ONCE and cannot be retrieved again.
-        Store it securely!
-      operationId: createCertificate
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/ClientId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name:
-                  type: string
-                  example: Production Certificate 2025
-      responses:
-        "201":
-          description: Certificate generated
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ClientCertificate"
-                  - type: object
-                    properties:
-                      private_key_pem:
-                        type: string
-                        description: Ed25519 private key in PEM format (ONE-TIME ONLY)
-                        example: |
-                          -----BEGIN PRIVATE KEY-----
-                          MC4CAQAwBQYDK2VwBCIEIE...
-                          -----END PRIVATE KEY-----
-
-  /v1/organizations/{org}/clients/{client}/certificates/{cert}:
-    get:
-      tags: [Clients]
-      summary: Get certificate
-      description: Get certificate details (without private key)
-      operationId: getCertificate
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/ClientId"
-        - name: cert
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-      responses:
-        "200":
-          description: Certificate details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ClientCertificate"
-
-    delete:
-      tags: [Clients]
-      summary: Delete certificate
-      description: Permanently delete certificate (cannot be undone)
-      operationId: deleteCertificate
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/ClientId"
-        - name: cert
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-      responses:
-        "200":
-          description: Certificate deleted
-
-  /v1/organizations/{org}/clients/{client}/certificates/{cert}/revoke:
-    post:
-      tags: [Clients]
-      summary: Revoke certificate
-      description: Immediately revoke certificate and all issued tokens
-      operationId: revokeCertificate
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/ClientId"
-        - name: cert
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-      responses:
-        "200":
-          description: Certificate revoked
-
-  # Token Endpoints
-  /v1/organizations/{org}/vaults/{vault}/tokens:
-    post:
-      tags: [Tokens]
-      summary: Generate vault token
-      description: |
-        Generate vault-scoped JWT for Engine authorization. User must have access to vault.
-        Returns access token (short-lived) and refresh token (90 days).
-      operationId: generateVaultToken
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/VaultId"
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ttl:
-                  type: integer
-                  description: Token TTL in seconds (default 3600, max 86400)
-                  default: 3600
-                  minimum: 60
-                  maximum: 86400
-      responses:
-        "201":
-          description: Token generated
+          description: Received invitations.
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  access_token:
+                  invitations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReceivedInvitation"
+                  next_page_token:
                     type: string
-                    description: JWT access token for Engine
-                    example: eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImNlcnRfMTIzIn0...
-                  refresh_token:
-                    type: string
-                    description: Refresh token (use with /v1/tokens/refresh)
-                    format: uuid
-                  token_type:
-                    type: string
-                    enum: [Bearer]
-                  expires_in:
-                    type: integer
-                    description: Access token TTL in seconds
-                    example: 3600
-
-  /v1/tokens/refresh:
-    post:
-      tags: [Tokens]
-      summary: Refresh vault token
-      description: |
-        Exchange refresh token for new access token. Refresh token is single-use and will be invalidated.
-        A new refresh token is returned.
-      operationId: refreshVaultToken
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [refresh_token]
-              properties:
-                refresh_token:
-                  type: string
-                  format: uuid
-      responses:
-        "200":
-          description: Token refreshed
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  access_token:
-                    type: string
-                  refresh_token:
-                    type: string
-                    description: New refresh token (old one is now invalid)
-                  token_type:
-                    type: string
-                    enum: [Bearer]
-                  expires_in:
-                    type: integer
         "401":
-          description: Invalid, expired, or already used refresh token
+          $ref: "#/components/responses/AuthenticationError"
 
-  /v1/token:
+  /control/v1/users/me/invitations/{invitation}/accept:
     post:
-      tags: [Tokens]
-      summary: Client assertion authentication
-      description: |
-        OAuth 2.0 JWT Bearer flow for backend service authentication. Client signs JWT assertion with
-        Ed25519 private key to obtain vault-scoped access token.
-      operationId: clientAssertionAuth
-      requestBody:
-        required: true
-        content:
-          application/x-www-form-urlencoded:
-            schema:
-              type: object
-              required: [grant_type, assertion, scope]
-              properties:
-                grant_type:
-                  type: string
-                  enum: [urn:ietf:params:oauth:grant-type:jwt-bearer]
-                assertion:
-                  type: string
-                  description: |
-                    Self-signed JWT with claims:
-                    - iss: client_id
-                    - sub: client_id
-                    - aud: https://api.inferadb.com/v1/token
-                    - exp: expiration (max 5 minutes from now)
-                    - iat: issued at
-
-                    Signed with Ed25519 client certificate private key.
-                scope:
-                  type: string
-                  description: Space-separated scopes (e.g., "vault:{vault_id}")
-                  example: vault:987654321
-      responses:
-        "200":
-          description: Token issued
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  access_token:
-                    type: string
-                  refresh_token:
-                    type: string
-                  token_type:
-                    type: string
-                    enum: [Bearer]
-                  expires_in:
-                    type: integer
-        "401":
-          description: Invalid assertion or certificate
-
-  /v1/tokens/revoke/vault/{vault}:
-    post:
-      tags: [Tokens]
-      summary: Revoke vault tokens
-      description: Revoke all active tokens for vault (requires admin role on vault)
-      operationId: revokeVaultTokens
+      tags: [Invitations]
+      summary: Accept an invitation
+      operationId: acceptInvitation
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - name: vault
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
+        - $ref: "#/components/parameters/InvitationSlug"
       responses:
         "200":
-          description: Tokens revoked
+          description: Invitation accepted.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  revoked_count:
-                    type: integer
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  # Team Endpoints
-  /v1/organizations/{org}/teams:
+  /control/v1/users/me/invitations/{invitation}/decline:
+    post:
+      tags: [Invitations]
+      summary: Decline an invitation
+      operationId: declineInvitation
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/InvitationSlug"
+      responses:
+        "200":
+          description: Invitation declined.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Teams ────────────────────────────────────────────────────────────
+
+  /control/v1/organizations/{org}/teams:
     get:
       tags: [Teams]
       summary: List teams
       operationId: listTeams
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
       responses:
         "200":
-          description: Team list
+          description: Teams.
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/PaginatedResponse"
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/Team"
-
+                type: object
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Team"
+                  next_page_token:
+                    type: string
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
     post:
       tags: [Teams]
-      summary: Create team
-      description: Create team for group-based access control (requires admin or owner)
+      summary: Create a team
       operationId: createTeam
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/OrgSlug"
       requestBody:
         required: true
         content:
@@ -1785,44 +1149,317 @@ paths:
                 name:
                   type: string
                   example: Engineering
-                description:
-                  type: string
-                  example: Engineering team with production access
       responses:
         "201":
-          description: Team created
+          description: Team created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Team"
+                type: object
+                properties:
+                  team:
+                    $ref: "#/components/schemas/Team"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
 
-  /v1/organizations/{org}/teams/{team}:
+  /control/v1/organizations/{org}/teams/{team}:
     get:
       tags: [Teams]
-      summary: Get team
+      summary: Get a team
       operationId: getTeam
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/TeamSlug"
       responses:
         "200":
-          description: Team details
+          description: Team details.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Team"
-
+                type: object
+                properties:
+                  team:
+                    $ref: "#/components/schemas/Team"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
     patch:
       tags: [Teams]
-      summary: Update team
+      summary: Update a team
       operationId: updateTeam
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/TeamSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: Updated team.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team:
+                    $ref: "#/components/schemas/Team"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Teams]
+      summary: Delete a team
+      operationId: deleteTeam
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/TeamSlug"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                move_members_to:
+                  type: integer
+                  format: uint64
+                  description: Team slug to move members to before deletion.
+      responses:
+        "200":
+          description: Team deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Team Members ─────────────────────────────────────────────────────
+
+  /control/v1/organizations/{org}/teams/{team}/members:
+    get:
+      tags: [Team members]
+      summary: List team members
+      operationId: listTeamMembers
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/TeamSlug"
+      responses:
+        "200":
+          description: Team members.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeamMember"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+    post:
+      tags: [Team members]
+      summary: Add a team member
+      operationId: addTeamMember
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/TeamSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user]
+              properties:
+                user:
+                  type: integer
+                  format: uint64
+                role:
+                  type: string
+                  enum: [manager, member]
+                  default: member
+      responses:
+        "200":
+          description: Member added. Returns updated team.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team:
+                    $ref: "#/components/schemas/Team"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  /control/v1/organizations/{org}/teams/{team}/members/{member}:
+    patch:
+      tags: [Team members]
+      summary: Update a team member's role
+      operationId: updateTeamMember
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/TeamSlug"
+        - $ref: "#/components/parameters/MemberSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [manager, member]
+      responses:
+        "200":
+          description: Role updated. Returns updated team.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team:
+                    $ref: "#/components/schemas/Team"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+    delete:
+      tags: [Team members]
+      summary: Remove a team member
+      operationId: removeTeamMember
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/TeamSlug"
+        - $ref: "#/components/parameters/MemberSlug"
+      responses:
+        "200":
+          description: Member removed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  # ── Clients ──────────────────────────────────────────────────────────
+
+  /control/v1/organizations/{org}/clients:
+    get:
+      tags: [Clients]
+      summary: List clients
+      operationId: listClients
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+      responses:
+        "200":
+          description: Clients.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clients:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Client"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+    post:
+      tags: [Clients]
+      summary: Create a client
+      operationId: createClient
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: Payment Service
+                description:
+                  type: string
+      responses:
+        "201":
+          description: Client created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client:
+                    $ref: "#/components/schemas/Client"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  /control/v1/organizations/{org}/clients/{client}:
+    get:
+      tags: [Clients]
+      summary: Get a client
+      operationId: getClient
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/ClientSlug"
+      responses:
+        "200":
+          description: Client details.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client:
+                    $ref: "#/components/schemas/Client"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+    patch:
+      tags: [Clients]
+      summary: Update a client
+      operationId: updateClient
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/ClientSlug"
       requestBody:
         required: true
         content:
@@ -1836,272 +1473,568 @@ paths:
                   type: string
       responses:
         "200":
-          description: Team updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Team"
-
-    delete:
-      tags: [Teams]
-      summary: Delete team
-      description: Delete team (soft delete)
-      operationId: deleteTeam
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/TeamId"
-      responses:
-        "200":
-          description: Team deleted
-
-  /v1/organizations/{org}/teams/{team}/members:
-    get:
-      tags: [Teams]
-      summary: List team members
-      operationId: listTeamMembers
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/TeamId"
-      responses:
-        "200":
-          description: Member list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/TeamMember"
-
-    post:
-      tags: [Teams]
-      summary: Add team member
-      description: Add user to team (user must be organization member)
-      operationId: addTeamMember
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/TeamId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [user_id]
-              properties:
-                user_id:
-                  type: string
-                  format: snowflake
-                role:
-                  $ref: "#/components/schemas/TeamRole"
-      responses:
-        "201":
-          description: Member added
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TeamMember"
-
-  /v1/organizations/{org}/teams/{team}/members/{member}:
-    patch:
-      tags: [Teams]
-      summary: Update team member
-      description: Change team member's role
-      operationId: updateTeamMember
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/TeamId"
-        - name: member
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [role]
-              properties:
-                role:
-                  $ref: "#/components/schemas/TeamRole"
-      responses:
-        "200":
-          description: Member updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TeamMember"
-
-    delete:
-      tags: [Teams]
-      summary: Remove team member
-      operationId: removeTeamMember
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/TeamId"
-        - name: member
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-      responses:
-        "200":
-          description: Member removed
-
-  # Team Permissions
-  /v1/organizations/{org}/teams/{team}/permissions:
-    get:
-      tags: [Teams]
-      summary: List team permissions
-      description: List all permissions granted to a team
-      operationId: listTeamPermissions
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/TeamId"
-      responses:
-        "200":
-          description: Permission list
+          description: Updated client.
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  permissions:
+                  client:
+                    $ref: "#/components/schemas/Client"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+    delete:
+      tags: [Clients]
+      summary: Delete a client
+      operationId: deleteClient
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/ClientSlug"
+      responses:
+        "200":
+          description: Client deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  # ── Certificates ─────────────────────────────────────────────────────
+
+  /control/v1/organizations/{org}/clients/{client}/certificates:
+    get:
+      tags: [Certificates]
+      summary: List certificates
+      operationId: listCertificates
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/ClientSlug"
+      responses:
+        "200":
+          description: Certificates.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  certificates:
                     type: array
                     items:
-                      $ref: "#/components/schemas/TeamPermission"
-        "403":
-          description: Only team members or organization admins can view team permissions
-
+                      $ref: "#/components/schemas/Certificate"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
     post:
-      tags: [Teams]
-      summary: Grant team permission
-      description: Grant an organization permission to a team (requires owner role)
-      operationId: grantTeamPermission
+      tags: [Certificates]
+      summary: Create a certificate
+      operationId: createCertificate
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/ClientSlug"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [permission]
+              required: [name, expires_at]
               properties:
-                permission:
-                  $ref: "#/components/schemas/OrganizationPermission"
+                name:
+                  type: string
+                  example: prod-2026
+                expires_at:
+                  type: string
+                  format: date-time
       responses:
         "201":
-          description: Permission granted
+          description: Certificate created. The `private_key_pem` is returned only once.
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  permission:
-                    $ref: "#/components/schemas/TeamPermission"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
-  /v1/organizations/{org}/teams/{team}/permissions/{permission}:
-    delete:
-      tags: [Teams]
-      summary: Revoke team permission
-      description: Revoke a permission from a team (requires owner role)
-      operationId: revokeTeamPermission
-      security:
-        - SessionCookie: []
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/TeamId"
-        - name: permission
-          in: path
-          required: true
-          schema:
-            type: string
-            format: snowflake
-          description: Permission ID (Snowflake ID)
-      responses:
-        "200":
-          description: Permission revoked
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
+                  certificate:
+                    $ref: "#/components/schemas/Certificate"
+                  private_key_pem:
                     type: string
-                    example: Team permission revoked successfully
-        "403":
-          $ref: "#/components/responses/Forbidden"
+                    description: Ed25519 private key in PEM format. Store securely — not retrievable later.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
 
-  # Session Management
-  /v1/users/sessions:
+  /control/v1/organizations/{org}/clients/{client}/certificates/{cert}:
     get:
-      tags: [Sessions]
-      summary: List user sessions
-      description: List all active sessions for authenticated user
-      operationId: listSessions
+      tags: [Certificates]
+      summary: Get a certificate
+      operationId: getCertificate
       security:
-        - SessionCookie: []
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/ClientSlug"
+        - $ref: "#/components/parameters/CertSlug"
       responses:
         "200":
-          description: Session list
+          description: Certificate details.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/UserSession"
-
-  /v1/users/sessions/{id}:
+                $ref: "#/components/schemas/Certificate"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
     delete:
-      tags: [Sessions]
-      summary: Revoke session
-      description: Revoke specific session by ID
-      operationId: revokeSession
+      tags: [Certificates]
+      summary: Revoke a certificate
+      operationId: revokeCertificate
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - name: id
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/ClientSlug"
+        - $ref: "#/components/parameters/CertSlug"
+      responses:
+        "200":
+          description: Certificate revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  /control/v1/organizations/{org}/clients/{client}/secret/rotate:
+    post:
+      tags: [Certificates]
+      summary: Rotate client secret
+      operationId: rotateClientSecret
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/ClientSlug"
+      responses:
+        "200":
+          description: New client secret. Store securely — not retrievable later.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret:
+                    type: string
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  # ── Vaults ───────────────────────────────────────────────────────────
+
+  /control/v1/organizations/{org}/vaults:
+    get:
+      tags: [Vaults]
+      summary: List vaults
+      operationId: listVaults
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: Vaults.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vaults:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Vault"
+                  next_page_token:
+                    type: string
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+    post:
+      tags: [Vaults]
+      summary: Create a vault
+      operationId: createVault
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+      responses:
+        "201":
+          description: Vault created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vault:
+                    $ref: "#/components/schemas/Vault"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  /control/v1/organizations/{org}/vaults/{vault}:
+    get:
+      tags: [Vaults]
+      summary: Get a vault
+      operationId: getVault
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+      responses:
+        "200":
+          description: Vault details.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vault:
+                    $ref: "#/components/schemas/Vault"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+    patch:
+      tags: [Vaults]
+      summary: Update a vault
+      operationId: updateVault
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                retention_policy:
+                  type: string
+      responses:
+        "200":
+          description: Vault updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+    delete:
+      tags: [Vaults]
+      summary: Delete a vault
+      operationId: deleteVault
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+      responses:
+        "200":
+          description: Vault deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  # ── Schemas ──────────────────────────────────────────────────────────
+
+  /control/v1/organizations/{org}/vaults/{vault}/schemas:
+    get:
+      tags: [Schemas]
+      summary: List schema versions
+      operationId: listSchemas
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+      responses:
+        "200":
+          description: Schema versions.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schemas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        version:
+                          type: integer
+                          format: uint32
+                        has_definition:
+                          type: boolean
+                        is_active:
+                          type: boolean
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+    post:
+      tags: [Schemas]
+      summary: Deploy a schema
+      operationId: deploySchema
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [definition]
+              properties:
+                definition:
+                  type: object
+                  description: Schema definition JSON.
+                version:
+                  type: integer
+                  format: uint32
+                  description: Explicit version number. Auto-incremented if omitted.
+                description:
+                  type: string
+      responses:
+        "201":
+          description: Schema deployed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaStatus"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  /control/v1/organizations/{org}/vaults/{vault}/schemas/current:
+    get:
+      tags: [Schemas]
+      summary: Get the active schema
+      operationId: getCurrentSchema
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+      responses:
+        "200":
+          description: Active schema definition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaDefinition"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /control/v1/organizations/{org}/vaults/{vault}/schemas/diff:
+    get:
+      tags: [Schemas]
+      summary: Diff two schema versions
+      operationId: diffSchemas
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: uint32
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: uint32
+      responses:
+        "200":
+          description: Schema diff.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  from:
+                    type: integer
+                    format: uint32
+                  to:
+                    type: integer
+                    format: uint32
+                  changes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        change_type:
+                          type: string
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}:
+    get:
+      tags: [Schemas]
+      summary: Get a specific schema version
+      operationId: getSchema
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+        - name: version
           in: path
           required: true
           schema:
-            type: string
-            format: snowflake
+            type: integer
+            format: uint32
       responses:
         "200":
-          description: Session revoked
+          description: Schema definition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaDefinition"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  /v1/users/sessions/revoke-others:
+  /control/v1/organizations/{org}/vaults/{vault}/schemas/{version}/activate:
     post:
-      tags: [Sessions]
-      summary: Revoke other sessions
-      description: Revoke all sessions except current one
-      operationId: revokeOtherSessions
+      tags: [Schemas]
+      summary: Activate a schema version
+      operationId: activateSchema
       security:
-        - SessionCookie: []
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint32
       responses:
         "200":
-          description: Other sessions revoked
+          description: Schema activated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaStatus"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /control/v1/organizations/{org}/vaults/{vault}/schemas/rollback:
+    post:
+      tags: [Schemas]
+      summary: Rollback to a previous schema version
+      operationId: rollbackSchema
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+      responses:
+        "200":
+          description: Schema rolled back.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaStatus"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  # ── Tokens ───────────────────────────────────────────────────────────
+
+  /control/v1/organizations/{org}/vaults/{vault}/tokens:
+    post:
+      tags: [Tokens]
+      summary: Generate a vault token
+      description: Issues a vault-scoped JWT for the specified application.
+      operationId: generateVaultToken
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [app]
+              properties:
+                app:
+                  type: integer
+                  format: uint64
+                  description: Client (application) slug.
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  default: []
+      responses:
+        "201":
+          description: Token pair.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+    delete:
+      tags: [Tokens]
+      summary: Revoke vault tokens
+      description: Revokes all tokens for a specific application in this vault.
+      operationId: revokeVaultTokens
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/VaultSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [app]
+              properties:
+                app:
+                  type: integer
+                  format: uint64
+      responses:
+        "200":
+          description: Tokens revoked.
           content:
             application/json:
               schema:
@@ -2109,854 +2042,699 @@ paths:
                 properties:
                   revoked_count:
                     type: integer
+                    format: uint64
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
 
-  # Audit Logs
-  /v1/organizations/{org}/audit-logs:
+  /control/v1/tokens/refresh:
+    post:
+      tags: [Tokens]
+      summary: Refresh a vault token
+      operationId: refreshVaultToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        "200":
+          description: New token pair.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  /control/v1/token:
+    post:
+      tags: [Tokens]
+      summary: Client assertion authentication
+      description: |
+        Machine-to-machine authentication using RFC 7523 JWT Bearer grant.
+        The client signs a JWT assertion with its Ed25519 private key.
+      operationId: clientAssertionAuth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [grant_type, client_assertion_type, client_assertion, organization, vault]
+              properties:
+                grant_type:
+                  type: string
+                  enum: ["urn:ietf:params:oauth:grant-type:jwt-bearer"]
+                client_assertion_type:
+                  type: string
+                  enum: ["urn:ietf:params:oauth:client-assertion-type:jwt-bearer"]
+                client_assertion:
+                  type: string
+                  description: Signed JWT assertion.
+                organization:
+                  type: integer
+                  format: uint64
+                vault:
+                  type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  default: []
+                requested_role:
+                  type: string
+      responses:
+        "201":
+          description: Token pair.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  # ── Audit Logs ───────────────────────────────────────────────────────
+
+  /control/v1/organizations/{org}/audit-logs:
     get:
-      tags: [Audit]
-      summary: List audit logs
-      description: Query audit logs for organization (requires owner role)
+      tags: [Audit logs]
+      summary: Query audit logs
       operationId: listAuditLogs
       security:
-        - SessionCookie: []
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
-        - name: actor_id
+        - $ref: "#/components/parameters/OrgSlug"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - name: event_type
           in: query
           schema:
             type: string
-            format: snowflake
-          description: Filter by actor (user) ID
-        - name: resource_type
+          description: Filter by event type prefix (e.g., `ledger.vault`).
+        - name: principal
           in: query
           schema:
             type: string
-          description: Filter by resource type (e.g., vault, client)
-        - name: action
+          description: Filter by principal identifier.
+        - name: outcome
           in: query
           schema:
             type: string
-          description: Filter by action (e.g., vault.create, client.delete)
-        - name: from
-          in: query
-          schema:
-            type: string
-            format: date-time
-          description: Filter logs from this timestamp
-        - name: to
-          in: query
-          schema:
-            type: string
-            format: date-time
-          description: Filter logs until this timestamp
+          description: Filter by outcome (e.g., `success`, `failure`).
       responses:
         "200":
-          description: Audit log entries
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/PaginatedResponse"
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/AuditLog"
-        "403":
-          description: Requires owner role
-
-  # JWKS Endpoints
-  /.well-known/jwks.json:
-    get:
-      tags: [Tokens]
-      summary: Get global JWKS
-      description: JSON Web Key Set for global token verification
-      operationId: getGlobalJWKS
-      responses:
-        "200":
-          description: JWKS document
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/JWKS"
-
-  /v1/organizations/{org}/jwks.json:
-    get:
-      tags: [Tokens]
-      summary: Get organization JWKS
-      description: JSON Web Key Set for organization-specific token verification
-      operationId: getOrgJWKS
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-      responses:
-        "200":
-          description: JWKS document
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/JWKS"
-
-  # Health Endpoints (Kubernetes conventions: /livez, /readyz, /startupz, /healthz)
-  /livez:
-    get:
-      tags: [Health]
-      summary: Liveness probe
-      description: |
-        Kubernetes liveness probe. Returns 200 if the process is alive.
-        If this fails, Kubernetes will restart the container.
-      operationId: livez
-      responses:
-        "200":
-          description: Process alive
-        "503":
-          description: Process unhealthy
-
-  /readyz:
-    get:
-      tags: [Health]
-      summary: Readiness probe
-      description: |
-        Kubernetes readiness probe. Returns 200 if the service is ready to accept traffic.
-        If this fails, Kubernetes removes the pod from the load balancer.
-      operationId: readyz
-      responses:
-        "200":
-          description: Ready to accept traffic
-        "503":
-          description: Not ready
-
-  /startupz:
-    get:
-      tags: [Health]
-      summary: Startup probe
-      description: |
-        Kubernetes startup probe. Returns 200 once initialization is complete.
-        Kubernetes will not send traffic until this succeeds.
-      operationId: startupz
-      responses:
-        "200":
-          description: Startup complete
-        "503":
-          description: Still initializing
-
-  /healthz:
-    get:
-      tags: [Health]
-      summary: Detailed health check
-      description: |
-        Returns comprehensive health information for debugging and monitoring.
-        Includes service status, version, uptime, and component health.
-      operationId: healthz
-      responses:
-        "200":
-          description: Service healthy or degraded
+          description: Audit log entries.
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  status:
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditLogEntry"
+                  next_page_token:
                     type: string
-                    enum: [healthy, degraded, unhealthy]
-                  service:
-                    type: string
-                    example: inferadb-control
-                  version:
-                    type: string
-                    example: "0.1.0"
-                  instance_id:
+                  total_estimate:
                     type: integer
-                    example: 1
-                  uptime_seconds:
-                    type: integer
-                    example: 3600
-                  storage_healthy:
-                    type: boolean
-                    example: true
-                  is_leader:
-                    type: boolean
-                    example: true
+                    format: uint64
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+
+  # ── Health ───────────────────────────────────────────────────────────
+
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: healthz
+      responses:
+        "200":
+          description: Service health.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /livez:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      operationId: livez
+      responses:
+        "200":
+          description: Service is alive.
+
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      operationId: readyz
+      responses:
+        "200":
+          description: Service is ready.
         "503":
-          description: Service unhealthy
+          description: Service is not ready.
+
+  /startupz:
+    get:
+      tags: [Health]
+      summary: Startup probe
+      operationId: startupz
+      responses:
+        "200":
+          description: Service has started.
+        "503":
+          description: Service is still starting.
 
   /metrics:
     get:
       tags: [Health]
       summary: Prometheus metrics
-      description: Prometheus-format metrics endpoint
-      operationId: getMetrics
+      operationId: metrics
       responses:
         "200":
-          description: Metrics in Prometheus format
+          description: Prometheus text exposition format.
           content:
             text/plain:
               schema:
                 type: string
-                example: |
-                  # HELP http_requests_total Total HTTP requests
-                  # TYPE http_requests_total counter
-                  http_requests_total{method="GET",status="200"} 1234
+
+# ── Components ───────────────────────────────────────────────────────
 
 components:
   securitySchemes:
-    SessionCookie:
-      type: apiKey
-      in: cookie
-      name: infera_session
-      description: Session cookie obtained from /v1/auth/login or /v1/auth/register
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Ed25519-signed JWT access token.
 
   parameters:
-    OrgId:
+    OrgSlug:
       name: org
       in: path
       required: true
       schema:
-        type: string
-        format: snowflake
-      description: Organization ID (Snowflake ID)
+        type: integer
+        format: uint64
+      description: Organization slug.
 
-    VaultId:
+    VaultSlug:
       name: vault
       in: path
       required: true
       schema:
-        type: string
-        format: snowflake
-      description: Vault ID (Snowflake ID)
+        type: integer
+        format: uint64
+      description: Vault slug.
 
-    ClientId:
-      name: client
-      in: path
-      required: true
-      schema:
-        type: string
-        format: snowflake
-      description: Client ID (Snowflake ID)
-
-    TeamId:
+    TeamSlug:
       name: team
       in: path
       required: true
       schema:
-        type: string
-        format: snowflake
-      description: Team ID (Snowflake ID)
+        type: integer
+        format: uint64
+      description: Team slug.
 
-    Page:
-      name: page
+    ClientSlug:
+      name: client
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: uint64
+      description: Client (application) slug.
+
+    CertSlug:
+      name: cert
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: uint64
+      description: Certificate slug.
+
+    MemberSlug:
+      name: member
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: uint64
+      description: Member (user) slug.
+
+    InvitationSlug:
+      name: invitation
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: uint64
+      description: Invitation slug.
+
+    EmailId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: uint64
+      description: Email address slug.
+
+    PageSize:
+      name: page_size
       in: query
       schema:
         type: integer
-        minimum: 1
-        default: 1
-      description: Page number (1-indexed)
-
-    PerPage:
-      name: per_page
-      in: query
-      schema:
-        type: integer
+        format: uint32
+        default: 50
         minimum: 1
         maximum: 100
-        default: 20
-      description: Items per page
+      description: Number of results per page.
 
-  responses:
-    BadRequest:
-      description: Invalid request
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-
-    Unauthorized:
-      description: Authentication required or invalid
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-
-    Forbidden:
-      description: Insufficient permissions
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-
-    NotFound:
-      description: Resource not found
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-
-    RateLimitExceeded:
-      description: Too many requests
-      headers:
-        X-RateLimit-Limit:
-          schema:
-            type: integer
-        X-RateLimit-Remaining:
-          schema:
-            type: integer
-        X-RateLimit-Reset:
-          schema:
-            type: integer
-            description: Unix timestamp
-        Retry-After:
-          schema:
-            type: integer
-            description: Seconds until retry allowed
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
+    PageToken:
+      name: page_token
+      in: query
+      schema:
+        type: string
+      description: Opaque cursor from a previous response's `next_page_token`.
 
   schemas:
-    Error:
+    SessionTokenResponse:
       type: object
-      required: [error, message]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+
+    TokenPair:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          format: uint64
+          description: Token lifetime in seconds.
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
       properties:
         error:
           type: string
-          example: invalid_input
-        message:
+        code:
           type: string
-          example: Email address is invalid
-        details:
-          type: object
-          description: Additional error context
+          description: |
+            Machine-readable error code. Values: `AUTHENTICATION_ERROR`,
+            `AUTHORIZATION_ERROR`, `VALIDATION_ERROR`, `NOT_FOUND`,
+            `ALREADY_EXISTS`, `RATE_LIMIT_EXCEEDED`, `TIER_LIMIT_EXCEEDED`,
+            `TOO_MANY_PASSKEYS`, `SERVICE_UNAVAILABLE`, `EXTERNAL_SERVICE_ERROR`,
+            `INTERNAL_ERROR`, `CONFIGURATION_ERROR`, `STORAGE_ERROR`.
 
-    User:
+    VerifyAuthenticated:
       type: object
-      required: [id, name, created_at]
       properties:
-        id:
+        status:
           type: string
-          format: snowflake
-          example: "123456789012345678"
+          enum: [authenticated]
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+
+    VerifyTotpRequired:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [totp_required]
+        challenge_nonce:
+          type: string
+
+    VerifyRegistrationRequired:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [registration_required]
+        onboarding_token:
+          type: string
+
+    UserProfile:
+      type: object
+      properties:
+        slug:
+          type: integer
+          format: uint64
         name:
           type: string
-          example: Alice Smith
+        status:
+          type: string
+        role:
+          type: string
         created_at:
           type: string
           format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        deleted_at:
-          type: string
-          format: date-time
-          nullable: true
 
-    UserEmail:
+    EmailInfo:
       type: object
-      required: [id, user_id, email, is_primary, is_verified, created_at]
       properties:
-        id:
-          type: string
-          format: snowflake
-        user_id:
-          type: string
-          format: snowflake
+        slug:
+          type: integer
+          format: uint64
         email:
           type: string
           format: email
-        is_primary:
+        verified:
           type: boolean
-        is_verified:
-          type: boolean
+        created_at:
+          type: string
+          format: date-time
         verified_at:
-          type: string
-          format: date-time
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-
-    UserSession:
-      type: object
-      required: [id, user_id, session_type, created_at, expires_at]
-      properties:
-        id:
-          type: string
-          format: snowflake
-        user_id:
-          type: string
-          format: snowflake
-        session_type:
-          type: string
-          enum: [web, cli, sdk]
-        user_agent:
-          type: string
-          nullable: true
-        ip_address:
-          type: string
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-        last_used_at:
-          type: string
-          format: date-time
-        expires_at:
           type: string
           format: date-time
 
     Organization:
       type: object
-      required: [id, name, tier, created_at]
       properties:
-        id:
-          type: string
-          format: snowflake
+        slug:
+          type: integer
+          format: uint64
         name:
           type: string
-          example: Acme Corp
+        region:
+          type: string
+        status:
+          type: string
         tier:
-          $ref: "#/components/schemas/OrganizationTier"
-        created_at:
           type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        deleted_at:
-          type: string
-          format: date-time
-          nullable: true
 
-    OrganizationWithRole:
-      allOf:
-        - $ref: "#/components/schemas/Organization"
-        - type: object
-          required: [role]
-          properties:
-            role:
-              $ref: "#/components/schemas/OrganizationRole"
-
-    OrganizationTier:
-      type: string
-      enum: [free, pro, enterprise]
-      description: |
-        Organization tier determines resource limits:
-        - free: 5 vaults, 10 clients, 50 certificates
-        - pro: 50 vaults, 100 clients, 500 certificates
-        - enterprise: Unlimited
-
-    OrganizationRole:
-      type: string
-      enum: [owner, admin, member]
-      description: |
-        Organization roles:
-        - owner: Full control, can transfer ownership
-        - admin: Manage members, vaults, clients, teams (cannot delete org)
-        - member: Read-only access to organization resources
-
-    OrganizationMember:
+    Member:
       type: object
-      required: [id, organization_id, user_id, role, created_at]
       properties:
-        id:
-          type: string
-          format: snowflake
-        organization_id:
-          type: string
-          format: snowflake
-        user_id:
-          type: string
-          format: snowflake
-        user_name:
-          type: string
-          description: User's display name (included for convenience)
+        user:
+          type: integer
+          format: uint64
         role:
-          $ref: "#/components/schemas/OrganizationRole"
-        created_at:
+          type: string
+        joined_at:
           type: string
           format: date-time
 
-    OrganizationInvitation:
+    Invitation:
       type: object
-      required: [id, organization_id, email, role, created_at, expires_at]
       properties:
-        id:
-          type: string
-          format: snowflake
-        organization_id:
-          type: string
-          format: snowflake
-        email:
+        slug:
+          type: integer
+          format: uint64
+        organization:
+          type: integer
+          format: uint64
+        inviter:
+          type: integer
+          format: uint64
+        invitee_email:
           type: string
           format: email
         role:
-          $ref: "#/components/schemas/OrganizationRole"
-        invited_by:
           type: string
-          format: snowflake
-          description: User ID of inviter
+        status:
+          type: string
         created_at:
           type: string
           format: date-time
         expires_at:
           type: string
           format: date-time
-          description: Invitations expire after 7 days
 
-    Vault:
+    ReceivedInvitation:
       type: object
-      required: [id, organization_id, name, created_at]
       properties:
-        id:
+        slug:
+          type: integer
+          format: uint64
+        organization:
+          type: integer
+          format: uint64
+        organization_name:
           type: string
-          format: snowflake
-        organization_id:
-          type: string
-          format: snowflake
-        name:
-          type: string
-          example: Production Policies
-        description:
-          type: string
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        deleted_at:
-          type: string
-          format: date-time
-          nullable: true
-
-    VaultRole:
-      type: string
-      enum: [admin, manager, editor, writer, reader]
-      description: |
-        Vault access roles (hierarchical):
-        - admin: Full control (grants, policies, delete)
-        - manager: Manage grants and policies
-        - editor: Edit policies
-        - writer: Write policies (evaluate + write)
-        - reader: Read-only (evaluate only)
-
-    VaultUserGrant:
-      type: object
-      required: [id, vault_id, user_id, role, created_at]
-      properties:
-        id:
-          type: string
-          format: snowflake
-        vault_id:
-          type: string
-          format: snowflake
-        user_id:
-          type: string
-          format: snowflake
-        user_name:
-          type: string
-          description: User's display name
         role:
-          $ref: "#/components/schemas/VaultRole"
-        granted_by:
           type: string
-          format: snowflake
-          description: User ID of granter
+        status:
+          type: string
         created_at:
           type: string
           format: date-time
-
-    VaultTeamGrant:
-      type: object
-      required: [id, vault_id, team_id, role, created_at]
-      properties:
-        id:
-          type: string
-          format: snowflake
-        vault_id:
-          type: string
-          format: snowflake
-        team_id:
-          type: string
-          format: snowflake
-        team_name:
-          type: string
-          description: Team name
-        role:
-          $ref: "#/components/schemas/VaultRole"
-        granted_by:
-          type: string
-          format: snowflake
-        created_at:
-          type: string
-          format: date-time
-
-    Client:
-      type: object
-      required: [id, organization_id, vault_id, name, is_active, created_at]
-      properties:
-        id:
-          type: string
-          format: snowflake
-        organization_id:
-          type: string
-          format: snowflake
-        vault_id:
-          type: string
-          format: snowflake
-          description: Default vault for token generation
-        name:
-          type: string
-          example: Production API Server
-        is_active:
-          type: boolean
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        deleted_at:
-          type: string
-          format: date-time
-          nullable: true
-
-    ClientCertificate:
-      type: object
-      required: [id, client_id, name, public_key_pem, kid, is_active, created_at]
-      properties:
-        id:
-          type: string
-          format: snowflake
-        client_id:
-          type: string
-          format: snowflake
-        name:
-          type: string
-          example: Production Certificate 2025
-        public_key_pem:
-          type: string
-          description: Ed25519 public key in PEM format
-          example: |
-            -----BEGIN PUBLIC KEY-----
-            MCowBQYDK2VwAyEA...
-            -----END PUBLIC KEY-----
-        kid:
-          type: string
-          description: Key ID (used in JWT header)
-          example: cert_123456789
-        is_active:
-          type: boolean
-        revoked_at:
-          type: string
-          format: date-time
-          nullable: true
-        created_at:
+        expires_at:
           type: string
           format: date-time
 
     Team:
       type: object
-      required: [id, organization_id, name, created_at]
       properties:
-        id:
-          type: string
-          format: snowflake
-        organization_id:
-          type: string
-          format: snowflake
+        slug:
+          type: integer
+          format: uint64
+        organization:
+          type: integer
+          format: uint64
         name:
           type: string
-          example: Engineering
-        description:
-          type: string
-          nullable: true
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamMember"
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
-        deleted_at:
-          type: string
-          format: date-time
-          nullable: true
-
-    TeamRole:
-      type: string
-      enum: [maintainer, member]
-      description: |
-        Team roles:
-        - maintainer: Can manage team members and permissions
-        - member: Regular team member
-
-    OrganizationPermission:
-      type: string
-      enum:
-        - OrgPermClientCreate
-        - OrgPermClientRead
-        - OrgPermClientRevoke
-        - OrgPermClientDelete
-        - OrgPermClientManage
-        - OrgPermVaultCreate
-        - OrgPermVaultRead
-        - OrgPermVaultDelete
-      description: |
-        Organization-level permissions that can be granted to teams:
-
-        **Client Permissions:**
-        - `OrgPermClientCreate`: Create new clients
-        - `OrgPermClientRead`: Read client information
-        - `OrgPermClientRevoke`: Revoke client certificates
-        - `OrgPermClientDelete`: Delete clients
-        - `OrgPermClientManage`: All client permissions (composite)
-
-        **Vault Permissions:**
-        - `OrgPermVaultCreate`: Create new vaults
-        - `OrgPermVaultRead`: Read vault information
-        - `OrgPermVaultDelete`: Delete vaults
-
-    TeamPermission:
-      type: object
-      required: [id, team_id, permission, granted_at, granted_by_user_id]
-      properties:
-        id:
-          type: string
-          format: snowflake
-        team_id:
-          type: string
-          format: snowflake
-        permission:
-          $ref: "#/components/schemas/OrganizationPermission"
-        granted_at:
-          type: string
-          format: date-time
-        granted_by_user_id:
-          type: string
-          format: snowflake
-          description: User ID of the person who granted this permission
 
     TeamMember:
       type: object
-      required: [id, team_id, user_id, role, created_at]
       properties:
-        id:
-          type: string
-          format: snowflake
-        team_id:
-          type: string
-          format: snowflake
-        user_id:
-          type: string
-          format: snowflake
-        user_name:
-          type: string
+        user:
+          type: integer
+          format: uint64
         role:
-          $ref: "#/components/schemas/TeamRole"
+          type: string
+          enum: [manager, member]
+        joined_at:
+          type: string
+          format: date-time
+
+    Client:
+      type: object
+      properties:
+        slug:
+          type: integer
+          format: uint64
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        credentials:
+          type: object
+          properties:
+            client_secret_enabled:
+              type: boolean
+            mtls_ca_enabled:
+              type: boolean
+            mtls_self_signed_enabled:
+              type: boolean
+            client_assertion_enabled:
+              type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Certificate:
+      type: object
+      properties:
+        slug:
+          type: integer
+          format: uint64
+        name:
+          type: string
+        enabled:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
         created_at:
           type: string
           format: date-time
 
-    AuditLog:
+    Vault:
       type: object
-      required: [id, organization_id, actor_id, action, resource_type, timestamp]
       properties:
-        id:
+        organization:
+          type: integer
+          format: uint64
+        slug:
+          type: integer
+          format: uint64
+        height:
+          type: integer
+          format: uint64
+        status:
           type: string
-          format: snowflake
-        organization_id:
+        nodes:
+          type: array
+          items:
+            type: string
+        leader:
           type: string
-          format: snowflake
-        actor_id:
+
+    SchemaStatus:
+      type: object
+      properties:
+        version:
+          type: integer
+          format: uint32
+        status:
           type: string
-          format: snowflake
-          description: User who performed the action
-        actor_name:
-          type: string
-        action:
-          type: string
-          example: vault.create
-          description: Action performed (e.g., vault.create, client.delete)
-        resource_type:
-          type: string
-          example: vault
-        resource_id:
-          type: string
-          format: snowflake
-          nullable: true
-        ip_address:
-          type: string
-          nullable: true
-        user_agent:
-          type: string
-          nullable: true
-        metadata:
+
+    SchemaDefinition:
+      type: object
+      properties:
+        version:
+          type: integer
+          format: uint32
+        definition:
           type: object
-          description: Additional context (varies by action)
+        description:
+          type: string
+
+    AuditLogEntry:
+      type: object
+      properties:
+        event_id:
+          type: string
+        event_type:
+          type: string
+        principal:
+          type: string
+        outcome:
+          type: string
         timestamp:
           type: string
           format: date-time
-
-    JWKS:
-      type: object
-      required: [keys]
-      properties:
-        keys:
-          type: array
-          items:
-            type: object
-            required: [kty, use, kid, alg]
-            properties:
-              kty:
-                type: string
-                enum: [OKP]
-                description: Key type (Octet Key Pair for Ed25519)
-              use:
-                type: string
-                enum: [sig]
-                description: Public key use (signature)
-              kid:
-                type: string
-                description: Key ID
-              alg:
-                type: string
-                enum: [EdDSA]
-                description: Algorithm (EdDSA for Ed25519)
-              crv:
-                type: string
-                enum: [Ed25519]
-                description: Elliptic curve
-              x:
-                type: string
-                description: Base64url-encoded public key
-
-    PaginatedResponse:
-      type: object
-      required: [data, meta]
-      properties:
-        data:
-          type: array
-          items: {}
-        meta:
+        source:
+          type: string
+        action:
+          type: string
+        details:
           type: object
-          required: [current_page, per_page, total_items, total_pages]
-          properties:
-            current_page:
-              type: integer
-              example: 1
-            per_page:
-              type: integer
-              example: 20
-            total_items:
-              type: integer
-              example: 150
-            total_pages:
-              type: integer
-              example: 8
-            has_next_page:
-              type: boolean
-            has_prev_page:
-              type: boolean
+          additionalProperties:
+            type: string
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        service:
+          type: string
+          example: inferadb-control
+        version:
+          type: string
+        instance_id:
+          type: integer
+          format: uint16
+        uptime_seconds:
+          type: integer
+          format: uint64
+        ledger_healthy:
+          type: boolean
+        details:
+          type: string
+
+  responses:
+    ValidationError:
+      description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: invalid email address
+            code: VALIDATION_ERROR
+
+    AuthenticationError:
+      description: Authentication required or token invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: authentication required
+            code: AUTHENTICATION_ERROR
+
+    AuthorizationError:
+      description: Insufficient permissions.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: insufficient permissions
+            code: AUTHORIZATION_ERROR
+
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: not found
+            code: NOT_FOUND
+
+    RateLimited:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds until the rate limit resets.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: rate limit exceeded
+            code: RATE_LIMIT_EXCEEDED
