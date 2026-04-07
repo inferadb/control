@@ -84,7 +84,7 @@ pub struct TokenPairResponse {
     /// Opaque refresh token for obtaining new access tokens.
     pub refresh_token: String,
     /// Token type (always `"Bearer"`).
-    pub token_type: String,
+    pub token_type: &'static str,
     /// Seconds until the access token expires.
     pub expires_in: u64,
 }
@@ -111,7 +111,7 @@ fn token_pair_to_response(pair: inferadb_ledger_sdk::token::TokenPair) -> TokenP
     TokenPairResponse {
         access_token: pair.access_token,
         refresh_token: pair.refresh_token,
-        token_type: "Bearer".to_string(),
+        token_type: "Bearer",
         expires_in,
     }
 }
@@ -487,7 +487,7 @@ mod tests {
         let resp = TokenPairResponse {
             access_token: "at".to_string(),
             refresh_token: "rt".to_string(),
-            token_type: "Bearer".to_string(),
+            token_type: "Bearer",
             expires_in: 3600,
         };
 

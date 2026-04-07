@@ -84,11 +84,11 @@ pub struct OrganizationResponse {
     /// Display name.
     pub name: String,
     /// Data residency region (e.g., `"us-east-va"`).
-    pub region: String,
+    pub region: &'static str,
     /// Organization status (e.g., `"active"`, `"deleted"`).
-    pub status: String,
-    /// Subscription tier (e.g., `"free"`, `"pro"`).
-    pub tier: String,
+    pub status: &'static str,
+    /// Subscription tier (e.g., `"free"`, `"launch"`, `"scale"`).
+    pub tier: &'static str,
 }
 
 /// Wrapper for a single organization.
@@ -108,7 +108,7 @@ pub struct ListOrganizationsResponse {
 /// Response confirming organization deletion.
 #[derive(Debug, Serialize)]
 pub struct DeleteOrganizationResponse {
-    pub message: String,
+    pub message: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retention_days: Option<u32>,
 }
@@ -119,7 +119,7 @@ pub struct MemberResponse {
     /// User slug identifier.
     pub user: u64,
     /// Member role (e.g., `"admin"`, `"member"`).
-    pub role: String,
+    pub role: &'static str,
     /// RFC 3339 timestamp of when the user joined the organization.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub joined_at: Option<String>,
@@ -151,9 +151,9 @@ pub struct InvitationResponse {
     /// Email address of the invitee.
     pub invitee_email: String,
     /// Role the invitee will receive (e.g., `"admin"`, `"member"`).
-    pub role: String,
+    pub role: &'static str,
     /// Invitation status (e.g., `"pending"`, `"accepted"`, `"revoked"`).
-    pub status: String,
+    pub status: &'static str,
     /// RFC 3339 timestamp of when the invitation was created.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
@@ -183,9 +183,9 @@ pub struct ReceivedInvitationResponse {
     /// Organization display name.
     pub organization_name: String,
     /// Role offered (e.g., `"admin"`, `"member"`).
-    pub role: String,
+    pub role: &'static str,
     /// Invitation status (e.g., `"pending"`, `"accepted"`).
-    pub status: String,
+    pub status: &'static str,
     /// RFC 3339 creation timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
@@ -210,9 +210,9 @@ fn org_info_to_response(info: &inferadb_ledger_sdk::OrganizationInfo) -> Organiz
     OrganizationResponse {
         slug: info.slug.value(),
         name: info.name.clone(),
-        region: info.region.to_string(),
-        status: info.status.to_string(),
-        tier: info.tier.to_string(),
+        region: info.region.as_str(),
+        status: info.status.as_str(),
+        tier: info.tier.as_str(),
     }
 }
 
@@ -221,7 +221,7 @@ fn org_info_to_response(info: &inferadb_ledger_sdk::OrganizationInfo) -> Organiz
 fn member_info_to_response(info: &inferadb_ledger_sdk::OrganizationMemberInfo) -> MemberResponse {
     MemberResponse {
         user: info.user.value(),
-        role: info.role.to_string(),
+        role: info.role.as_str(),
         joined_at: system_time_to_rfc3339(&info.joined_at),
     }
 }
@@ -233,8 +233,8 @@ fn invitation_info_to_response(info: &inferadb_ledger_sdk::InvitationInfo) -> In
         organization: info.organization.value(),
         inviter: info.inviter.value(),
         invitee_email: info.invitee_email.clone(),
-        role: info.role.to_string(),
-        status: info.status.to_string(),
+        role: info.role.as_str(),
+        status: info.status.as_str(),
         created_at: system_time_to_rfc3339(&info.created_at),
         expires_at: system_time_to_rfc3339(&info.expires_at),
         token: None,
@@ -250,8 +250,8 @@ fn received_info_to_response(
         slug: info.slug.value(),
         organization: info.organization.value(),
         organization_name: info.organization_name.clone(),
-        role: info.role.to_string(),
-        status: info.status.to_string(),
+        role: info.role.as_str(),
+        status: info.status.as_str(),
         created_at: system_time_to_rfc3339(&info.created_at),
         expires_at: system_time_to_rfc3339(&info.expires_at),
     }
@@ -374,7 +374,7 @@ pub async fn delete_organization(
         .map_sdk_err_instrumented("delete_organization", start)?;
 
     Ok(Json(DeleteOrganizationResponse {
-        message: "Organization deleted successfully".to_string(),
+        message: "Organization deleted successfully",
         retention_days: Some(delete_info.retention_days),
     }))
 }
@@ -459,7 +459,7 @@ pub async fn remove_member(
     // Invalidate cached membership so vault/schema access is revoked immediately.
     state.org_membership_cache.invalidate(member, org).await;
 
-    Ok(Json(MessageResponse { message: "Member removed successfully".to_string() }))
+    Ok(Json(MessageResponse { message: "Member removed successfully" }))
 }
 
 /// DELETE /control/v1/organizations/{org}/members/me
@@ -482,7 +482,7 @@ pub async fn leave_organization(
     // Invalidate cached membership so vault/schema access is revoked immediately.
     state.org_membership_cache.invalidate(claims.user_slug.value(), org).await;
 
-    Ok(Json(MessageResponse { message: "You have left the organization".to_string() }))
+    Ok(Json(MessageResponse { message: "You have left the organization" }))
 }
 
 // ── Invitation Handlers ───────────────────────────────────────────────
@@ -567,8 +567,8 @@ pub async fn create_invitation(
             organization: org,
             inviter: claims.user_slug.value(),
             invitee_email: payload.email,
-            role: role.to_string(),
-            status: created.status.to_string(),
+            role: role.as_str(),
+            status: created.status.as_str(),
             created_at: system_time_to_rfc3339(&created.created_at),
             expires_at: system_time_to_rfc3339(&created.expires_at),
             token: None,
@@ -624,7 +624,7 @@ pub async fn delete_invitation(
         .await
         .map_sdk_err_instrumented("revoke_invite", start)?;
 
-    Ok(Json(MessageResponse { message: "Invitation revoked successfully".to_string() }))
+    Ok(Json(MessageResponse { message: "Invitation revoked successfully" }))
 }
 
 /// POST /control/v1/users/me/invitations/{invitation}/accept
@@ -911,7 +911,7 @@ mod tests {
     #[test]
     fn test_delete_organization_response_with_retention_serializes() {
         let resp = DeleteOrganizationResponse {
-            message: "Organization deleted successfully".to_string(),
+            message: "Organization deleted successfully",
             retention_days: Some(30),
         };
         let json = serde_json::to_value(&resp).unwrap();
@@ -922,7 +922,7 @@ mod tests {
     #[test]
     fn test_delete_organization_response_without_retention_omits_field() {
         let resp =
-            DeleteOrganizationResponse { message: "deleted".to_string(), retention_days: None };
+            DeleteOrganizationResponse { message: "deleted", retention_days: None };
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json.get("retention_days").is_none());
     }
@@ -941,8 +941,8 @@ mod tests {
             organization: 2,
             inviter: 3,
             invitee_email: "a@b.com".to_string(),
-            role: "member".to_string(),
-            status: "pending".to_string(),
+            role: "member",
+            status: "pending",
             created_at: None,
             expires_at: None,
             token: None,
@@ -959,8 +959,8 @@ mod tests {
             slug: 10,
             organization: 20,
             organization_name: "Org".to_string(),
-            role: "admin".to_string(),
-            status: "accepted".to_string(),
+            role: "admin",
+            status: "accepted",
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
             expires_at: Some("2026-02-01T00:00:00Z".to_string()),
         };

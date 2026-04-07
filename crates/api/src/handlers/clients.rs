@@ -285,7 +285,7 @@ pub async fn delete_client(
         .await
         .map_sdk_err_instrumented("delete_app", start)?;
 
-    Ok(Json(MessageResponse { message: "Client deleted successfully".to_string() }))
+    Ok(Json(MessageResponse { message: "Client deleted successfully" }))
 }
 
 // ── Certificate (Assertion) Handlers ─────────────────────────────────
@@ -409,7 +409,7 @@ pub async fn revoke_certificate(
         .await
         .map_sdk_err_instrumented("delete_app_client_assertion", start)?;
 
-    Ok(Json(MessageResponse { message: "Certificate revoked successfully".to_string() }))
+    Ok(Json(MessageResponse { message: "Certificate revoked successfully" }))
 }
 
 /// POST /control/v1/organizations/{org}/clients/{client}/secret/rotate

@@ -34,3 +34,4 @@ build/
 coverage/
 *.profraw
 *.profdata
+autoresearch-results.tsv

@@ -48,7 +48,7 @@ pub struct EmailInfoResponse {
 #[derive(Debug, Serialize)]
 pub struct AddEmailResponse {
     pub email: EmailInfoResponse,
-    pub message: String,
+    pub message: &'static str,
 }
 
 /// Response containing the user's email addresses.
@@ -60,7 +60,7 @@ pub struct ListEmailsResponse {
 /// Response for email mutation operations.
 #[derive(Debug, Serialize)]
 pub struct EmailOperationResponse {
-    pub message: String,
+    pub message: &'static str,
 }
 
 /// Request body for verifying an email address with a token.
@@ -72,7 +72,7 @@ pub struct VerifyEmailRequest {
 /// Response for email verification.
 #[derive(Debug, Serialize)]
 pub struct VerifyEmailResponse {
-    pub message: String,
+    pub message: &'static str,
     pub verified: bool,
 }
 
@@ -126,7 +126,7 @@ pub async fn add_email(
 
     Ok(Json(AddEmailResponse {
         email: map_email_info(&info)?,
-        message: "Email added. Please check your inbox for a verification link.".to_string(),
+        message: "Email added. Please check your inbox for a verification link.",
     }))
 }
 
@@ -168,7 +168,7 @@ pub async fn delete_email(
         .await
         .map_sdk_err_instrumented("delete_user_email", start)?;
 
-    Ok(Json(EmailOperationResponse { message: "Email deleted successfully".to_string() }))
+    Ok(Json(EmailOperationResponse { message: "Email deleted successfully" }))
 }
 
 /// POST /control/v1/auth/verify-email
@@ -187,7 +187,7 @@ pub async fn verify_email(
         .map_sdk_err_instrumented("verify_user_email", start)?;
 
     Ok(Json(VerifyEmailResponse {
-        message: "Email verified successfully".to_string(),
+        message: "Email verified successfully",
         verified: true,
     }))
 }
@@ -314,7 +314,7 @@ mod tests {
                 created_at: None,
                 verified_at: None,
             },
-            message: "Email added.".to_string(),
+            message: "Email added.",
         };
 
         let json = serde_json::to_value(&resp).unwrap();
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_email_operation_response_serializes() {
-        let resp = EmailOperationResponse { message: "done".to_string() };
+        let resp = EmailOperationResponse { message: "done" };
 
         let json = serde_json::to_value(&resp).unwrap();
 
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn test_verify_email_response_serializes() {
-        let resp = VerifyEmailResponse { message: "ok".to_string(), verified: true };
+        let resp = VerifyEmailResponse { message: "ok", verified: true };
 
         let json = serde_json::to_value(&resp).unwrap();
 

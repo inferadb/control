@@ -837,6 +837,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-deque"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9dd111b7b7f7d55b72c0a6ae361660ee5853c9af73f70c3c2ef6858b950e2e51"
+dependencies = [
+ "crossbeam-epoch",
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-epoch"
 version = "0.9.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2120,9 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-proto"
-version = "0.1.0-dev.20260406.111"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "011c0a4fc5224f1290b751faa497fbb5e08baad90e88e956b86d43d70f1ac021"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "inferadb-ledger-types",
@@ -2139,9 +2147,7 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-raft"
-version = "0.1.0-dev.20260406.111"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac92de869cf86d44ffbe973e0f9cd4ae2d8d246140fc3b6b438198f8d703750a"
+version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "arc-swap",
@@ -2189,9 +2195,7 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-sdk"
-version = "0.1.0-dev.20260406.111"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "198268b266271aefd49580c70f2f4b7d51a72949e33afbea13abed82d1f4366e"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "bon",
@@ -2224,9 +2228,7 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-state"
-version = "0.1.0-dev.20260406.111"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53f3e87a804890a727f4f031c961e191ec300d5d3e165c3421d2b8242338e236"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2234,6 +2236,7 @@ dependencies = [
  "futures",
  "inferadb-ledger-store",
  "inferadb-ledger-types",
+ "moka",
  "object_store",
  "parking_lot",
  "postcard",
@@ -2252,9 +2255,7 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-store"
-version = "0.1.0-dev.20260406.111"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9aedbeae266474eb88b09a214e03dd44e19965589fc53078dfa06c858e54faf"
+version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "aes-kw",
@@ -2276,9 +2277,7 @@ dependencies = [
 
 [[package]]
 name = "inferadb-ledger-types"
-version = "0.1.0-dev.20260406.111"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "385b55d22960aaac085b179b529e9f1b359373eef133cc7b07eb447bfe9317ad"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "bon",
@@ -2288,6 +2287,7 @@ dependencies = [
  "parking_lot",
  "postcard",
  "rand 0.10.0",
+ "rayon",
  "rs_merkle",
  "schemars",
  "seahash",
@@ -3437,6 +3437,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "498cd0dc59d73224351ee52a95fee0f1a617a2eae0e7d9d720cc622c73a54186"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "rayon"
+version = "1.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "368f01d005bf8fd9b1206fb6fa653e6c4a81ceb1466406b81792d87c5677a58f"
+dependencies = [
+ "either",
+ "rayon-core",
+]
+
+[[package]]
+name = "rayon-core"
+version = "1.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
+dependencies = [
+ "crossbeam-deque",
+ "crossbeam-utils",
 ]
 
 [[package]]

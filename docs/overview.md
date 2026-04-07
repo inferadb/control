@@ -121,7 +121,7 @@ A tenant entity. API path: `/control/v1/organizations`.
 | `name`   | string | Display name (not globally unique)           |
 | `region` | string | Data residency region (e.g., `"us-east-va"`) |
 | `status` | string | Status (e.g., `"active"`)                    |
-| `tier`   | string | Subscription tier (e.g., `"free"`, `"pro"`)  |
+| `tier`   | string | Subscription tier (e.g., `"free"`, `"launch"`, `"scale"`) |
 
 Every organization must have at least one Owner. Maximum 10 organizations per user. Global limit: 100,000 organizations.
 
@@ -160,13 +160,7 @@ An invitation for a user to join an organization. Expires after 7 days.
 
 ### OrganizationTier
 
-Tiers control resource limits per organization.
-
-| Tier   | Max users | Max teams | Max vaults |
-| ------ | --------- | --------- | ---------- |
-| `free` | 5         | 3         | 5          |
-| `pro`  | 50        | 20        | 50         |
-| `max`  | 500       | 100       | 200        |
+Three tiers exist: `free`, `launch`, and `scale`. Tier determines resource limits and available features. Tier-specific limits are enforced by Ledger.
 
 ---
 

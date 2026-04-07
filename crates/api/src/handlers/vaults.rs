@@ -47,7 +47,7 @@ pub struct VaultResponse {
     /// Current Raft log height (block count).
     pub height: u64,
     /// Vault status (e.g., `"active"`, `"deleting"`).
-    pub status: String,
+    pub status: &'static str,
     /// Node IDs in the vault's Raft cluster.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub nodes: Vec<String>,
@@ -78,7 +78,7 @@ fn vault_info_to_response(info: inferadb_ledger_sdk::VaultInfo) -> VaultResponse
         organization: info.organization.value(),
         slug: info.vault.value(),
         height: info.height,
-        status: info.status.to_string(),
+        status: info.status.as_str(),
         nodes: info.nodes,
         leader: info.leader,
     }
@@ -190,7 +190,7 @@ pub async fn update_vault(
         .await
         .map_sdk_err_instrumented("update_vault", start)?;
 
-    Ok(Json(MessageResponse { message: "Vault updated".to_string() }))
+    Ok(Json(MessageResponse { message: "Vault updated" }))
 }
 
 /// DELETE /control/v1/organizations/{org}/vaults/{vault}
@@ -213,5 +213,5 @@ pub async fn delete_vault(
         .await
         .map_sdk_err_instrumented("delete_vault", start)?;
 
-    Ok(Json(MessageResponse { message: "Vault deleted".to_string() }))
+    Ok(Json(MessageResponse { message: "Vault deleted" }))
 }

@@ -82,7 +82,7 @@ impl CursorPaginationQuery {
 /// Generic message response used by mutation handlers.
 #[derive(Debug, Serialize)]
 pub struct MessageResponse {
-    pub message: String,
+    pub message: &'static str,
 }
 
 // ── Shared Helpers ──────────────────────────────────────────────────

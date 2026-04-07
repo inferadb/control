@@ -36,7 +36,7 @@ inferadb-control \
 ### API reference
 
 - **[Pagination](pagination.md)** -- Cursor-based pagination: query parameters, response shape, page size limits
-- **[Audit logs](audit-logs.md)** -- Event types, severity, querying, retention by tier
+- **[Audit logs](audit-logs.md)** -- Event types, severity, querying, and retention
 
 ### Operations
 

@@ -37,7 +37,7 @@ pub struct DeploySchemaRequest {
 #[derive(Debug, Serialize)]
 pub struct SchemaStatusResponse {
     pub version: u32,
-    pub status: String,
+    pub status: &'static str,
 }
 
 /// Summary of a schema version.
@@ -123,7 +123,7 @@ pub async fn deploy_schema(
 
     Ok((
         StatusCode::CREATED,
-        Json(SchemaStatusResponse { version: result.version, status: "deployed".to_string() }),
+        Json(SchemaStatusResponse { version: result.version, status: "deployed" }),
     ))
 }
 
@@ -229,7 +229,7 @@ pub async fn activate_schema(
         .await
         .map_sdk_err_instrumented("activate_schema", start)?;
 
-    Ok(Json(SchemaStatusResponse { version: activated_version, status: "active".to_string() }))
+    Ok(Json(SchemaStatusResponse { version: activated_version, status: "active" }))
 }
 
 /// POST /control/v1/organizations/{org}/vaults/{vault}/schemas/rollback
@@ -251,7 +251,7 @@ pub async fn rollback_schema(
         .await
         .map_sdk_err_instrumented("rollback_schema", start)?;
 
-    Ok(Json(SchemaStatusResponse { version: restored_version, status: "active".to_string() }))
+    Ok(Json(SchemaStatusResponse { version: restored_version, status: "active" }))
 }
 
 /// GET /control/v1/organizations/{org}/vaults/{vault}/schemas/diff?from=N&to=M

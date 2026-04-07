@@ -26,9 +26,9 @@ pub struct UserProfileData {
     /// Display name.
     pub name: String,
     /// Account status (e.g., `"active"`, `"deleted"`).
-    pub status: String,
+    pub status: &'static str,
     /// Platform role (e.g., `"user"`, `"admin"`).
-    pub role: String,
+    pub role: &'static str,
     /// RFC 3339 account creation timestamp.
     pub created_at: Option<String>,
 }
@@ -48,7 +48,7 @@ pub struct UpdateProfileRequest {
 /// Response confirming account deletion.
 #[derive(Debug, Serialize)]
 pub struct DeleteUserResponse {
-    pub message: String,
+    pub message: &'static str,
 }
 
 // ── Handlers ────────────────────────────────────────────────────────────
@@ -70,8 +70,8 @@ pub async fn get_profile(
         user: UserProfileData {
             slug: user.slug.value(),
             name: user.name,
-            status: user.status.to_string(),
-            role: user.role.to_string(),
+            status: user.status.as_str(),
+            role: user.role.as_str(),
             created_at: system_time_to_rfc3339(&user.created_at),
         },
     }))
@@ -101,8 +101,8 @@ pub async fn update_profile(
         user: UserProfileData {
             slug: user.slug.value(),
             name: user.name,
-            status: user.status.to_string(),
-            role: user.role.to_string(),
+            status: user.status.as_str(),
+            role: user.role.as_str(),
             created_at: system_time_to_rfc3339(&user.created_at),
         },
     }))
@@ -124,7 +124,7 @@ pub async fn delete_user(
         .await
         .map_sdk_err_instrumented("delete_user", start)?;
 
-    Ok(Json(DeleteUserResponse { message: "User account deleted successfully".to_string() }))
+    Ok(Json(DeleteUserResponse { message: "User account deleted successfully" }))
 }
 
 #[cfg(test)]
@@ -139,8 +139,8 @@ mod tests {
         let json = serde_json::to_value(&UserProfileData {
             slug: 42,
             name: "Alice".to_string(),
-            status: "active".to_string(),
-            role: "admin".to_string(),
+            status: "active",
+            role: "admin",
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
         })
         .unwrap();
@@ -156,8 +156,8 @@ mod tests {
         let json = serde_json::to_value(&UserProfileData {
             slug: 1,
             name: "Bob".to_string(),
-            status: "active".to_string(),
-            role: "member".to_string(),
+            status: "active",
+            role: "member",
             created_at: None,
         })
         .unwrap();
@@ -172,8 +172,8 @@ mod tests {
             user: UserProfileData {
                 slug: 1,
                 name: "Bob".to_string(),
-                status: "active".to_string(),
-                role: "member".to_string(),
+                status: "active",
+                role: "member",
                 created_at: None,
             },
         })
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn test_delete_user_response_serializes_message() {
         let json =
-            serde_json::to_value(&DeleteUserResponse { message: "deleted".to_string() }).unwrap();
+            serde_json::to_value(&DeleteUserResponse { message: "deleted" }).unwrap();
         assert_eq!(json["message"], "deleted");
     }
 }

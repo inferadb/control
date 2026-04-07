@@ -39,9 +39,9 @@ pub struct HealthResponse {
     /// Overall health status.
     pub status: HealthStatus,
     /// Service name (e.g., `"inferadb-control"`).
-    pub service: String,
+    pub service: &'static str,
     /// Crate version from `Cargo.toml`.
-    pub version: String,
+    pub version: &'static str,
     /// Worker/instance identifier.
     pub instance_id: u16,
     /// Seconds since server startup.
@@ -136,8 +136,8 @@ pub async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse
 
     Json(HealthResponse {
         status,
-        service: "inferadb-control".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        service: "inferadb-control",
+        version: env!("CARGO_PKG_VERSION"),
         instance_id: state.worker_id,
         uptime_seconds,
         ledger_healthy,
@@ -289,8 +289,8 @@ mod tests {
     fn test_health_response_none_details_omitted() {
         let resp = HealthResponse {
             status: HealthStatus::Healthy,
-            service: "test".to_string(),
-            version: "0.1.0".to_string(),
+            service: "test",
+            version: "0.1.0",
             instance_id: 0,
             uptime_seconds: 100,
             ledger_healthy: true,
@@ -306,8 +306,8 @@ mod tests {
     fn test_health_response_present_details_included() {
         let resp = HealthResponse {
             status: HealthStatus::Unhealthy,
-            service: "test".to_string(),
-            version: "0.1.0".to_string(),
+            service: "test",
+            version: "0.1.0",
             instance_id: 1,
             uptime_seconds: 0,
             ledger_healthy: false,
@@ -323,8 +323,8 @@ mod tests {
     fn test_health_response_serializes_all_fields() {
         let resp = HealthResponse {
             status: HealthStatus::Healthy,
-            service: "inferadb-control".to_string(),
-            version: "1.2.3".to_string(),
+            service: "inferadb-control",
+            version: "1.2.3",
             instance_id: 5,
             uptime_seconds: 3600,
             ledger_healthy: true,

@@ -88,7 +88,7 @@ pub struct TeamMemberResponse {
     /// User slug identifier.
     pub user: u64,
     /// Member role (e.g., `"manager"`, `"member"`).
-    pub role: String,
+    pub role: &'static str,
     /// RFC 3339 timestamp of when the user joined the team.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub joined_at: Option<String>,
@@ -139,7 +139,7 @@ pub struct ListTeamMembersResponse {
 fn team_member_to_response(info: &inferadb_ledger_sdk::TeamMemberInfo) -> TeamMemberResponse {
     TeamMemberResponse {
         user: info.user.value(),
-        role: info.role.to_string(),
+        role: info.role.as_str(),
         joined_at: system_time_to_rfc3339(&info.joined_at),
     }
 }
@@ -270,7 +270,7 @@ pub async fn delete_team(
         .await
         .map_sdk_err_instrumented("delete_team", start)?;
 
-    Ok(Json(MessageResponse { message: "Team deleted successfully".to_string() }))
+    Ok(Json(MessageResponse { message: "Team deleted successfully" }))
 }
 
 // ── Team Member Handlers ──────────────────────────────────────────────
@@ -356,5 +356,5 @@ pub async fn remove_team_member(
         .await
         .map_sdk_err_instrumented("remove_team_member", start)?;
 
-    Ok(Json(MessageResponse { message: "Team member removed successfully".to_string() }))
+    Ok(Json(MessageResponse { message: "Team member removed successfully" }))
 }
