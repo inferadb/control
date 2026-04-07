@@ -186,10 +186,7 @@ pub async fn verify_email(
         .await
         .map_sdk_err_instrumented("verify_user_email", start)?;
 
-    Ok(Json(VerifyEmailResponse {
-        message: "Email verified successfully",
-        verified: true,
-    }))
+    Ok(Json(VerifyEmailResponse { message: "Email verified successfully", verified: true }))
 }
 
 #[cfg(test)]

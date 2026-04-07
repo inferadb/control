@@ -206,8 +206,7 @@ mod tests {
 
     #[test]
     fn test_delete_user_response_serializes_message() {
-        let json =
-            serde_json::to_value(&DeleteUserResponse { message: "deleted" }).unwrap();
+        let json = serde_json::to_value(&DeleteUserResponse { message: "deleted" }).unwrap();
         assert_eq!(json["message"], "deleted");
     }
 }

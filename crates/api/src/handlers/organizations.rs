@@ -921,8 +921,7 @@ mod tests {
 
     #[test]
     fn test_delete_organization_response_without_retention_omits_field() {
-        let resp =
-            DeleteOrganizationResponse { message: "deleted", retention_days: None };
+        let resp = DeleteOrganizationResponse { message: "deleted", retention_days: None };
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json.get("retention_days").is_none());
     }
